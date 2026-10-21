@@ -292,6 +292,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
       const signature = req.headers['x-teampay-signature'] as string | undefined;
       if (!provider.verifyWebhook(raw, signature)) return reply.code(401).send({ error: 'bad_signature' });
+      if (!req.org) throw notFound('Organisation');
 
       const org = orgOf(req);
       const event = JSON.parse(raw) as { id: string; type: string; data: Record<string, string> };

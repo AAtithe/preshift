@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isSandbox, sandboxExpired } from './sandbox';
 import { cookieFrom, readSession } from './session';
 import type { UserRecord, UserStore } from './store';
 
@@ -24,7 +25,12 @@ declare module 'fastify' {
  * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
-  if (env.PRESHIFT_API_KEYS) return JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
+  if (env.PRESHIFT_API_KEYS) {
+    const keys = JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
+    // Integration keys belong to customers. A key aimed at a demo sandbox is a mistake, so refuse to start.
+    if (keys.some((k) => isSandbox(k.orgId))) throw new Error('PRESHIFT_API_KEYS names a demo sandbox; keys are for customer organisations only');
+    return keys;
+  }
   if (env.NODE_ENV === 'production') return [];
   return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'] }];
 }
@@ -40,6 +46,8 @@ export async function sessionUser(cookieHeader: string | undefined, users: UserS
   if (!claims) return null;
   const user = await users.getUser(claims.email);
   if (!user || user.orgId !== claims.orgId || claims.issuedAt < user.sessionsValidFrom) return null;
+  // A demo sandbox ends at midnight UK time, whether or not the reset has deleted it yet.
+  if (isSandbox(user.orgId) && sandboxExpired(user.orgId, Date.now())) return null;
   return user;
 }
 

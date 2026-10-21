@@ -106,6 +106,7 @@
           <button type="submit">Create owner account</button>
         </form>
       </section>
+      <p class="foot" id="demo-link" hidden>Not a customer yet? <a href="/demo">Try the live demo</a>.</p>
     </main>
     <script>
       const params = new URLSearchParams(location.search);
@@ -162,6 +163,7 @@
       fetch('/auth/status')
         .then((r) => (r.ok ? r.json() : null))
         .then((status) => {
+          if (status?.demoAvailable) document.getElementById('demo-link').hidden = false;
           if (!status?.setupNeeded || resetToken) return;
           document.getElementById('signin').hidden = true;
           document.getElementById('setup').hidden = false;

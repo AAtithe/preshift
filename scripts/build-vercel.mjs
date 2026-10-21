@@ -2,7 +2,7 @@
 //   /         marketing site (site/)
 //   /v1, /docs, /health   Preshift API as one bundled Node function, which also serves:
 //   /login, /auth/*       sign-in, first-run owner setup and sign-out
-//   /demo                 the public demo's sandbox per visitor (PRESHIFT_DEMO=1), else a redirect
+//   /demo, /demo/start    the public demo's start page and a sandbox per visitor (PRESHIFT_DEMO=1)
 //   /app/                 the rota web app (Vite build), only to signed-in people
 //   /staff/               the staff app for clocking on their own phones (public page, own sign-in)
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
@@ -69,13 +69,18 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch|login|demo|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/(?:dispatch|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },
       ],
-      // Safety net for payroll changes TeamPay has not yet confirmed (needs CRON_SECRET).
-      crons: [{ path: '/internal/dispatch', schedule: '0 6 * * *' }],
+      // Safety net for payroll changes TeamPay has not yet confirmed, and the demo's midnight reset:
+      // 23:05 UTC is 00:05 in summer, 00:05 UTC is 00:05 in winter. Both need CRON_SECRET.
+      crons: [
+        { path: '/internal/dispatch', schedule: '0 6 * * *' },
+        { path: '/internal/demo-reset?run=summer', schedule: '5 23 * * *' },
+        { path: '/internal/demo-reset?run=winter', schedule: '5 0 * * *' },
+      ],
     },
     null,
     2,

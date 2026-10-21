@@ -5,7 +5,7 @@ export interface Me {
   email: string;
   orgId: string;
   role: 'admin' | 'member';
-  /** Set in the public demo, where each visitor has a sandbox of their own. */
+  /** Set for a public demo visitor, who has a sandbox of their own. */
   demo?: boolean;
 }
 
@@ -39,9 +39,12 @@ export function SettingsView({ me }: { me: Me }) {
           <p className="small muted">
             In the live product this is where an admin adds the people who can sign in, sets their roles, resets
             passwords and saves the organisation's Claude API key and email settings. The demo has no accounts to manage: you are the
-            admin of your own copy of the demo group, and it is deleted after a day.
+            admin of your own copy of the demo group, kept apart from every customer, and it is wiped at midnight UK time.
           </p>
-          <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
+          <form method="post" action="/demo/start">
+            <input type="hidden" name="fresh" value="1" />
+            <button type="submit" className="link small">Start again with a fresh copy</button>
+          </form>
         </section>
       </div>
     );

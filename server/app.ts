@@ -9,7 +9,8 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { accessRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sweepSandboxes } from './demo';
+import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { hrRoutes } from './routes/hr';
@@ -20,6 +21,7 @@ import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
@@ -40,13 +42,14 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
-  /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
+  /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
+  /** The demo's start page. Defaults to site/demo.html in the repository. */
+  demoPage?: string;
 }
 
-function payrollFromEnv(env: NodeJS.ProcessEnv, demo: boolean): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
-  // The demo never reaches real payroll, whatever keys the deployment carries.
-  if (env.TEAMPAY_API_KEY && !demo) {
+function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
+  if (env.TEAMPAY_API_KEY) {
     return {
       provider: new TeamPayProvider({
         baseUrl: env.TEAMPAY_BASE_URL ?? 'https://api.team-pay.co.uk/v1',
@@ -74,19 +77,29 @@ export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
   return new PgStore((text, params) => sql(text, params) as Promise<Record<string, unknown>[]>);
 }
 
-export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
+export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext; routes: string[] }> {
   const env = options.env ?? process.env;
   const demo = options.demo ?? env.PRESHIFT_DEMO === '1';
   const app = Fastify({ logger: options.logger ?? false });
+  // Every route as "METHOD /pattern", so a test can check each has a decision for the demo.
+  const routes: string[] = [];
+  app.addHook('onRoute', (r) => {
+    for (const method of [r.method].flat()) if (method !== 'HEAD') routes.push(`${method} ${r.url}`);
+  });
   const store = options.store ?? storeFromEnv(env);
   const payroll = options.provider
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
-    : payrollFromEnv(env, demo);
-  const providerFor = () => payroll.provider;
+    : payrollFromEnv(env);
+  // Demo sandboxes never reach real payroll. Their simulator's webhook secret is random and lives
+  // only in this process, so nobody outside can sign a payroll event into a sandbox.
+  const sandboxPayroll = new TeamPaySimulator(randomBytes(32).toString('hex'));
+  const providerFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.provider);
+  const simulatorFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.simulator);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
     providerFor,
+    simulatorFor,
     employers,
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
@@ -152,25 +165,25 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
-    if (demo) await sweepSandboxes(store);
     return { ok: true };
+  });
+
+  // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
+  // midnight UK time in winter and summer alike. Runs whether or not the demo is switched on,
+  // so switching it off still clears what visitors left.
+  app.get('/internal/demo-reset', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { removed: await sweepSandboxes(store) };
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store);
-  const appPath = '/app/';
-  if (demo) demoRoutes(app, store, { appPath });
-  else {
-    // The marketing site links to /demo; on the live system it goes to the demo deployment.
-    app.get('/demo', { schema: { hide: true } }, async (_req, reply) =>
-      reply.code(302).header('location', env.PRESHIFT_DEMO_URL || '/login').send(),
-    );
-  }
+  demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
   signInRoutes(app, store, { demo });
   staffRoutes(app, store);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
-    loginPage: options.loginPage ?? path.resolve(demo ? 'site/demo.html' : 'site/login.html'),
+    loginPage: options.loginPage ?? path.resolve('site/login.html'),
     appDir: options.appDir,
     staffDir: options.staffDir,
   });
@@ -180,9 +193,17 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url)) return;
       return auth(req, reply);
     });
+    // Demo visitors reach only the routes on the sandbox allowlist. Customers are not affected.
+    const guard = sandboxGuard(demo);
+    api.addHook('preHandler', async (req) => {
+      if (!isWebhook(req.url)) await guard(req);
+    });
     // Load the organisation once per request; webhooks name it in the path, everything else by API key.
     api.addHook('preHandler', async (req) => {
       const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
+      // A webhook names its organisation in an unauthenticated path, so it must never create one.
+      // The handler checks the signature first, so the reply does not say which organisations exist.
+      if (isWebhook(req.url) && !(await store.exists(orgId))) return;
       req.org = await store.load(orgId);
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
@@ -209,6 +230,6 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     staffAdminRoutes(api, store);
   });
 
-  return { app, ctx };
+  return { app, ctx, routes };
 }
 

@@ -11,6 +11,8 @@ interface Props {
   today: string;
   onSetGeofence: (siteId: string, fence: { lat: number; lng: number; radiusMetres: number } | null) => Promise<unknown>;
   onSetBadge: (employeeId: string, badgeId: string | null) => Promise<unknown>;
+  /** A public demo visitor: staff app logins are not available in the demo. */
+  demo?: boolean;
 }
 
 interface TapResult {
@@ -38,7 +40,7 @@ const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not 
  * USB reader (which types the card number and presses Enter), or on the phone's NFC, or pick their
  * name. Signing in by name checks this device's location against the site's geofence.
  */
-export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: Props) {
+export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, demo }: Props) {
   const site = state.sites.find((s) => s.id === siteId)!;
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [geo, setGeo] = useState<GeoState>({ status: 'off' });
@@ -334,7 +336,14 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
           </table>
         </div>
 
-        <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
+        {demo ? (
+          <p className="small muted">
+            In the live product, staff can also clock in and out on their own phones once you invite them. Staff app logins are
+            switched off in the demo.
+          </p>
+        ) : (
+          <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
+        )}
       </details>
     </div>
   );

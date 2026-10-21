@@ -629,6 +629,7 @@ a.link { color: var(--muted); }
 .notice.error { background: var(--bad-bg); border-color: var(--bad-line); color: var(--bad); }
 .demo-banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--good-bg); border-color: var(--rule-strong); }
 .demo-actions { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+.demo-actions form, .settings-card form[action='/demo/start'] { display: inline; margin: 0; }
 a.button { display: inline-block; text-decoration: none; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--rule-strong); font-weight: 600; }
 a.button.primary { background: var(--ink); color: var(--accent-text); border-color: var(--ink); }
 .modal:not(:has(> .modal-head)) { padding: 20px 22px; }

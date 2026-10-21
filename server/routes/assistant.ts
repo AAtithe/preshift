@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { sessionUser } from '../auth';
-import { ASSISTANT_CALLS, assistantCallsSetting, isSandbox } from '../demo';
+import { takeAssistantCall } from '../demo';
+import { isSandbox } from '../sandbox';
 import type { Store } from '../store';
 import { claudeKeySetting } from './access';
 
@@ -14,8 +15,8 @@ const FORWARDED_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type'
 const error = (type: string, message: string) => ({ type: 'error', error: { type, message } });
 
 /**
- * In the public demo, sandboxes share demoKey (PRESHIFT_DEMO_CLAUDE_KEY) up to ASSISTANT_CALLS each;
- * without it the assistant says it is not switched on in the demo.
+ * Demo sandboxes never use a customer's key. They share demoKey (PRESHIFT_DEMO_CLAUDE_KEY), capped per
+ * sandbox and per day; without it the assistant says it is not switched on in the demo.
  */
 export function assistantRoutes(app: FastifyInstance, store: Store, options: { demoKey?: string } = {}) {
   app.post('/api/anthropic/v1/messages', { schema: { hide: true } }, async (req, reply) => {
@@ -34,11 +35,8 @@ export function assistantRoutes(app: FastifyInstance, store: Store, options: { d
       return reply.code(400).send(error('proxy_error', 'Only rota assistant requests are accepted.'));
     }
     if (sandbox) {
-      const used = Number((await store.getSetting(assistantCallsSetting(user.orgId))) ?? 0);
-      if (used >= ASSISTANT_CALLS) {
-        return reply.code(403).send(error('demo', 'This demo has used its share of the rota assistant. Book a demo to see more of it.'));
-      }
-      await store.setSetting(assistantCallsSetting(user.orgId), String(used + 1));
+      const limit = await takeAssistantCall(store, user.orgId);
+      if (limit) return reply.code(403).send(error('demo', limit));
     }
 
     const headers = new Headers({ 'x-api-key': apiKey });

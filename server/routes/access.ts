@@ -5,6 +5,7 @@ import { HttpError, notFound } from '../context';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { createSession, safeNext, sessionCookie } from '../session';
+import { isSandbox } from '../sandbox';
 import { audit, type Store, type UserRecord, type UserRole } from '../store';
 
 export const MAX_FAILURES = 5;
@@ -62,9 +63,9 @@ const backToLogin = (reply: FastifyReply, params: Record<string, string>) =>
 /** Sign-in and first-run setup. Registered outside the authenticated API. */
 export function signInRoutes(app: FastifyInstance, store: Store, options: { demo?: boolean } = {}) {
   const hidden = { schema: { hide: true } };
-  const demo = options.demo ? { demo: true } : {};
 
-  app.get('/auth/status', hidden, async () => (options.demo ? { setupNeeded: false, ...demo } : { setupNeeded: !(await store.hasUsers()) }));
+  // demoAvailable lets the sign-in page offer the public demo when it is switched on.
+  app.get('/auth/status', hidden, async () => ({ setupNeeded: !(await store.hasUsers()), ...(options.demo ? { demoAvailable: true } : {}) }));
 
   // First run only: whoever opens the app first on a fresh database creates the owner account.
   app.post<{ Body: Record<string, string> }>('/auth/setup', hidden, async (req, reply) => {
@@ -84,7 +85,9 @@ export function signInRoutes(app: FastifyInstance, store: Store, options: { demo
     const next = safeNext(req.body?.next, '/app/');
     const email = normalise(req.body?.email);
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const user = email ? await store.getUser(email) : null;
+    const found = email ? await store.getUser(email) : null;
+    // Demo visitors are signed in by starting the demo, never by password.
+    const user = found && isSandbox(found.orgId) ? null : found;
     if (user && user.lockedUntil > now()) return backToLogin(reply, { next, error: 'locked' });
 
     if (!(await verifyPassword(user, password)) || !user) {
@@ -107,13 +110,14 @@ export function signInRoutes(app: FastifyInstance, store: Store, options: { demo
   app.get('/auth/me', hidden, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
-    return { email: user.email, orgId: user.orgId, role: user.role, ...demo };
+    return { email: user.email, orgId: user.orgId, role: user.role, ...(isSandbox(user.orgId) ? { demo: true } : {}) };
   });
 
   // Anyone signed in can change their own password; every other session of theirs ends.
   app.post<{ Body: { currentPassword?: string; newPassword?: string } }>('/auth/password', hidden, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
+    if (isSandbox(user.orgId)) throw new HttpError(403, 'demo', 'The demo has no password to change.');
     if (!(await verifyPassword(user, req.body?.currentPassword ?? ''))) {
       throw new HttpError(400, 'wrong_password', 'Your current password is not right.');
     }
@@ -131,7 +135,8 @@ export function signInRoutes(app: FastifyInstance, store: Store, options: { demo
   app.post<{ Body: Record<string, string> }>('/auth/forgot', hidden, async (req, reply) => {
     const started = Date.now();
     const email = normalise(req.body?.email);
-    const user = EMAIL.test(email) ? await store.getUser(email) : null;
+    const found = EMAIL.test(email) ? await store.getUser(email) : null;
+    const user = found && isSandbox(found.orgId) ? null : found;
     if (user) {
       const recent = (user.resetRequests ?? []).filter((t) => t > now() - 3600);
       const settings = parseEmailSettings(await store.getSetting(emailSetting(user.orgId)));
@@ -152,7 +157,7 @@ export function signInRoutes(app: FastifyInstance, store: Store, options: { demo
     const expired = () => reply.code(410).send({ error: 'expired', message: 'This reset link has expired or has already been used. Ask for a new one.' });
     const tokenHash = hashToken(typeof req.body?.token === 'string' ? req.body.token : '');
     const user = await store.findUserByResetToken(tokenHash, now());
-    if (!user) return expired();
+    if (!user || isSandbox(user.orgId)) return expired();
     if (req.body?.password === undefined) return { ok: true, email: user.email };
 
     const problem = passwordProblem(req.body.password);

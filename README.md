@@ -50,7 +50,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (202 across 19 files)
+npm test         # engine, UI rules and API tests (213 across 19 files)
 npm run build    # typecheck and production build
 ```
 
@@ -96,28 +96,44 @@ covers the Vercel deployment.
 
 ## Public demo for prospects
 
-A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
-an account. The marketing site's "Try the live demo" button opens `/demo`, which gives the visitor
-their own private copy of the demo group and signs them in as its admin. Everything works as it
-does for a customer: build from forecast, edit shifts, compliance, people, clock in, payroll
-against the TeamPay simulator, the Close journals and the API docs.
+The live system also hosts a public demo, kept apart from every customer. With `PRESHIFT_DEMO=1`,
+the marketing site's "Try the live demo" button opens `/demo`. Pressing "Start the demo" gives the
+visitor their own private copy of the demo group (a sandbox organisation) and signs them in as its
+admin. They can use the product as a customer would: build from forecast, edit shifts, compliance,
+people, HR, clock in at the site, payroll against the TeamPay simulator, the Close journals, GDPR.
+Every sandbox is wiped at midnight UK time.
 
-- Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
-  Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
-- Guard rails. Accounts, passwords and resets, the Claude key, email settings and owner setup
-  cannot be changed. Staff app logins work inside the sandbox. Payroll
-  always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
-  are deleted after 24 hours (on the daily cron and as new visitors arrive).
-- Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
-  sandbox. Put a monthly spend limit on that key in the Claude Console.
-- Where it runs. A separate Vercel project from the same repository, with its own Neon database
-  (`PRESHIFT_DATABASE_URL`), never the database that holds customer data. Without a database the
-  demo still works on one instance but sandboxes do not survive a cold start. Set `CRON_SECRET` for
-  the daily clean-up.
-- Linking from the live system. Set `PRESHIFT_DEMO_URL` on the live deployment (for example
-  `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
+Segregation and security controls, all in `server/demo.ts` and `server/sandbox.ts`:
 
-Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
+- Identity. A sandbox is known by its id (`sandbox-...`), which only "Start the demo" creates. Its
+  visitor account has an `.invalid` address and a random password nobody knows. Password sign-in,
+  password changes and reset links all refuse sandbox accounts, demo accounts never count towards
+  first-run owner setup, and integration keys cannot name a sandbox.
+- Routes. A visitor's session reaches only the routes marked `true` in `SANDBOX_ROUTES`. Anything
+  else is refused, including any route added later: a test fails until each new API route is
+  listed as allowed or refused, so every feature gets a deliberate decision about the demo.
+  Refused: accounts, settings, the Claude and email keys, and staff app logins (their emails are
+  unique system-wide, so a visitor could otherwise find out whether an address is a customer's).
+- Data. Each request loads only the caller's own organisation, as for every customer. Deleting
+  data is a separate store operation that refuses any id that is not a sandbox, checked in code and
+  again in the SQL. Payroll webhooks never create an organisation and answer an unknown one exactly
+  as a bad signature, so they do not reveal which organisations exist.
+- Payroll. Sandboxes always run on an in-process TeamPay simulator whose webhook secret is random
+  per instance. Customers stay on real TeamPay, and the simulator-only routes return 404 for them.
+- Capacity and cost. Opening `/demo` creates nothing; only a same-site form post does. Up to 500
+  sandboxes a day in total and 10 per visitor address (kept only as a keyed hash). The rota
+  assistant is off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
+  sandbox and 1,500 a day; set a monthly spend limit on that key in the Claude Console as well.
+- Midnight reset. A visitor's session ends at midnight UK time even before clean-up runs. Vercel
+  Cron calls `/internal/demo-reset` at 23:05 and 00:05 UTC (just after midnight in summer and in
+  winter), and visitors starting the demo trigger it too. It deletes each sandbox with its visitor,
+  staff logins and counters. Needs `CRON_SECRET`.
+- Kill switch. Unset `PRESHIFT_DEMO` and redeploy: nothing new starts, existing visitors are
+  refused on their next request, and the reset still clears what they left.
+
+Starting the demo replaces any Preshift session in that browser, which the start page says.
+
+Locally: `npm run dev:demo`, then open http://localhost:5173/demo. The dev account still works.
 
 ## Deployment (Vercel)
 
@@ -131,6 +147,8 @@ Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 | `/app/` | Web app, served by the API function to signed-in people only (`server/routes/web.ts`) |
 | `/api/anthropic/v1/messages` | The rota assistant's route to Claude, using the key saved in Settings |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
+| `/demo`, `/demo/start` | The public demo's start page and the form post that starts a sandbox (with `PRESHIFT_DEMO=1`) |
+| `/internal/demo-reset` | The demo's midnight reset, Vercel Cron at 23:05 and 00:05 UTC (needs `CRON_SECRET`) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when
