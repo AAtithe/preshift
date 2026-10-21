@@ -25,7 +25,8 @@ Past cards live in `docs/WHATS_NEW.md`.
 | GMs | Short daily rest (under 11 hours, 12 for under 18s) and no clear day off in the week now block publication instead of warning. The auto-build and the assistant will not create either. | The rota cannot be published in breach of the Working Time Regulations rest rules, which is the promise we sell. |
 | GMs | Rest breaches can be overridden from the Rota tab with a written reason and the compensatory rest given. The breach then publishes as a warning with the manager's name on it; moving either shift voids the override. | Real exceptions (sickness cover, a swap the person asked for) do not stop the week going out, and every one is on record. |
 | Operators | The Sites view counts rest overrides per site for the week, with entity and group totals. Hover a site's count for who was overridden, why and by whom. | A site overriding every week has a staffing problem, not a run of exceptions. It now shows next to labour % where the operator already looks. |
-| Everyone | CI typechecks and runs the full suite (130 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Operators | A rolling four week override trend per site (oldest week first, then the total), with entity and group totals. A site with overrides in three of the four weeks is tagged "Recurring overrides". | One week is noise. Four weeks shows whether a site is managing exceptions or covering a headcount gap with a manager's signature. |
+| Everyone | CI typechecks and runs the full suite (131 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -98,7 +99,9 @@ move either shift, or change the days worked, and it blocks again. API keys cann
 auto-build and the rota assistant never rely on one, and every override, withdrawal and publish
 through one is in the audit log. The Sites view counts each week's overrides per site, with entity and
 group totals: a daily rest override counts at the site of the shift worked short of rest, a weekly
-one at the person's home site. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
+one at the person's home site. Beside it, the last four weeks per site, oldest first, with a
+"Recurring overrides" tag on any site that overrode in three of those four weeks (`overrideTrend` in
+`src/engine/compliance.ts`). Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
 
 ### Demand-led build (`src/engine/demand.ts`, `src/engine/autoschedule.ts`)
 
@@ -152,14 +155,14 @@ one at the person's home site. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 130 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
+| Quality | 131 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests (130 across 9 files)
+npm test         # engine and API tests (131 across 9 files)
 npm run build    # typecheck and production build
 ```
 

@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { coverDistance } from '../engine/autoschedule';
-import type { Issue } from '../engine/compliance';
+import { issueSiteId, overrideTrend, type Issue } from '../engine/compliance';
 import { shiftPaidHours } from '../engine/cost';
 import type { ScopeMetrics, SiteWeekMetrics } from '../engine/metrics';
 import type { RotaState } from '../engine/types';
-import { hours, money, pct } from './format';
+import { dayLabel, hours, money, pct } from './format';
 
 interface Props {
   state: RotaState;
@@ -25,14 +25,15 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
     .filter((g) => g.sites.length > 0);
 
   const weekShifts = state.shifts.filter((s) => dates.includes(s.date) && metrics.sites.some((m) => m.siteId === s.siteId));
-  // A shift's issue belongs to the site it is worked at; a week-level one to the person's home site.
-  const at = (siteId: string, i: Issue) =>
-    i.shiftId ? weekShifts.find((s) => s.id === i.shiftId)?.siteId === siteId : employeeSite(state, i.employeeId) === siteId;
+  const at = (siteId: string, i: Issue) => issueSiteId(state, i) === siteId;
   const blocksAt = (siteId: string) => issues.filter((i) => i.severity === 'block' && at(siteId, i)).length;
   // Rest breaches a manager chose to publish through. One every week at a site is a staffing problem, not an exception.
   const overridesAt = (siteId: string) => issues.filter((i) => i.overridden && at(siteId, i));
   const overrideCount = (sites: SiteWeekMetrics[]) => sites.reduce((n, m) => n + overridesAt(m.siteId).length, 0);
   const personName = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
+  const trend = useMemo(() => overrideTrend(state, dates[0], metrics.sites.map((m) => m.siteId)), [state, dates, metrics.sites]);
+  const trendOf = (sites: SiteWeekMetrics[]) =>
+    trend.weekStarts.map((_, n) => sites.reduce((sum, m) => sum + (trend.bySite.get(m.siteId)?.[n] ?? 0), 0));
 
   // Who worked away from their home site, and what crossed a company line.
   const cover = weekShifts
@@ -60,17 +61,19 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
               <th className="num">SPLH</th>
               <th className="num">Paid hours</th>
               <th className="num" title="Rest breaches published with a manager's reason this week">Overrides</th>
+              <th className="num" title="Overrides each week, oldest first, ending with this week">Last 4 weeks</th>
               <th>Rota</th>
             </tr>
           </thead>
           <tbody>
             {entities.map(({ entity, sites }) => (
-              <EntityRows key={entity.id} label={entity.name} sites={sites} total={sum(sites)} overrides={overrideCount(sites)}>
+              <EntityRows key={entity.id} label={entity.name} sites={sites} total={sum(sites)} overrides={overrideCount(sites)} trend={<Trend weeks={trend.weekStarts} counts={trendOf(sites)} />}>
                 {sites.map((m) => {
                   const site = siteOf(state, m.siteId)!;
                   const shifts = weekShifts.filter((s) => s.siteId === m.siteId);
                   const blocks = blocksAt(m.siteId);
                   const overridden = overridesAt(m.siteId);
+                  const weekly = trend.bySite.get(m.siteId) ?? [];
                   const status =
                     shifts.length === 0 ? 'Not built' : shifts.every((s) => s.published) ? 'Published' : 'Draft';
                   return (
@@ -85,9 +88,15 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
                       >
                         {overridden.length}
                       </td>
+                      <td className="num">
+                        <Trend weeks={trend.weekStarts} counts={weekly} />
+                      </td>
                       <td>
                         {status}
                         {blocks > 0 && <span className="tag bad">{blocks} blocking</span>}
+                        {recurring(weekly) && (
+                          <span className="tag bad" title="Rest overrides in three or more of the last four weeks">Recurring overrides</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -101,6 +110,7 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
                 <th>Group</th>
                 <Figures m={metrics} strong />
                 <td className="num strong">{overrideCount(metrics.sites)}</td>
+                <td className="num strong"><Trend weeks={trend.weekStarts} counts={trendOf(metrics.sites)} /></td>
                 <td />
               </tr>
             </tfoot>
@@ -137,11 +147,11 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
   );
 }
 
-function EntityRows({ label, sites, total, overrides, children }: { label: string; sites: SiteWeekMetrics[]; total: Totals; overrides: number; children: ReactNode }) {
+function EntityRows({ label, sites, total, overrides, trend, children }: { label: string; sites: SiteWeekMetrics[]; total: Totals; overrides: number; trend: ReactNode; children: ReactNode }) {
   return (
     <>
       <tr className="entity-head">
-        <th colSpan={10}>{label}</th>
+        <th colSpan={11}>{label}</th>
       </tr>
       {children}
       {sites.length > 1 && (
@@ -149,6 +159,7 @@ function EntityRows({ label, sites, total, overrides, children }: { label: strin
           <td>Total {label}</td>
           <Figures m={total} />
           <td className="num">{overrides}</td>
+          <td className="num">{trend}</td>
           <td />
         </tr>
       )}
@@ -200,10 +211,21 @@ function Figures({ m, strong = false }: { m: Totals; strong?: boolean }) {
   );
 }
 
-function siteOf(state: RotaState, siteId: string) {
-  return state.sites.find((s) => s.id === siteId);
+/** Overrides in three of the last four weeks are covering a shortage, not exceptions. */
+const recurring = (counts: number[]) => counts.filter((c) => c > 0).length >= 3;
+
+/** Four weekly counts, oldest first, then their total. */
+function Trend({ weeks, counts }: { weeks: string[]; counts: number[] }) {
+  return (
+    <span className="trend" title={weeks.map((w, n) => `w/c ${dayLabel(w).date}: ${counts[n] ?? 0}`).join('\n')}>
+      {counts.map((c, n) => (
+        <span key={weeks[n]} className={c > 0 ? 'warn-text' : 'muted'}>{c}</span>
+      ))}
+      <span className="trend-total">{counts.reduce((a, b) => a + b, 0)}</span>
+    </span>
+  );
 }
 
-function employeeSite(state: RotaState, employeeId: string) {
-  return state.employees.find((e) => e.id === employeeId)?.siteId;
+function siteOf(state: RotaState, siteId: string) {
+  return state.sites.find((s) => s.id === siteId);
 }

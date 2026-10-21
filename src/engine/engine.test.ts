@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allowanceClaimant, employmentAllowanceIssues, employmentAllowanceWeek } from './allowance';
 import { autoSchedule, autoScheduleSites } from './autoschedule';
-import { checkEmployeeWeek, checkWeek, requiredBreakMinutes } from './compliance';
+import { checkEmployeeWeek, checkWeek, overrideTrend, requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, weekCost } from './cost';
 import { employedShare, employeeStatus, newEmployee, reviewEmployee } from './employees';
 import { dayDemand, headcountAt } from './demand';
@@ -149,6 +149,30 @@ describe('compliance', () => {
     const override: RestOverride = { id: 'o2', employeeId: 'e1', code: 'weekly-rest', key, reason: 'Exam week swap agreed', by: 'gm', at: '' };
     expect(weekly(six, [override]).severity).toBe('warn');
     expect(weekly([...six, shift(addDays(WEEK, 6), 10, 14, 0)], [override]).severity).toBe('block');
+  });
+
+  it('counts rest overrides per site over the last four weeks, oldest first', () => {
+    const state = seedState(WEEK);
+    const id = state.employees.find((e) => e.siteId === 'mar')!.id;
+    const role = state.employees.find((e) => e.id === id)!.roleIds[0];
+    const at = (siteId: string, date: string, start: number, end: number): Shift => ({
+      id: `${siteId}-${date}-${start}`, employeeId: id, roleId: role, siteId, date, startMinute: start * 60, endMinute: end * 60, breakMinutes: 30,
+    });
+    // Short rest two weeks ago at Marylebone, and this week on a cover shift at Fitzrovia.
+    state.shifts = [
+      at('mar', addDays(WEEK, -14), 15, 24), at('mar', addDays(WEEK, -13), 6, 12),
+      at('mar', WEEK, 15, 24), at('fitz', addDays(WEEK, 1), 6, 12),
+    ];
+    state.restOverrides = [addDays(WEEK, -14), WEEK].map((ws, n) => {
+      const breach = checkWeek(state, ws).find((i) => i.code === 'daily-rest' && i.employeeId === id)!;
+      return { id: `o${n}`, employeeId: id, code: 'daily-rest' as const, key: breach.overrideKey!, reason: 'Covering sickness', by: 'gm', at: '' };
+    });
+    const trend = overrideTrend(state, WEEK, ['mar', 'fitz', 'shd']);
+    expect(trend.weekStarts).toEqual([addDays(WEEK, -21), addDays(WEEK, -14), addDays(WEEK, -7), WEEK]);
+    expect(trend.bySite.get('mar')).toEqual([0, 1, 0, 0]);
+    // Counted where the short rest was worked, not at the person's home site.
+    expect(trend.bySite.get('fitz')).toEqual([0, 0, 0, 1]);
+    expect(trend.bySite.get('shd')).toEqual([0, 0, 0, 0]);
   });
 
   it('flags double booking', () => {

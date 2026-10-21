@@ -210,3 +210,26 @@ export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: str
     .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
     .flatMap((e) => checkEmployeeWeek(e, weekStartDate, context, state.restOverrides));
 }
+
+/** The site an issue belongs to: where its shift is worked, or the person's home site for a week-level issue. */
+export function issueSiteId(state: RotaState, issue: Issue): string | undefined {
+  if (issue.shiftId) return state.shifts.find((s) => s.id === issue.shiftId)?.siteId;
+  return state.employees.find((e) => e.id === issue.employeeId)?.siteId;
+}
+
+/**
+ * Rest overrides per site for the week given and the weeks before it, oldest first. One override is an
+ * exception; one most weeks is a site short of people or cross-training.
+ */
+export function overrideTrend(state: RotaState, weekStartDate: string, siteIds: string[], weeks = 4): { weekStarts: string[]; bySite: Map<string, number[]> } {
+  const weekStarts = Array.from({ length: weeks }, (_, n) => addDays(weekStartDate, -7 * (weeks - 1 - n)));
+  const bySite = new Map(siteIds.map((id) => [id, weekStarts.map(() => 0)]));
+  weekStarts.forEach((ws, n) => {
+    for (const issue of checkWeek(state, ws, siteIds)) {
+      if (!issue.overridden) continue;
+      const counts = bySite.get(issueSiteId(state, issue) ?? '');
+      if (counts) counts[n]++;
+    }
+  });
+  return { weekStarts, bySite };
+}

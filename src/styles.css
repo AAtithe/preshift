@@ -322,3 +322,5 @@ button.link.danger { color: var(--bad); }
 .override-form { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; flex-wrap: wrap; }
 .override-form textarea { flex: 1 1 260px; min-width: 0; font: inherit; font-size: 13px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
 .notice ul.issues { columns: 1; padding-left: 0; }
+.trend { display: inline-flex; gap: 6px; align-items: baseline; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trend-total { margin-left: 4px; padding-left: 8px; border-left: 1px solid var(--border); }
