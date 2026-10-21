@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "build:vercel": "tsc -p tsconfig.json && vite build --base=/app/ --outDir dist/app && cp -r site/index.html site/styles.css site/main.js site/img dist/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
