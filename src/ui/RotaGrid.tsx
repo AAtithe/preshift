@@ -3,7 +3,7 @@ import type { Issue } from '../engine/compliance';
 import type { WeekMetrics } from '../engine/metrics';
 import { addDays, ageOn, formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
-import { type Edge, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
+import { dropBlocker, type Edge, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
 import { dayLabel, hours, money, pct } from './format';
 import { Avatar, Bullet, DEPT_COLOR } from './viz';
 
@@ -20,59 +20,167 @@ interface Props {
   /** A shift being dragged, shown live across the grid and the KPIs; null when the drag ends. */
   onPreview: (shift: Shift | null) => void;
   onCommit: (shift: Shift, before: Shift) => void;
+  /** A drag or key move refused by leave or availability. */
+  onBlocked: (message: string) => void;
   /** Week labour cost before the drag started, for the live delta. */
   baseLabourCost: number;
 }
 
 interface Drag {
   mode: 'move' | Edge;
+  pointerType: string;
   original: Shift;
   x: number;
   y: number;
   started: boolean;
   current: Shift;
+  /** The cell or edit being refused, and why. */
+  blocked: { employeeId: string; date: string; reason: string } | null;
+  holdTimer?: number;
 }
 
-/** Pointer travel before a press becomes a drag, so a plain click still opens the editor. */
-const DRAG_THRESHOLD = 4;
+/** How a chip renders mid-drag: in place, as the empty slot it left, or floating where it will land. */
+interface ChipEntry {
+  s: Shift;
+  kind: 'normal' | 'slot' | 'float';
+}
 
-export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPreview, onCommit, baseLabourCost }: Props) {
+/** Pointer travel before a mouse press becomes a drag, so a plain click still opens the editor. */
+const DRAG_THRESHOLD = 4;
+/** On touch a shift lifts after a short hold, so a swipe still scrolls the rota. */
+const TOUCH_HOLD_MS = 300;
+const TOUCH_SLOP = 8;
+const HINT_KEY = 'preshift.hint.drag.v1';
+
+function hintSeen() {
+  try {
+    return localStorage.getItem(HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, baseLabourCost }: Props) {
   const drag = useRef<Drag | null>(null);
   const justDragged = useRef(false);
-  const [pointer, setPointer] = useState<{ x: number; y: number; mode: Drag['mode'] } | null>(null);
-  const callbacks = useRef({ onPreview, onCommit });
-  callbacks.current = { onPreview, onCommit };
+  const [pointer, setPointer] = useState<{ x: number; y: number; touch: boolean } | null>(null);
+  const [hint, setHint] = useState(() => !hintSeen());
+  const callbacks = useRef({ onPreview, onCommit, onBlocked });
+  callbacks.current = { onPreview, onCommit, onBlocked };
   const employees = useRef(state.employees);
   employees.current = state.employees;
 
+  function dismissHint() {
+    setHint(false);
+    try {
+      localStorage.setItem(HINT_KEY, '1');
+    } catch {
+      // Private mode: the hint simply shows again next time.
+    }
+  }
+  const dismissRef = useRef(dismissHint);
+  dismissRef.current = dismissHint;
+
   useEffect(() => {
+    function lift(d: Drag) {
+      d.started = true;
+      document.body.classList.add(d.mode === 'move' ? 'dragging-move' : 'dragging-resize');
+      if (d.pointerType === 'touch') navigator.vibrate?.(10);
+      setPointer({ x: d.x, y: d.y, touch: d.pointerType === 'touch' });
+    }
     function move(e: PointerEvent) {
       const d = drag.current;
       if (!d) return;
       const dx = e.clientX - d.x;
       const dy = e.clientY - d.y;
       if (!d.started) {
+        if (d.pointerType === 'touch' && d.mode === 'move') {
+          // Moving before the hold completes is a scroll, not a drag.
+          if (Math.hypot(dx, dy) > TOUCH_SLOP) cancelPending();
+          return;
+        }
         if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-        d.started = true;
-        document.body.classList.add(d.mode === 'move' ? 'dragging-move' : 'dragging-resize');
+        lift(d);
       }
       let next = d.current;
+      d.blocked = null;
       if (d.mode === 'move') {
         const cell = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('td[data-emp]');
         const to = cell && employees.current.find((x) => x.id === cell.dataset.emp);
-        if (to && cell.dataset.date) next = moveShift(d.original, to, cell.dataset.date);
+        // Off the grid the shift goes home, so letting go there changes nothing.
+        next = d.original;
+        if (to && cell.dataset.date) {
+          const candidate = moveShift(d.original, to, cell.dataset.date);
+          const reason = sameShift(candidate, d.original) ? null : dropBlocker(to, candidate);
+          if (reason) {
+            // Refused cells leave the shift where it started; the readout says why.
+            d.blocked = { employeeId: to.id, date: cell.dataset.date, reason };
+            next = d.original;
+          } else {
+            next = candidate;
+          }
+        }
       } else {
-        next = resizeShift(d.original, d.mode, pixelsToMinutes(dx));
+        const candidate = resizeShift(d.original, d.mode, pixelsToMinutes(dx));
+        const person = employees.current.find((x) => x.id === d.original.employeeId);
+        // Hold the edge at the last allowed time, unless the shift was already outside availability.
+        const reason = person && !dropBlocker(person, d.original) ? dropBlocker(person, candidate) : null;
+        if (reason) d.blocked = { employeeId: d.original.employeeId, date: d.original.date, reason };
+        else next = candidate;
       }
       if (!sameShift(next, d.current)) {
         d.current = next;
         callbacks.current.onPreview(next);
       }
-      setPointer({ x: e.clientX, y: e.clientY, mode: d.mode });
+      setPointer({ x: e.clientX, y: e.clientY, touch: d.pointerType === 'touch' });
+      track(e);
+    }
+    // Scroll the rota when a lifted shift is held near its edge, so any row or day can be reached.
+    let lastEvent: PointerEvent | null = null;
+    let frame = 0;
+    function autoScroll() {
+      frame = 0;
+      const d = drag.current;
+      const box = document.querySelector<HTMLElement>('.grid-wrap');
+      if (!d?.started || !lastEvent || !box) return;
+      const r = box.getBoundingClientRect();
+      const head = box.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+      const foot = box.querySelector('tfoot')?.getBoundingClientRect().height ?? 0;
+      const zone = 36;
+      const speed = (gap: number) => Math.ceil(((zone - gap) / zone) * 14);
+      const { clientX: x, clientY: y } = lastEvent;
+      let dy = 0;
+      let dx = 0;
+      if (y < r.top + head + zone) dy = -speed(y - r.top - head);
+      else if (y > r.bottom - foot - zone) dy = speed(r.bottom - foot - y);
+      if (d.mode === 'move') {
+        if (x < r.left + zone) dx = -speed(x - r.left);
+        else if (x > r.right - zone) dx = speed(r.right - x);
+      }
+      const before = [box.scrollLeft, box.scrollTop];
+      box.scrollBy(dx, dy);
+      if (box.scrollLeft !== before[0] || box.scrollTop !== before[1]) {
+        move(lastEvent);
+        if (!frame) frame = requestAnimationFrame(autoScroll);
+      }
+    }
+    function track(e: PointerEvent) {
+      lastEvent = e;
+      if (drag.current?.started && !frame) frame = requestAnimationFrame(autoScroll);
+    }
+    function cancelPending() {
+      const d = drag.current;
+      if (d && !d.started) {
+        window.clearTimeout(d.holdTimer);
+        drag.current = null;
+      }
     }
     function end(commit: boolean) {
       const d = drag.current;
       if (!d) return;
+      window.clearTimeout(d.holdTimer);
+      cancelAnimationFrame(frame);
+      frame = 0;
       drag.current = null;
       document.body.classList.remove('dragging-move', 'dragging-resize');
       setPointer(null);
@@ -80,26 +188,56 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
       justDragged.current = true;
       setTimeout(() => (justDragged.current = false), 0);
       callbacks.current.onPreview(null);
-      if (commit && !sameShift(d.current, d.original)) callbacks.current.onCommit(d.current, d.original);
+      if (!commit) return;
+      if (d.mode === 'move' && d.blocked) callbacks.current.onBlocked(`Not moved. ${d.blocked.reason}`);
+      else if (!sameShift(d.current, d.original)) {
+        callbacks.current.onCommit(d.current, d.original);
+        dismissRef.current();
+      }
     }
+    function hold(e: PointerEvent) {
+      const d = drag.current;
+      if (d && !d.started && d.pointerType === 'touch' && d.mode === 'move') {
+        window.clearTimeout(d.holdTimer);
+        d.holdTimer = window.setTimeout(() => drag.current === d && lift(d), TOUCH_HOLD_MS);
+        d.x = e.clientX;
+        d.y = e.clientY;
+      }
+    }
+    // Once a shift is lifted, stop the page scrolling under the finger.
+    const touchMove = (e: TouchEvent) => drag.current?.started && e.cancelable && e.preventDefault();
     const up = () => end(true);
+    const cancel = () => end(false);
     const key = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && end(false);
+    window.addEventListener('pointerdown', hold);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    window.addEventListener('pointercancel', cancel);
     window.addEventListener('keydown', key);
+    window.addEventListener('touchmove', touchMove, { passive: false });
     return () => {
+      window.removeEventListener('pointerdown', hold);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('pointercancel', cancel);
       window.removeEventListener('keydown', key);
+      window.removeEventListener('touchmove', touchMove);
     };
   }, []);
 
   function startDrag(e: ReactPointerEvent<HTMLElement>, shift: Shift) {
     if (e.button !== 0) return;
     const edge = (e.target as HTMLElement).closest<HTMLElement>('[data-edge]')?.dataset.edge as Edge | undefined;
-    drag.current = { mode: edge ?? 'move', original: shift, current: shift, x: e.clientX, y: e.clientY, started: false };
+    drag.current = {
+      mode: edge ?? 'move',
+      pointerType: e.pointerType,
+      original: shift,
+      current: shift,
+      x: e.clientX,
+      y: e.clientY,
+      started: false,
+      blocked: null,
+    };
     if (edge) e.preventDefault();
   }
 
@@ -115,13 +253,29 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
       const step = e.key === 'ArrowUp' ? -15 : 15;
       next = e.shiftKey ? resizeShift(shift, 'end', step) : nudgeShift(shift, step);
     }
-    if (next && !sameShift(next, shift)) {
-      e.preventDefault();
-      onCommit(next, shift);
-    }
+    if (!next || sameShift(next, shift)) return;
+    e.preventDefault();
+    const person = state.employees.find((x) => x.id === shift.employeeId);
+    const reason = person && !dropBlocker(person, shift) ? dropBlocker(person, next) : null;
+    if (reason) onBlocked(`Not changed. ${reason}`);
+    else onCommit(next, shift);
   }
 
   const dragging = drag.current?.started ? drag.current : null;
+  // A shift moved to another cell floats there and leaves a slot behind, so no row changes
+  // height under the pointer and the drop lands where the user is looking.
+  const moved =
+    dragging?.mode === 'move' &&
+    (dragging.current.employeeId !== dragging.original.employeeId || dragging.current.date !== dragging.original.date)
+      ? dragging
+      : null;
+  // While the hint is showing, the first draggable shift demonstrates its grips.
+  let pulsed = false;
+  const pulse = (elsewhere: boolean) => {
+    if (!hint || pulsed || elsewhere) return false;
+    pulsed = true;
+    return true;
+  };
   const roleOf = (id: string) => state.roles.find((r) => r.id === id);
   const deptOf = (e: Employee) => roleOf(e.roleIds[0])?.department ?? 'FOH';
   const people = state.employees.filter(
@@ -155,7 +309,8 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
   }
 
   return (
-    <div className="panel grid-wrap">
+    <div className={`panel grid-wrap${hint ? ' hinting' : ''}`}>
+      {hint && <DragHint onDismiss={dismissHint} />}
       <table className="rota">
         <thead>
           <tr>
@@ -217,7 +372,19 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                         </div>
                       </th>
                       {dates.map((date) => {
-                        const shifts = state.shifts.filter((s) => s.employeeId === e.id && s.date === date);
+                        const here = (x: Shift) => x.employeeId === e.id && x.date === date;
+                        // The picked-up chip keeps its element in the home cell (a touch keeps talking to
+                        // the element it started on) and a floating copy shows where it will land.
+                        const entries: ChipEntry[] = [];
+                        for (const s of state.shifts) {
+                          if (moved?.original.id !== s.id) {
+                            if (here(s)) entries.push({ s, kind: 'normal' });
+                            continue;
+                          }
+                          if (here(moved.original)) entries.push({ s: moved.original, kind: 'slot' });
+                          if (here(s)) entries.push({ s, kind: 'float' });
+                        }
+                        const shifts = entries.filter((x) => x.kind !== 'slot').map((x) => x.s);
                         const onLeave = e.leave.includes(date);
                         return (
                           <td
@@ -225,10 +392,16 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                             data-emp={e.id}
                             data-date={date}
                             className={`${onLeave ? 'leave' : ''} ${isWeekend(date) ? 'weekend' : ''} ${
-                              dragging?.mode === 'move' && dragging.current.employeeId === e.id && dragging.current.date === date ? 'drop-target' : ''
+                              dragging?.mode !== 'move'
+                                ? ''
+                                : dragging.blocked?.employeeId === e.id && dragging.blocked.date === date
+                                  ? 'no-drop'
+                                  : dragging.current.employeeId === e.id && dragging.current.date === date
+                                    ? 'drop-target'
+                                    : ''
                             }`}
                           >
-                            {shifts.map((s) => {
+                            {entries.map(({ s, kind }) => {
                               const sc = metrics.cost.shifts.get(s.id);
                               const flagged = personIssues.filter((i) => i.shiftId === s.id);
                               const level = flagged.some((i) => i.severity === 'block') ? 'block' : flagged.length ? 'warn' : '';
@@ -236,10 +409,13 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                               const elsewhere = s.siteId !== site.id;
                               return (
                                 <button
-                                  key={s.id}
+                                  key={kind === 'float' ? `${s.id}-float` : s.id}
+                                  tabIndex={kind === 'slot' ? -1 : undefined}
+                                  aria-hidden={kind === 'slot' || undefined}
                                   className={`chip dept-${role?.department ?? 'FOH'} ${level} ${elsewhere ? 'elsewhere' : ''} ${
                                     dragging?.original.id === s.id ? 'is-dragging' : ''
-                                  }`}
+                                  } ${pulse(elsewhere) ? 'hint-pulse' : ''} ${kind === 'normal' ? '' : kind === 'float' ? 'floating' : 'chip-slot'}`}
+                                  onContextMenu={(ev) => ev.preventDefault()}
                                   onClick={() => !justDragged.current && onEdit(s)}
                                   onPointerDown={elsewhere ? undefined : (ev) => startDrag(ev, s)}
                                   onKeyDown={elsewhere ? undefined : (ev) => keyMove(ev, s)}
@@ -328,8 +504,36 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
           labourPct={metrics.labourPct}
           over={metrics.labourPct > metrics.targetPct}
           flags={issues.filter((i) => i.shiftId === dragging.current.id || (!i.shiftId && i.employeeId === dragging.current.employeeId))}
+          blocked={dragging.blocked?.reason ?? null}
+          resizing={dragging.mode !== 'move'}
+          touch={pointer.touch}
         />
       )}
+    </div>
+  );
+}
+
+function DragHint({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="coach" role="note">
+      <div className="coach-demo" aria-hidden>
+        <span className="coach-chip">
+          <i className="g start" />
+          <span>11:00-19:00</span>
+          <i className="g end" />
+        </span>
+        <span className="coach-arrow">&harr;</span>
+      </div>
+      <div className="coach-text">
+        <div className="coach-title">Change the rota by dragging</div>
+        <ul>
+          <li>Drag a shift onto another person or day to move it.</li>
+          <li>Drag either edge to change the start or finish, in 15 minute steps.</li>
+          <li>On a tablet, press and hold a shift to pick it up.</li>
+          <li>Cost and labour % update as you drag. Leave and availability are respected.</li>
+        </ul>
+      </div>
+      <button className="primary" onClick={onDismiss}>Got it</button>
     </div>
   );
 }
@@ -344,15 +548,28 @@ interface ReadoutProps {
   labourPct: number;
   over: boolean;
   flags: Issue[];
+  blocked: string | null;
+  resizing: boolean;
+  touch: boolean;
 }
 
 /** Follows the pointer during a drag: where the shift lands and what it does to the week. */
-function DragReadout({ x, y, shift, name, shiftCost, delta, labourPct, over, flags }: ReadoutProps) {
+function DragReadout({ x, y, shift, name, shiftCost, delta, labourPct, over, flags, blocked, resizing, touch }: ReadoutProps) {
   const l = dayLabel(shift.date);
-  const blocked = flags.some((f) => f.severity === 'block');
+  const blocking = flags.some((f) => f.severity === 'block');
   const sign = delta > 0.5 ? '+' : delta < -0.5 ? '-' : '';
+  // Keep clear of the finger on touch, and inside the window near the edges.
+  const width = 250;
+  const left = Math.max(8, Math.min(x + 16, window.innerWidth - width - 8));
+  const top = touch ? (y - 190 > 8 ? y - 190 : y + 48) : Math.min(y + 18, window.innerHeight - 190);
   return (
-    <div className="drag-readout" style={{ left: x + 16, top: y + 18 }} role="status">
+    <div className="drag-readout" style={{ left, top, width }} role="status">
+      {blocked && (
+        <div className="drag-stop">
+          {resizing ? 'Held at the limit. ' : 'Cannot drop here. '}
+          {blocked}
+        </div>
+      )}
       <div className="tip-title">
         {name} · {l.short} {l.date}
       </div>
@@ -378,7 +595,7 @@ function DragReadout({ x, y, shift, name, shiftCost, delta, labourPct, over, fla
         <span className={over ? 'up' : 'down'}>{pct(labourPct)}</span>
       </div>
       {flags.length > 0 && (
-        <div className={`drag-flag ${blocked ? 'block' : 'warn'}`}>{flags[0].message}{flags.length > 1 ? ` (+${flags.length - 1} more)` : ''}</div>
+        <div className={`drag-flag ${blocking ? 'block' : 'warn'}`}>{flags[0].message}{flags.length > 1 ? ` (+${flags.length - 1} more)` : ''}</div>
       )}
     </div>
   );

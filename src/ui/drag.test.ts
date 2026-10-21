@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Employee, Shift } from '../engine/types';
-import { LATEST_END, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
+import { dropBlocker, LATEST_END, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
 
 const base: Shift = {
   id: 's1',
@@ -56,5 +56,22 @@ describe('drag maths', () => {
   it('spots a drag that ended where it started', () => {
     expect(sameShift(base, { ...base })).toBe(true);
     expect(sameShift(base, nudgeShift(base, 15))).toBe(false);
+  });
+
+  it('blocks drops on leave and outside stated availability', () => {
+    const jamie = {
+      id: 'e9',
+      name: 'Jamie Patel',
+      roleIds: ['host'],
+      leave: ['2026-10-24'],
+      // Thursday to Saturday, 11:00 to 21:00
+      availability: [3, 4, 5].map((weekday) => ({ weekday, fromMinute: 11 * 60, toMinute: 21 * 60 })),
+    } as Employee;
+    const thu = { ...base, date: '2026-10-22' };
+    expect(dropBlocker(jamie, thu)).toBeNull();
+    expect(dropBlocker(jamie, { ...base, date: '2026-10-21' })).toBe('Jamie is not available on Wednesdays.');
+    expect(dropBlocker(jamie, { ...thu, endMinute: 22 * 60 })).toBe('Jamie is only available 11:00-21:00 on Thursdays.');
+    expect(dropBlocker(jamie, { ...base, date: '2026-10-24' })).toBe('Jamie is on approved leave that day.');
+    expect(dropBlocker({ ...jamie, availability: [], leave: [] }, base)).toBeNull();
   });
 });

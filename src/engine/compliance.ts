@@ -30,7 +30,7 @@ function overlaps(a: Shift, b: Shift, anchor: string) {
   return a0 < b1 && b0 < a1;
 }
 
-function isAvailable(employee: Employee, shift: Shift): boolean {
+export function isAvailable(employee: Employee, shift: Shift): boolean {
   if (employee.availability.length === 0) return true;
   const day = weekday(shift.date);
   return employee.availability.some(

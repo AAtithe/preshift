@@ -32,6 +32,7 @@ export function App() {
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [preview, setPreview] = useState<Shift | null>(null);
   const [lastChange, setLastChange] = useState<{ before: Shift; after: Shift } | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   // While a shift is being dragged every figure on the page is worked from the previewed rota.
   const view = useMemo(
@@ -44,6 +45,12 @@ export function App() {
   const issues = useMemo(() => checkWeek(view, week, siteId), [view, siteId, week]);
 
   useEffect(() => {
+    if (!refusal) return;
+    const t = setTimeout(() => setRefusal(null), 5000);
+    return () => clearTimeout(t);
+  }, [refusal]);
+
+  useEffect(() => {
     if (!lastChange) return;
     const t = setTimeout(() => setLastChange(null), 8000);
     return () => clearTimeout(t);
@@ -52,6 +59,12 @@ export function App() {
   function commitChange(after: Shift, before: Shift) {
     dispatch({ type: 'upsertShift', shift: after });
     setLastChange({ before, after });
+    setRefusal(null);
+  }
+
+  function refuse(message: string) {
+    setRefusal(message);
+    setLastChange(null);
   }
   const dates = weekDates(week);
   const blocks = issues.filter((i) => i.severity === 'block').length;
@@ -188,6 +201,7 @@ export function App() {
               onEdit={setEditing}
               onPreview={setPreview}
               onCommit={commitChange}
+              onBlocked={refuse}
               baseLabourCost={baseMetrics.labourCost}
             />
           )}
@@ -202,6 +216,13 @@ export function App() {
             Reset demo
           </button>
         </footer>
+
+        {refusal && (
+          <div className="toast refused" role="alert">
+            <span>{refusal}</span>
+            <button className="ghost" onClick={() => setRefusal(null)}>Close</button>
+          </div>
+        )}
 
         {lastChange && (
           <div className="toast" role="status">
