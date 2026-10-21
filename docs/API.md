@@ -47,6 +47,7 @@ confined to its key's organisation.
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=` |
+| Calendar | `GET /v1/calendar?siteId=&from=&to=` (occasions, events, weather by day, what the model applies and why, reminders), `GET /v1/reminders?siteIds=` (what is due now), `POST /v1/reminders` (`done`, `dismiss`, or `expect` with a factor, which becomes a forecast adjustment; a second answer replaces the first), `PUT /v1/sites/:id/location`, `POST /v1/outside/refresh` (weather, feeds and the forecast ahead, now), `GET /v1/weather`, `GET/POST /v1/event-feeds`, `DELETE /v1/event-feeds/:id` (past events are kept as history), `GET/POST /v1/local-events`, `DELETE /v1/local-events/:id` (hand-entered only) |
 | Till actuals | `GET/PUT /v1/actuals` (hourly sales and covers as traded: what the model learns from and accuracy is measured against) |
 | Coach | `POST /v1/coach/moves` (works out and records this week's moves), `POST /v1/coach/apply` (takes a move exactly as offered; refuses a stale one or one that now breaks a rule), `POST /v1/coach/dismiss` (with the reason), `GET /v1/coach/history` (with the saving each taken move actually realised), `GET /v1/scorecard?siteId=&weeks=` |
 | Programme | `GET /v1/programmes`, `PUT /v1/programmes/:siteId`, `PUT /v1/programmes/:siteId/baseline`, `POST /v1/programmes/:siteId/signoffs`, `DELETE /v1/programmes/:siteId/signoffs/:milestoneId`, `POST /v1/programmes/:siteId/verifications` (all writes need `programme:lead`) |
@@ -120,6 +121,25 @@ assumptions until checked against the API reference:
 
 Because WS runs TeamPay, these can be settled in one working session. Change that file, run
 `npm test`, and the rest of the system is unaffected.
+
+## Weather and local events
+
+Weather comes from Open-Meteo: sixteen days ahead and the last week, plus a backfill of measured
+weather for the days a site has till history, so the model can learn how that site trades in it.
+Open-Meteo's free API is for non-commercial use: set `OPEN_METEO_API_KEY` to a paid key before
+clients are charged, and calls move to its customer endpoints. Local events come from iCal feeds
+added per site, from Ticketmaster within a radius when `TICKETMASTER_API_KEY` is set, or by hand.
+
+Everything is fetched once a day per organisation by the scheduled `/internal/dispatch` run
+(`CRON_SECRET`), which then refreshes the forecast for the rest of this week and next. One
+organisation or feed failing never stops the rest, and a run stops before the function's time
+limit, picking up the longest waiting first next time.
+
+Feed fetches go only to public https addresses: the address is checked when added, and every
+connection resolves the name and refuses it unless all its addresses are public, so a name that
+resolves inwards (or changes between check and fetch) cannot reach a private network. Redirects
+are refused, bodies are capped at 2 MB as they arrive, and feed addresses are never returned in
+full, because private calendar links carry secret tokens.
 
 ## Storage
 

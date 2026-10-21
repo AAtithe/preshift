@@ -79,7 +79,8 @@ Phase 2, first live sites (8 to 10 weeks):
 - Fortnightly, four-weekly and monthly pay schedules.
 
 Phase 3:
-- Weather and events feeds into forecast adjustments automatically (today they are entered by hand).
+- Booking feeds (OpenTable, ResDiary, SevenRooms) into the forecast: covers already booked beat any model for occasions.
+- School holidays by local authority, which move family trade and staff availability.
 - Tronc and tips allocation under the Employment (Allocation of Tips) Act 2023, with the
   troncmaster audit trail.
 - 17 week WTR reference period tracking, holiday entitlement balances, right to work checks.

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { seedState } from '../src/engine/seed';
 import type { MoveRecord } from '../src/engine/coach';
 import type { Programme } from '../src/engine/programme';
+import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { RotaState, TimeEntry } from '../src/engine/types';
@@ -60,8 +61,23 @@ export interface OrgData {
   /** The labour programme each site is on, if any. */
   programmes: Programme[];
   settings: OrgSettings;
+  /** Where each site's local events come from. */
+  eventFeeds: EventFeed[];
+  /** Reminders someone has dealt with or set aside, so they stop showing. */
+  reminderStates: ReminderState[];
+  /** The London date weather and events were last fetched for this organisation by the daily run. */
+  lastOutsideRefresh?: string;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
+}
+
+export interface ReminderState {
+  key: string;
+  siteId: string;
+  status: 'done' | 'dismissed';
+  at: string;
+  by: string;
+  note?: string;
 }
 
 export interface OrgSettings {
@@ -126,7 +142,9 @@ const newSecret = () => randomBytes(32).toString('hex');
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
-    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], actuals: [], forecastAdjustments: [] },
+    state: seeded
+      ? seedState(today)
+      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -137,6 +155,8 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     publications: [],
     programmes: [],
     settings: {},
+    eventFeeds: [],
+    reminderStates: [],
   };
 }
 
@@ -157,7 +177,16 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees, actuals: state.actuals ?? [], forecastAdjustments: state.forecastAdjustments ?? [] };
+  return {
+    ...state,
+    entities,
+    sites,
+    employees,
+    actuals: state.actuals ?? [],
+    forecastAdjustments: state.forecastAdjustments ?? [],
+    weather: state.weather ?? [],
+    localEvents: state.localEvents ?? [],
+  };
 }
 
 export class MemoryStore implements Store {
@@ -419,6 +448,8 @@ function deserialise(data: unknown, version: number): OrgData {
     publications: raw.publications ?? [],
     programmes: raw.programmes ?? [],
     settings: raw.settings ?? {},
+    eventFeeds: raw.eventFeeds ?? [],
+    reminderStates: raw.reminderStates ?? [],
     version,
   };
 }

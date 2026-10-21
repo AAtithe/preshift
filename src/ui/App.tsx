@@ -5,6 +5,7 @@ import { scopeMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import { newEmployee } from '../engine/employees';
 import type { Employee, Shift } from '../engine/types';
+import { CalendarView, RemindersBanner } from './CalendarView';
 import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { CoachView } from './CoachView';
@@ -26,13 +27,14 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'programme' | 'settings';
+type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'programme' | 'settings';
 
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'coach', label: 'Coach' },
   { id: 'forecast', label: 'Forecast' },
+  { id: 'calendar', label: 'Calendar' },
   { id: 'clock', label: 'Clock in' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
@@ -178,6 +180,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         </div>
       </nav>
 
+      <RemindersBanner key={`${siteIds.join()}:${activeTab}`} siteIds={siteIds} sites={state.sites} today={today} onOpen={(id) => { setSiteId(id); setTab('calendar'); }} />
+
       {error && (
         <div className="notice error">
           {error} <button className="link" onClick={clearError}>Dismiss</button>
@@ -218,6 +222,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         )}
         {activeTab === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
         {activeTab === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
+        {activeTab === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
         {activeTab === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={me} onOpenSite={chooseSite} />}
         {activeTab === 'clock' && single && (
           <ClockView

@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
-import { HttpError, type AppContext } from './context';
+import { HttpError, londonToday, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
@@ -16,6 +16,9 @@ import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
+import { calendarRoutes } from './routes/calendar';
+import { feedConfig, refreshOutside } from './forecasting';
+import { publicFetch } from './integrations/feeds';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -37,6 +40,8 @@ export interface BuildOptions {
   appDir?: string;
   /** Fixes the clock for tests. */
   now?: () => Date;
+  /** Replaces outbound HTTP for weather and event feeds (tests). */
+  fetch?: typeof fetch;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -85,6 +90,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
     now: options.now ?? (() => new Date()),
+    fetch: options.fetch ?? publicFetch,
+    feeds: feedConfig(env),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -145,7 +152,48 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
-    return { ok: true };
+    // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
+    // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
+    // waiting go first, the run stops before the function's time runs out, and one organisation failing
+    // never stops the rest.
+    const today = londonToday(ctx);
+    const started = Date.now();
+    const due: { orgId: string; last: string }[] = [];
+    for (const orgId of await store.orgIds()) {
+      const org = await store.load(orgId);
+      if (org.lastOutsideRefresh === today) continue;
+      if (!org.state.sites.some((s) => s.location || s.geofence) && org.eventFeeds.length === 0) continue;
+      due.push({ orgId, last: org.lastOutsideRefresh ?? '' });
+    }
+    due.sort((a, b) => a.last.localeCompare(b.last));
+    let refreshed = 0;
+    const failed: string[] = [];
+    for (const { orgId } of due) {
+      if (Date.now() - started > 40_000) break;
+      try {
+        // Fetch once; if someone saved the organisation meanwhile, lay the same results over a fresh copy.
+        const org = await store.load(orgId);
+        await refreshOutside(ctx, org, today, 'scheduled refresh');
+        org.lastOutsideRefresh = today;
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          const fresh = await store.load(orgId);
+          fresh.state.weather = org.state.weather;
+          fresh.state.localEvents = org.state.localEvents;
+          fresh.state.forecast = org.state.forecast;
+          fresh.eventFeeds = fresh.eventFeeds.map((f) => org.eventFeeds.find((x) => x.id === f.id) ?? f);
+          fresh.lastOutsideRefresh = today;
+          await store.save(fresh);
+        }
+        refreshed++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'outside refresh failed');
+        failed.push(orgId);
+      }
+    }
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
@@ -181,6 +229,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
+    calendarRoutes(api, ctx);
     payrollRoutes(api, ctx);
     devRoutes(api, ctx);
     accessRoutes(api, store);

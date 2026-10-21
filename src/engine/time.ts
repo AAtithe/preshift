@@ -78,3 +78,13 @@ export function londonDate(isoInstant: string): string {
   );
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
+
+/** The London date and minute of an instant. */
+export function londonClock(isoInstant: string): { date: string; minute: number } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(isoInstant))
+      .map((x) => [x.type, x.value]),
+  );
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+}

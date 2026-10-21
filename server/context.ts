@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import type { TeamPaySimulator } from './integrations/payroll/simulator';
+import type { FeedConfig, Fetch } from './integrations/feeds';
 import type { OutboxDispatcher } from './outbox';
 import type { EmployerConfig } from './payrollEmployers';
 import type { OrgData, Store } from './store';
@@ -17,6 +18,9 @@ export interface AppContext {
   autoDispatch: boolean;
   /** The clock, so tests can fix today. */
   now: () => Date;
+  /** How the server reaches weather and event providers; tests pass recorded responses. */
+  fetch: Fetch;
+  feeds: FeedConfig;
 }
 
 declare module 'fastify' {

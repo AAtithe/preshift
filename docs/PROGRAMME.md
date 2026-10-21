@@ -56,7 +56,10 @@ Thirty minutes, same day each week, the GM and the lead.
    model. A GM who overrides often and loses learns to trust the model. A GM who overrides
    rarely and wins should be asked what they know that the model does not, and that becomes
    an adjustment next time.
-4. This week. Run the model, add the known one-offs, build, take the moves, publish on time.
+4. Coming up. Open the Calendar tab together: what is due (Mothering Sunday five weeks out,
+   party season ten), what the forecast already allows for and why, and what needs the GM's view.
+   An occasion with no history is a judgement call: ask the GM what bookings say, then set it.
+5. This week. Build the forecast, check it, build the rota, take the moves, publish on time.
 
 ## Coaching notes for leads
 

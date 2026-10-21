@@ -136,9 +136,15 @@ describe('Postgres store: coaching and programme data', () => {
     delete data.publications;
     delete data.programmes;
     delete data.settings;
+    delete data.eventFeeds;
+    delete data.reminderStates;
+    delete data.state.weather;
+    delete data.state.localEvents;
     await query('update preshift.orgs set data = $2 where org_id = $1', ['demo', JSON.stringify(data)]);
     const third = await boot2();
     expect((await third('GET', '/v1/programmes')).body).toEqual([]);
     expect((await third('GET', '/v1/benchmarks')).body.optedIn).toBe(false);
+    expect((await third('GET', '/v1/event-feeds')).body).toEqual([]);
+    expect((await third('GET', '/v1/calendar?siteId=mar')).status).toBe(200);
   });
 });

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { cohortBenchmark, quartileOf, type BenchmarkMetric, type SiteSample } from '../../src/engine/benchmark';
 import { moveIssues, realisedSaving, recordOf, weeklyMoves, type MoveRecord } from '../../src/engine/coach';
-import { baselineForecast, forecastAccuracy, mergeModelForecast, overrideForecast } from '../../src/engine/forecast';
+import { forecastAccuracy, overrideForecast } from '../../src/engine/forecast';
 import { weekMetrics } from '../../src/engine/metrics';
 import { baselineFromHistory, MILESTONES, newProgramme, programmeStatus, wholeWeeks, type Programme } from '../../src/engine/programme';
 import { finishedWeeks, siteScorecard, type Scorecard } from '../../src/engine/scorecard';
@@ -11,6 +11,7 @@ import type { AdjustmentReason, ForecastAdjustment, HourActual, Shift } from '..
 import { requireScope } from '../auth';
 import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../context';
 import { forecastBody, isoDate, rangeQuery, siteWeekQuery } from '../schemas';
+import { modelDates } from '../forecasting';
 import { audit, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -194,10 +195,16 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const { siteId, weekStart: ws } = req.body;
       requireSite(org, siteId);
-      const result = baselineForecast(org.state.actuals ?? [], siteId, weekDates(ws), { adjustments: org.state.forecastAdjustments });
-      org.state.forecast = mergeModelForecast(org.state.forecast, result.rows);
-      audit(org, req.principal.name, 'forecast.modelled', { siteId, weekStart: ws, rows: result.rows.length, skipped: result.skipped.length });
-      return { rows: result.rows.length, skipped: result.skipped, trend: result.trend, bankHolidayFactor: result.bankHolidayFactor };
+      const result = modelDates(org, siteId, weekDates(ws), today());
+      audit(org, req.principal.name, 'forecast.modelled', { siteId, weekStart: ws, rows: result.rows.length, skipped: result.skipped.length, automatic: result.automatic.length });
+      return {
+        rows: result.rows.length,
+        skipped: result.skipped,
+        trend: result.trend,
+        bankHolidayFactor: result.bankHolidayFactor,
+        // What the model applied by itself, with why, so the GM can see and overrule it.
+        automatic: result.automatic.map(({ date, factor, kind, note, fromHour, toHour, evidence }) => ({ date, factor, kind, note, fromHour, toHour, evidence })),
+      };
     },
   );
 

@@ -1,4 +1,5 @@
 import type { ForecastAdjustment, HourActual, HourForecast } from './types';
+import { bankHolidays } from './calendar';
 import { addDays, weekday } from './time';
 
 // The sales forecast drives every rota. This module builds a baseline forecast
@@ -28,7 +29,7 @@ export function daypartOf(hour: number): Daypart {
   return DAYPARTS.find((d) => hour >= d.from && hour < d.to) ?? DAYPARTS[DAYPARTS.length - 1];
 }
 
-/** England and Wales bank holidays, substitute days included. Extend each year from gov.uk/bank-holidays. */
+/** England and Wales bank holidays 2025 to 2028, as published on gov.uk. The model computes them for any year (calendar.ts); this list checks that. */
 export const BANK_HOLIDAYS_ENGLAND_WALES: string[] = [
   '2025-01-01', '2025-04-18', '2025-04-21', '2025-05-05', '2025-05-26', '2025-08-25', '2025-12-25', '2025-12-26',
   '2026-01-01', '2026-04-03', '2026-04-06', '2026-05-04', '2026-05-25', '2026-08-31', '2026-12-25', '2026-12-28',
@@ -42,7 +43,15 @@ export interface BaselineOptions {
   /** Weight of each older week relative to the one after it. */
   decay?: number;
   adjustments?: ForecastAdjustment[];
+  /** Defaults to England and Wales bank holidays, computed for every year in play. */
   bankHolidays?: string[];
+  /** Days that were not normal trade (occasions, events) and should not be learnt from. */
+  unusualDays?: Set<string>;
+  /**
+   * What the weather did to each past day. Training figures are divided by it, so the model learns
+   * normal trade and a hot fortnight does not make next week's forecast hot.
+   */
+  historyFactors?: Map<string, number>;
 }
 
 export interface BaselineResult {
@@ -58,6 +67,9 @@ export interface BaselineResult {
 type Totals = { sales: number; covers: number };
 const key = (date: string, hour: number) => `${date}|${hour}`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+/** The most the model's own adjustments may move an hour, all together. */
+export const AUTO_MIN = 0.5;
+export const AUTO_MAX = 2.5;
 const festive = (date: string) => date.slice(5) >= '12-24' || date.slice(5) <= '01-03';
 
 /**
@@ -72,20 +84,25 @@ const festive = (date: string) => date.slice(5) >= '12-24' || date.slice(5) <= '
 export function baselineForecast(history: HourActual[], siteId: string, dates: string[], options: BaselineOptions = {}): BaselineResult {
   const weeks = options.weeks ?? 8;
   const decay = options.decay ?? 0.8;
-  const holidays = new Set(options.bankHolidays ?? BANK_HOLIDAYS_ENGLAND_WALES);
+  const years = [...new Set([...history.map((a) => a.date), ...dates].map((d) => Number(d.slice(0, 4))))];
+  const holidays = new Set(options.bankHolidays ?? years.flatMap((y) => bankHolidays(y).map((b) => b.date)));
+  const unusualDays = options.unusualDays ?? new Set<string>();
+  const historyFactors = options.historyFactors ?? new Map<string, number>();
   const adjustments = (options.adjustments ?? []).filter((a) => a.siteId === siteId);
-  const adjustedDays = new Set(adjustments.map((a) => a.date));
+  // Days people adjusted were not normal trade; the model's own adjustments are all for dates ahead.
+  const adjustedDays = new Set(adjustments.filter((a) => a.source !== 'auto').map((a) => a.date));
 
   const byHour = new Map<string, Totals>();
   const tradedDays = new Set<string>();
   for (const a of history) {
     if (a.siteId !== siteId) continue;
-    byHour.set(key(a.date, a.hour), { sales: a.sales, covers: a.covers });
+    const f = historyFactors.get(a.date) ?? 1;
+    byHour.set(key(a.date, a.hour), { sales: a.sales / f, covers: a.covers / f });
     tradedDays.add(a.date);
   }
   // Only learn from the past: the earliest date being forecast is "today".
   const asOf = [...dates].sort()[0] ?? '';
-  const usable = (date: string) => date < asOf && tradedDays.has(date) && !holidays.has(date) && !adjustedDays.has(date);
+  const usable = (date: string) => date < asOf && tradedDays.has(date) && !holidays.has(date) && !adjustedDays.has(date) && !unusualDays.has(date);
 
   /** Recency-weighted level for one weekday and hour, looking back from `date`. */
   const level = (date: string, hour: number, profileWeekday = weekday(date)): Totals | null => {
@@ -159,9 +176,12 @@ export function baselineForecast(history: HourActual[], siteId: string, dates: s
     for (let hour = 0; hour < 24; hour++) {
       const base = level(date, hour, profile);
       if (!base) continue;
-      const adj = adjustments
-        .filter((a) => a.date === date && (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour))
-        .reduce((m, a) => m * a.factor, 1);
+      const here = adjustments.filter((a) => a.date === date && (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour));
+      // What people set applies as given. What the model added by itself is held to a range in total,
+      // so an occasion, an event and the weather on the same hours cannot compound into nonsense.
+      const people = here.filter((a) => a.source !== 'auto').reduce((m, a) => m * a.factor, 1);
+      const automatic = clamp(here.filter((a) => a.source === 'auto').reduce((m, a) => m * a.factor, 1), AUTO_MIN, AUTO_MAX);
+      const adj = people * automatic;
       const sales = Math.round(base.sales * trend * factor * adj);
       const covers = Math.round(base.covers * trend * factor * adj);
       // An hour an adjustment closes is kept at zero, so a merge clears what was forecast before.

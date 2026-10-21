@@ -53,6 +53,8 @@ export interface Site {
   closeMinute: number;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Where the site is, for its weather and nearby events. Falls back to the geofence centre. */
+  location?: { lat: number; lng: number };
 }
 
 /** A circle round the site's front door. */
@@ -195,6 +197,8 @@ export interface ForecastAdjustment {
   note?: string;
   fromHour?: number;
   toHour?: number;
+  /** Set when the model added it itself from history; people's adjustments have none. */
+  source?: 'auto';
 }
 
 /** How a role's demand is driven by the forecast. */
@@ -244,4 +248,34 @@ export interface RotaState {
   /** Till actuals by hour. Absent on organisations saved before forecasting learnt from history. */
   actuals?: HourActual[];
   forecastAdjustments?: ForecastAdjustment[];
+  /** Daily weather per site: observed for days gone, forecast for days ahead. */
+  weather?: DailyWeather[];
+  /** Things on near a site: matches, concerts, markets. From feeds or entered by hand. */
+  localEvents?: LocalEvent[];
+}
+
+export interface DailyWeather {
+  siteId: string;
+  date: string;
+  tempMax: number;
+  tempMin: number;
+  precipitationMm: number;
+  /** WMO weather code, as Open-Meteo reports it. */
+  weatherCode?: number;
+  /** True once the day has happened and the figures are what was measured. */
+  observed: boolean;
+  fetchedAt: string;
+}
+
+export interface LocalEvent {
+  id: string;
+  siteId: string;
+  /** The feed it came from. Absent for events entered by hand. */
+  feedId?: string;
+  date: string;
+  /** Local start time in minutes, when known. */
+  startMinute?: number;
+  name: string;
+  venue?: string;
+  source: 'ics' | 'ticketmaster' | 'manual';
 }
