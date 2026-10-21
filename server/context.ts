@@ -18,6 +18,10 @@ export interface AppContext {
   autoDispatch: boolean;
   /** Encrypts stored files. Null when a database is in use and no valid key is set: files are then refused. */
   documentCipher: DocumentCipher | null;
+  /** Outbound HTTP for postcode lookups and TfL journey times. Replaced in tests. */
+  fetch: typeof fetch;
+  /** Optional TfL app key; the journey planner works without one at low volume. */
+  tflAppKey?: string;
 }
 
 declare module 'fastify' {

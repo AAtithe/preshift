@@ -16,7 +16,7 @@ const latest = (t: TimeEntry) =>
   minutesSince(t.date, Math.max(t.clockIn, t.clockOut ?? 0, ...(t.breaks ?? []).flatMap((b) => [b.start, b.end ?? 0])));
 
 /** Sites are replaced, not edited in place: the demo seed shares its site records between organisations. */
-function replaceSite(org: OrgData, id: string, change: (site: Site) => Site): Site {
+export function replaceSite(org: OrgData, id: string, change: (site: Site) => Site): Site {
   const i = org.state.sites.findIndex((s) => s.id === id);
   if (i < 0) throw notFound(`Site ${id}`);
   org.state.sites = org.state.sites.map((s, j) => (j === i ? change(s) : s));
