@@ -711,6 +711,28 @@ button.link.danger { color: var(--bad); }
 .check-inline { display: inline-flex; gap: 6px; align-items: center; }
 .holiday-box { margin-top: 8px; }
 .settings.privacy { max-width: none; }
+
+.integrations { display: grid; gap: 12px; max-width: 1100px; }
+.integrations-lede { margin: 0; max-width: 720px; }
+.integrations-summary { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
+.integrations-group { margin: 10px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.integrations-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+.integration { display: flex; flex-direction: column; gap: 6px; }
+.integration p { margin: 0; }
+.integration-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.integration-head h3 { margin: 0; font-size: 16px; }
+.integration-actions { margin-top: auto; padding-top: 8px; display: flex; gap: 8px; }
+.integration .table { margin: 4px 0; font-size: 13px; }
+.integration code { font-size: 12px; word-break: break-all; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 4px 0; font-size: 13px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.health-live { background: var(--good-bg); color: var(--good); }
+.health-partial, .health-attention { background: var(--warn-bg); color: var(--warn); }
+.health-attention { background: var(--bad-bg); color: var(--bad); }
+.health-off, .health-file { color: var(--muted); }
+.integration-actions a.button { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; color: var(--text); text-decoration: none; font-size: 13px; }
+.integration-actions a.button:hover { border-color: var(--muted); }
 @media (max-width: 1180px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 900px) {
   .workspace { grid-template-columns: minmax(0, 1fr); }

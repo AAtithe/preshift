@@ -14,6 +14,7 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { IntegrationsView } from './IntegrationsView';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
@@ -28,7 +29,7 @@ import { Timeline } from './Timeline';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'privacy' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
@@ -61,6 +62,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
   {
     heading: 'Admin',
     items: [
+      { id: 'integrations', label: 'Integrations' },
       { id: 'privacy', label: 'GDPR' },
       { id: 'settings', label: 'Settings' },
     ],
@@ -424,6 +426,9 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
               )}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {activeTab === 'integrations' && (
+                <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
+              )}
               {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
             </main>
