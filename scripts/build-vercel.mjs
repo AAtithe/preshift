@@ -4,6 +4,7 @@
 //   /login, /auth/*       sign-in, first-run owner setup and sign-out
 //   /demo                 the public demo's sandbox per visitor (PRESHIFT_DEMO=1), else a redirect
 //   /app/                 the rota web app (Vite build), only to signed-in people
+//   /staff/               the staff app for clocking on their own phones (public page, own sign-in)
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
 //   /internal/dispatch    daily cron retry of undelivered payroll changes
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -20,6 +21,14 @@ await rm(out, { recursive: true, force: true });
 
 // The app is built into the API function, not static output, so nothing under /app is public.
 await viteBuild({ base: '/app/', build: { outDir: `${fn}/app`, emptyOutDir: true }, logLevel: 'warn' });
+// The staff app is its own small build, rooted in staff/, so none of the manager app ships with it.
+await viteBuild({
+  root: 'staff',
+  configFile: path.resolve('vite.config.ts'),
+  base: '/staff/',
+  build: { outDir: path.resolve(`${fn}/staff`), emptyOutDir: true },
+  logLevel: 'warn',
+});
 await mkdir(fn, { recursive: true });
 await cp('site/login.html', `${fn}/login.html`);
 await cp('site/demo.html', `${fn}/demo.html`);
@@ -60,7 +69,7 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch|login|demo|auth/.*|app(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch|login|demo|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },

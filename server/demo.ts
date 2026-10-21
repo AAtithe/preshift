@@ -29,13 +29,14 @@ export function sandboxCreatedAt(orgId: string): number | null {
 
 const secure = (req: FastifyRequest) => req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 
-/** Deletes sandboxes older than SANDBOX_HOURS, with their visitor account and assistant allowance. */
+/** Deletes sandboxes older than SANDBOX_HOURS, with their visitor, staff logins and assistant allowance. */
 export async function sweepSandboxes(store: Store, now = Date.now()): Promise<number> {
   let removed = 0;
   for (const orgId of await store.orgIds()) {
     const created = sandboxCreatedAt(orgId);
     if (created === null || now - created < SANDBOX_HOURS * 3600_000) continue;
     for (const user of await store.listUsers(orgId)) await store.deleteUser(user.email);
+    for (const login of await store.listStaffLogins(orgId)) await store.deleteStaffLogin(orgId, login.employeeId);
     await store.setSetting(assistantCallsSetting(orgId), null);
     await store.deleteOrg(orgId);
     removed++;
@@ -45,11 +46,14 @@ export async function sweepSandboxes(store: Store, now = Date.now()): Promise<nu
 
 export const assistantCallsSetting = (orgId: string) => `demo_assistant_calls:${orgId}`;
 
-/** Requests a sandbox visitor may not make: managing access, saving a Claude key, passwords, owner setup. */
+/**
+ * Requests a sandbox visitor may not make: managing access, saving a Claude key or email settings,
+ * passwords and resets, owner setup. Staff app logins stay open: they live inside the sandbox.
+ */
 export function demoRefuses(method: string, url: string): boolean {
   const path = url.split('?')[0];
-  if (method === 'POST' && (path === '/auth/setup' || path === '/auth/password')) return true;
-  if (method === 'PUT' && path === '/v1/settings/claude-api-key') return true;
+  if (method === 'POST' && ['/auth/setup', '/auth/password', '/auth/forgot', '/auth/reset'].includes(path)) return true;
+  if (method !== 'GET' && (path === '/v1/settings/claude-api-key' || path === '/v1/settings/email')) return true;
   return method !== 'GET' && (path === '/v1/users' || path.startsWith('/v1/users/'));
 }
 

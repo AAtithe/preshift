@@ -74,6 +74,9 @@ describe('public demo', () => {
       await t.call('PUT', '/v1/settings/claude-api-key', cookie, { claudeApiKey: 'sk-ant-aaaaaaaaaaaaaaaaaaaaaaaa' }),
       await t.call('POST', '/auth/password', cookie, { currentPassword: 'x', newPassword: 'a long enough password' }),
       await t.call('POST', '/auth/setup', undefined, {}),
+      await t.call('POST', '/auth/forgot', undefined, { email: 'x@example.com' }),
+      await t.call('POST', '/auth/reset', undefined, { token: 'x' }),
+      await t.call('PUT', '/v1/settings/email', cookie, { resendApiKey: 're_x', from: 'a@example.com', appUrl: 'https://example.com' }),
     ];
     for (const res of refused) expect(res.json()).toMatchObject({ error: 'demo' });
     expect((await t.call('GET', '/auth/status')).json()).toEqual({ setupNeeded: false, demo: true });
@@ -93,17 +96,22 @@ describe('public demo', () => {
     expect(res.body).toContain('Start the demo');
   });
 
-  it('deletes sandboxes after they expire, with their visitor, in Postgres', async () => {
+  it('deletes sandboxes after they expire, with their visitor and staff logins, in Postgres', async () => {
     const store = new PgStore(pglite(), ['demo'], '2026-10-21');
     const t = await boot(store);
     const cookie = await t.visit();
     const orgId = (await t.call('GET', '/auth/me', cookie)).json().orgId;
     const created = sandboxCreatedAt(orgId)!;
+    // The staff app works in the demo, so a sandbox can hold staff logins too.
+    const person = (await t.call('GET', '/v1/employees', cookie)).json()[0].id;
+    expect((await t.call('POST', `/v1/staff-logins/${person}/invite`, cookie, {})).statusCode).toBe(201);
+    expect(await store.listStaffLogins(orgId)).toHaveLength(1);
 
     expect(await sweepSandboxes(store, created + 60_000)).toBe(0);
     expect(await sweepSandboxes(store, created + SANDBOX_HOURS * 3600_000)).toBe(1);
     expect(await store.orgIds()).not.toContain(orgId);
     expect(await store.listUsers(orgId)).toEqual([]);
+    expect(await store.listStaffLogins(orgId)).toEqual([]);
     expect((await t.call('GET', '/auth/me', cookie)).statusCode).toBe(401);
   });
 });

@@ -69,6 +69,12 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
+  /** SHA-256 of the one outstanding reset link; a new link replaces it. Never the token itself. */
+  resetTokenHash?: string;
+  /** Epoch seconds the reset link stops working. */
+  resetExpires?: number;
+  /** Epoch seconds of recent reset emails, to cap how many one account can be sent. */
+  resetRequests?: number[];
 }
 
 /**
@@ -85,9 +91,52 @@ export interface UserStore {
   createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
   updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
   deleteUser(email: string): Promise<void>;
+  /** The person whose reset link this is, while it is unused and in date. */
+  findUserByResetToken(tokenHash: string, nowSeconds: number): Promise<UserRecord | null>;
+  /**
+   * Uses up the reset link and applies the patch in one step, so a link used twice at once
+   * changes the password only once. Null when the link is used, expired or unknown.
+   */
+  claimPasswordReset(tokenHash: string, nowSeconds: number, patch: Partial<UserRecord>): Promise<UserRecord | null>;
   /** Secrets and settings kept apart from organisation data, so no data endpoint can return them. */
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string | null): Promise<void>;
+}
+
+/**
+ * A member of staff's own login, for clocking on their phone. Kept apart from UserRecord on
+ * purpose: a staff login reaches the staff app and nothing else, so no role check elsewhere can
+ * slip and hand payroll or settings to someone who only needs to clock in.
+ */
+export interface StaffLogin {
+  orgId: string;
+  employeeId: string;
+  /** Set when they accept the invite. Unique across every organisation. */
+  email?: string;
+  salt?: string;
+  hash?: string;
+  /** SHA-256 of the one-time invite token. The token itself is only ever in the link. */
+  inviteHash?: string;
+  /** Epoch seconds. */
+  inviteExpires?: number;
+  invitedBy: string;
+  createdAt: string;
+  activatedAt?: string;
+  lastSignInAt?: string;
+  /** Staff sessions issued before this (epoch milliseconds) are refused. */
+  sessionsValidFrom: number;
+  failedAttempts: number;
+  /** Epoch seconds. */
+  lockedUntil: number;
+}
+
+export interface StaffStore {
+  getStaffLogin(orgId: string, employeeId: string): Promise<StaffLogin | null>;
+  getStaffLoginByEmail(email: string): Promise<StaffLogin | null>;
+  listStaffLogins(orgId: string): Promise<StaffLogin[]>;
+  /** Creates or replaces. False when another login already has the email. */
+  putStaffLogin(login: StaffLogin): Promise<boolean>;
+  deleteStaffLogin(orgId: string, employeeId: string): Promise<void>;
 }
 
 /**
@@ -95,7 +144,7 @@ export interface UserStore {
  * and saves it once at the end. A save that finds the organisation changed
  * underneath it is refused rather than overwriting someone else's work.
  */
-export interface Store extends UserStore {
+export interface Store extends UserStore, StaffStore {
   load(orgId: string): Promise<OrgData>;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
@@ -198,6 +247,47 @@ export class MemoryStore implements Store {
     this.users.delete(email);
   }
 
+  private readonly staff = new Map<string, StaffLogin>();
+  private readonly staffKey = (orgId: string, employeeId: string) => `${orgId}/${employeeId}`;
+
+  async getStaffLogin(orgId: string, employeeId: string) {
+    const login = this.staff.get(this.staffKey(orgId, employeeId));
+    return login ? { ...login } : null;
+  }
+
+  async getStaffLoginByEmail(email: string) {
+    const login = [...this.staff.values()].find((l) => l.email === email);
+    return login ? { ...login } : null;
+  }
+
+  async listStaffLogins(orgId: string) {
+    return [...this.staff.values()].filter((l) => l.orgId === orgId).map((l) => ({ ...l }));
+  }
+
+  async putStaffLogin(login: StaffLogin) {
+    const key = this.staffKey(login.orgId, login.employeeId);
+    if (login.email && [...this.staff.entries()].some(([k, l]) => k !== key && l.email === login.email)) return false;
+    this.staff.set(key, { ...login });
+    return true;
+  }
+
+  async deleteStaffLogin(orgId: string, employeeId: string) {
+    this.staff.delete(this.staffKey(orgId, employeeId));
+  }
+
+  async findUserByResetToken(tokenHash: string, nowSeconds: number) {
+    const user = [...this.users.values()].find((u) => u.resetTokenHash === tokenHash && (u.resetExpires ?? 0) > nowSeconds);
+    return user ? { ...user } : null;
+  }
+
+  async claimPasswordReset(tokenHash: string, nowSeconds: number, patch: Partial<UserRecord>) {
+    const user = await this.findUserByResetToken(tokenHash, nowSeconds);
+    if (!user) return null;
+    const next = { ...user, ...patch, email: user.email, resetTokenHash: undefined, resetExpires: undefined };
+    this.users.set(user.email, next);
+    return { ...next };
+  }
+
   private readonly settings = new Map<string, string>();
 
   async getSetting(key: string) {
@@ -261,6 +351,16 @@ export class PgStore implements Store {
       );
       await this.query('create index if not exists users_org_idx on preshift.users (org_id)', []);
       await this.query('create table if not exists preshift.settings (key text primary key, value text not null)', []);
+      await this.query(
+        `create table if not exists preshift.staff_logins (
+           org_id text not null,
+           employee_id text not null,
+           email text unique,
+           data jsonb not null,
+           primary key (org_id, employee_id)
+         )`,
+        [],
+      );
     })().catch((err) => {
       // Instances starting together can collide creating the schema; let the next request try again
       // rather than leave this instance failing every request until it is recycled.
@@ -368,6 +468,66 @@ export class PgStore implements Store {
     await this.query('delete from preshift.users where email = $1', [email]);
   }
 
+  async getStaffLogin(orgId: string, employeeId: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.staff_logins where org_id = $1 and employee_id = $2', [orgId, employeeId]);
+    return rows.length ? staffFrom(rows[0].data) : null;
+  }
+
+  async getStaffLoginByEmail(email: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.staff_logins where email = $1', [email]);
+    return rows.length ? staffFrom(rows[0].data) : null;
+  }
+
+  async listStaffLogins(orgId: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.staff_logins where org_id = $1', [orgId]);
+    return rows.map((r) => staffFrom(r.data));
+  }
+
+  async putStaffLogin(login: StaffLogin) {
+    await this.init();
+    // The unique email column decides a race between two people claiming one address.
+    const rows = await this.query(
+      `insert into preshift.staff_logins (org_id, employee_id, email, data) values ($1, $2, $3, $4)
+       on conflict (org_id, employee_id) do update set email = excluded.email, data = excluded.data
+       returning employee_id`,
+      [login.orgId, login.employeeId, login.email ?? null, JSON.stringify(login)],
+    ).catch((err: { code?: string }) => {
+      if (err?.code === '23505') return [];
+      throw err;
+    });
+    return rows.length > 0;
+  }
+
+  async deleteStaffLogin(orgId: string, employeeId: string) {
+    await this.init();
+    await this.query('delete from preshift.staff_logins where org_id = $1 and employee_id = $2', [orgId, employeeId]);
+  }
+
+  async findUserByResetToken(tokenHash: string, nowSeconds: number) {
+    await this.init();
+    const rows = await this.query(
+      `select data from preshift.users where data->>'resetTokenHash' = $1 and (data->>'resetExpires')::bigint > $2`,
+      [tokenHash, nowSeconds],
+    );
+    return rows.length ? userFrom(rows[0].data) : null;
+  }
+
+  async claimPasswordReset(tokenHash: string, nowSeconds: number, patch: Partial<UserRecord>) {
+    await this.init();
+    // One statement matches the unused link and clears it, so of two requests racing on the same
+    // link only one finds it.
+    const rows = await this.query(
+      `update preshift.users set data = (data || $3::jsonb) - 'resetTokenHash' - 'resetExpires'
+       where data->>'resetTokenHash' = $1 and (data->>'resetExpires')::bigint > $2
+       returning data`,
+      [tokenHash, nowSeconds, JSON.stringify(patch)],
+    );
+    return rows.length ? userFrom(rows[0].data) : null;
+  }
+
   async getSetting(key: string) {
     await this.init();
     const rows = await this.query('select value from preshift.settings where key = $1', [key]);
@@ -384,6 +544,10 @@ export class PgStore implements Store {
       );
     }
   }
+}
+
+function staffFrom(data: unknown): StaffLogin {
+  return (typeof data === 'string' ? JSON.parse(data) : data) as StaffLogin;
 }
 
 function userFrom(data: unknown): UserRecord {

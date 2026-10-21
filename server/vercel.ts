@@ -15,6 +15,7 @@ const ready = (async () => {
     // A demo deployment (PRESHIFT_DEMO=1) greets visitors with a start button rather than sign-in.
     loginPage: path.join(__dirname, process.env.PRESHIFT_DEMO === '1' ? 'demo.html' : 'login.html'),
     appDir: path.join(__dirname, 'app'),
+    staffDir: path.join(__dirname, 'staff'),
   });
   await app.ready();
   return app;

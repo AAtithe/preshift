@@ -29,13 +29,14 @@ accrual so the P&L carries true labour before payroll has even run.
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
+| Staff app | Staff clock in and out on their own phones at `/staff/`, and see their own published shifts and hours. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests
+npm test         # engine and API tests (127 across 10 files)
 npm run build    # typecheck and production build
 ```
 
@@ -62,8 +63,12 @@ Accounts, password hashes (scrypt), the session signing key and the Claude key a
 Preshift database. Sessions last 12 hours in an HttpOnly cookie and are checked against the database
 on every request, so removing someone or resetting their password takes effect at once. Five wrong
 passwords lock an account for 15 minutes. The web app carries no API key: it calls the API with the
-session. On Vercel the app's files are served by the API function only to signed-in people. Known
-limits: no self-service "forgot password" (an admin resets it), and two roles only.
+session. On Vercel the app's files are served by the API function only to signed-in people. People who
+forget their password use "Forgot your password?" on the sign-in page: a single-use link, valid for 30
+minutes, is emailed through Resend once an admin saves a Resend key, a from address and the app's address
+under Settings. The reply never says whether an account exists, one account gets at most three emails an
+hour, and the link's token sits after `#` so it never reaches a server log. Until email is set up, an admin
+makes a 24 hour link with "Reset link" and hands it over. Known limit: two roles only.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.
@@ -85,7 +90,8 @@ against the TeamPay simulator, the Close journals and the API docs.
 
 - Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
   Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
-- Guard rails. Accounts, passwords, the Claude key and owner setup cannot be changed. Payroll
+- Guard rails. Accounts, passwords and resets, the Claude key, email settings and owner setup
+  cannot be changed. Staff app logins work inside the sandbox. Payroll
   always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
   are deleted after 24 hours (on the daily cron and as new visitors arrive).
 - Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per

@@ -23,7 +23,7 @@ function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>)
 }
 
 interface ClockOptions {
-  method: 'card' | 'device';
+  method: 'card' | 'device' | 'phone';
   at?: string;
   roleId?: string;
   breakMinutes?: number;
@@ -45,7 +45,7 @@ function locate(org: OrgData, siteId: string, opts: ClockOptions): ClockLocation
     throw new HttpError(422, 'location_required', `${site.name} checks location when clocking. Allow location on this device and try again.`);
   }
   const check = checkFence(site.geofence, fix);
-  if (!check.ok && opts.method === 'device') {
+  if (!check.ok && opts.method !== 'card') {
     throw new HttpError(
       422,
       check.reason,
