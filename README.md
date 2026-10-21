@@ -37,7 +37,7 @@ accrual so the P&L carries true labour before payroll has even run.
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests (140 across 10 files)
+npm test         # engine and API tests (144 across 10 files)
 npm run build    # typecheck and production build
 ```
 
@@ -99,6 +99,11 @@ in Postgres across cold starts and instances. Without it, data is held in memory
 the function cold starts: fine for a demo, not for customers. Preshift never reads the generic
 `DATABASE_URL`, so it cannot write into another system's database by accident. The hosted API has
 no public key: people reach it by signing in, and integrations need a key from `PRESHIFT_API_KEYS`.
+
+Set `PRESHIFT_DOCUMENT_KEY` (`openssl rand -base64 32`) before anyone uploads a right to work copy.
+Copies are encrypted with it and it is never stored in the database; without it, a database
+deployment refuses uploads and views. Keep a copy of the key outside Vercel: losing it loses every
+stored copy. Every view of a copy is logged, and admins see the log on the employee record.
 
 ## Structure
 

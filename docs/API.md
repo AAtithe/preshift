@@ -41,7 +41,7 @@ confined to its key's organisation.
 | --- | --- |
 | Reference | `GET /v1/sites`, `/v1/roles`, `/v1/demand-rules` |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
-| Right to work copies | `POST /v1/employees/:id/right-to-work/documents?fileName=` with the file as the raw body (PDF, JPEG, PNG or WebP, up to 4 MB; the type is read from the bytes, anything else is 415), `GET .../documents/:docId` to view, `DELETE .../documents/:docId` (signed-in admins only). Each copy is listed on the employee's `rightToWork.documents` with its SHA-256, who added it and when. Editing the employee never changes that list. |
+| Right to work copies | `POST /v1/employees/:id/right-to-work/documents?fileName=` with the file as the raw body (PDF, JPEG, PNG or WebP, up to 4 MB; the type is read from the bytes, anything else is 415), `GET .../documents/:docId` to view, `DELETE .../documents/:docId` (signed-in admins only), `GET .../documents/:docId/access` (the copy's access log, signed-in admins only). Each copy is listed on the employee's `rightToWork.documents` with its SHA-256, who added it and when. Editing the employee never changes that list. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
@@ -133,6 +133,19 @@ organisation document holds only each file's name, size, hash and who added it. 
 by a request whose save then fails is removed again, and a deleted file is only removed once the
 record no longer names it.
 
+Every file is encrypted with AES-256-GCM under `PRESHIFT_DOCUMENT_KEY`, a key held in the
+deployment's environment and never in the database, so a copy of the database alone yields no
+documents. The organisation and file id are bound into each file, so a file moved to another
+record or altered fails to decrypt and is not shown. Generate the key with
+`openssl rand -base64 32` and keep a copy somewhere safe: files cannot be read without it. With a
+database and no valid key, uploads and views are refused (503 `document_key_missing`), and
+`/health` reports `documents: "no key"` or `"invalid key"`. The in-memory demo uses a throwaway key.
+
+Every addition, view and deletion of a file is written to `preshift.document_access`, an
+append-only table that keeps the entry after the file is deleted: who (email or API key name),
+how (signed in or integration), when, and from which IP address. A view is logged before the file
+is sent; if the log cannot be written, the file is not shown.
+
 ## Deployment (Vercel)
 
 `npm run build:vercel` writes one deployment using Vercel's Build Output API:
@@ -154,6 +167,5 @@ net, not the main path.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
 - Split the JSONB document into tables when cross-organisation reporting needs SQL.
-- Right to work copies are personal data of the highest sensitivity. Neon encrypts at rest; decide
-  whether to add application-level encryption with a key held outside the database, and whether
-  viewing a copy should be written to the audit log (today additions and deletions are; views are not).
+- Set `PRESHIFT_DOCUMENT_KEY` before anyone uploads a right to work copy, and store it outside
+  Vercel as well. Losing it loses every stored copy.

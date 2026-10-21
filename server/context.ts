@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import type { TeamPaySimulator } from './integrations/payroll/simulator';
+import type { DocumentCipher } from './documentCrypto';
 import type { OutboxDispatcher } from './outbox';
 import type { EmployerConfig } from './payrollEmployers';
 import type { OrgData, Store } from './store';
@@ -15,6 +16,8 @@ export interface AppContext {
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
+  /** Encrypts stored files. Null when a database is in use and no valid key is set: files are then refused. */
+  documentCipher: DocumentCipher | null;
 }
 
 declare module 'fastify' {

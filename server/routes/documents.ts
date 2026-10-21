@@ -3,7 +3,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Employee, RightToWorkDocument } from '../../src/engine/types';
 import { requireAdmin, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
-import { audit, type OrgData } from '../store';
+import type { DocumentCipher } from '../documentCrypto';
+import { audit, type DocumentAccess, type OrgData } from '../store';
 
 /** Under Vercel's 4.5 MB request limit. The web app shrinks large photos before sending them. */
 export const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
@@ -34,6 +35,30 @@ function employeeIn(org: OrgData, id: string): Employee {
   return e;
 }
 
+function cipherOf(ctx: AppContext): DocumentCipher {
+  if (!ctx.documentCipher) {
+    throw new HttpError(
+      503,
+      'document_key_missing',
+      'Right to work copies are encrypted, and no valid document key is set. Set PRESHIFT_DOCUMENT_KEY to 32 random bytes in base64.',
+    );
+  }
+  return ctx.documentCipher;
+}
+
+function accessEntry(req: FastifyRequest, documentId: string, employeeId: string, action: DocumentAccess['action']): DocumentAccess {
+  return {
+    orgId: orgOf(req).orgId,
+    documentId,
+    employeeId,
+    action,
+    at: new Date().toISOString(),
+    actor: req.principal.name,
+    via: req.principal.user ? 'session' : 'api key',
+    ip: req.ip,
+  };
+}
+
 // Files written or removed by a request, settled once the response shows whether the record was saved.
 const written = new WeakMap<FastifyRequest, string>();
 const removed = new WeakMap<FastifyRequest, string>();
@@ -56,13 +81,16 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
         querystring: { type: 'object', properties: { fileName: { type: 'string', maxLength: 255 } } },
       },
       onResponse: async (req, reply) => {
-        // The record did not save, so nothing names this file: remove it rather than leave it behind.
         const id = written.get(req);
-        if (id && reply.statusCode >= 400) await ctx.store.deleteDocument(orgOf(req).orgId, id);
+        if (!id) return;
+        // The record did not save, so nothing names this file: remove it rather than leave it behind.
+        if (reply.statusCode >= 400) await ctx.store.deleteDocument(orgOf(req).orgId, id);
+        else await ctx.store.logDocumentAccess(accessEntry(req, id, req.params.id, 'added'));
       },
     },
     async (req, reply) => {
       const org = orgOf(req);
+      const cipher = cipherOf(ctx);
       const e = employeeIn(org, req.params.id);
       const data = Buffer.isBuffer(req.body) ? req.body : null;
       if (!data?.length) throw new HttpError(400, 'invalid_request', 'Send the file as the request body.');
@@ -81,7 +109,7 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
         uploadedAt: new Date().toISOString(),
         uploadedBy: req.principal.name,
       };
-      await ctx.store.putDocument(org.orgId, doc.id, { contentType, data });
+      await ctx.store.putDocument(org.orgId, doc.id, { contentType, data: cipher.seal(org.orgId, doc.id, data) });
       written.set(req, doc.id);
       e.rightToWork = { ...rtw, documents: [...(rtw.documents ?? []), doc] };
       audit(org, req.principal.name, 'employee.rtw_document.added', { id: e.id, documentId: doc.id, sha256: doc.sha256 });
@@ -91,20 +119,46 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get<{ Params: { id: string; docId: string } }>(
     '/v1/employees/:id/right-to-work/documents/:docId',
-    { preHandler: requireScope('rota:read'), schema: { tags, description: 'The stored copy, to view or download.', params: docParams } },
+    {
+      preHandler: requireScope('rota:read'),
+      schema: { tags, description: 'The stored copy, to view or download. Every view is logged, with who and from where.', params: docParams },
+    },
     async (req, reply) => {
       const org = orgOf(req);
+      const cipher = cipherOf(ctx);
       const doc = employeeIn(org, req.params.id).rightToWork?.documents?.find((d) => d.id === req.params.docId);
       if (!doc) throw notFound(`Document ${req.params.docId}`);
       const file = await ctx.store.getDocument(org.orgId, doc.id);
       if (!file) throw notFound(`Document ${req.params.docId}`);
+      const data = cipher.open(org.orgId, doc.id, file.data);
+      // Logged before a single byte is sent: a view that cannot be recorded does not happen.
+      await ctx.store.logDocumentAccess(accessEntry(req, doc.id, req.params.id, 'viewed'));
       const ascii = doc.fileName.replace(/[^\x20-\x7e]/g, '_');
       return reply
         .header('content-type', doc.contentType)
         .header('content-disposition', `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(doc.fileName)}`)
         .header('x-content-type-options', 'nosniff')
         .header('cache-control', 'private, no-store')
-        .send(file.data);
+        .send(data);
+    },
+  );
+
+  app.get<{ Params: { id: string; docId: string } }>(
+    '/v1/employees/:id/right-to-work/documents/:docId/access',
+    {
+      preHandler: requireAdmin,
+      schema: {
+        tags,
+        description: 'Who added, viewed and deleted a copy, oldest first. Kept after the copy itself is deleted. Admins only.',
+        params: docParams,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      employeeIn(org, req.params.id);
+      const log = (await ctx.store.listDocumentAccess(org.orgId, req.params.docId)).filter((a) => a.employeeId === req.params.id);
+      if (log.length === 0) throw notFound(`Document ${req.params.docId}`);
+      return log;
     },
   );
 
@@ -121,7 +175,9 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
       onResponse: async (req, reply) => {
         // Only once the record no longer names it, so a failed save never leaves a link to nothing.
         const id = removed.get(req);
-        if (id && reply.statusCode < 400) await ctx.store.deleteDocument(orgOf(req).orgId, id);
+        if (!id || reply.statusCode >= 400) return;
+        await ctx.store.deleteDocument(orgOf(req).orgId, id);
+        await ctx.store.logDocumentAccess(accessEntry(req, id, req.params.id, 'deleted'));
       },
     },
     async (req) => {

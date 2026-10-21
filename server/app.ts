@@ -10,6 +10,7 @@ import { OutboxDispatcher } from './outbox';
 import { accessRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
 import { devRoutes } from './routes/dev';
+import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
@@ -77,6 +78,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
     : payrollFromEnv(env);
   const providerFor = () => payroll.provider;
+  const documents = documentCipherFromEnv(env, store instanceof PgStore);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
@@ -85,6 +87,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
+    documentCipher: documents.cipher,
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -143,6 +146,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       payroll: payroll.provider.name,
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
+      documents: documents.status,
     });
   });
 

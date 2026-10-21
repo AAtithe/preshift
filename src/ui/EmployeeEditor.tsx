@@ -6,6 +6,7 @@ import { formatMinute, parseClock } from '../engine/time';
 import type { Availability, Employee, HolidayRecord, RotaState } from '../engine/types';
 import { fileSize, MAX_UPLOAD_BYTES, shrinkPhoto } from './files';
 import { money } from './format';
+import type { DocumentAccess } from './store';
 
 interface Props {
   state: RotaState;
@@ -16,17 +17,20 @@ interface Props {
   /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
   onAddDocument: (id: string, file: Blob, fileName: string) => Promise<Employee>;
   onDeleteDocument: (id: string, documentId: string) => Promise<Employee>;
+  onDocumentHistory: (id: string, documentId: string) => Promise<DocumentAccess[]>;
   onClose: () => void;
 }
 
+const LONDON_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' });
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAddDocument, onDeleteDocument, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
   const [draft, setDraft] = useState<Employee>(employee);
   const [uploading, setUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ documentId: string; entries: DocumentAccess[] } | null>(null);
   const [leaveDay, setLeaveDay] = useState('');
   const [leaving, setLeaving] = useState<string | null>(null);
   const isNew = !state.employees.some((e) => e.id === employee.id);
@@ -109,6 +113,16 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
     setDocError(null);
     try {
       takeDocuments(await onDeleteDocument(draft.id, documentId));
+    } catch (e) {
+      setDocError((e as Error).message);
+    }
+  }
+
+  async function toggleHistory(documentId: string) {
+    if (history?.documentId === documentId) return setHistory(null);
+    setDocError(null);
+    try {
+      setHistory({ documentId, entries: await onDocumentHistory(draft.id, documentId) });
     } catch (e) {
       setDocError((e as Error).message);
     }
@@ -292,6 +306,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
         <p className="muted small">
           Keep a clear copy of every document checked: the photo page of a passport, both sides of a card, or the online
           check result for a share code. Hold it for the whole employment and {RTW_RETENTION_YEARS} years after, then delete it.
+          Copies are encrypted, and every time one is opened it is logged.
         </p>
         {documents.length > 0 && (
           <ul className="doc-list">
@@ -301,7 +316,19 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
                 <span className="muted small">
                   {fileSize(d.bytes)}, added {d.uploadedAt.slice(0, 10)} by {d.uploadedBy}
                 </span>
+                <button className="link" onClick={() => void toggleHistory(d.id)}>{history?.documentId === d.id ? 'Hide history' : 'History'}</button>
                 <button className="link danger" onClick={() => void deleteDocument(d.id, d.fileName)}>Delete</button>
+                {history?.documentId === d.id && (
+                  <ol className="doc-history">
+                    {history.entries.map((a, i) => (
+                      <li key={i} className="muted small">
+                        {LONDON_TIME.format(new Date(a.at))} {a.action} by {a.actor}
+                        {a.via === 'api key' ? ' (integration)' : ''}
+                        {a.ip ? ` from ${a.ip}` : ''}
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </li>
             ))}
           </ul>

@@ -145,14 +145,32 @@ export interface StoredFile {
   data: Buffer;
 }
 
+/** One touch of a stored file. Kept for good: the log outlives the file it describes. */
+export interface DocumentAccess {
+  orgId: string;
+  documentId: string;
+  employeeId: string;
+  action: 'added' | 'viewed' | 'deleted';
+  at: string;
+  /** The signed-in person's email, or the API key's name. */
+  actor: string;
+  via: 'session' | 'api key';
+  ip?: string;
+}
+
 /**
  * Files such as right to work copies, kept apart from the organisation document so that loading
  * the rota never pulls scans of passports with it. The record that names a file lives in OrgData.
+ * Files arrive here already encrypted; the store never sees the key.
  */
 export interface DocumentStore {
   putDocument(orgId: string, id: string, file: StoredFile): Promise<void>;
   getDocument(orgId: string, id: string): Promise<StoredFile | null>;
   deleteDocument(orgId: string, id: string): Promise<void>;
+  /** Append only: there is no way to change or remove an entry. */
+  logDocumentAccess(entry: DocumentAccess): Promise<void>;
+  /** Oldest first. */
+  listDocumentAccess(orgId: string, documentId: string): Promise<DocumentAccess[]>;
 }
 
 /**
@@ -313,6 +331,16 @@ export class MemoryStore implements Store {
     this.documents.delete(`${orgId}/${id}`);
   }
 
+  private readonly documentAccess: DocumentAccess[] = [];
+
+  async logDocumentAccess(entry: DocumentAccess) {
+    this.documentAccess.push({ ...entry });
+  }
+
+  async listDocumentAccess(orgId: string, documentId: string) {
+    return this.documentAccess.filter((a) => a.orgId === orgId && a.documentId === documentId).map((a) => ({ ...a }));
+  }
+
   private readonly settings = new Map<string, string>();
 
   async getSetting(key: string) {
@@ -398,6 +426,17 @@ export class PgStore implements Store {
          )`,
         [],
       );
+      await this.query(
+        `create table if not exists preshift.document_access (
+           seq bigserial primary key,
+           org_id text not null,
+           document_id text not null,
+           data jsonb not null,
+           at timestamptz not null default now()
+         )`,
+        [],
+      );
+      await this.query('create index if not exists document_access_doc_idx on preshift.document_access (org_id, document_id)', []);
     })().catch((err) => {
       // Instances starting together can collide creating the schema; let the next request try again
       // rather than leave this instance failing every request until it is recycled.
@@ -578,6 +617,21 @@ export class PgStore implements Store {
   async deleteDocument(orgId: string, id: string) {
     await this.init();
     await this.query('delete from preshift.documents where org_id = $1 and id = $2', [orgId, id]);
+  }
+
+  async logDocumentAccess(entry: DocumentAccess) {
+    await this.init();
+    await this.query('insert into preshift.document_access (org_id, document_id, data) values ($1, $2, $3)', [
+      entry.orgId,
+      entry.documentId,
+      JSON.stringify(entry),
+    ]);
+  }
+
+  async listDocumentAccess(orgId: string, documentId: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.document_access where org_id = $1 and document_id = $2 order by seq', [orgId, documentId]);
+    return rows.map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) as DocumentAccess);
   }
 
   async getSetting(key: string) {

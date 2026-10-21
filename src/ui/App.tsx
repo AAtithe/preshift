@@ -318,6 +318,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
           onAddDocument={actions.addRightToWorkDocument}
           onDeleteDocument={actions.deleteRightToWorkDocument}
+          onDocumentHistory={actions.rightToWorkDocumentHistory}
           onClose={() => setEditingPerson(null)}
         />
       )}
