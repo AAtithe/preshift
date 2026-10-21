@@ -97,10 +97,11 @@ export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
 
 /**
  * Disciplinary, grievance and capability cases are confidential: hr.cases, which needs the
- * authenticator. Others see that a case exists only through the checks, never its notes.
+ * authenticator. Others see that a case exists only through the checks, never its notes. Nobody
+ * sees or handles a case about themselves, whatever they hold: someone else runs it.
  */
-function seesCases(req: FastifyRequest, g: Guard): boolean {
-  return hrScoped(req) && g.can('hr.cases');
+function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
+  return hrScoped(req) && g.can('hr.cases') && (!employeeId || g.user?.employeeId !== employeeId);
 }
 
 /**
@@ -212,7 +213,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
           readable.has(r.employeeId) &&
           (!req.query.employeeId || r.employeeId === req.query.employeeId) &&
           (!req.query.kind || r.kind === req.query.kind) &&
-          (cases || r.kind !== 'case'),
+          (r.kind !== 'case' || (cases && r.employeeId !== g.user?.employeeId)),
       );
     },
   );
@@ -225,6 +226,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guardOf(req);
       mayManage(g, findEmployee(org, req.body.employeeId));
       if (req.body.kind === 'case') g.allow('hr.cases');
+      if (req.body.kind === 'case' && !seesCases(req, g, req.body.employeeId)) throw new HttpError(403, 'forbidden', 'Somebody else records a case about you.');
       validateRecord(org, req.body);
       const record: HrRecord = {
         ...req.body,
@@ -247,7 +249,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const i = org.hrRecords.findIndex((r) => r.id === req.params.id);
       const before = org.hrRecords[i];
       const g = guardOf(req);
-      if (!before || (before.kind === 'case' && !seesCases(req, g))) throw notFound(`Record ${req.params.id}`);
+      if (!before || (before.kind === 'case' && !seesCases(req, g, before.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, before.employeeId));
       if (req.body.employeeId && req.body.employeeId !== before.employeeId) mayManage(g, findEmployee(org, req.body.employeeId));
       if (req.body.kind && req.body.kind !== before.kind) throw new HttpError(422, 'kind_fixed', 'A record cannot change kind; add a new one');
@@ -266,7 +268,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const record = org.hrRecords.find((r) => r.id === req.params.id);
       const g = guardOf(req);
-      if (!record || (record.kind === 'case' && !seesCases(req, g))) throw notFound(`Record ${req.params.id}`);
+      if (!record || (record.kind === 'case' && !seesCases(req, g, record.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, record.employeeId));
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
       audit(org, actorName(g), 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });

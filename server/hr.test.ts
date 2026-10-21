@@ -31,7 +31,7 @@ async function setup() {
     });
     return { status: res.statusCode, body: res.body ? res.json() : undefined, headers: res.headers };
   };
-  return { app, call };
+  return { app, call, store };
 }
 
 describe('HR access', () => {
@@ -72,6 +72,21 @@ describe('HR access', () => {
     expect((await call('POST', '/v1/employees/shd-2/absences', sick, 'priya')).status).toBe(403);
     expect((await call('POST', '/v1/employees/mar-1/absences', sick, 'priya')).status).toBe(403);
     expect((await call('POST', '/v1/employees/mar-2/absences', sick, 'priya')).status).toBe(201);
+  });
+});
+
+describe('cases about the person reading them', () => {
+  it('keeps a case about someone away from them, even when they handle cases', async () => {
+    const { call, store } = await setup();
+    const cases = (await call('GET', '/v1/hr/records?kind=case', undefined, 'kate')).body as { id: string; employeeId: string }[];
+    const about = cases.find((c) => c.employeeId === 'mar-14')!;
+    // Kate is now on the rota as mar-14, the person the open disciplinary case is about.
+    (await store.load('demo')).users.find((u) => u.id === 'usr_people')!.employeeId = 'mar-14';
+    const seen = (await call('GET', '/v1/hr/records?kind=case', undefined, 'kate')).body as { id: string }[];
+    expect(seen.map((c) => c.id)).not.toContain(about.id);
+    expect(seen).toHaveLength(cases.length - 1);
+    expect((await call('PATCH', `/v1/hr/records/${about.id}`, { notes: 'closed by me' }, 'kate')).status).toBe(404);
+    expect((await call('POST', '/v1/hr/records', { employeeId: 'mar-14', kind: 'case', caseType: 'grievance', date: '2026-10-21', title: 'x' }, 'kate')).status).toBe(403);
   });
 });
 
