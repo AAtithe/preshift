@@ -3,12 +3,15 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
-import type { Shift } from '../engine/types';
+import { newEmployee } from '../engine/employees';
+import type { Employee, Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
+import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
+import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
@@ -18,12 +21,13 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close' | 'settings';
+type Tab = 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
+  { id: 'people', label: 'People' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
   { id: 'settings', label: 'Settings' },
@@ -51,6 +55,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
+  const today = toISODate(new Date());
   const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
@@ -154,7 +160,16 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           />
         )}
         {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
+        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} dates={dates} />}
+        {tab === 'people' && (
+          <PeopleView
+            state={state}
+            siteId={siteId}
+            today={today}
+            onEdit={setEditingPerson}
+            onAdd={() => setEditingPerson(newEmployee(siteId, state.roles[0].id, today))}
+          />
+        )}
         {tab === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} onChanged={actions.refreshShifts} />}
         {tab === 'close' && <CloseView week={week} />}
         {tab === 'settings' && me && <SettingsView me={me} />}
@@ -183,6 +198,20 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             onClose={() => setAssistantOpen(false)}
           />
         </Suspense>
+      )}
+
+      {editingPerson && (
+        <EmployeeEditor
+          state={state}
+          employee={editingPerson}
+          today={today}
+          onSave={async (employee) => {
+            const isNew = !state.employees.some((e) => e.id === employee.id);
+            if (await actions.saveEmployee(employee, isNew)) setEditingPerson(null);
+          }}
+          onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
+          onClose={() => setEditingPerson(null)}
+        />
       )}
 
       {editing && (

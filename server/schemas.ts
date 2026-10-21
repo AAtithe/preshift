@@ -58,6 +58,15 @@ export const employeeBody = {
       },
     },
     leave: { type: 'array', items: isoDate },
+    email: { type: 'string' },
+    phone: { type: 'string' },
+    startDate: isoDate,
+    rightToWork: {
+      type: 'object',
+      required: ['checked'],
+      additionalProperties: false,
+      properties: { checked: { type: 'boolean' }, checkedOn: isoDate, evidence: { type: 'string' }, expiry: isoDate },
+    },
   },
 } as const;
 

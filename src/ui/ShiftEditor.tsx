@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { checkEmployeeWeek, requiredBreakMinutes } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
+import { employedShare } from '../engine/employees';
 import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/time';
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
@@ -25,8 +26,9 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);
-    const without = employeeWeekCost(employee, week);
-    const withShift = employeeWeekCost(employee, [...week, draft]);
+    const share = employedShare(employee, ws);
+    const without = employeeWeekCost(employee, week, undefined, share);
+    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share);
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
       marginal: { ...withShift, total: withShift.total - without.total, ni: withShift.employerNi - without.employerNi },

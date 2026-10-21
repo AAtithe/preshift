@@ -69,9 +69,10 @@ function People({ me }: { me: Me }) {
 
   return (
     <section className="settings-card">
-      <h2>People</h2>
+      <h2>Who can sign in</h2>
       <p className="muted small">
-        Everyone here can sign in to this organisation. Admins can also add and remove people and change these settings.
+        Accounts for signing in to Preshift. This is separate from the People tab, which holds your staff records. Admins can
+        also add and remove accounts and change these settings.
       </p>
       <table className="table">
         <thead>
@@ -126,7 +127,7 @@ function People({ me }: { me: Me }) {
             <option value="admin">Admin</option>
           </select>
         </label>
-        <button className="primary" type="submit">Add person</button>
+        <button className="primary" type="submit">Add account</button>
       </form>
       {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
     </section>
