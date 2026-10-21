@@ -1,4 +1,4 @@
-import type { DemandRule, Employee, HourForecast, Role, RotaState, Site } from './types';
+import type { DemandRule, Employee, HourForecast, Role, RotaState, Site, TroncScheme } from './types';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -98,6 +98,27 @@ function employees(today: string): Employee[] {
   ];
 }
 
+const troncSchemes: TroncScheme[] = [
+  {
+    siteId: 'mar',
+    troncmaster: 'Grace Mensah, head server',
+    independent: true,
+    pointsPerHour: { server: 10, host: 8, bar: 10, chef: 7, kp: 6, gm: 0, am: 5 },
+    serviceCharge: 'discretionary',
+    policyPublishedOn: '2024-09-20',
+    lastReviewedOn: '2024-09-20',
+  },
+  {
+    // The GM decides who gets what, so the employer is allocating and NI is due.
+    siteId: 'shd',
+    troncmaster: 'Hannah Lee, general manager',
+    independent: false,
+    pointsPerHour: { server: 10, host: 8, bar: 10, chef: 8, kp: 6, gm: 0, am: 5 },
+    departmentShares: { FOH: 0.55, BAR: 0.2, BOH: 0.25 },
+    serviceCharge: 'mandatory',
+  },
+];
+
 const rules: DemandRule[] = [
   ...['mar', 'shd'].flatMap((siteId) => [
     { siteId, roleId: 'server', coversPerHour: 14, minimumWhileOpen: 1, maximum: 6 },
@@ -148,5 +169,7 @@ export function seedState(today = toISODate(new Date())): RotaState {
     demandRules: rules,
     clocks: [],
     actuals: [],
+    tips: [],
+    troncSchemes,
   };
 }

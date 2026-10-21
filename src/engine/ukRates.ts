@@ -10,6 +10,13 @@ export interface UkRates {
   employerNiRate: number;
   /** Employer NI secondary threshold, per week. */
   niSecondaryThresholdWeekly: number;
+  /** Employee NI: primary threshold and upper earnings limit per week, main and upper rates. */
+  niPrimaryThresholdWeekly: number;
+  niUpperEarningsLimitWeekly: number;
+  employeeNiMainRate: number;
+  employeeNiUpperRate: number;
+  /** Standard VAT rate, which applies to a mandatory service charge. */
+  vatRate: number;
   /** Auto-enrolment qualifying earnings band, per week. */
   pensionLowerWeekly: number;
   pensionUpperWeekly: number;
@@ -36,6 +43,11 @@ export const UK_RATES_2026_27: UkRates = {
   apprenticeRate: 8.0,
   employerNiRate: 0.15,
   niSecondaryThresholdWeekly: 96,
+  niPrimaryThresholdWeekly: 242,
+  niUpperEarningsLimitWeekly: 967,
+  employeeNiMainRate: 0.08,
+  employeeNiUpperRate: 0.02,
+  vatRate: 0.2,
   pensionLowerWeekly: 120,
   pensionUpperWeekly: 967,
   employerPensionRate: 0.03,

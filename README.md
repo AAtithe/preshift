@@ -50,6 +50,18 @@ Office or a tribunal would, because the firm that signs the accounts is the one 
 Penalties are ceilings, not predictions. Regulators reduce them for prompt disclosure, which is
 why finding the breach first is worth more than the penalty.
 
+## Tronc
+
+Tips and service charge, run the way the Employment (Allocation of Tips) Act 2023 and HMRC
+expect, by the firm that also runs the payroll.
+
+| Area | What it does | Where |
+| --- | --- | --- |
+| Allocation | The week's pool (service charge, card tips, pooled cash) split on clocked hours times points per role, after an optional department split. Departments that did not work have their share passed to those that did, and pennies go to the largest remainders, so every penny taken is passed on. Tips with no clocked hours to go to are held for the next run, never kept. | `src/engine/tronc.ts` |
+| Tax | National Insurance worked on each person's whole week of pay, so the saving from an independent troncmaster is the real figure, employer and staff, not 15% of the pool. VAT taken out of a mandatory service charge. | `src/engine/tronc.ts` |
+| The Act | Written policy, review with staff, every penny passed on, payment by the end of the month after the tips were taken, a scheme with no gaps in its department split, and a twelve-week tips record for any worker who asks. | `src/engine/tronc.ts`, `src/ui/TroncView.tsx` |
+| Payroll | Allocation file with the NI treatment for each payment, and a mark-paid step that clears the deadline. | `src/ui/TroncView.tsx` |
+
 ## Running it
 
 ```bash
@@ -65,7 +77,9 @@ the habits that open the gap on a real floor: early clock-ins, closers running o
 breaks, the odd no-show and an unrostered shift. Today is trading slowly so there is a cut call to
 make. Salaried managers work the long weeks they do in practice, one of them on a salary that does
 not cover the hours; a student was hand-rostered to the full term-time limit last week and an
-overrun took them over it; a visa at Shoreditch runs out next week. Data is held in the browser only; "Reset demo" regenerates it.
+overrun took them over it; a visa at Shoreditch runs out next week. Marylebone runs an
+independent tronc with a discretionary service charge; Shoreditch has the GM deciding the
+allocation, a mandatory charge and no written policy. Data is held in the browser only; "Reset demo" regenerates it.
 
 ## Structure
 

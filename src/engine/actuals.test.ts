@@ -74,6 +74,8 @@ const state = (over: Partial<RotaState>): RotaState => ({
   demandRules: [],
   clocks: [],
   actuals: [],
+  tips: [],
+  troncSchemes: [],
   ...over,
 });
 

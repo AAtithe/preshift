@@ -1,4 +1,4 @@
-import type { ClockRecord, HourActual, RotaState, Shift } from './types';
+import type { ClockRecord, HourActual, RotaState, Shift, TipsTaken } from './types';
 import { autoSchedule } from './autoschedule';
 import { addDays, toISODate, weekStart } from './time';
 import { seedState } from './seed';
@@ -96,7 +96,22 @@ export function simulateTrading(state: RotaState, until: TradeUntil, seed = 22, 
     actuals.push({ siteId: f.siteId, date: f.date, hour: f.hour, sales, covers: Math.round(f.covers * factor) });
   }
 
-  return { ...state, clocks, actuals };
+  // Service charge and tips on each full day traded. Shoreditch's charge is mandatory, so everyone pays it.
+  const tips: TipsTaken[] = [];
+  const daySales = new Map<string, number>();
+  for (const a of actuals) if (a.date < until.date) daySales.set(`${a.siteId}|${a.date}`, (daySales.get(`${a.siteId}|${a.date}`) ?? 0) + a.sales);
+  for (const [key, sales] of daySales) {
+    const [siteId, date] = key.split('|');
+    const mandatory = state.troncSchemes.find((t) => t.siteId === siteId)?.serviceCharge === 'mandatory';
+    const uptake = mandatory ? 1 : 0.84 + rnd() * 0.08;
+    const add = (source: TipsTaken['source'], amount: number) =>
+      tips.push({ id: `tip-${siteId}-${date}-${source}`, siteId, date, source, amount: Math.round(amount * 100) / 100 });
+    add('service-charge', sales * 0.125 * uptake);
+    add('card-tip', sales * (0.006 + rnd() * 0.008));
+    add('cash-pooled', sales * (0.002 + rnd() * 0.004));
+  }
+
+  return { ...state, clocks, actuals, tips };
 }
 
 // Salaried managers are rostered by hand: [employee, role, first weekday, start, end, break].

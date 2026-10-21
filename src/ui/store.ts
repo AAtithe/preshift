@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from 'react';
-import type { ClockRecord, RotaState, Shift } from '../engine/types';
+import type { ClockRecord, RotaState, Shift, TroncScheme } from '../engine/types';
+import { markWeekPaid } from '../engine/tronc';
 import { seedDemo } from '../engine/simulate';
 import { weekDates } from '../engine/time';
 
@@ -13,10 +14,12 @@ export type Action =
   | { type: 'clockIn'; clock: ClockRecord }
   | { type: 'clockOut'; clock: ClockRecord }
   | { type: 'approveClocks'; ids: string[] }
+  | { type: 'updateTroncScheme'; scheme: TroncScheme }
+  | { type: 'markTipsPaid'; siteId: string; weekStart: string; date: string }
   | { type: 'reset' };
 
-// v3 adds right to work records and salaried managers; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v3';
+// v4 adds tips and tronc schemes; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v4';
 
 function load(): RotaState {
   try {
@@ -69,6 +72,10 @@ function reducer(state: RotaState, action: Action): RotaState {
       const ids = new Set(action.ids);
       return { ...state, clocks: state.clocks.map((c) => (ids.has(c.id) ? { ...c, approved: true } : c)) };
     }
+    case 'updateTroncScheme':
+      return { ...state, troncSchemes: state.troncSchemes.map((t) => (t.siteId === action.scheme.siteId ? action.scheme : t)) };
+    case 'markTipsPaid':
+      return { ...state, tips: markWeekPaid(state.tips, action.siteId, action.weekStart, action.date) };
     case 'reset':
       return seedDemo();
   }

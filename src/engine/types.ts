@@ -149,6 +149,41 @@ export interface HourActual {
   covers: number;
 }
 
+/**
+ * Tips, gratuities and service charges the business took on the customer's
+ * behalf on one day. Under the Employment (Allocation of Tips) Act 2023 all of
+ * it belongs to the workers.
+ */
+export interface TipsTaken {
+  id: string;
+  siteId: string;
+  date: string;
+  source: 'service-charge' | 'card-tip' | 'cash-pooled';
+  amount: number;
+  /** Date the money reached staff through payroll. */
+  paidOn?: string;
+}
+
+export interface TroncScheme {
+  siteId: string;
+  /** The person who decides the allocation. */
+  troncmaster: string;
+  /**
+   * The troncmaster decides the allocation without the employer. Only then are
+   * the payments free of Class 1 National Insurance.
+   */
+  independent: boolean;
+  /** Points per clocked hour by role. */
+  pointsPerHour: Record<string, number>;
+  /** Optional split of the pool by department before points are applied. */
+  departmentShares?: Partial<Record<Department, number>>;
+  serviceCharge: 'none' | 'discretionary' | 'mandatory';
+  /** Date the written tipping policy was made available to staff. */
+  policyPublishedOn?: string;
+  /** Date staff were last consulted on whether the allocation is fair. */
+  lastReviewedOn?: string;
+}
+
 export interface RotaState {
   sites: Site[];
   roles: Role[];
@@ -158,4 +193,6 @@ export interface RotaState {
   demandRules: DemandRule[];
   clocks: ClockRecord[];
   actuals: HourActual[];
+  tips: TipsTaken[];
+  troncSchemes: TroncScheme[];
 }
