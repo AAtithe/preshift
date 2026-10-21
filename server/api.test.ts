@@ -264,3 +264,18 @@ describe('multi-site and multi-entity', () => {
     expect(up.entities[0].employmentAllowance).toBeUndefined();
   });
 });
+
+describe('holiday', () => {
+  it('stores a holiday record on an employee and a leave year on a company', async () => {
+    const { call } = await setup();
+    const holiday = { entitlementWeeks: 6, carriedOverHours: 8, openingTakenHours: 16, dayHours: { '2026-11-02': 4 } };
+    const saved = await call('PATCH', '/v1/employees/mar-2', { holiday });
+    expect(saved.status).toBe(200);
+    expect(saved.body.holiday).toEqual(holiday);
+    expect((await call('PATCH', '/v1/employees/mar-2', { holiday: { entitlementWeeks: 4 } })).status).toBe(400);
+
+    const entity = await call('PATCH', '/v1/entities/wdl', { leaveYearStart: '04-01' });
+    expect(entity.body.leaveYearStart).toBe('04-01');
+    expect((await call('PATCH', '/v1/entities/wdl', { leaveYearStart: '13-01' })).status).toBe(400);
+  });
+});

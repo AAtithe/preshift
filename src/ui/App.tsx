@@ -11,6 +11,7 @@ import { DemandView } from './DemandView';
 import { GroupView } from './GroupView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
+import { HolidayView } from './HolidayView';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
@@ -23,7 +24,7 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'settings';
 
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string }[] = [
@@ -32,6 +33,7 @@ const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
   { id: 'people', label: 'People' },
+  { id: 'holiday', label: 'Holiday' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
   { id: 'settings', label: 'Settings' },
@@ -39,6 +41,7 @@ const SITE_TABS: { id: Tab; label: string }[] = [
 const GROUP_TABS: { id: Tab; label: string }[] = [
   { id: 'sites', label: 'Sites' },
   { id: 'team', label: 'Team' },
+  { id: 'holiday', label: 'Holiday' },
   { id: 'close', label: 'Close' },
   { id: 'settings', label: 'Settings' },
 ];
@@ -227,6 +230,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             today={today}
             onEdit={setEditingPerson}
             onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
+          />
+        )}
+        {activeTab === 'holiday' && (
+          <HolidayView
+            state={state}
+            siteIds={siteIds}
+            today={today}
+            onEdit={setEditingPerson}
+            onSetLeaveYear={actions.setLeaveYearStart}
           />
         )}
         {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}

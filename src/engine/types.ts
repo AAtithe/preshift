@@ -38,6 +38,8 @@ export interface Entity {
    * runs its own payroll, so starters, hours and pay runs are routed by it.
    */
   payrollEmployerId?: string;
+  /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
+  leaveYearStart?: string;
 }
 
 export interface Site {
@@ -96,6 +98,19 @@ export interface RightToWork {
   expiry?: string;
 }
 
+/** Holiday position that is not derived from shifts and leave dates. All figures in hours. */
+export interface HolidayRecord {
+  /** Contractual entitlement in weeks a year, for people on fixed hours. Statutory minimum 5.6. */
+  entitlementWeeks?: number;
+  /** Untaken leave carried in from the previous leave year. */
+  carriedOverHours?: number;
+  /** Opening position when records began part way through the leave year. Accrued applies to accrual staff only. */
+  openingAccruedHours?: number;
+  openingTakenHours?: number;
+  /** Hours a leave date counts for, where it is not a normal day. */
+  dayHours?: Record<string, number>;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -122,6 +137,7 @@ export interface Employee {
   availability: Availability[];
   /** ISO dates the person is on approved leave. */
   leave: string[];
+  holiday?: HolidayRecord;
   email?: string;
   phone?: string;
   /** First day of employment. Absent means employed before records began. */
