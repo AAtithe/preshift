@@ -19,3 +19,5 @@
 .staff-list li { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
 .staff-list li:first-child { border-top: none; }
 .staff-day { color: var(--muted); }
+.staff-breaks { display: grid; gap: 6px; }
+.staff-breaks p { margin: 0; }

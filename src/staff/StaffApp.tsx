@@ -14,6 +14,8 @@ interface Entry {
   breakMinutes: number;
   status: 'open' | 'submitted' | 'approved' | 'rejected';
   method: string | null;
+  breaks: { start: number; end?: number }[];
+  onBreak: boolean;
 }
 
 interface Overview {
@@ -24,6 +26,8 @@ interface Overview {
   open: Entry | null;
   shifts: { id: string; date: string; startMinute: number; endMinute: number; breakMinutes: number; siteName: string; roleName: string }[];
   recent: Entry[];
+  /** The legal minimum break for the shift they are on, when there is one. */
+  breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
 }
 
 type GeoState = { status: 'locating' | 'denied' | 'unavailable' } | { status: 'ok'; fix: GeoFix };
@@ -199,6 +203,31 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
   const check = target?.geofence && fix ? checkFence(target.geofence, fix) : null;
   const todays = data.shifts.filter((s) => s.date === data.today);
 
+  const taken = data.open
+    ? data.open.breaks.reduce((sum, b) => sum + (b.end !== undefined ? b.end - b.start : 0), 0)
+    : 0;
+
+  // Not location checked: a break only lowers the hours paid, and people often take it off site.
+  async function breakAction(kind: 'start' | 'end') {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await call<Overview>('POST', `/v1/staff/break-${kind}`);
+      onChange(next);
+      const last = next.open?.breaks[next.open.breaks.length - 1];
+      setMessage(
+        kind === 'start'
+          ? { tone: 'good', text: `Break started at ${formatMinute(last?.start ?? 0)}. Enjoy it.` }
+          : { tone: 'good', text: `Break ended at ${formatMinute(last?.end ?? 0)}, ${(last?.end ?? 0) - (last?.start ?? 0)} minutes.` },
+      );
+    } catch (e) {
+      if (e instanceof Problem && e.status === 401) return onSignedOut();
+      setMessage({ tone: 'bad', text: say(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function clock() {
     setBusy(true);
     setMessage(null);
@@ -227,13 +256,18 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
   else if (geo.status !== 'ok' || !check) where = { tone: 'bad', text: 'Your phone cannot find its location right now.' };
   else if (check.ok) where = { tone: 'good', text: `You are at ${target.name}` };
   else if (check.reason === 'too_imprecise') where = { tone: 'bad', text: 'Your location is too rough to confirm. Turn on precise location, or step outside for a moment.' };
-  else where = { tone: 'bad', text: `You are ${distance(check.distanceMetres)} from ${target.name}. Clock in when you arrive.` };
+  else where = { tone: 'bad', text: `You are ${distance(check.distanceMetres)} from ${target.name}. ${data.open ? 'Come back on site to clock out.' : 'Clock in when you arrive.'}` };
 
   return (
     <>
       <section className="staff-card staff-clock">
         <div className="staff-status">
-          {data.open ? (
+          {data.open?.onBreak ? (
+            <>
+              <div className="staff-state warn-text">On break</div>
+              <div className="muted">Since {formatMinute(data.open.breaks[data.open.breaks.length - 1].start)}. Clocked in at {formatMinute(data.open.clockIn)}, {data.open.siteName}</div>
+            </>
+          ) : data.open ? (
             <>
               <div className="staff-state good-text">Clocked in</div>
               <div className="muted">Since {formatMinute(data.open.clockIn)} at {data.open.siteName}</div>
@@ -249,13 +283,33 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
             </>
           )}
         </div>
+        {data.open && (
+          <div className="staff-breaks">
+            {data.open.onBreak ? (
+              <button className="staff-big primary" disabled={busy} onClick={() => void breakAction('end')}>
+                {busy ? 'Saving' : 'End break'}
+              </button>
+            ) : (
+              <button className="staff-big" disabled={busy} onClick={() => void breakAction('start')}>
+                {busy ? 'Saving' : 'Start break'}
+              </button>
+            )}
+            <p className="muted small">
+              {taken ? `Breaks so far: ${taken} min. ` : ''}
+              {data.breakEntitlement
+                ? `This shift gives you at least ${data.breakEntitlement.minutes} minutes' break${data.breakEntitlement.under18 ? ' (under 18)' : ''}${data.breakEntitlement.planned ? `; the rota plans ${data.breakEntitlement.planned}` : ''}. `
+                : ''}
+              Breaks are unpaid.
+            </p>
+          </div>
+        )}
         <p className={`staff-where ${where.tone === 'good' ? 'good-text' : where.tone === 'bad' ? 'bad-text' : 'muted'}`}>{where.text}</p>
         <button
           className={`staff-big ${data.open ? '' : 'primary'}`}
           disabled={busy || !check?.ok}
           onClick={() => void clock()}
         >
-          {busy ? 'Saving' : data.open ? 'Clock out' : 'Clock in'}
+          {busy ? 'Saving' : data.open ? (data.open.onBreak ? 'End break and clock out' : 'Clock out') : 'Clock in'}
         </button>
         {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
       </section>
@@ -296,14 +350,14 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
                   <span className="staff-day">{d.short} {d.date}</span>
                   <span>
                     <span className="strong">{formatMinute(t.clockIn)} to {t.clockOut !== null ? formatMinute(t.clockOut) : 'now'}</span>
-                    <span className="muted small"> {worked.toFixed(2)} h, {t.status === 'approved' ? 'approved' : 'waiting for approval'}</span>
+                    <span className="muted small"> {worked.toFixed(2)} h{t.breakMinutes ? `, ${t.breakMinutes} min break` : ''}, {t.status === 'approved' ? 'approved' : 'waiting for approval'}</span>
                   </span>
                 </li>
               );
             })}
           </ul>
         )}
-        <p className="muted small">Breaks and corrections are made by your manager before approval.</p>
+        <p className="muted small">Your manager checks hours and breaks, and corrects them if needed, before approval.</p>
       </section>
     </>
   );

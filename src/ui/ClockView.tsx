@@ -14,7 +14,7 @@ interface Props {
 }
 
 interface TapResult {
-  action: 'clock_in' | 'clock_out' | 'already_clocked_in' | 'already_clocked_out';
+  action: 'clock_in' | 'clock_out' | 'break_end' | 'already_clocked_in' | 'already_clocked_out';
   employee: { id: string; name: string };
   entry: TimeEntry;
 }
@@ -224,7 +224,9 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
                     <td>{person.name}{!shift && <span className="tag">Not on rota</span>}</td>
                     <td className="nowrap">{shift ? `${formatMinute(shift.startMinute)} to ${formatMinute(shift.endMinute)}` : 'None'}</td>
                     <td>
-                      {entry ? (
+                      {entry?.breaks?.some((b) => b.end === undefined) ? (
+                        <span className="warn-text">On break since {formatMinute(entry.breaks[entry.breaks.length - 1].start)}</span>
+                      ) : entry ? (
                         <span className="good-text">In since {formatMinute(entry.clockIn)}{entry.method === 'card' ? ' (card)' : ''}</span>
                       ) : done.length ? (
                         <span className="muted">Clocked out {formatMinute(done[done.length - 1].clockOut!)}</span>
@@ -344,6 +346,10 @@ function tapText({ action, employee, entry }: TapResult): string {
       return `Welcome, ${employee.name}. Clocked in at ${formatMinute(entry.clockIn)}.`;
     case 'clock_out':
       return `Thanks, ${employee.name}. Clocked out at ${formatMinute(entry.clockOut!)}.`;
+    case 'break_end': {
+      const last = entry.breaks?.[entry.breaks.length - 1];
+      return `Welcome back, ${employee.name}. Break ended at ${formatMinute(last?.end ?? 0)}, ${(last?.end ?? 0) - (last?.start ?? 0)} minutes. Tap again later to clock out.`;
+    }
     case 'already_clocked_in':
       return `${employee.name}, you are already clocked in from ${formatMinute(entry.clockIn)}.`;
     case 'already_clocked_out':

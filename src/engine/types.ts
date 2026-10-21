@@ -62,6 +62,12 @@ export interface GeoFence {
   radiusMetres: number;
 }
 
+/** One break, as the person recorded it. */
+export interface BreakPeriod {
+  start: number;
+  end?: number;
+}
+
 /** A device's position when someone clocked, as the browser reported it. */
 export interface GeoFix {
   lat: number;
@@ -192,6 +198,8 @@ export interface TimeEntry {
   method?: 'card' | 'device' | 'phone';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
+  /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */
+  breaks?: BreakPeriod[];
   approvedBy?: string;
   approvedAt?: string;
 }

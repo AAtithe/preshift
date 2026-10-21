@@ -1,7 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
-import { addDays } from '../../src/engine/time';
+import { requiredBreakMinutes } from '../../src/engine/compliance';
+import { addDays, ageOn } from '../../src/engine/time';
 import type { Employee, GeoFix, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf } from '../context';
@@ -10,7 +11,7 @@ import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCo
 import { geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData, type StaffLogin, type Store } from '../store';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
-import { clockIn, clockOut } from './time';
+import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
 
 const INVITE_DAYS = 7;
 
@@ -69,14 +70,21 @@ function overview({ org, employee, login }: Staff) {
   const entryView = (t: TimeEntry) => ({
     id: t.id, date: t.date, siteId: t.siteId, siteName: siteName(t.siteId), clockIn: t.clockIn, clockOut: t.clockOut ?? null,
     breakMinutes: t.breakMinutes, status: t.status, method: t.method ?? null,
+    breaks: t.breaks ?? [], onBreak: onBreak(t),
   });
   const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
+  // The legal minimum for the shift they are on, so people know what they are owed.
+  const shift = open
+    ? org.state.shifts.find((s) => s.id === open.shiftId)
+    : org.state.shifts.find((s) => s.employeeId === employee.id && s.date === today && s.published);
+  const owed = shift ? requiredBreakMinutes(shift.endMinute - shift.startMinute, ageOn(employee.dateOfBirth, today)) : 0;
   return {
     employee: { id: employee.id, name: employee.name },
     email: login.email,
     today,
     sites: clockableSites(org, employee, new Date()).map(siteView),
     open: open ? entryView(open) : null,
+    breakEntitlement: owed ? { minutes: owed, planned: shift!.breakMinutes, under18: ageOn(employee.dateOfBirth, today) < 18 } : null,
     // Only published shifts: until the rota is published it is still the manager's draft.
     shifts: org.state.shifts
       .filter((s) => s.employeeId === employee.id && s.published && s.date >= today && s.date <= addDays(today, 13))
@@ -207,6 +215,29 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
       return overview(staff);
     },
   );
+
+  breakRoutes(app, store);
+}
+
+/**
+ * Breaks need no location check: a break is unpaid time, so recording one can only lower the
+ * hours paid, and people often take it away from the building.
+ */
+function breakRoutes(app: FastifyInstance, store: Store) {
+  for (const [path, action, apply] of [
+    ['/v1/staff/break-start', 'time.phone_break_start', startBreak],
+    ['/v1/staff/break-end', 'time.phone_break_end', endBreak],
+  ] as const) {
+    app.post(path, { schema: { hide: true } }, async (req) => {
+      const staff = await requireStaff(req, store);
+      const entry = staff.org.timeEntries.find((t) => t.employeeId === staff.employee.id && t.status === 'open');
+      if (!entry) throw new HttpError(409, 'not_clocked_in', 'You are not clocked in.');
+      apply(entry);
+      audit(staff.org, `staff:${staff.employee.id}`, action, { id: entry.id });
+      await store.save(staff.org);
+      return overview(staff);
+    });
+  }
 }
 
 /** Managers invite staff and close logins. Registered inside the authenticated API. */

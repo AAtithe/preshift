@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkFence, distanceMetres, normaliseBadge } from '../src/engine/clocking';
 import { buildApp } from './app';
+import { clockIn, clockOut, endBreak, startBreak } from './routes/time';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
 
@@ -108,5 +109,41 @@ describe('RFID cards', () => {
     await call('PUT', '/v1/employees/mar-1/badge', { badgeId: 'AB12CD34' });
     const saved = await call('PATCH', '/v1/employees/mar-1', { phone: '07700 900123', badgeId: 'HIJACK' });
     expect(saved.body.badgeId).toBe('AB12CD34');
+  });
+});
+
+describe('breaks', () => {
+  const lon = (day: string, hhmm: string) => `2026-10-${day}T${hhmm}:00+01:00`;
+
+  it('sets the unpaid minutes from the breaks recorded, including one running past midnight', async () => {
+    const org = await new MemoryStore(['demo'], '2026-10-21').load('demo');
+    const employee = org.state.employees.find((e) => e.id === 'mar-1')!;
+    const entry = clockIn(org, employee, 'mar', { method: 'card', at: lon('21', '16:58') });
+    startBreak(entry, lon('21', '19:30'));
+    expect(() => startBreak(entry, lon('21', '19:31'))).toThrow(/already on a break/);
+    endBreak(entry, lon('21', '20:00'));
+    expect(() => endBreak(entry, lon('21', '20:01'))).toThrow(/not on a break/);
+    startBreak(entry, lon('21', '23:50'));
+    // Clocking out ends the break still running.
+    clockOut(org, entry, { method: 'card', at: lon('22', '00:05') });
+    expect(entry.breaks).toEqual([{ start: 1170, end: 1200 }, { start: 1430, end: 1445 }]);
+    expect(entry).toMatchObject({ clockOut: 1445, breakMinutes: 45, status: 'submitted' });
+  });
+
+  it('treats a card tap during a break as coming back, not leaving', async () => {
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const { app } = await buildApp({ apiKeys: [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*'] }], store, provider: new TeamPaySimulator(), autoDispatch: false });
+    const tap = (hhmm: string) =>
+      app.inject({ method: 'POST', url: '/v1/time-entries/tap', headers: { authorization: 'Bearer admin', 'content-type': 'application/json' }, payload: { badgeId: 'AB12CD34', siteId: 'mar', at: at(hhmm) } }).then((r) => r.json());
+    (await store.load('demo')).state.employees.find((e) => e.id === 'mar-1')!.badgeId = 'AB12CD34';
+
+    const tapIn = await tap('16:58');
+    startBreak((await store.load('demo')).timeEntries.find((t) => t.id === tapIn.entry.id)!, at('19:30'));
+    const back = await tap('20:00');
+    expect(back).toMatchObject({ action: 'break_end', entry: { status: 'open', breaks: [{ start: 1170, end: 1200 }] } });
+    // A double read on the way back in is ignored, not taken as clocking out.
+    expect((await tap('20:01')).action).toBe('already_clocked_in');
+    const out = await tap('23:00');
+    expect(out).toMatchObject({ action: 'clock_out', entry: { breakMinutes: 30, clockOut: 1380 } });
   });
 });
