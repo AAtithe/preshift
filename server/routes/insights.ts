@@ -477,6 +477,8 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const p = programmeOf(org, req.params.siteId);
       if (req.body.to < req.body.from) throw new HttpError(422, 'invalid_period', 'The period ends before it starts');
+      // A saving is measured against a baseline; verifying first would lock the programme with nothing to measure against.
+      if (!p.baseline) throw new HttpError(422, 'no_baseline', 'Record the baseline before signing off a period.');
       // A period that overlaps the baseline or predates the programme would never count; refuse it rather than look accepted.
       if (req.body.from < p.startWeek || (p.baseline && req.body.from <= p.baseline.to)) {
         throw new HttpError(422, 'outside_programme', `A verified period must start on or after ${p.baseline && p.baseline.to >= p.startWeek ? `the day after the baseline ends (${p.baseline.to})` : `programme week 1 (${p.startWeek})`}.`);

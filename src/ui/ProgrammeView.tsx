@@ -298,7 +298,8 @@ function SiteDetail({ entry, lead, busy, act }: { entry: Entry; lead: boolean; b
             <button disabled={busy}>{p.baseline ? 'Replace baseline' : 'Record baseline'}</button>
           </form>
         )}
-        {lead && (
+        {lead && !p.baseline && <p className="muted small">Record the baseline first; a saving is signed off against it.</p>}
+        {lead && p.baseline && (
           <form className="settings-form" onSubmit={saveVerification}>
             <label>Verified period from<input type="date" required value={verify.from} onChange={(e) => setVerify({ ...verify, from: e.target.value })} /></label>
             <label>To<input type="date" required value={verify.to} onChange={(e) => setVerify({ ...verify, to: e.target.value })} /></label>

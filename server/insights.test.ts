@@ -168,6 +168,8 @@ describe('scorecard and programme', () => {
     const set = await call('PUT', '/v1/programmes/mar', { startWeek: '2026-10-07', gainSharePct: 0.2 }, 'ws');
     expect(set.body.startWeek).toBe('2026-10-05');
 
+    // No verification before a baseline: it would lock the programme with nothing to measure against.
+    expect((await call('POST', '/v1/programmes/mar/verifications', { from: '2026-10-05', to: '2026-10-18', sales: 75_000, labourCost: 21_000 }, 'ws')).body.error).toBe('no_baseline');
     expect((await call('PUT', '/v1/programmes/mar/baseline', { from: '2026-08-01', to: '2026-08-31', source: 'till_and_payroll' }, 'ws')).body.error).toBe('whole_weeks');
     const base = await call('PUT', '/v1/programmes/mar/baseline', { from: '2025-10-01', to: '2026-09-30', source: 'management_accounts', sales: 1_900_000, labourCost: 589_000 }, 'ws');
     expect(base.body.baseline).toMatchObject({ sales: 1_900_000, source: 'management_accounts', recordedBy: 'WS lead' });
