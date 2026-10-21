@@ -25,7 +25,7 @@ async function setup() {
   const shift = (date: string, id: string): Shift => ({
     id, employeeId: 'mar-8', roleId: 'server', siteId: 'mar', date, startMinute: 12 * 60, endMinute: 16 * 60, breakMinutes: 0,
   });
-  return { put, org, shift };
+  return { put, org, shift, store };
 }
 
 describe('saving an assistant draft', () => {
@@ -72,5 +72,46 @@ describe('saving an assistant draft', () => {
     expect(res.statusCode).toBe(200);
     const byId = Object.fromEntries(org.state.shifts.map((s) => [s.id, s.published]));
     expect(byId).toMatchObject({ p1: true, p2: false });
+  });
+});
+
+describe('editing worked shifts by hand', () => {
+  async function withWorked() {
+    const t = await setup();
+    const call = async (method: string, url: string, body?: unknown) => {
+      const { app } = await buildApp({ apiKeys: [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*'] }], store: t.store, provider: new TeamPaySimulator(), autoDispatch: false });
+      const res = await app.inject({ method: method as 'GET', url, headers: { authorization: 'Bearer admin', ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+      return { status: res.statusCode, body: res.body ? res.json() : undefined };
+    };
+    const now = londonParts(new Date());
+    // Running now: started an hour ago and finishing in an hour (or the latest the day allows).
+    const running: Shift = { ...t.shift(now.date, 'running'), startMinute: Math.max(0, now.minute - 60), endMinute: Math.min(1439, now.minute + 60) };
+    const finished = t.shift(LAST_WEEK, 'finished');
+    const clockedAhead = t.shift(NEXT_WEEK, 'clocked-ahead');
+    t.org.state.shifts.push(running, finished, clockedAhead);
+    t.org.timeEntries.push({ id: 'te', employeeId: 'mar-8', siteId: 'mar', roleId: 'server', shiftId: 'clocked-ahead', date: NEXT_WEEK, clockIn: 700, breakMinutes: 0, status: 'open', source: 'clock' });
+    return { ...t, call, running, finished };
+  }
+
+  it('refuses deleting or reassigning a worked shift, but lets a running shift run late', async () => {
+    const t = await withWorked();
+    expect((await t.call('DELETE', '/v1/shifts/finished')).body.error).toBe('worked_shift');
+    expect((await t.call('DELETE', '/v1/shifts/clocked-ahead')).status).toBe(409);
+    expect((await t.call('PATCH', '/v1/shifts/running', { employeeId: 'mar-7' })).body.error).toBe('worked_shift');
+    expect((await t.call('PATCH', '/v1/shifts/running', { startMinute: 0 })).status).toBe(409);
+    expect((await t.call('PATCH', '/v1/shifts/finished', { endMinute: 17 * 60 })).status).toBe(409);
+    if (t.running.endMinute < 1439) {
+      expect((await t.call('PATCH', '/v1/shifts/running', { endMinute: t.running.endMinute + 1 })).status).toBe(200);
+    }
+  });
+
+  it('keeps worked shifts when a week is cleared, and never builds into hours already gone', async () => {
+    const t = await withWorked();
+    const cleared = await t.call('POST', '/v1/rota/clear', { siteId: 'mar', weekStart: LAST_WEEK });
+    expect(cleared.body).toMatchObject({ removed: 0, kept: 1 });
+    await t.call('POST', '/v1/rota/build', { siteId: 'mar', weekStart: weekStart(today) });
+    const now = londonParts(new Date());
+    const built = t.org.state.shifts.filter((s) => s.id.startsWith('auto-'));
+    expect(built.every((s) => s.date > now.date || (s.date === now.date && s.startMinute > now.minute))).toBe(true);
   });
 });

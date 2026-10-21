@@ -58,6 +58,22 @@ function sameShift(a: Shift, b: Shift) {
   );
 }
 
+/**
+ * A shift that has started, or been clocked against, is a record of what happened: timesheets,
+ * holiday and payroll hang off it. Manual edits may still extend it or change its break while it is
+ * running, but nothing can reassign, move or remove it, and nothing changes once it has finished.
+ */
+function isWorked(org: OrgData, shift: Shift, now = londonParts(new Date())) {
+  return hasStarted(shift, now) || org.timeEntries.some((t) => t.shiftId === shift.id);
+}
+
+function hasFinished(shift: Shift, now = londonParts(new Date())) {
+  return hasStarted({ date: shift.date, startMinute: shift.endMinute }, now);
+}
+
+const workedError = (shift: Shift, detail: string) =>
+  new HttpError(409, 'worked_shift', `This shift has started or been clocked against, so ${detail}`, [shift.id]);
+
 function validateShift(org: OrgData, shift: Shift) {
   requireSite(org, shift.siteId);
   if (!org.state.employees.some((e) => e.id === shift.employeeId)) throw notFound(`Employee ${shift.employeeId}`);
@@ -105,7 +121,13 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const i = org.state.shifts.findIndex((s) => s.id === req.params.id);
       if (i < 0) throw notFound(`Shift ${req.params.id}`);
-      const shift: Shift = { ...org.state.shifts[i], ...req.body, id: req.params.id, published: false };
+      const old = org.state.shifts[i];
+      if (isWorked(org, old)) {
+        const moved = (['employeeId', 'roleId', 'siteId', 'date', 'startMinute'] as const).filter((k) => req.body[k] !== undefined && req.body[k] !== old[k]);
+        if (moved.length) throw workedError(old, 'only its finish time and break can change.');
+        if (hasFinished(old)) throw workedError(old, 'and it has finished, it can no longer be changed. Correct the hours on the timesheet.');
+      }
+      const shift: Shift = { ...old, ...req.body, id: req.params.id, published: false };
       validateShift(org, shift);
       org.state.shifts[i] = shift;
       audit(org, req.principal.name, 'shift.updated', { id: shift.id });
@@ -115,9 +137,10 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
 
   app.delete<{ Params: { id: string } }>('/v1/shifts/:id', { ...write, schema: { tags: ['Shifts'], params: idParam } }, async (req, reply) => {
     const org = orgOf(req);
-    const before = org.state.shifts.length;
+    const target = org.state.shifts.find((s) => s.id === req.params.id);
+    if (!target) throw notFound(`Shift ${req.params.id}`);
+    if (isWorked(org, target)) throw workedError(target, 'it cannot be removed. Record an absence on the timesheet instead.');
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
-    if (org.state.shifts.length === before) throw notFound(`Shift ${req.params.id}`);
     audit(org, req.principal.name, 'shift.deleted', { id: req.params.id });
     return reply.code(204).send();
   });
@@ -150,7 +173,12 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const siteIds = sitesOf(org, req.body, true);
       const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
-      org.state.shifts = result.shifts;
+      // The build fills the whole week; hours already gone are left as they happened.
+      const now = londonParts(new Date());
+      const late = new Set(result.added.filter((s) => hasStarted(s, now)).map((s) => s.id));
+      result.added = result.added.filter((s) => !late.has(s.id));
+      result.unfilled = result.unfilled.filter((g) => !hasStarted({ date: g.date, startMinute: g.toHour * 60 - 1 }, now));
+      org.state.shifts = result.shifts.filter((s) => !late.has(s.id));
       audit(org, req.principal.name, 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
       return { added: result.added, unfilled: result.unfilled };
     },
@@ -231,11 +259,14 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     const org = orgOf(req);
     const siteIds = sitesOf(org, req.body, false);
     const dates = weekDates(req.body.weekStart);
-    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)));
+    const now = londonParts(new Date());
+    // Worked shifts stay: clearing a week plans it afresh, it does not rewrite what happened.
+    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)) || isWorked(org, s, now));
     const removed = org.state.shifts.length - keep.length;
+    const kept = keep.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date)).length;
     org.state.shifts = keep;
-    audit(org, req.principal.name, 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed });
-    return { removed };
+    audit(org, req.principal.name, 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed, kept });
+    return { removed, kept };
   });
 
   app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
