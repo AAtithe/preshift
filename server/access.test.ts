@@ -242,3 +242,50 @@ describe('the hosted app', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe('rest breach overrides', () => {
+  const WEEK = '2026-10-19';
+  const late = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: WEEK, startMinute: 15 * 60, endMinute: 24 * 60, breakMinutes: 30 };
+  const early = { ...late, date: '2026-10-20', startMinute: 6 * 60, endMinute: 12 * 60, breakMinutes: 0 };
+
+  it('lets a signed-in manager publish through a rest breach with a reason, and only that breach', async () => {
+    const t = await boot();
+    const gm = t.cookieOf(await t.setup());
+    await t.call('POST', '/v1/shifts', gm, late);
+    const morning = (await t.call('POST', '/v1/shifts', gm, early)).json().shift;
+    const publish = () => t.call('POST', '/v1/rota/publish', gm, { siteId: 'mar', weekStart: WEEK });
+    const refused = await publish();
+    expect(refused.statusCode).toBe(409);
+    const breach = refused.json().details.find((i: { code: string }) => i.code === 'daily-rest');
+    expect(breach.overrideKey).toBeTruthy();
+
+    const override = (body: Record<string, string>, cookie = gm) => t.call('POST', '/v1/rota/overrides', cookie, { weekStart: WEEK, key: breach.overrideKey, ...body });
+    expect((await override({ reason: 'cover' })).statusCode).toBe(422);
+    expect((await override({ reason: 'Covering sickness', key: 'daily-rest|made-up' })).statusCode).toBe(404);
+    const made = await override({ reason: 'Covering sickness, Thursday off instead' });
+    expect(made.statusCode).toBe(201);
+    expect(made.json()).toMatchObject({ employeeId: 'mar-2', code: 'daily-rest', by: OWNER.email });
+    expect((await override({ reason: 'Covering sickness, again' })).statusCode).toBe(409);
+    expect((await t.call('GET', '/v1/rota/overrides', gm)).json()).toHaveLength(1);
+
+    // Opening earlier is a new breach the reason does not cover.
+    await t.call('PATCH', `/v1/shifts/${morning.id}`, gm, { startMinute: 5 * 60 });
+    expect((await publish()).statusCode).toBe(409);
+    await t.call('PATCH', `/v1/shifts/${morning.id}`, gm, { startMinute: 6 * 60 });
+    expect((await publish()).statusCode).toBe(200);
+
+    expect((await t.call('DELETE', `/v1/rota/overrides/${made.json().id}`, gm)).statusCode).toBe(204);
+    expect((await t.call('GET', '/v1/rota/overrides', gm)).json()).toEqual([]);
+  });
+
+  it('never takes an override from an integration key', async () => {
+    const t = await boot();
+    const keyed = (method: string, url: string, body?: unknown) =>
+      t.app.inject({ method: method as 'POST', url, headers: { authorization: 'Bearer integration', 'content-type': 'application/json' }, payload: body ? JSON.stringify(body) : undefined });
+    await keyed('POST', '/v1/shifts', late);
+    await keyed('POST', '/v1/shifts', early);
+    const breach = (await keyed('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: WEEK })).json().details.find((i: { code: string }) => i.code === 'daily-rest');
+    const res = await keyed('POST', '/v1/rota/overrides', { weekStart: WEEK, key: breach.overrideKey, reason: 'An integration deciding on rest' });
+    expect(res.statusCode).toBe(403);
+  });
+});

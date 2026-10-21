@@ -171,8 +171,9 @@ function siteCost(d: RotaDraft): number {
   return weekCost(d.state, d.weekStart, d.siteId).total;
 }
 
+// Severity is part of the key: moving a shift a manager overrode turns its warning back into a block.
 function issueKey(i: Issue) {
-  return `${i.employeeId}|${i.code}|${i.shiftId ?? ''}|${i.date ?? ''}`;
+  return `${i.employeeId}|${i.code}|${i.shiftId ?? ''}|${i.date ?? ''}|${i.severity}`;
 }
 
 /**

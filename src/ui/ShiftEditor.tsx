@@ -34,9 +34,9 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
       marginal: { ...withShift, total: withShift.total - without.total, ni: withShift.employerNi - without.employerNi },
-      issues: checkEmployeeWeek(employee, ws, [...context, draft]).filter((i) => i.shiftId === draft.id || !i.shiftId),
+      issues: checkEmployeeWeek(employee, ws, [...context, draft], state.restOverrides).filter((i) => i.shiftId === draft.id || !i.shiftId),
     };
-  }, [draft, employee, others, ws]);
+  }, [draft, employee, others, ws, state.restOverrides]);
 
   const setClock = (key: 'startMinute' | 'endMinute') => (e: ChangeEvent<HTMLInputElement>) => {
     let minute = parseClock(e.target.value);

@@ -23,7 +23,8 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Finance | Employment Allowance applied to the claiming entity week by week, posted to its books only, resetting each tax year. | Employer NI in the accrual matches what payroll actually charges. |
 | Admin | Accounts, roles, passwords and the Claude key are managed in Settings. Forgot password by email through Resend, or a 24 hour link an admin hands over. | No access settings live in Vercel. Removing someone takes effect on their next click. |
 | GMs | Short daily rest (under 11 hours, 12 for under 18s) and no clear day off in the week now block publication instead of warning. The auto-build and the assistant will not create either. | The rota cannot be published in breach of the Working Time Regulations rest rules, which is the promise we sell. |
-| Everyone | CI typechecks and runs the full suite (125 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| GMs | Rest breaches can be overridden from the Rota tab with a written reason and the compensatory rest given. The breach then publishes as a warning with the manager's name on it; moving either shift voids the override. | Real exceptions (sickness cover, a swap the person asked for) do not stop the week going out, and every one is on record. |
+| Everyone | CI typechecks and runs the full suite (130 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -89,6 +90,13 @@ Blocking issues stop publication and are refused by the assistant. Warnings are 
 | Over the person's own maximum weekly hours | Warn |
 | Below contracted hours on a full week (the gap is paid regardless) | Warn |
 
+Rest breaches, and only rest breaches, can be overridden by a signed-in manager with a reason of at
+least 15 characters (why, and the compensatory rest the person gets). The breach then publishes as a
+warning carrying the manager's name and reason. An override covers that breach exactly as it stood:
+move either shift, or change the days worked, and it blocks again. API keys cannot override, the
+auto-build and the rota assistant never rely on one, and every override, withdrawal and publish
+through one is in the audit log. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
+
 ### Demand-led build (`src/engine/demand.ts`, `src/engine/autoschedule.ts`)
 
 - Input: hourly forecast net sales and covers per site, from `PUT /v1/forecast`.
@@ -141,14 +149,14 @@ Blocking issues stop publication and are refused by the assistant. Warnings are 
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 125 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
+| Quality | 130 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests (125 across 9 files)
+npm test         # engine and API tests (130 across 9 files)
 npm run build    # typecheck and production build
 ```
 

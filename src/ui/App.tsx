@@ -15,6 +15,7 @@ import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
+import { RestBreaches } from './RestBreaches';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
@@ -237,6 +238,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             </ul>
             <button className="link" onClick={() => setUnfilled(null)}>Dismiss</button>
           </div>
+        )}
+
+        {(activeTab === 'rota' || activeTab === 'sites') && (
+          <RestBreaches
+            state={state}
+            issues={issues}
+            onOverride={(key, reason) => actions.overrideRest(week, key, reason)}
+            onWithdraw={actions.withdrawOverride}
+          />
         )}
 
         <main>

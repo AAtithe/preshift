@@ -204,6 +204,21 @@ export interface TimeEntry {
   approvedAt?: string;
 }
 
+/**
+ * A manager's decision to publish despite a rest breach, with their reason. It covers one breach
+ * exactly as it stood: moving either shift, or changing the days worked, makes it a new breach.
+ */
+export interface RestOverride {
+  id: string;
+  employeeId: string;
+  code: 'daily-rest' | 'weekly-rest';
+  /** The breach it covers, as `Issue.overrideKey`. */
+  key: string;
+  reason: string;
+  by: string;
+  at: string;
+}
+
 export interface RotaState {
   entities: Entity[];
   sites: Site[];
@@ -212,4 +227,6 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  /** Recorded by the API only; never sent with shifts. */
+  restOverrides?: RestOverride[];
 }

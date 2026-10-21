@@ -224,6 +224,7 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       breakMinutes: requiredBreakMinutes(length, ageOn(e.dateOfBirth, slot.date)),
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
+    // Checked without overrides: a manager's reason covers a breach they chose, never one the build makes.
     // Short rest is flagged on the later shift, so a new shift placed before an existing one
     // shows up against the existing one: compare with the rest issues already there.
     const restBefore = new Set(

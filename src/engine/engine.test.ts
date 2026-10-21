@@ -9,7 +9,7 @@ import { intercompanyBalances, rotaJournal, toXeroCsv } from './journal';
 import { scopeMetrics, weekMetrics } from './metrics';
 import { seedState } from './seed';
 import { addDays, ageOn, taxYearOf, weekStart } from './time';
-import type { Employee, Entity, RotaState, Shift } from './types';
+import type { Employee, Entity, RestOverride, RotaState, Shift } from './types';
 
 const WEEK = '2026-10-19'; // a Monday
 
@@ -117,6 +117,38 @@ describe('compliance', () => {
     expect(severity([shift(WEEK, 15, 24, 30), shift(addDays(WEEK, 1), 9, 15, 0)], 'daily-rest')).toBe('block');
     const allWeek = Array.from({ length: 7 }, (_, i) => shift(addDays(WEEK, i), 10, 14, 0));
     expect(severity(allWeek, 'weekly-rest')).toBe('block');
+  });
+
+  it('lets a manager override a rest breach with a reason, for that breach only', () => {
+    const close = shift(WEEK, 15, 24, 30);
+    const open = shift(addDays(WEEK, 1), 9, 15, 0);
+    const rest = (shifts: Shift[], overrides: RestOverride[] = []) =>
+      checkEmployeeWeek(person(), WEEK, shifts, overrides).find((i) => i.code === 'daily-rest')!;
+    const breach = rest([close, open]);
+    expect(breach.severity).toBe('block');
+    const override: RestOverride = {
+      id: 'o1', employeeId: 'e1', code: 'daily-rest', key: breach.overrideKey!, reason: 'Covering sickness, off Thursday', by: 'gm@ws.example', at: '2026-10-19T09:00:00Z',
+    };
+    const covered = rest([close, open], [override]);
+    expect(covered.severity).toBe('warn');
+    expect(covered.message).toContain('Overridden by gm@ws.example: Covering sickness, off Thursday');
+    // Opening an hour earlier is a different breach, so the reason no longer covers it.
+    expect(rest([close, { ...open, startMinute: 8 * 60 }], [override]).severity).toBe('block');
+    // Nor does it cover someone else.
+    expect(rest([close, open], [{ ...override, employeeId: 'e2' }]).severity).toBe('block');
+    // Other breaches cannot be overridden at all.
+    expect(checkEmployeeWeek(person(), WEEK, [shift(WEEK, 10, 18, 0)]).find((i) => i.code === 'break')!.overrideKey).toBeUndefined();
+  });
+
+  it('ties a weekly rest override to the days worked', () => {
+    const teen = person({ dateOfBirth: '2009-06-01', hourlyRate: 8 });
+    const six = Array.from({ length: 6 }, (_, i) => shift(addDays(WEEK, i), 10, 14, 0));
+    const weekly = (shifts: Shift[], overrides: RestOverride[] = []) =>
+      checkEmployeeWeek(teen, WEEK, shifts, overrides).find((i) => i.code === 'weekly-rest')!;
+    const key = weekly(six).overrideKey!;
+    const override: RestOverride = { id: 'o2', employeeId: 'e1', code: 'weekly-rest', key, reason: 'Exam week swap agreed', by: 'gm', at: '' };
+    expect(weekly(six, [override]).severity).toBe('warn');
+    expect(weekly([...six, shift(addDays(WEEK, 6), 10, 14, 0)], [override]).severity).toBe('block');
   });
 
   it('flags double booking', () => {

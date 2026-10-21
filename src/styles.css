@@ -318,3 +318,7 @@ button.link.danger { color: var(--bad); }
 .nowrap { white-space: nowrap; }
 .employer-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .employer-row span { min-width: 220px; }
+
+.override-form { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; flex-wrap: wrap; }
+.override-form textarea { flex: 1 1 260px; min-width: 0; font: inherit; font-size: 13px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
+.notice ul.issues { columns: 1; padding-left: 0; }
