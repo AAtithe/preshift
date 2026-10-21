@@ -10,6 +10,7 @@ import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { RotaGrid } from './RotaGrid';
+import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -17,7 +18,7 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
@@ -25,6 +26,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'team', label: 'Team' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 export function App() {
@@ -49,14 +51,13 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const [user, setUser] = useState<string | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
-    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
-    fetch('/api/auth/me')
+    fetch('/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
-      .catch(() => setUser(null));
+      .then((body: Me | null) => setMe(body))
+      .catch(() => setMe(null));
   }, []);
 
   const site = state.sites.find((s) => s.id === siteId)!;
@@ -156,16 +157,17 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
         {tab === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} onChanged={actions.refreshShifts} />}
         {tab === 'close' && <CloseView week={week} />}
+        {tab === 'settings' && me && <SettingsView me={me} />}
       </main>
 
       <footer className="foot">
         <span>UK rates 2026/27. Running on the Preshift API.</span>
         <span>
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {user && (
+          {me && (
             <>
-              {' '}Signed in as {user}{' '}
-              <a className="link" href="/api/auth/logout">Sign out</a>
+              {' '}Signed in as {me.email}{' '}
+              <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
         </span>

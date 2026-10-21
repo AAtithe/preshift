@@ -132,8 +132,11 @@ export function describeAgentError(err: unknown): string {
   if (err instanceof Anthropic.AuthenticationError && JSON.stringify(err.error).includes('session_expired')) {
     return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
   }
+  if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('not_configured')) {
+    return 'The assistant is not set up yet. An admin needs to add the Claude API key under Settings.';
+  }
   if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-    return 'The assistant is not connected. Set ANTHROPIC_API_KEY in .env.local for local use, or in the Vercel project settings for the live site.';
+    return 'Claude did not accept the saved API key. An admin can replace it under Settings.';
   }
   if (err instanceof Anthropic.RateLimitError) return 'The assistant is busy. Wait a minute and try again.';
   if (err instanceof Anthropic.APIConnectionError) return 'Could not reach the assistant. Check the connection and that the dev server is running.';

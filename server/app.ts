@@ -2,17 +2,20 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
-import { sessionSecret } from './session';
 import { HttpError, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
+import { accessRoutes, signInRoutes } from './routes/access';
+import { assistantRoutes } from './routes/assistant';
 import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
+import { webRoutes } from './routes/web';
+import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
 
@@ -26,6 +29,10 @@ export interface BuildOptions {
   env?: NodeJS.ProcessEnv;
   /** Where the Swagger UI assets live when the server is bundled (Vercel). */
   docsBaseDir?: string;
+  /** The sign-in page. Defaults to site/login.html in the repository. */
+  loginPage?: string;
+  /** The built web app, served at /app/ to signed-in people only. Unset in development, where Vite serves it. */
+  appDir?: string;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -72,6 +79,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     dispatcher: new OutboxDispatcher(store, providerFor),
     autoDispatch: options.autoDispatch ?? true,
   };
+
+  // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, Object.fromEntries(new URLSearchParams(body as string)));
+  });
 
   // Keep the raw body: webhook signatures are computed over the exact bytes sent.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -130,7 +142,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
-  const auth = authenticate(keys, sessionSecret(env));
+  const auth = authenticate(keys, store);
+  signInRoutes(app, store);
+  assistantRoutes(app, store);
+  webRoutes(app, store, { loginPage: options.loginPage ?? path.resolve('site/login.html'), appDir: options.appDir });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
     api.addHook('onRequest', async (req, reply) => {
@@ -159,6 +174,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     timeRoutes(api, ctx);
     payrollRoutes(api, ctx);
     devRoutes(api, ctx);
+    accessRoutes(api, store);
   });
 
   return { app, ctx };
