@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
 import type { Employee, Entity, GeoFence, RotaState, Shift, Site } from '../engine/types';
+import { weekDates } from '../engine/time';
 import { api } from './api';
 
 /**
@@ -127,26 +128,37 @@ export function useRotaStore() {
         setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
         return entity;
       }),
-    /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
-    applyDraft: (current: Shift[], draft: Shift[]) =>
-      guard(async () => {
-        const before = new Map(current.map((s) => [s.id, s]));
-        const after = new Map(draft.map((s) => [s.id, s]));
-        const fields = (s: Shift) => {
-          const { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = s;
-          return { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes };
-        };
+    /**
+     * Saves an accepted assistant draft for one site's week in a single all-or-nothing call. The
+     * server refuses it if the week changed since the draft began (baseline) or if it would move a
+     * shift that has started, and records the instructions in the audit log.
+     */
+    applyDraft: async (siteId: string, weekStart: string, draft: Shift[], baseline: string, instructions: string[]): Promise<string | null> => {
+      {
+        const dates = weekDates(weekStart);
+        const shifts = draft
+          .filter((s) => s.siteId === siteId && dates.includes(s.date))
+          .map(({ id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes }) => ({
+            id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes,
+          }));
         try {
-          for (const id of before.keys()) if (!after.has(id)) await api.del(`/v1/shifts/${id}`);
-          for (const [id, shift] of after) {
-            const old = before.get(id);
-            if (!old) await api.post('/v1/shifts', { id, ...fields(shift) });
-            else if (JSON.stringify(fields(old)) !== JSON.stringify(fields(shift))) await api.patch(`/v1/shifts/${id}`, fields(shift));
-          }
+          await api.put('/v1/rota/week', {
+            siteId,
+            weekStart,
+            shifts,
+            baseline,
+            source: 'assistant',
+            instruction: instructions.join('\n').slice(0, 2000),
+          });
+          return null;
+        } catch (e) {
+          // Returned rather than shown behind the assistant, so the manager sees why and can redraft.
+          return (e as Error).message;
         } finally {
           await refreshShifts();
         }
-      }),
+      }
+    },
     guard,
   };
 

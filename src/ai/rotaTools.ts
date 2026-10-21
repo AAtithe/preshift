@@ -1,10 +1,12 @@
-import { autoSchedule } from '../engine/autoschedule';
+import { autoSchedule, coverDistance } from '../engine/autoschedule';
 import { checkWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
 import { shiftPaidHours, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
+import { isEmployedOn } from '../engine/employees';
 import { weekMetrics } from '../engine/metrics';
+import { hasStarted, type LondonNow } from '../engine/rotaWeek';
 import { ageOn, formatMinute, parseClock, weekDates, weekday } from '../engine/time';
-import type { RotaState, Shift } from '../engine/types';
+import type { Employee, RotaState, Shift } from '../engine/types';
 
 /**
  * The tools Claude uses to write a rota. Every tool works on a draft copy of
@@ -17,6 +19,8 @@ export interface RotaDraft {
   state: RotaState;
   siteId: string;
   weekStart: string;
+  /** UK wall-clock time. Shifts that have started are history and stay exactly as they are. */
+  now: LondonNow;
 }
 
 export interface ToolDefinition {
@@ -45,14 +49,19 @@ export const ROTA_TOOLS: ToolDefinition[] = [
   {
     name: 'list_team',
     description:
-      'Everyone at this site: id, roles they are trained for (first is primary), pay, age, contracted (guaranteed) hours, ' +
-      'maximum weekly hours, stated availability, approved leave this week, and hours already rostered this week. ' +
-      'Contracted hours are paid whether rostered or not, so use them before adding paid hours elsewhere.',
+      'Everyone who can work at this site this week: its own team, then people from other sites who have agreed to cover it. ' +
+      'For each: id, roles (first is primary), pay, age, contracted (guaranteed) hours, maximum weekly hours, availability, ' +
+      'approved leave, the days they are employed if they start or leave this week, whether they can be rostered at all ' +
+      '(right to work), hours already rostered this week across every site, and what borrowing them costs: home team, ' +
+      'a sister site in the same company, or another company in the group, which means an intercompany recharge. ' +
+      'Contracted hours are paid whether rostered or not, so use them first.',
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
   {
     name: 'list_shifts',
-    description: 'Shifts on the draft rota for this site and week, with id, person, role, times, paid hours and loaded cost.',
+    description:
+      'Shifts on the draft rota for this site and week, with id, person, role, times, paid hours, loaded cost, and whether ' +
+      'it has started (started shifts are fixed).',
     input_schema: {
       type: 'object',
       properties: {
@@ -67,21 +76,24 @@ export const ROTA_TOOLS: ToolDefinition[] = [
     description:
       'Runs the demand-led auto-build: keeps existing shifts, then fills every hour short of forecast headcount with the ' +
       'cheapest legal person, busiest days first, and trims overstaffed edges. A strong starting point for an empty or ' +
-      'part-built week. Use exclude_employee_ids to keep named people out of the build.',
+      'part-built week. It never adds anything that has already started. Use exclude_employee_ids to keep named people ' +
+      'out of the build, and allow_cover to choose whether it may borrow people from other sites once the home team is used.',
     input_schema: {
       type: 'object',
       properties: {
         exclude_employee_ids: { type: 'array', items: { type: 'string' }, description: 'People the build must not roster.' },
+        allow_cover: { type: 'boolean', description: 'Borrow willing people from other sites for gaps the home team cannot fill.' },
       },
-      required: ['exclude_employee_ids'],
+      required: ['exclude_employee_ids', 'allow_cover'],
       additionalProperties: false,
     },
   },
   {
     name: 'add_shift',
     description:
-      'Adds one shift. The statutory unpaid break is applied automatically. Refused if it would create a blocking ' +
-      'compliance issue (double booking, leave, under 18 limits, minimum wage). Returns the cost it adds to the week and any warnings.',
+      'Adds one shift for someone on list_team. The statutory unpaid break is applied automatically. Refused if it has ' +
+      'already started, or would create a blocking compliance issue (double booking, leave, not employed that day, no right ' +
+      'to work, under 18 limits, minimum wage). Returns the cost it adds to the week and any warnings.',
     input_schema: {
       type: 'object',
       properties: {
@@ -99,7 +111,7 @@ export const ROTA_TOOLS: ToolDefinition[] = [
     name: 'update_shift',
     description:
       'Changes the times or the person on an existing shift. Pass null for anything that stays the same. ' +
-      'Refused on the same terms as add_shift.',
+      'Refused for a shift that has started, and on the same terms as add_shift.',
     input_schema: {
       type: 'object',
       properties: {
@@ -114,7 +126,7 @@ export const ROTA_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'remove_shift',
-    description: 'Removes one shift from the draft. Returns the saving to the week.',
+    description: 'Removes one shift from the draft. Refused for a shift that has started. Returns the saving to the week.',
     input_schema: {
       type: 'object',
       properties: { shift_id: { type: 'string' } },
@@ -124,7 +136,7 @@ export const ROTA_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'clear_week',
-    description: 'Removes every shift for this site and week from the draft. Use only when asked to start again.',
+    description: 'Removes every shift for this site and week that has not started yet. Use only when asked to start again.',
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
 ];
@@ -221,6 +233,7 @@ function rotaStatus(d: RotaDraft) {
   return {
     site: site.name,
     week_commencing: d.weekStart,
+    now: `${d.now.date} ${formatMinute(d.now.minute)}`,
     labour_target_pct: round2(site.labourTargetPct * 100),
     week: {
       forecast_sales: round2(m.forecastSales),
@@ -232,6 +245,7 @@ function rotaStatus(d: RotaDraft) {
     days: m.days.map((day) => ({
       date: day.date,
       weekday: WEEKDAYS[weekday(day.date)],
+      past: day.date < d.now.date,
       forecast_sales: round2(day.forecastSales),
       labour_cost: round2(day.labourCost),
       labour_pct: round2(day.labourPct * 100),
@@ -250,26 +264,54 @@ function rotaStatus(d: RotaDraft) {
   };
 }
 
+/** People who may be rostered at this site: its own team, then those who have said they will cover it. */
+function canWorkHere(d: RotaDraft, e: Employee) {
+  return e.siteId === d.siteId || e.coverSiteIds.includes(d.siteId);
+}
+
+const COVER = ['home team', 'sister site, same company', 'another company: intercompany recharge'];
+
+function rightToWork(e: Employee, dates: string[]) {
+  const rtw = e.rightToWork;
+  if (rtw && !rtw.checked) return 'not checked: cannot be rostered';
+  if (rtw?.expiry && rtw.expiry < dates[6]) return `expires ${rtw.expiry}: cannot be rostered after that`;
+  return 'ok';
+}
+
 function team(d: RotaDraft) {
   const dates = weekDates(d.weekStart);
   const shifts = d.state.shifts.filter((s) => dates.includes(s.date));
+  const siteName = (id: string) => d.state.sites.find((x) => x.id === id)?.name ?? id;
+  const entityName = (id: string) => d.state.entities.find((x) => x.id === id)?.name ?? id;
   return d.state.employees
-    .filter((e) => e.siteId === d.siteId)
-    .map((e) => ({
-      id: e.id,
-      name: e.name,
-      roles: e.roleIds,
-      pay: e.payBasis === 'salaried' ? `salaried £${e.annualSalary}` : `£${e.hourlyRate.toFixed(2)}/h`,
-      age: ageOn(e.dateOfBirth, d.weekStart),
-      contracted_hours: e.contractedHours,
-      max_weekly_hours: e.maxWeeklyHours,
-      opted_out_of_48: e.optedOutOf48,
-      availability: e.availability.length
-        ? e.availability.map((a) => `${WEEKDAYS[a.weekday]} ${formatMinute(a.fromMinute)}-${formatMinute(a.toMinute)}`)
-        : 'any',
-      leave_this_week: e.leave.filter((l) => dates.includes(l)),
-      rostered_hours: round2(shifts.filter((s) => s.employeeId === e.id).reduce((sum, s) => sum + shiftPaidHours(s), 0)),
-    }));
+    .filter((e) => canWorkHere(d, e) && dates.some((day) => isEmployedOn(e, day)))
+    .map((e) => ({ e, distance: coverDistance(d.state, e, d.siteId) }))
+    .sort((a, b) => a.distance - b.distance)
+    .map(({ e, distance }) => {
+      const employedDays = dates.filter((day) => isEmployedOn(e, day));
+      const mine = shifts.filter((s) => s.employeeId === e.id);
+      return {
+        id: e.id,
+        name: e.name,
+        cover: COVER[distance],
+        home_site: siteName(e.siteId),
+        employer: entityName(e.entityId),
+        roles: e.roleIds,
+        pay: e.payBasis === 'salaried' ? `salaried £${e.annualSalary}` : `£${e.hourlyRate.toFixed(2)}/h`,
+        age: ageOn(e.dateOfBirth, d.weekStart),
+        contracted_hours: e.contractedHours,
+        max_weekly_hours: e.maxWeeklyHours,
+        opted_out_of_48: e.optedOutOf48,
+        availability: e.availability.length
+          ? e.availability.map((a) => `${WEEKDAYS[a.weekday]} ${formatMinute(a.fromMinute)}-${formatMinute(a.toMinute)}`)
+          : 'any',
+        leave_this_week: e.leave.filter((l) => dates.includes(l)),
+        employed_this_week: employedDays.length === 7 ? 'all week' : employedDays,
+        right_to_work: rightToWork(e, dates),
+        rostered_hours_all_sites: round2(mine.reduce((sum, s) => sum + shiftPaidHours(s), 0)),
+        rostered_hours_elsewhere: round2(mine.filter((s) => s.siteId !== d.siteId).reduce((sum, s) => sum + shiftPaidHours(s), 0)),
+      };
+    });
 }
 
 function shiftList(d: RotaDraft, date: string | null) {
@@ -289,12 +331,15 @@ function shiftList(d: RotaDraft, date: string | null) {
       paid_hours: round2(shiftPaidHours(s)),
       cost: round2(cost.shifts.get(s.id)?.total ?? 0),
       published: Boolean(s.published),
+      started: hasStarted(s, d.now),
     }));
 }
 
 function makeShift(d: RotaDraft, base: Omit<Shift, 'breakMinutes'>): Shift {
   const employee = d.state.employees.find((e) => e.id === base.employeeId);
   if (!employee) throw new ToolInputError(`No one with id ${base.employeeId}.`);
+  if (!canWorkHere(d, employee)) throw new ToolInputError(`${employee.name} is not on this site's team and has not agreed to cover it.`);
+  if (hasStarted(base, d.now)) throw new ToolInputError('That time has already started. Only future hours can be rostered.');
   if (!weekDates(d.weekStart).includes(base.date)) throw new ToolInputError(`${base.date} is not in the week commencing ${d.weekStart}.`);
   const length = base.endMinute - base.startMinute;
   if (length <= 0) throw new ToolInputError('Shift must end after it starts.');
@@ -321,13 +366,19 @@ export function executeRotaTool(d: RotaDraft, name: string, raw: unknown): ToolO
 
       case 'build_from_forecast': {
         const exclude = Array.isArray(input.exclude_employee_ids) ? input.exclude_employee_ids.map(String) : [];
+        const allowCover = input.allow_cover !== false;
         const before = siteCost(d);
         const state = { ...d.state, employees: d.state.employees.filter((e) => !exclude.includes(e.id)) };
-        const built = autoSchedule(state, d.siteId, d.weekStart);
-        d.state = { ...d.state, shifts: built.shifts };
+        const built = autoSchedule(state, d.siteId, d.weekStart, { allowCover });
+        // The build fills the whole week; hours already gone stay as they happened.
+        const late = new Set(built.added.filter((s) => hasStarted(s, d.now)).map((s) => s.id));
+        built.added = built.added.filter((s) => !late.has(s.id));
+        built.unfilled = built.unfilled.filter((g) => !hasStarted({ date: g.date, startMinute: g.toHour * 60 - 1 }, d.now));
+        d.state = { ...d.state, shifts: built.shifts.filter((s) => !late.has(s.id)) };
         return {
           result: {
             shifts_added: built.added.length,
+            borrowed_from_other_sites: built.added.filter((s) => d.state.employees.find((e) => e.id === s.employeeId)?.siteId !== d.siteId).length,
             cost_added: round2(siteCost(d) - before),
             unfilled: built.unfilled.map((g) => ({ date: g.date, role_id: g.roleId, from_hour: g.fromHour, to_hour: g.toHour })),
           },
@@ -361,6 +412,7 @@ export function executeRotaTool(d: RotaDraft, name: string, raw: unknown): ToolO
         const id = str(input, 'shift_id');
         const current = weekShifts(d).find((s) => s.id === id);
         if (!current) throw new ToolInputError(`No shift ${id} this week.`);
+        if (hasStarted(current, d.now)) throw new ToolInputError('That shift has started, so it stays as it is.');
         const startClock = optStr(input, 'start');
         const endClock = optStr(input, 'end');
         const start = startClock ? clock(startClock, 'start') : current.startMinute;
@@ -385,15 +437,17 @@ export function executeRotaTool(d: RotaDraft, name: string, raw: unknown): ToolO
         const id = str(input, 'shift_id');
         const current = weekShifts(d).find((s) => s.id === id);
         if (!current) throw new ToolInputError(`No shift ${id} this week.`);
+        if (hasStarted(current, d.now)) throw new ToolInputError('That shift has started, so it stays as it is.');
         const before = siteCost(d);
         d.state = { ...d.state, shifts: d.state.shifts.filter((s) => s.id !== id) };
         return { result: { removed: true, saving: round2(before - siteCost(d)) }, label: `Removed ${describe(d, current)}` };
       }
 
       case 'clear_week': {
-        const ids = new Set(weekShifts(d).map((s) => s.id));
+        const ids = new Set(weekShifts(d).filter((s) => !hasStarted(s, d.now)).map((s) => s.id));
+        const kept = weekShifts(d).length - ids.size;
         d.state = { ...d.state, shifts: d.state.shifts.filter((s) => !ids.has(s.id)) };
-        return { result: { removed: ids.size }, label: `Cleared ${ids.size} shifts` };
+        return { result: { removed: ids.size, kept_because_started: kept }, label: `Cleared ${ids.size} shifts` };
       }
 
       default:

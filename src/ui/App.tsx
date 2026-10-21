@@ -300,7 +300,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             state={state}
             siteId={single.id}
             week={week}
-            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
+            onApply={async (shifts, baseline, instructions) => {
+              // Close only once saved; a refused save (someone else edited the week) stays open to redraft.
+              const problem = await actions.applyDraft(single.id, week, shifts, baseline, instructions);
+              if (!problem) {
+                setUnfilled(null);
+                setAssistantOpen(false);
+              }
+              return problem;
+            }}
             onClose={() => setAssistantOpen(false)}
           />
         </Suspense>
