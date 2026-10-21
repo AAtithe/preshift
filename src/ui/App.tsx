@@ -23,6 +23,7 @@ import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
+import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
@@ -338,6 +339,14 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             <main>
               {activeTab === 'sites' && (
                 <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
+              )}
+              {activeTab === 'sites' && scopeSites.length > 1 && (
+                <TravelPanel
+                  sites={scopeSites}
+                  onSetLocation={actions.setSiteLocation}
+                  onRefresh={actions.refreshTravel}
+                  onSetTravel={actions.setTravel}
+                />
               )}
               {activeTab === 'rota' && single && (
                 <div className="view-bar">

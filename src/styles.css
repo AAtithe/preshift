@@ -727,3 +727,19 @@ button.link.danger { color: var(--bad); }
   .cover-list, .notice ul { columns: 1; }
   .preview-kpis { grid-template-columns: 1fr; }
 }
+
+/* Travel between sites */
+.travel { margin-top: 16px; }
+.travel .panel-head { padding-bottom: 12px; }
+.travel .grid-wrap { border: none; box-shadow: none; border-radius: 0 0 10px 10px; border-top: 1px solid var(--rule); }
+.travel-result { margin: 0 16px 12px; padding: 8px 12px; border-radius: 8px; background: var(--good-bg); color: var(--good); font-size: 13px; }
+.travel-table th, .travel-table td { vertical-align: top; }
+.postcode { display: flex; gap: 6px; }
+.postcode input { width: 110px; text-transform: uppercase; }
+.postcode input::placeholder { text-transform: none; }
+.travel-cell { display: inline-flex; gap: 4px; align-items: baseline; }
+.travel-cell input { width: 56px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.travel-source { display: block; margin-top: 4px; font: 500 10px/1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.travel-source.tfl { color: var(--good); }
+.travel-source.manual { color: var(--ink); }
+.travel-source.none { color: var(--warn); }
