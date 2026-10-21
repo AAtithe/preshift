@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "build:vercel": "tsc -p tsconfig.json && vite build --base=/app/ --outDir dist/app && cp -r site/index.html site/styles.css site/main.js site/img dist/"
+    "build:vercel": "tsc -p tsconfig.json && vite build --base=/app/ --outDir dist/app && cp -r site/index.html site/login.html site/styles.css site/main.js site/img dist/",
+    "hash-password": "node scripts/hash-password.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",

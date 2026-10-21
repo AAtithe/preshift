@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
@@ -33,6 +33,15 @@ export function App() {
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [user, setUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
+      .catch(() => setUser(null));
+  }, []);
 
   const site = state.sites.find((s) => s.id === siteId)!;
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
@@ -129,9 +138,17 @@ export function App() {
 
       <footer className="foot">
         <span>UK rates 2026/27. Demo data is held in this browser only.</span>
-        <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
-          Reset demo
-        </button>
+        <span>
+          <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
+            Reset demo
+          </button>
+          {user && (
+            <>
+              {' '}Signed in as {user}{' '}
+              <a className="link" href="/api/auth/logout">Sign out</a>
+            </>
+          )}
+        </span>
       </footer>
 
       {assistantOpen && (
