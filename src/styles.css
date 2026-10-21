@@ -762,6 +762,21 @@ button.link.danger { color: var(--bad); }
 .preview-table td, .preview-table th { padding: 6px 8px; }
 .notes { display: grid; gap: 4px; margin-top: 8px; }
 .notes textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; }
+/* How to */
+.howto { display: grid; grid-template-columns: minmax(200px, 280px) 1fr; gap: 16px; align-items: start; }
+.howto-list { display: grid; gap: 6px; }
+.howto-list button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; }
+.howto-list button.active { border-color: var(--ink, var(--accent)); }
+.guide { max-width: 72ch; line-height: 1.55; }
+article.guide { background: var(--card, var(--surface)); border: 1px solid var(--rule, var(--border)); border-radius: var(--radius); padding: 18px 22px; }
+.guide h2 { margin: 0 0 4px; }
+.guide h3 { margin: 20px 0 6px; font-size: 16px; }
+.guide-steps { padding-left: 20px; display: grid; gap: 8px; }
+.guide-faq dt { font-weight: 600; margin-top: 10px; }
+.guide-faq dd { margin: 2px 0 0; }
+@media (max-width: 760px) { .howto { grid-template-columns: 1fr; } }
+.shell.no-rail { grid-template-columns: minmax(0, 1fr); }
+
 /* HR */
 .section-title { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .people-bar .section-title { margin: 0; }
