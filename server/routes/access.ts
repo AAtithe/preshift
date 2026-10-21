@@ -5,13 +5,13 @@ import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { createSession, safeNext, sessionCookie } from '../session';
 import { audit, type Store, type UserRecord, type UserRole } from '../store';
 
-const MAX_FAILURES = 5;
-const LOCK_SECONDS = 15 * 60;
+export const MAX_FAILURES = 5;
+export const LOCK_SECONDS = 15 * 60;
 const FIRST_ORG = 'demo';
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const now = () => Math.floor(Date.now() / 1000);
-const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
+export const now = () => Math.floor(Date.now() / 1000);
+export const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
 
 /** What an admin sees about a person: never the hash. */
 const view = (u: UserRecord) => ({ email: u.email, role: u.role, createdAt: u.createdAt, locked: u.lockedUntil > now() });
@@ -29,7 +29,7 @@ async function newUser(email: string, orgId: string, role: UserRole, password: s
   };
 }
 
-function secure(req: FastifyRequest) {
+export function secure(req: FastifyRequest) {
   return req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 }
 

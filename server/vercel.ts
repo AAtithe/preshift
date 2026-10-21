@@ -14,6 +14,7 @@ const ready = (async () => {
     docsBaseDir: path.join(__dirname, 'static'),
     loginPage: path.join(__dirname, 'login.html'),
     appDir: path.join(__dirname, 'app'),
+    staffDir: path.join(__dirname, 'staff'),
   });
   await app.ready();
   return app;
