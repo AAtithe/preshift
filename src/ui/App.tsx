@@ -160,13 +160,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             state={state}
             siteId={siteId}
             week={week}
-            onApply={async (shifts) => {
-              const draft = shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
-              if (await actions.applyWeek(siteId, week, draft)) {
-                setUnfilled(null);
-                setAssistantOpen(false);
-              }
-            }}
+            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
             onClose={() => setAssistantOpen(false)}
           />
         </Suspense>

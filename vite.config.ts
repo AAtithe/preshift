@@ -6,18 +6,14 @@ export default defineConfig(({ mode }) => {
   // Read without the VITE_ prefix so the key stays on the server and is never bundled.
   const apiKey = loadEnv(mode, process.cwd(), '').ANTHROPIC_API_KEY;
 
-  const proxy: Record<string, string | ProxyOptions> = {
-    // The Preshift API (npm run dev:api).
-    '/v1': 'http://localhost:8787',
-    '/docs': 'http://localhost:8787',
-    // The rota assistant calls /api/anthropic; this adds the key and forwards to the Claude API.
-    // In production the Preshift API serves the same route (server/routes/anthropic.ts).
+  // The rota assistant calls /api/anthropic; this adds the key and forwards to the Claude API.
+  const anthropicProxy: Record<string, ProxyOptions> = {
     '/api/anthropic': {
       target: 'https://api.anthropic.com',
       changeOrigin: true,
       rewrite: (path) => path.replace(/^\/api\/anthropic/, ''),
-      configure: (p) => {
-        p.on('proxyReq', (req) => {
+      configure: (proxy) => {
+        proxy.on('proxyReq', (req) => {
           req.removeHeader('authorization');
           req.removeHeader('anthropic-dangerous-direct-browser-access');
           if (apiKey) req.setHeader('x-api-key', apiKey);
@@ -25,6 +21,13 @@ export default defineConfig(({ mode }) => {
         });
       },
     },
+  };
+
+  // The Preshift API runs on :8787 in development (npm run dev starts both).
+  const proxy: Record<string, string | ProxyOptions> = {
+    ...anthropicProxy,
+    '/v1': 'http://localhost:8787',
+    '/docs': 'http://localhost:8787',
   };
 
   return {

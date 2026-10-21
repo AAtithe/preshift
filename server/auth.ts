@@ -17,13 +17,12 @@ declare module 'fastify' {
 
 /**
  * Keys come from PRESHIFT_API_KEYS as JSON: [{"key":"...","orgId":"...","name":"...","scopes":["*"]}].
- * With no keys and no TeamPay connection configured, the deployment is a demo:
- * a public key reaches the seeded demo organisation and the TeamPay simulator only.
+ * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
   if (env.PRESHIFT_API_KEYS) return JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
-  if (env.TEAMPAY_API_KEY) return [];
-  return [{ key: 'dev-key', orgId: 'demo', name: 'Demo', scopes: ['*'] }];
+  if (env.NODE_ENV === 'production') return [];
+  return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'] }];
 }
 
 export function authenticate(keys: ApiKey[]) {

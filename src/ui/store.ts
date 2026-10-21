@@ -78,22 +78,30 @@ export function useRotaStore() {
         await api.post('/v1/rota/clear', { siteId, weekStart });
         await refreshShifts();
       }),
-    applyWeek: (siteId: string, weekStart: string, shifts: Shift[]) =>
-      guard(async () => {
-        await api.put('/v1/rota/week', {
-          siteId,
-          weekStart,
-          shifts: shifts.map(({ id, employeeId, roleId, siteId: s, date, startMinute, endMinute, breakMinutes }) => ({
-            id, employeeId, roleId, siteId: s, date, startMinute, endMinute, breakMinutes,
-          })),
-        });
-        await refreshShifts();
-        return true;
-      }),
     publish: (siteId: string, weekStart: string) =>
       guard(async () => {
         await api.post('/v1/rota/publish', { siteId, weekStart });
         await refreshShifts();
+      }),
+    /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
+    applyDraft: (current: Shift[], draft: Shift[]) =>
+      guard(async () => {
+        const before = new Map(current.map((s) => [s.id, s]));
+        const after = new Map(draft.map((s) => [s.id, s]));
+        const fields = (s: Shift) => {
+          const { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = s;
+          return { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes };
+        };
+        try {
+          for (const id of before.keys()) if (!after.has(id)) await api.del(`/v1/shifts/${id}`);
+          for (const [id, shift] of after) {
+            const old = before.get(id);
+            if (!old) await api.post('/v1/shifts', { id, ...fields(shift) });
+            else if (JSON.stringify(fields(old)) !== JSON.stringify(fields(shift))) await api.patch(`/v1/shifts/${id}`, fields(shift));
+          }
+        } finally {
+          await refreshShifts();
+        }
       }),
     guard,
   };

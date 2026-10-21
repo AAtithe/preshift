@@ -41,9 +41,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 The browser never sees the key: it calls `/api/anthropic` on the dev or preview server, which adds the
 key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
-moves with it. On Vercel the same route is served by the Preshift API function
-(`server/routes/anthropic.ts`); set `ANTHROPIC_API_KEY` in the Vercel project's environment variables
-to switch the assistant on. That route only forwards the assistant's own requests (one model, capped output), but until the app has
+moves with it. On Vercel the same route is served by `api/anthropic/v1/messages.js`; set
+`ANTHROPIC_API_KEY` in the Vercel project's environment variables to switch the assistant on. That
+function only forwards the assistant's own requests (one model, capped output), but until the app has
 logins anyone who can open /app can spend against the key, so put a monthly spend limit on it in the
 Claude Console. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
 
@@ -53,6 +53,25 @@ Payroll tab: set people up in TeamPay, simulate clocking, approve, send hours, r
 Set the `TEAMPAY_*` variables to connect to real TeamPay and `PRESHIFT_DATABASE_URL` for
 Postgres; see `docs/API.md`, which also covers the Vercel deployment.
 
+## Deployment (Vercel)
+
+`npm run build:vercel` (set in `vercel.json`) writes `.vercel/output` with the Build Output API:
+
+| Path | What |
+| --- | --- |
+| `/` | Marketing site, from `site/` |
+| `/app/` | Web app |
+| `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
+| `/api/anthropic/v1/messages` | Rota assistant proxy, from `api/anthropic/v1/messages.js` (needs `ANTHROPIC_API_KEY`) |
+| `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
+
+Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
+in Postgres across cold starts and instances. Without it, data is held in memory and resets when
+the function cold starts: fine for a demo, not for customers. Preshift never reads the generic
+`DATABASE_URL`, so it cannot write into another system's database by accident. With no
+`PRESHIFT_API_KEYS` set it accepts the public demo key the web app ships with; set
+`PRESHIFT_API_KEYS` in Vercel before any real data goes in.
+
 ## Structure
 
 ```
@@ -60,7 +79,7 @@ src/engine   Pure TypeScript domain logic, shared by API, browser and assistant.
 src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
 server       The Preshift API: routes, auth, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
 src/ui       React web app, a client of the API.
-site         Marketing site.
+site         Marketing site (static, no build step).
 scripts      Local dev runner and the Vercel build.
 docs         API and integration guide, strategy and roadmap.
 ```

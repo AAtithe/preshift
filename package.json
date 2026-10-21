@@ -12,11 +12,12 @@
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite",
     "start": "tsx server/index.ts",
-    "build:vercel": "node scripts/build-vercel.mjs"
+    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
     "@fastify/swagger": "^8.15.0",
+    "@fastify/swagger-ui": "^4.1.0",
     "@neondatabase/serverless": "^0.10.4",
     "fastify": "^4.28.1",
     "react": "^18.3.1",
@@ -28,7 +29,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.21.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",

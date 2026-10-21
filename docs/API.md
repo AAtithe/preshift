@@ -21,7 +21,7 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_BASE_URL` | Defaults to `https://api.team-pay.co.uk/v1` |
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
-| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. With neither this nor `TEAMPAY_API_KEY` set, the deployment runs as a public demo (`dev-key`, demo organisation, TeamPay simulator) |
+| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. Outside production a `dev-key` exists; on Vercel, with none set, the public demo key is accepted (see `server/vercel.ts`) |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. Unset means in-memory storage. Deliberately not `DATABASE_URL`, so Preshift can never write into another system's database by accident |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 

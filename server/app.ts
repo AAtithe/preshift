@@ -1,12 +1,12 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
 import { HttpError, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
-import { anthropicRoutes } from './routes/anthropic';
 import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
@@ -23,6 +23,8 @@ export interface BuildOptions {
   autoDispatch?: boolean;
   logger?: boolean;
   env?: NodeJS.ProcessEnv;
+  /** Where the Swagger UI assets live when the server is bundled (Vercel). */
+  docsBaseDir?: string;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -93,8 +95,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       security: [{ bearer: [] }],
     },
   });
-  app.get('/docs/json', { schema: { hide: true } }, async () => app.swagger());
-  app.get('/docs', { schema: { hide: true } }, async (_req, reply) => reply.type('text/html').send(DOCS_HTML));
+  await app.register(swaggerUi, { routePrefix: '/docs', ...(options.docsBaseDir ? { baseDir: options.docsBaseDir } : {}) });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof HttpError) {
@@ -118,8 +119,6 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     await ctx.dispatcher.processDue();
     return { ok: true };
   });
-
-  anthropicRoutes(app, env);
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys);
@@ -156,17 +155,3 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   return { app, ctx };
 }
 
-const DOCS_HTML = `<!doctype html>
-<html lang="en-GB">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Preshift API</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css" />
-</head>
-<body>
-  <div id="ui"></div>
-  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
-  <script>SwaggerUIBundle({ url: '/docs/json', dom_id: '#ui', persistAuthorization: true });</script>
-</body>
-</html>`;

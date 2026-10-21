@@ -201,15 +201,3 @@ describe('TeamPay client', () => {
     await expect(tp.getPayRun('r1')).rejects.toMatchObject({ retryable: false });
   });
 });
-
-describe('rota assistant proxy', () => {
-  it('is off without a key and only forwards the assistant model', async () => {
-    const post = async (env: NodeJS.ProcessEnv, body: unknown) => {
-      const { app } = await buildApp({ apiKeys: KEYS, store: new MemoryStore(), provider: new TeamPaySimulator(), autoDispatch: false, env });
-      return app.inject({ method: 'POST', url: '/api/anthropic/v1/messages', headers: { 'content-type': 'application/json' }, payload: JSON.stringify(body) });
-    };
-    expect((await post({}, { model: 'claude-opus-5-5', max_tokens: 100 })).statusCode).toBe(403);
-    expect((await post({ ANTHROPIC_API_KEY: 'k' }, { model: 'some-other-model', max_tokens: 100 })).statusCode).toBe(400);
-    expect((await post({ ANTHROPIC_API_KEY: 'k' }, { model: 'claude-opus-5-5', max_tokens: 100, stream: true })).statusCode).toBe(400);
-  });
-});

@@ -1,52 +1,82 @@
-// Builds one Vercel deployment (Build Output API v3):
-//   /            marketing site (site/)
-//   /app         the rota web app
-//   /v1, /docs   the Preshift API as a Node function, which also serves the
-//                rota assistant's Claude route at /api/anthropic
-import { execSync } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { build } from 'esbuild';
+// Builds the Vercel deployment with the Build Output API (.vercel/output):
+//   /         marketing site (site/)
+//   /app/     rota web app (Vite build)
+//   /v1, /docs, /health   Preshift API as one bundled Node function
+//   /internal/dispatch    daily cron retry of undelivered payroll changes
+//   /api/anthropic/v1/messages   rota assistant proxy (api/anthropic/v1/messages.js)
+import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { build as esbuild } from 'esbuild';
+import { build as viteBuild } from 'vite';
 
 const out = '.vercel/output';
-const run = (cmd) => execSync(cmd, { stdio: 'inherit' });
-
-rmSync(out, { recursive: true, force: true });
-run('npx tsc -p tsconfig.json');
-run(`npx vite build --base=/app/ --outDir ${out}/static/app --emptyOutDir`);
-for (const f of ['index.html', 'styles.css', 'main.js', 'img']) cpSync(`site/${f}`, `${out}/static/${f}`, { recursive: true });
-
 const fn = `${out}/functions/api.func`;
-mkdirSync(fn, { recursive: true });
-await build({
-  entryPoints: ['server/vercel.ts'],
-  outfile: `${fn}/index.js`,
-  bundle: true,
-  platform: 'node',
-  format: 'cjs',
-  target: 'node20',
-  logLevel: 'info',
-});
-writeFileSync(`${fn}/package.json`, JSON.stringify({ type: 'commonjs' }));
-writeFileSync(
-  `${fn}/.vc-config.json`,
-    // The rota assistant runs a multi-turn Claude loop through this function, so allow long requests.
-  JSON.stringify({ runtime: 'nodejs20.x', handler: 'index.js', launcherType: 'Nodejs', shouldAddHelpers: false, maxDuration: 300 }, null, 2),
+const require = createRequire(import.meta.url);
+
+await rm(out, { recursive: true, force: true });
+
+await viteBuild({ base: '/app/', build: { outDir: `${out}/static/app`, emptyOutDir: true }, logLevel: 'warn' });
+
+for (const f of ['index.html', 'styles.css', 'main.js', 'img']) {
+  await cp(`site/${f}`, `${out}/static/${f}`, { recursive: true });
+}
+
+// Each function is one CommonJS file exporting the (req, res) handler itself.
+async function nodeFunction(dir, entry, extra = {}) {
+  await esbuild({
+    ...entry,
+    outfile: `${dir}/index.cjs`,
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+    footer: { js: 'module.exports = module.exports.default;' },
+    logLevel: 'warning',
+  });
+  await writeFile(
+    `${dir}/.vc-config.json`,
+    JSON.stringify({ runtime: 'nodejs22.x', handler: 'index.cjs', launcherType: 'Nodejs', shouldAddHelpers: false, ...extra }, null, 2),
+  );
+}
+
+await nodeFunction(fn, { entryPoints: ['server/vercel.ts'] });
+// Swagger UI reads its assets from disk at runtime.
+const swaggerUi = path.dirname(require.resolve('@fastify/swagger-ui/package.json'));
+await cp(path.join(swaggerUi, 'static'), `${fn}/static`, { recursive: true });
+
+await nodeFunction(
+  `${out}/functions/api/anthropic/v1/messages.func`,
+  {
+    stdin: {
+      contents:
+        "import * as mod from './api/anthropic/v1/messages.js';\n" +
+        "import { toNodeHandler } from './scripts/web-to-node.mjs';\n" +
+        'export default toNodeHandler(mod);\n',
+      resolveDir: process.cwd(),
+      sourcefile: 'anthropic-entry.mjs',
+    },
+  },
+  { maxDuration: 300 },
 );
 
-writeFileSync(
+await mkdir(out, { recursive: true });
+await writeFile(
   `${out}/config.json`,
   JSON.stringify(
     {
       version: 3,
       routes: [
-        { src: '^/(v1/.*|docs|docs/json|health|internal/dispatch|api/anthropic/.*)$', dest: '/api' },
+        { src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch)$', dest: '/api?__p=/$1' },
+        { src: '^/app$', status: 308, headers: { Location: '/app/' } },
         { handle: 'filesystem' },
-        { src: '^/app(/.*)?$', dest: '/app/index.html' },
       ],
+      // Safety net for payroll changes TeamPay has not yet confirmed (needs CRON_SECRET).
       crons: [{ path: '/internal/dispatch', schedule: '0 6 * * *' }],
     },
     null,
     2,
   ),
 );
-console.log('Vercel output written to', out);
+
+console.log(`Built ${out}`);
