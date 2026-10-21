@@ -14,8 +14,16 @@ interface Person {
   locked: boolean;
 }
 
+interface EmailStatus {
+  set: boolean;
+  from?: string;
+  appUrl?: string;
+  keyEndsWith?: string;
+}
+
 interface Settings {
   claudeApiKey: { set: boolean; endsWith?: string };
+  email: EmailStatus;
 }
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -25,6 +33,7 @@ export function SettingsView({ me }: { me: Me }) {
     <div className="settings">
       {me.role === 'admin' && <People me={me} />}
       {me.role === 'admin' && <ClaudeKey />}
+      {me.role === 'admin' && <EmailSetup />}
       <OwnPassword />
     </div>
   );
@@ -34,6 +43,7 @@ function People({ me }: { me: Me }) {
   const [people, setPeople] = useState<Person[]>([]);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [form, setForm] = useState({ email: '', password: '', role: 'member' as Person['role'] });
+  const [link, setLink] = useState<{ email: string; url: string; hours: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -65,6 +75,18 @@ function People({ me }: { me: Me }) {
   function reset(p: Person) {
     const password = prompt(`New password for ${p.email}, at least 12 characters. They will be signed out everywhere.`);
     if (password) void act(`Password reset for ${p.email}.`, () => api.patch(`/v1/users/${encodeURIComponent(p.email)}`, { password }));
+  }
+
+  async function resetLink(p: Person) {
+    try {
+      const { token, expiresInHours } = await api.post<{ token: string; expiresInHours: number }>(
+        `/v1/users/${encodeURIComponent(p.email)}/reset-link`,
+      );
+      setLink({ email: p.email, url: `${location.origin}/login#reset=${token}`, hours: expiresInHours });
+      setMessage(null);
+    } catch (e) {
+      setMessage({ text: problem(e), bad: true });
+    }
   }
 
   return (
@@ -100,7 +122,8 @@ function People({ me }: { me: Me }) {
               </td>
               <td className="muted small">{new Date(p.createdAt).toLocaleDateString('en-GB')}</td>
               <td className="num">
-                <button className="link" onClick={() => reset(p)}>Reset password</button>
+                <button className="link" onClick={() => void resetLink(p)}>Reset link</button>
+                <button className="link" onClick={() => reset(p)}>Set password</button>
                 {p.email !== me.email && (
                   <button
                     className="link danger"
@@ -129,6 +152,19 @@ function People({ me }: { me: Me }) {
         </label>
         <button className="primary" type="submit">Add account</button>
       </form>
+      {link && (
+        <div className="small">
+          <p>
+            Reset link for {link.email}. Send it to them yourself, for example by text. It works once, expires in {link.hours} hours,
+            and stops working if another is made. It is not shown again.
+          </p>
+          <input readOnly aria-label="Reset link" value={link.url} onFocus={(e) => e.target.select()} style={{ width: '100%' }} />
+          <p>
+            <button className="link" onClick={() => void navigator.clipboard?.writeText(link.url).then(() => setMessage({ text: 'Link copied.' }))}>Copy link</button>
+            <button className="link" onClick={() => setLink(null)}>Done</button>
+          </p>
+        </div>
+      )}
       {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
     </section>
   );
@@ -205,6 +241,73 @@ function OwnPassword() {
         <label>New password <input type="password" autoComplete="new-password" minLength={12} required value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} /></label>
         <label>New password again <input type="password" autoComplete="new-password" minLength={12} required value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
         <button className="primary" type="submit">Change password</button>
+      </form>
+      {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
+    </section>
+  );
+}
+
+function EmailSetup() {
+  const [email, setEmail] = useState<EmailStatus | null>(null);
+  const [form, setForm] = useState({ resendApiKey: '', from: '', appUrl: location.origin });
+  const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
+
+  useEffect(() => {
+    api
+      .get<Settings>('/v1/settings')
+      .then(({ email }) => {
+        setEmail(email);
+        if (email.set) setForm({ resendApiKey: '', from: email.from ?? '', appUrl: email.appUrl ?? location.origin });
+      })
+      .catch((e) => setMessage({ text: problem(e), bad: true }));
+  }, []);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    try {
+      setEmail((await api.put<{ email: EmailStatus }>('/v1/settings/email', form)).email);
+      setForm({ ...form, resendApiKey: '' });
+      setMessage({ text: 'Saved. "Forgot your password?" on the sign-in page now sends a reset link by email.' });
+    } catch (err) {
+      setMessage({ text: problem(err), bad: true });
+    }
+  }
+
+  async function remove() {
+    if (!confirm('Turn off reset emails? People will need an admin to send them a reset link.')) return;
+    try {
+      setEmail((await api.del<{ email: EmailStatus }>('/v1/settings/email')).email);
+      setMessage({ text: 'Removed. Reset emails are off.' });
+    } catch (err) {
+      setMessage({ text: problem(err), bad: true });
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <h2>Password reset email</h2>
+      <p className="muted small">
+        Lets people reset a forgotten password themselves from the sign-in page. Emails are sent through Resend from an address on
+        a domain you have verified there. Until this is set, use Reset link above to hand someone a link yourself.
+      </p>
+      <p className="small">
+        {email ? (email.set ? `On. Sent from ${email.from}, key ending ${email.keyEndsWith}.` : 'Off.') : '...'}
+      </p>
+      <form className="settings-form" onSubmit={save}>
+        <label>
+          {email?.set ? 'Replace Resend key (leave blank to keep)' : 'Resend API key'}
+          <input type="password" autoComplete="off" placeholder="re_..." required={!email?.set} value={form.resendApiKey} onChange={(e) => setForm({ ...form, resendApiKey: e.target.value })} />
+        </label>
+        <label>
+          Send from
+          <input required placeholder="Preshift <rota@yourdomain.co.uk>" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} />
+        </label>
+        <label>
+          App address used in links
+          <input type="url" required value={form.appUrl} onChange={(e) => setForm({ ...form, appUrl: e.target.value })} />
+        </label>
+        <button className="primary" type="submit">Save</button>
+        {email?.set && <button type="button" className="danger" onClick={() => void remove()}>Turn off</button>}
       </form>
       {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
     </section>

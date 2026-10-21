@@ -39,6 +39,7 @@
       .msg.ok { background: var(--good-bg); }
       .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
       .foot.intro { margin: -6px 0 16px; }
+      .foot a, .linkish { color: var(--accent); }
       [hidden] { display: none; }
     </style>
   </head>
@@ -58,6 +59,7 @@
       <p class="msg bad" id="weak" role="alert" hidden>Use a password of at least 12 characters.</p>
       <p class="msg bad" id="mismatch" role="alert" hidden>The two passwords do not match.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
+      <p class="msg ok" id="sent" role="status" hidden>If that email has an account, a reset link is on its way. It works once and expires in 30 minutes. Nothing after a few minutes? Check spam, or ask an admin in your organisation for a reset link.</p>
 
       <section id="signin">
         <h1>Sign in</h1>
@@ -67,7 +69,30 @@
           <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
           <button type="submit">Sign in</button>
         </form>
+        <p class="foot"><a href="#forgot" id="forgot-link">Forgot your password?</a></p>
         <p class="foot">Access is set up by an admin in your organisation, under Settings in the app.</p>
+      </section>
+
+      <section id="forgot" hidden>
+        <h1>Reset your password</h1>
+        <p class="foot intro">Enter the email you sign in with and we will send you a link to choose a new password.</p>
+        <form method="post" action="/auth/forgot">
+          <label>Email <input type="email" name="email" autocomplete="username" required /></label>
+          <button type="submit">Send reset link</button>
+        </form>
+        <p class="foot"><a href="/login">Back to sign in</a></p>
+      </section>
+
+      <section id="reset" hidden>
+        <h1>Choose a new password</h1>
+        <p class="msg bad" id="reset-error" role="alert" hidden></p>
+        <p class="foot intro" id="reset-for" hidden></p>
+        <form id="reset-form" hidden>
+          <label>New password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>New password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Save password and sign in</button>
+        </form>
+        <p class="foot"><a href="/login">Back to sign in</a></p>
       </section>
 
       <section id="setup" hidden>
@@ -88,14 +113,56 @@
       if (next && next.startsWith('/') && !next.startsWith('//')) {
         for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
       }
-      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'signedout']) {
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'signedout', 'sent']) {
         if (params.get('error') === id || params.has(id)) document.getElementById(id).hidden = false;
+      }
+      const show = (id) => {
+        for (const section of ['signin', 'forgot', 'reset']) document.getElementById(section).hidden = section !== id;
+        document.querySelector(`#${id} input:not([type=hidden])`)?.focus();
+      };
+      document.getElementById('forgot-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        show('forgot');
+      });
+
+      // A reset link carries its token after #, which never reaches a server. Take it out of the
+      // address bar straight away so it is not left in history or shared by accident.
+      const resetToken = location.hash.startsWith('#reset=') ? location.hash.slice(7) : null;
+      if (resetToken) {
+        history.replaceState(null, '', '/login');
+        show('reset');
+        const fail = (message) => {
+          const el = document.getElementById('reset-error');
+          el.textContent = message;
+          el.hidden = false;
+        };
+        const post = (body) =>
+          fetch('/auth/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+            .then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+        post({ token: resetToken })
+          .then(({ ok, body }) => {
+            if (!ok) return fail(body.message || 'This reset link does not work. Ask for a new one.');
+            const who = document.getElementById('reset-for');
+            who.textContent = `For ${body.email}. Saving signs out every device signed in to this account.`;
+            who.hidden = false;
+            document.getElementById('reset-form').hidden = false;
+            document.querySelector('#reset-form input').focus();
+          })
+          .catch(() => fail('Could not check the link. Check your connection and open it again.'));
+        document.getElementById('reset-form').addEventListener('submit', (e) => {
+          e.preventDefault();
+          const form = new FormData(e.target);
+          if (form.get('password') !== form.get('confirm')) return fail('The two passwords do not match.');
+          post({ token: resetToken, password: form.get('password') })
+            .then(({ ok, body }) => (ok ? location.assign('/app/') : fail(body.message || 'The password was not saved.')))
+            .catch(() => fail('Could not save the password. Check your connection and try again.'));
+        });
       }
       // On a fresh system there is nobody to sign in as yet, so offer the owner set-up instead.
       fetch('/auth/status')
         .then((r) => (r.ok ? r.json() : null))
         .then((status) => {
-          if (!status?.setupNeeded) return;
+          if (!status?.setupNeeded || resetToken) return;
           document.getElementById('signin').hidden = true;
           document.getElementById('setup').hidden = false;
           document.querySelector('#setup input[name=email]').focus();

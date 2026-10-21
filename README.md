@@ -62,8 +62,12 @@ Accounts, password hashes (scrypt), the session signing key and the Claude key a
 Preshift database. Sessions last 12 hours in an HttpOnly cookie and are checked against the database
 on every request, so removing someone or resetting their password takes effect at once. Five wrong
 passwords lock an account for 15 minutes. The web app carries no API key: it calls the API with the
-session. On Vercel the app's files are served by the API function only to signed-in people. Known
-limits: no self-service "forgot password" (an admin resets it), and two roles only.
+session. On Vercel the app's files are served by the API function only to signed-in people. People who
+forget their password use "Forgot your password?" on the sign-in page: a single-use link, valid for 30
+minutes, is emailed through Resend once an admin saves a Resend key, a from address and the app's address
+under Settings. The reply never says whether an account exists, one account gets at most three emails an
+hour, and the link's token sits after `#` so it never reaches a server log. Until email is set up, an admin
+makes a 24 hour link with "Reset link" and hands it over. Known limit: two roles only.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.
