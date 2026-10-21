@@ -15,6 +15,23 @@ export interface Me {
   simulator?: boolean;
 }
 
+/** Whether a person can sign in: from their account, which holds the password. Never the hash. */
+export interface AccountState {
+  exists: boolean;
+  locked: boolean;
+  since?: string;
+}
+
+export const accountOf = (u: User) => (u as User & { account?: AccountState }).account;
+
+export function signInState(u: User): { text: string; tone: 'good' | 'bad' | 'muted' } {
+  const a = accountOf(u);
+  if (!a) return { text: 'Unknown', tone: 'muted' };
+  if (a.locked) return { text: 'Locked after wrong passwords', tone: 'bad' };
+  if (a.exists) return { text: 'Password set', tone: 'good' };
+  return { text: u.status === 'invited' ? 'Sets a password from the invitation' : 'No password yet', tone: 'muted' };
+}
+
 export interface AuditRow {
   at: string;
   actor: string;
@@ -84,6 +101,9 @@ const ACTION_TEXT: Record<string, string> = {
   'invite.revoked': 'Withdrew invitation',
   'invite.accepted': 'Accepted invitation',
   'access.reviewed': 'Recorded an access review',
+  'access.owner_created': 'Created the owner account',
+  'user.password_reset': 'Reset the password',
+  'user.password_set': 'Set a password from a link',
   'authenticator.enrolled': 'Set up an authenticator',
   'authenticator.verified': 'Entered an authenticator code',
   'authenticator.recovery_used': 'Used a recovery code',

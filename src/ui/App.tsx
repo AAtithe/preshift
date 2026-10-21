@@ -11,7 +11,7 @@ import { DemandView } from './DemandView';
 import { AccessView } from './access/AccessView';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
-import { api, canSwitchDemo, signInAsDemo } from './api';
+import { actingAsDemo, canSwitchDemo, demoPeople, signInAsDemo } from './api';
 import { GroupView } from './GroupView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
@@ -19,6 +19,7 @@ import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
+import { SettingsView, type Account } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
 import { allowFor, NOT_YOURS, type Allow } from './permissions';
 import { useRotaStore } from './store';
@@ -27,7 +28,7 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access' | 'settings';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 type AtAll = Allow;
@@ -45,6 +46,8 @@ const SITE_TABS: { id: Tab; label: string; offered: Offered }[] = [
   { id: 'payroll', label: 'Payroll', offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
   { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
   { id: 'access', label: 'Access', offered: ACCESS },
+  // Everyone who signs in can change their own password there.
+  { id: 'settings', label: 'Settings', offered: () => true },
 ];
 const GROUP_TABS: { id: Tab; label: string; offered: Offered }[] = [
   // Side by side labour cost by site: for those who see cost everywhere in scope.
@@ -52,6 +55,7 @@ const GROUP_TABS: { id: Tab; label: string; offered: Offered }[] = [
   { id: 'team', label: 'Team', offered: () => true },
   { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
   { id: 'access', label: 'Access', offered: ACCESS },
+  { id: 'settings', label: 'Settings', offered: () => true },
 ];
 const ALL = '';
 
@@ -89,14 +93,14 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const today = toISODate(new Date());
-  const [user, setUser] = useState<string | null>(null);
+  // The signed-in account (sign-in), as against `me`, the access record and what it allows.
+  const [account, setAccount] = useState<Account | null>(null);
 
   useEffect(() => {
-    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
-    fetch('/api/auth/me')
+    fetch('/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
-      .catch(() => setUser(null));
+      .then((body: Account | null) => setAccount(body))
+      .catch(() => setAccount(null));
   }, []);
 
   const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
@@ -262,16 +266,17 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
         {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} />}
         {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
         {activeTab === 'access' && <AccessView state={state} />}
+        {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} />}
       </main>
 
       <footer className="foot">
         <span>UK rates 2026/27. Running on the Preshift API.</span>
         <span>
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {user && (
+          {account && (
             <>
-              {' '}Signed in as {user}{' '}
-              <a className="link" href="/api/auth/logout">Sign out</a>
+              {' '}Signed in as {account.email}{' '}
+              <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
         </span>
@@ -328,13 +333,14 @@ interface DemoPerson { id: string; name: string; jobTitle?: string; status: stri
 function DemoSwitch({ me }: { me: Me | null }) {
   const [people, setPeople] = useState<DemoPerson[] | null>(null);
   useEffect(() => {
-    if (canSwitchDemo) void api.get<DemoPerson[]>('/v1/dev/people').then(setPeople).catch(() => setPeople(null));
+    if (canSwitchDemo) void demoPeople<DemoPerson[]>().then(setPeople).catch(() => setPeople(null));
   }, []);
-  if (!people || !me?.user) return null;
+  if (!people) return null;
   return (
     <label className="demo-switch">
-      <span className="muted small">Demo: signed in as</span>
-      <select value={me.user.id} onChange={(e) => signInAsDemo(e.target.value === 'usr_owner' ? null : e.target.value)}>
+      <span className="muted small">Demo: acting as</span>
+      <select value={actingAsDemo ? me?.user?.id ?? '' : ''} onChange={(e) => signInAsDemo(e.target.value || null)}>
+        <option value="">My own sign-in</option>
         {people.filter((p) => p.status === 'active').map((p) => (
           <option key={p.id} value={p.id}>{p.name}{p.jobTitle ? `, ${p.jobTitle}` : ''}</option>
         ))}

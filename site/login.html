@@ -38,6 +38,7 @@
       .msg.bad { background: var(--bad-bg); color: var(--bad); }
       .msg.ok { background: var(--good-bg); }
       .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+      .foot.intro { margin: -6px 0 16px; }
       [hidden] { display: none; }
     </style>
   </head>
@@ -50,25 +51,93 @@
           <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
         </div>
       </div>
-      <h1>Sign in</h1>
       <p class="msg bad" id="invalid" role="alert" hidden>That email and password do not match. Check both and try again.</p>
-      <p class="msg bad" id="setup" role="alert" hidden>Sign-in is not set up on this deployment yet. Ask your administrator to add users.</p>
+      <p class="msg bad" id="locked" role="alert" hidden>Too many attempts. Sign-in for this account is paused for 15 minutes, or ask an admin to reset your password.</p>
+      <p class="msg bad" id="taken" role="alert" hidden>The owner account has already been created. Sign in instead.</p>
+      <p class="msg bad" id="email" role="alert" hidden>Enter a valid email address.</p>
+      <p class="msg bad" id="weak" role="alert" hidden>Use a password of at least 12 characters.</p>
+      <p class="msg bad" id="mismatch" role="alert" hidden>The two passwords do not match.</p>
+      <p class="msg bad" id="suspended" role="alert" hidden>This account is suspended. Ask whoever manages access in your organisation.</p>
+      <p class="msg bad" id="badlink" role="alert" hidden>This link is not valid, or has been used. Ask for a new one.</p>
+      <p class="msg bad" id="expired" role="alert" hidden>This link has expired. Ask for a new one.</p>
+      <p class="msg bad" id="elsewhere" role="alert" hidden>That email already signs in to another organisation. Ask whoever sent the link.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
-      <form method="post" action="/api/auth/login">
-        <input type="hidden" name="next" id="next" value="/app/" />
-        <label>Email <input type="email" name="email" autocomplete="username" required autofocus /></label>
-        <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
-        <button type="submit">Sign in</button>
-      </form>
-      <p class="foot">Access is set up by your Williams, Stanley &amp; Co. or Preshift contact.</p>
+
+      <section id="signin">
+        <h1>Sign in</h1>
+        <form method="post" action="/auth/login">
+          <input type="hidden" name="next" value="/app/" />
+          <label>Email <input type="email" name="email" autocomplete="username" required autofocus /></label>
+          <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+          <button type="submit">Sign in</button>
+        </form>
+        <p class="foot">Access is set up by whoever manages access in your organisation. They send you a link to set your password.</p>
+      </section>
+
+      <section id="setpassword" hidden>
+        <h1 id="setpassword-title">Set your password</h1>
+        <p class="foot intro" id="setpassword-who">Choose a password only you know. Nobody else, not even whoever invited you, will see it.</p>
+        <form method="post" action="/auth/accept">
+          <input type="hidden" name="token" />
+          <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Set password and sign in</button>
+        </form>
+      </section>
+      <section id="setup" hidden>
+        <h1>Create the owner account</h1>
+        <p class="foot intro">This is the first sign-in on this system. The account you create here becomes the owner, and invites everyone else from the Access tab.</p>
+        <form method="post" action="/auth/setup">
+          <input type="hidden" name="next" value="/app/" />
+          <label>Your email <input type="email" name="email" autocomplete="username" required /></label>
+          <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Create owner account</button>
+        </form>
+      </section>
     </main>
     <script>
       const params = new URLSearchParams(location.search);
       const next = params.get('next');
-      if (next && next.startsWith('/') && !next.startsWith('//')) document.getElementById('next').value = next;
-      for (const id of ['invalid', 'setup', 'signedout']) {
-        if (params.get('error') === id || params.has(id)) document.getElementById(id).hidden = false;
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
       }
+      // A message shows when the server names it as the error. Only "signed out" is a bare flag, so a
+      // parameter such as link= can never raise a message of the same name by accident.
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'suspended', 'badlink', 'expired', 'elsewhere']) {
+        if (params.get('error') === id) document.getElementById(id).hidden = false;
+      }
+      if (params.has('signedout')) document.getElementById('signedout').hidden = false;
+      // An invitation or reset link: the person sets their own password, then is signed in.
+      const link = params.get('link');
+      if (link) {
+        document.getElementById('signin').hidden = true;
+        document.getElementById('setpassword').hidden = false;
+        document.querySelector('#setpassword input[name=token]').value = link;
+        fetch('/auth/link?' + new URLSearchParams({ token: link }))
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((who) => {
+            document.getElementById('setpassword-title').textContent = who.kind === 'reset' ? 'Choose a new password' : 'Welcome, ' + who.name;
+            document.getElementById('setpassword-who').textContent =
+              'For ' + who.email + '. Choose a password only you know. Nobody else, not even whoever sent this link, will see it.';
+            document.querySelector('#setpassword input[name=password]').focus();
+          })
+          .catch(() => {
+            document.getElementById('setpassword').hidden = true;
+            document.getElementById('signin').hidden = false;
+            if (!params.get('error')) document.getElementById('badlink').hidden = false;
+          });
+      }
+      // On a fresh system there is nobody to sign in as yet, so offer the owner set-up instead.
+      fetch('/auth/status')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((status) => {
+          if (!status?.setupNeeded || link) return;
+          document.getElementById('signin').hidden = true;
+          document.getElementById('setup').hidden = false;
+          document.querySelector('#setup input[name=email]').focus();
+        })
+        .catch(() => {});
     </script>
   </body>
 </html>

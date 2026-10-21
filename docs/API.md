@@ -22,17 +22,18 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
-| `PRESHIFT_SECRET_KEY` | 64 hex characters. Encrypts authenticator secrets (AES-256-GCM). Required in production before anyone can enrol; outside production a fixed development key is used. Never rotate it once people have enrolled |
+| `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
 ## Authentication and tenancy
 
-People in the web app authenticate with the session cookie from signing in (see Sign in in the
-README). A session is matched by email to the person's access record in their organisation, and
-their roles then decide (below). A session with no access record keeps full access to its
-organisation, as every session had before roles, and the Access overview lists it as a finding
-until it is given a record. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
+People in the web app authenticate with the session cookie from signing in (see the README). A
+session is matched by email to the person's access record in their organisation, and their roles
+then decide (below). A session with no access record keeps full access to its organisation, as every
+account had before roles, and the Access overview lists it as a finding until it is given a record.
+People and access (`/v1/users`, `/v1/access/*`) are managed by people only, never by an integration
+key; settings (`/v1/settings`) need a signed-in person with `settings.manage`. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
 `time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
@@ -74,7 +75,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until the session has entered a code from it. The session cookie then names the enrolment it proved, so a reset or a new enrolment ends every older proof. A personal API key counts only if issued with `"mfa": true`. |
 | Yourself | Nobody changes their own access. |
 | Last administrator | Nothing removes, suspends or resets the last person who can manage access for the organisation. |
-| Invitations | Single-use token, stored hashed, valid seven days, at most three sends an hour. Signing in with the invited email accepts it; passwords still come from `APP_USERS`. |
+| Invitations and resets | A single-use link, stored hashed, on the sign-in page: an invitation lasts seven days, a reset a day, at most three sends an hour. The person sets their own password; a reset first ends the old one and every session. One email signs in to one organisation. |
 | Self-approval | A person linked to a rota record who can approve hours at their own site is flagged. |
 
 | Endpoint | Purpose |
@@ -92,7 +93,8 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | `POST /v1/me/authenticator/start`, `/confirm` | A new secret and its QR code, then confirmation with a code from the app, which returns ten recovery codes once. Replacing one needs a session that has proved the current one |
 | `POST /v1/me/authenticator/verify` | A 6-digit code or a recovery code for this session. Each code works once; five wrong in 15 minutes lock it for 15 minutes |
 | `POST /v1/me/authenticator/recovery-codes` | Ten new recovery codes, replacing the old ones |
-| `POST /v1/invites/accept` | Public; the token is the proof. Signing in with the invited email also accepts it |
+| `POST /v1/users/:id/reset-password` | Ends the password and every session; returns a single-use link, valid a day, for the person to set a new one |
+| `/login?link=`, `POST /auth/accept`, `GET /auth/link` | Public: the person sets their own password from an invitation or reset link (single use), and is signed in |
 
 ## Endpoints
 
@@ -180,6 +182,5 @@ net, not the main path.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
 - Split the JSONB document into tables when cross-organisation reporting needs SQL.
-- People in the database, not `APP_USERS`: passwords set by invitation, sessions ended on suspend
-  and revoke (an authenticator reset already ends their strong rights), and invitation emails
-  instead of returning the link.
+- Invitation and reset emails instead of returning the link to whoever made it.
+- One person in several organisations (WS staff across clients): today one email signs in to one.

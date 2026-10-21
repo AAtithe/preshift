@@ -1,35 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { buildApp } from './app';
-import { TeamPaySimulator } from './integrations/payroll/simulator';
-import { MemoryStore } from './store';
+import { account, kit, tokenOf, type Kit } from './testkit';
 
 const KEYS = [
-  { key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] },
   { key: 'owner', orgId: 'demo', name: 'Owner key', scopes: ['*' as const], userId: 'usr_owner', mfa: true },
   { key: 'gm', orgId: 'demo', name: 'Priya key', scopes: ['users:manage' as const], userId: 'usr_gm_mar', mfa: true },
   { key: 'rota', orgId: 'demo', name: 'Rota only', scopes: ['rota:read' as const] },
   { key: 'other', orgId: 'acme', name: 'Other org', scopes: ['*' as const] },
 ];
 
+let current: Kit;
+
 async function setup() {
-  const { app } = await buildApp({ apiKeys: KEYS, store: new MemoryStore(['demo'], '2026-10-21'), provider: new TeamPaySimulator(), autoDispatch: false });
-  return async (method: string, url: string, body?: unknown, key: string | null = 'owner') => {
-    const res = await app.inject({
-      method: method as 'GET',
-      url,
-      headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
-      payload: body ? JSON.stringify(body) : undefined,
-    });
-    return { status: res.statusCode, body: res.body ? res.json() : undefined };
-  };
+  current = await kit({ keys: KEYS as never });
+  return async (method: string, url: string, body?: unknown, key: string | null = 'owner') => current.call(method, url, key ? { key } : null, body);
 }
 
 describe('users and access', () => {
   it('needs the users scope, and keeps organisations apart', async () => {
     const call = await setup();
     expect((await call('GET', '/v1/users', undefined, 'rota')).status).toBe(403);
-    expect((await call('GET', '/v1/users', undefined, 'other')).body).toEqual([]);
-    expect((await call('GET', '/v1/users/usr_owner', undefined, 'other')).status).toBe(404);
+    // An integration key never manages people, in its own organisation or any other.
+    expect((await call('GET', '/v1/users', undefined, 'other')).status).toBe(403);
+    expect((await call('GET', '/v1/users/usr_owner', undefined, 'other')).status).toBe(403);
   });
 
   it('shows a GM only the people at their site', async () => {
@@ -47,11 +39,11 @@ describe('users and access', () => {
     expect(res.status).toBe(201);
     expect(res.body.user.status).toBe('invited');
     expect(res.body.user.email).toBe('new.host@example.com');
-    const token = decodeURIComponent(res.body.inviteUrl.split('token=')[1]);
+    const token = tokenOf(res.body.inviteUrl);
     expect((await call('POST', '/v1/users', { email: 'new.host@example.com', name: 'Again', audience: 'operator', roleId: 'viewer' })).status).toBe(409);
-    const accept = await call('POST', '/v1/invites/accept', { token }, null);
-    expect(accept.status).toBe(200);
-    expect((await call('POST', '/v1/invites/accept', { token }, null)).status).toBe(404);
+    const accept = await current.form('/auth/accept', { token, password: 'long enough password', confirm: 'long enough password' });
+    expect(accept.location).toBe('/app/');
+    expect((await current.form('/auth/accept', { token, password: 'long enough password', confirm: 'long enough password' })).location).toMatch(/error=badlink/);
     const trail = (await call('GET', `/v1/access/audit?userId=${res.body.user.id}`)).body.map((e: { action: string }) => e.action);
     expect(trail).toEqual(['invite.accepted', 'user.invited', 'membership.granted']);
   });
@@ -78,8 +70,11 @@ describe('users and access', () => {
     const call = await setup();
     expect((await call('POST', '/v1/users/usr_owner/suspend')).body.message).toMatch(/Somebody else/);
     // Remove the other two administrators, then the system key cannot remove the owner either.
-    expect((await call('POST', '/v1/users/bulk', { action: 'suspend', userIds: ['usr_ops', 'usr_ws_partner', 'usr_owner'] }, 'system')).body).toMatchObject({ done: 2, failed: 1 });
-    const last = await call('DELETE', '/v1/users/usr_owner/grants/mem_owner_1', undefined, 'system');
+    // Someone signed in with no access record acts organisation-wide, and is still bound by the rule.
+    await current.store.createUser(account('norecord@example.com'));
+    const norecord = await current.as('norecord@example.com');
+    expect((await current.call('POST', '/v1/users/bulk', norecord, { action: 'suspend', userIds: ['usr_ops', 'usr_ws_partner', 'usr_owner'] })).body).toMatchObject({ done: 2, failed: 1 });
+    const last = await current.call('DELETE', '/v1/users/usr_owner/grants/mem_owner_1', norecord);
     expect(last.status).toBe(403);
     expect(last.body.message).toMatch(/nobody able to manage access/);
   });

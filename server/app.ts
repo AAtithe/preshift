@@ -2,12 +2,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
-import { sessionSecret } from './session';
 import { HttpError, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
+import { settingsRoutes, signInRoutes } from './routes/access';
+import { assistantRoutes } from './routes/assistant';
 import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
@@ -16,6 +17,8 @@ import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
+import { webRoutes } from './routes/web';
+import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
 
@@ -29,6 +32,10 @@ export interface BuildOptions {
   env?: NodeJS.ProcessEnv;
   /** Where the Swagger UI assets live when the server is bundled (Vercel). */
   docsBaseDir?: string;
+  /** The sign-in page. Defaults to site/login.html in the repository. */
+  loginPage?: string;
+  /** The built web app, served at /app/ to signed-in people only. Unset in development, where Vite serves it. */
+  appDir?: string;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -74,8 +81,12 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor),
     autoDispatch: options.autoDispatch ?? true,
-    sessionSecret: sessionSecret(env),
   };
+
+  // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, Object.fromEntries(new URLSearchParams(body as string)));
+  });
 
   // Keep the raw body: webhook signatures are computed over the exact bytes sent.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -134,18 +145,18 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
-  const auth = authenticate(keys, sessionSecret(env));
+  const auth = authenticate(keys, store);
+  signInRoutes(app, ctx);
+  assistantRoutes(app, store);
+  webRoutes(app, store, { loginPage: options.loginPage ?? path.resolve('site/login.html'), appDir: options.appDir });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
-    // Accepting an invitation is public: the single-use token is the proof, and the handler loads its organisation.
-    const isPublic = (url: string) => url === '/v1/invites/accept';
     api.addHook('onRequest', async (req, reply) => {
-      if (isWebhook(req.url) || isPublic(req.url)) return;
+      if (isWebhook(req.url)) return;
       return auth(req, reply);
     });
     // Load the organisation once per request; webhooks name it in the path, everything else by API key.
     api.addHook('preHandler', async (req) => {
-      if (isPublic(req.url)) return;
       const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
       req.org = await store.load(orgId);
     });
@@ -173,6 +184,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     userRoutes(api, ctx);
     authenticatorRoutes(api, ctx);
     devRoutes(api, ctx);
+    settingsRoutes(api, ctx);
   });
 
   return { app, ctx };

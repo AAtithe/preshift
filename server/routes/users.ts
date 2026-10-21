@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   accessHealth, ALL_PERMISSIONS, can, canOrgWide, checkAuthority, checkGrant, CONFLICTS, holders, INVITE_DAYS, live,
   ORG_DUTIES, PERMISSIONS, ROLES, SITE_DUTIES, sitesWith, STRONG, type Actor, type Audience, type Membership, type User,
@@ -8,7 +8,8 @@ import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
 import { actorOf, withoutRecord } from '../guard';
 import { authenticatorState } from './authenticator';
-import { parseUsers } from '../passwords';
+import { hashPassword } from '../passwords';
+import type { Store } from '../store';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -35,7 +36,9 @@ const userAndMembership = {
 interface GrantBody { roleId: string; siteIds?: string[] | null; starts?: string; ends?: string; acceptWarnings?: boolean }
 interface InviteBody extends GrantBody { email: string; name: string; jobTitle?: string; audience: Audience; employeeId?: string }
 
-const hash = (token: string) => createHash('sha256').update(token).digest('hex');
+export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+const hash = hashToken;
+const RESET_DAYS = 1;
 
 const nameOf = (a: Actor) => (a.kind === 'system' ? a.name : a.user.name);
 
@@ -67,16 +70,36 @@ function refuse(message: string | null) {
   if (message) throw new HttpError(403, 'forbidden', message);
 }
 
-function issueInvite(org: OrgData, user: User, now: Date) {
+/**
+ * A single-use link for the person to set their own password: an invitation lasts seven days,
+ * a reset one. Only its hash is kept, and a new link replaces any earlier one.
+ */
+function issueLink(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
   for (const [k, v] of Object.entries(org.inviteTokens)) if (v.userId === user.id) delete org.inviteTokens[k];
   const token = `${org.orgId}.${randomBytes(24).toString('base64url')}`;
-  const expiresAt = addDays(now.toISOString().slice(0, 10), INVITE_DAYS);
-  org.inviteTokens[hash(token)] = { userId: user.id, expiresAt };
-  user.inviteExpiresAt = expiresAt;
+  const expiresAt = addDays(now.toISOString().slice(0, 10), kind === 'invite' ? INVITE_DAYS : RESET_DAYS);
+  org.inviteTokens[hash(token)] = { userId: user.id, expiresAt, kind };
+  if (kind === 'invite') user.inviteExpiresAt = expiresAt;
   const sends = (org.inviteSends[user.id] ?? []).filter((t) => now.getTime() - Date.parse(t) < 3_600_000);
   org.inviteSends[user.id] = [...sends, now.toISOString()];
-  // There is no mailer yet: the link goes back once to whoever sent the invitation, to pass on.
-  return { inviteUrl: `/accept-invite?token=${encodeURIComponent(token)}`, expiresAt };
+  // There is no mailer yet: the link goes back once to whoever made it, to pass on.
+  return { inviteUrl: `/login?link=${encodeURIComponent(token)}`, expiresAt };
+}
+const issueInvite = (org: OrgData, user: User, now: Date) => issueLink(org, user, now, 'invite');
+
+/** Ends every session the person has, on the next request each makes. */
+async function signOutEverywhere(store: Store, email: string) {
+  if (await store.getUser(email)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
+}
+
+/** What the Access screen needs to know about each person's sign-in. Never the hash. */
+async function withAccounts(store: Store, orgId: string, users: User[]) {
+  const accounts = new Map((await store.listUsers(orgId)).map((a) => [a.email, a]));
+  const nowSecs = Math.floor(Date.now() / 1000);
+  return users.map((u) => {
+    const a = accounts.get(u.email);
+    return { ...u, account: a ? { exists: true, locked: a.lockedUntil > nowSecs, since: a.createdAt } : { exists: false, locked: false } };
+  });
 }
 
 /** Run the grant rules and turn the outcome into a refusal, a request to confirm, or a membership. */
@@ -144,7 +167,14 @@ function accountAction(org: OrgData, actor: Actor, target: User, action: Account
 }
 
 export function userRoutes(app: FastifyInstance, ctx: AppContext) {
-  const manage = { preHandler: requireScope('users:manage') };
+  // People are managed by people: a signed-in session or a personal key, never an integration
+  // key, which could otherwise grant itself anything if it leaked.
+  const byPerson = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.principal.userId && !req.principal.email) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Access is managed by people signed in, never by an integration key.' });
+    }
+  };
+  const manage = { preHandler: [requireScope('users:manage'), byPerson] };
   const tags = ['Users and access'];
   const today = () => ctx.store.todayISO();
 
@@ -175,14 +205,14 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/users', { ...manage, schema: { tags } }, async (req) => {
     const org = orgOf(req);
-    return readable(actorOf(req, org, today()), org, today());
+    return withAccounts(ctx.store, org.orgId, readable(actorOf(req, org, today()), org, today()));
   });
 
   app.get<{ Params: { id: string } }>('/v1/users/:id', { ...manage, schema: { tags, params: idParam } }, async (req) => {
     const org = orgOf(req);
     const u = readable(actorOf(req, org, today()), org, today()).find((x) => x.id === req.params.id);
     if (!u) throw notFound(`User ${req.params.id}`);
-    return u;
+    return (await withAccounts(ctx.store, org.orgId, [u]))[0];
   });
 
   app.post<{ Body: InviteBody }>(
@@ -210,10 +240,16 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       const actor = actorOf(req, org, today());
+      // Nobody without access management anywhere gets as far as the grant rules.
+      readable(actor, org, today());
       const email = req.body.email.trim().toLowerCase();
       if (!EMAIL.test(email)) throw new HttpError(400, 'invalid_request', 'That is not an email address');
       const existing = org.users.find((u) => u.email === email);
       if (existing) throw new HttpError(409, 'exists', `There is already an account for ${email}. Grant ${existing.name} a role instead.`, { userId: existing.id });
+      const account = await ctx.store.getUser(email);
+      if (account && account.orgId !== org.orgId) {
+        throw new HttpError(409, 'elsewhere', `${email} already signs in to another organisation. One email signs in to one organisation for now.`);
+      }
       if (req.body.employeeId && !org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
       const now = new Date();
       const user: User = {
@@ -282,7 +318,9 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      const m = grant(org, actorOf(req, org, today()), findUser(org, req.params.id), req.body, today());
+      const actor = actorOf(req, org, today());
+      readable(actor, org, today());
+      const m = grant(org, actor, findUser(org, req.params.id), req.body, today());
       return reply.code(201).send(m);
     },
   );
@@ -334,9 +372,41 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
   for (const action of ['suspend', 'reactivate', 'reset-authenticator', 'resend-invite'] as const) {
     app.post<{ Params: { id: string } }>(`/v1/users/:id/${action}`, { ...manage, schema: { tags, params: idParam } }, async (req) => {
       const org = orgOf(req);
-      return accountAction(org, actorOf(req, org, today()), findUser(org, req.params.id), action, today());
+      const target = findUser(org, req.params.id);
+      const out = accountAction(org, actorOf(req, org, today()), target, action, today());
+      // A suspended person's sessions end now, not when they next try something.
+      if (action === 'suspend') await signOutEverywhere(ctx.store, target.email);
+      return out;
     });
   }
+
+  app.post<{ Params: { id: string } }>(
+    '/v1/users/:id/reset-password',
+    {
+      ...manage,
+      schema: {
+        tags,
+        description:
+          'Ends the password and every session, and returns a single-use link (valid a day) for the person to set a new one. ' +
+          'Nobody else learns the new password. Confirm who they are by phone or in person before passing the link on.',
+        params: idParam,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const actor = actorOf(req, org, today());
+      const target = findUser(org, req.params.id);
+      if (target.status !== 'active') throw new HttpError(409, 'conflict', `${target.name} is ${target.status}. ${target.status === 'invited' ? 'Resend their invitation instead.' : 'Reactivate them first.'}`);
+      refuse(checkAuthority(actor, target, org.users, today()));
+      if (await ctx.store.getUser(target.email)) {
+        // The old password stops working at once: it may be what was compromised.
+        await ctx.store.updateUser(target.email, { ...(await hashPassword(randomBytes(32).toString('hex'))), sessionsValidFrom: Date.now(), failedAttempts: 0, lockedUntil: 0 });
+      }
+      const link = issueLink(org, target, new Date(), 'reset');
+      audit(org, nameOf(actor), 'user.password_reset', { userId: target.id });
+      return { user: target, ...link };
+    },
+  );
 
   app.delete<{ Params: { id: string } }>(
     '/v1/users/:id/invite',
@@ -375,14 +445,17 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const actor = actorOf(req, org, today());
-      const results = req.body.userIds.map((id) => {
+      const results: { userId: string; ok: boolean; inviteUrl?: string; error?: string }[] = [];
+      for (const id of req.body.userIds) {
         try {
-          const out = accountAction(org, actor, findUser(org, id), req.body.action, today());
-          return { userId: id, ok: true, inviteUrl: (out as { inviteUrl?: string }).inviteUrl };
+          const target = findUser(org, id);
+          const out = accountAction(org, actor, target, req.body.action, today());
+          if (req.body.action === 'suspend') await signOutEverywhere(ctx.store, target.email);
+          results.push({ userId: id, ok: true, inviteUrl: (out as { inviteUrl?: string }).inviteUrl });
         } catch (e) {
-          return { userId: id, ok: false, error: (e as Error).message };
+          results.push({ userId: id, ok: false, error: (e as Error).message });
         }
-      });
+      }
       return { done: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results };
     },
   );
@@ -398,10 +471,10 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         organisation: Object.fromEntries(ORG_DUTIES.map((p) => [p, ids(holders(users, p, t))])),
         sites: Object.fromEntries(org.state.sites.map((s) => [s.id, Object.fromEntries(SITE_DUTIES.map((p) => [p, ids(holders(users, p, t, s.id))]))])),
       },
-      // People who can sign in (APP_USERS) to this organisation but have no access record: full access, no roles.
-      signInsWithoutRecord: [...parseUsers(process.env.APP_USERS)]
-        .filter(([email, u]) => u.orgId === org.orgId && !org.users.some((x) => x.email === email))
-        .map(([email]) => email),
+      // Accounts that can sign in to this organisation but have no access record: full access, no roles.
+      signInsWithoutRecord: (await ctx.store.listUsers(org.orgId))
+        .filter((a) => !org.users.some((x) => x.email === a.email))
+        .map((a) => a.email),
       counts: {
         people: users.length,
         active: users.filter((u) => u.status === 'active').length,
@@ -458,38 +531,6 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         .filter((e) => !req.query.userId || e.detail?.userId === req.query.userId)
         .slice()
         .reverse();
-    },
-  );
-
-  // Public: the person accepting has no key yet. The token is the proof.
-  app.post<{ Body: { token: string } }>(
-    '/v1/invites/accept',
-    {
-      schema: {
-        tags,
-        security: [],
-        description: 'Accepts an invitation. The token is single use and lasts seven days.',
-        body: { type: 'object', required: ['token'], additionalProperties: false, properties: { token: { type: 'string', minLength: 10 } } },
-      },
-    },
-    async (req) => {
-      const orgId = req.body.token.split('.')[0];
-      const invalid = () => new HttpError(404, 'not_found', 'This invitation is not valid. Ask for a new one.');
-      // has() first: loading an organisation that does not exist would create it.
-      if (!orgId || !(await ctx.store.has(orgId))) throw invalid();
-      const org = await ctx.store.load(orgId);
-      req.org = org;
-      const entry = org.inviteTokens[hash(req.body.token)];
-      if (!entry) throw invalid();
-      const user = org.users.find((u) => u.id === entry.userId);
-      delete org.inviteTokens[hash(req.body.token)];
-      if (!user || user.status !== 'invited') throw invalid();
-      if (entry.expiresAt < ctx.store.todayISO()) throw new HttpError(410, 'expired', 'This invitation has expired. Ask for a new one.');
-      user.status = 'active';
-      user.activatedAt = new Date().toISOString();
-      user.inviteExpiresAt = undefined;
-      audit(org, user.name, 'invite.accepted', { userId: user.id });
-      return { name: user.name, email: user.email, needsAuthenticator: user.memberships.some((m) => ROLES.find((r) => r.id === m.roleId)?.mfa) };
     },
   );
 }

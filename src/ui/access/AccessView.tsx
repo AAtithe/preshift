@@ -8,7 +8,7 @@ import { api, ApiError } from '../api';
 import { download } from '../format';
 import { GrantDialog } from './GrantDialog';
 import {
-  byArea, csvOfAccess, describeEvent, endingSoon, healthOf, lastSeen, reach, shortDate, signInText, STATUS_LABEL, today,
+  byArea, csvOfAccess, describeEvent, endingSoon, healthOf, lastSeen, reach, shortDate, signInState, signInText, STATUS_LABEL, today,
   type AuditRow, type Me,
 } from './model';
 import { PersonPanel } from './PersonPanel';
@@ -380,7 +380,10 @@ export function AccessView({ state }: Props) {
                             </div>
                           </td>
                           <td className={`tone-${sign.tone}`}>{sign.text}</td>
-                          <td><span className={`pill status-${u.status}`}>{STATUS_LABEL[u.status]}</span></td>
+                          <td>
+                            <span className={`pill status-${u.status}`}>{STATUS_LABEL[u.status]}</span>
+                            {signInState(u).tone !== 'good' && <div className={`small tone-${signInState(u).tone}`}>{signInState(u).text}</div>}
+                          </td>
                           <td className="muted">{lastSeen(u)}</td>
                           <td>
                             {flags.length === 0 ? <span className="muted">None</span> : (

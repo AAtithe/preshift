@@ -5,7 +5,7 @@ import {
 import type { RotaState } from '../../engine/types';
 import { api, ApiError } from '../api';
 import {
-  actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInText, siteName, STATUS_LABEL, today, type AuditRow, type Me,
+  actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today, type AuditRow, type Me,
 } from './model';
 
 interface Props {
@@ -31,6 +31,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
   const held = heldPermissions(user, today());
   const employee = state.employees.find((e) => e.id === user.employeeId);
   const sign = signInText(user);
+  const signIn = signInState(user);
 
   useEffect(() => {
     if (!canReadTrail) return;
@@ -78,6 +79,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
           <div><dt>Joined</dt><dd>{user.activatedAt ? shortDate(user.activatedAt) : 'Not yet'}</dd></div>
           <div><dt>Invited by</dt><dd>{user.invitedBy ?? 'Set-up'}</dd></div>
           <div><dt>On the rota</dt><dd>{employee ? `${employee.name}, ${siteName(state, employee.siteId)}` : 'No'}</dd></div>
+          <div><dt>Sign-in</dt><dd className={`tone-${signIn.tone}`}>{signIn.text}</dd></div>
         </dl>
 
         {mine.length > 0 && (
@@ -147,6 +149,13 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
                 <button onClick={() => void act('Invitation sent again', () => api.post(`/v1/users/${user.id}/resend-invite`))}>Resend invitation</button>
                 <button className="danger" onClick={() => void act('Invitation withdrawn', () => api.del(`/v1/users/${user.id}/invite`).then(onClose), `Withdraw ${user.name}'s invitation? Their account is removed.`)}>Withdraw invitation</button>
               </>
+            )}
+            {user.status === 'active' && (
+              <button
+                onClick={() => void act('Password reset. Their old password and every session have stopped', () => api.post(`/v1/users/${user.id}/reset-password`), `Reset ${user.name}'s password? Their current password stops working now and they are signed out everywhere. You get a link, valid for a day, for them to set a new one themselves. Confirm who they are by phone or in person before you pass it on.`)}
+              >
+                Reset password
+              </button>
             )}
             {user.mfaEnrolled && (
               <button onClick={() => void act('Authenticator reset', () => api.post(`/v1/users/${user.id}/reset-authenticator`), `Reset ${user.name}'s authenticator? Their strong rights stop until they enrol again. Only do this once you have confirmed who they are by phone or in person.`)}>

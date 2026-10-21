@@ -4,8 +4,8 @@ import QRCode from 'qrcode';
 import { live, roleOf, type User } from '../../src/engine/access';
 import { HttpError, orgOf, type AppContext } from '../context';
 import { actorOf, verified } from '../guard';
-import { seal, sealingKey, unseal } from '../secrets';
-import { COOKIE, createSession, SESSION_SECONDS } from '../session';
+import { seal, sealingKeyFor, unseal } from '../secrets';
+import { createSession, sessionCookie } from '../session';
 import { audit, type AuthenticatorRecord, type OrgData } from '../store';
 import { newRecoveryCodes, newSecret, normaliseRecovery, otpauthUrl, verifyCode } from '../totp';
 
@@ -31,11 +31,7 @@ function person(req: FastifyRequest, org: OrgData, today: string): User {
   return org.users.find((u) => u.id === actor.user.id)!;
 }
 
-function key() {
-  const k = sealingKey();
-  if (!k) throw new HttpError(503, 'not_configured', 'Authenticators need PRESHIFT_SECRET_KEY set on the server before anyone can enrol.');
-  return k;
-}
+const key = (ctx: AppContext) => sealingKeyFor(ctx.store);
 
 export const needsAuthenticator = (u: User, today: string) => u.memberships.some((m) => live(m, today) && roleOf(m.roleId)?.mfa);
 
@@ -49,7 +45,8 @@ export function authenticatorState(req: FastifyRequest, org: OrgData, u: User, t
     recoveryLeft: record?.secret ? record.recovery.length : 0,
     recoveryLow: !!record?.secret && record.recovery.length < RECOVERY_LOW,
     lockedUntil: record?.lockedUntil && Date.parse(record.lockedUntil) > Date.now() ? record.lockedUntil : undefined,
-    configured: !!sealingKey(),
+    // Always: the key comes from PRESHIFT_SECRET_KEY or, failing that, the database.
+    configured: true,
     // A key cannot type a code; only a signed-in session can prove itself.
     canVerify: !!req.principal.email,
   };
@@ -58,10 +55,11 @@ export function authenticatorState(req: FastifyRequest, org: OrgData, u: User, t
 /** Re-issue the session cookie carrying the proof. Keys have no session, so nothing to set. */
 async function proveSession(ctx: AppContext, req: FastifyRequest, reply: FastifyReply, record: AuthenticatorRecord) {
   const { email, orgId } = req.principal;
-  if (!email || !ctx.sessionSecret) return;
-  const token = await createSession({ email, orgId, mfa: record.id }, ctx.sessionSecret);
+  if (!email) return;
+  // Issued now: sessionsValidFrom is never later than a session the person is using.
+  const token = await createSession({ email, orgId }, await ctx.store.sessionSecret(), Date.now(), record.id);
   const https = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https';
-  reply.header('set-cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_SECONDS}${https ? '; Secure' : ''}`);
+  reply.header('set-cookie', sessionCookie(token, https));
 }
 
 function lockedOut(record: AuthenticatorRecord, now: number) {
@@ -97,7 +95,7 @@ export function authenticatorRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     const secret = newSecret();
     const record: AuthenticatorRecord = org.authenticators[u.id] ?? { id: '', lastStep: -1, recovery: [], failures: [] };
-    record.pending = seal(secret, key());
+    record.pending = seal(secret, await key(ctx));
     org.authenticators[u.id] = record;
     const url = otpauthUrl(secret, u.email);
     return { secret, otpauthUrl: url, qrSvg: await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }) };
@@ -110,7 +108,7 @@ export function authenticatorRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const u = person(req, org, today());
       const record = org.authenticators[u.id];
-      const pending = record?.pending ? unseal(record.pending, key()) : null;
+      const pending = record?.pending ? unseal(record.pending, await key(ctx)) : null;
       if (!record || !pending) throw new HttpError(409, 'not_started', 'Start setting up the authenticator first.');
       const now = Date.now();
       lockedOut(record, now);
@@ -155,7 +153,7 @@ export function authenticatorRoutes(app: FastifyInstance, ctx: AppContext) {
       const u = person(req, org, today());
       if (!req.principal.email) throw new HttpError(400, 'no_session', 'Codes are entered by a person signed in, not by an API key.');
       const record = org.authenticators[u.id];
-      const secret = record?.secret ? unseal(record.secret, key()) : null;
+      const secret = record?.secret ? unseal(record.secret, await key(ctx)) : null;
       if (!record || !secret || !u.mfaEnrolled) throw new HttpError(409, 'not_enrolled', 'Set up an authenticator first.');
       const now = Date.now();
       lockedOut(record, now);

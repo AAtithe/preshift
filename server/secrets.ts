@@ -1,21 +1,40 @@
-// Sealing for secrets the server must read back, such as authenticator secrets: AES-256-GCM
-// under PRESHIFT_SECRET_KEY (64 hex characters). A hash would not do: checking a code needs
-// the secret itself.
+// Sealing for secrets the server must read back, such as authenticator secrets: AES-256-GCM.
+// A hash would not do: checking a code needs the secret itself.
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 const PREFIX = 'v1';
 
+const SETTING = 'sealing_key';
+
+/** Deployed: on Vercel or in production. The fixed development key is never used there. */
+const deployed = (env: Record<string, string | undefined>) => env.NODE_ENV === 'production' || env.VERCEL === '1';
+
 /**
- * The sealing key, or null when none is configured in production, in which case nothing
- * secret is stored. Outside production a fixed development key keeps the demo working.
+ * The key set in PRESHIFT_SECRET_KEY, else outside a deployment a fixed development key, else
+ * null: a deployment without the variable keeps its key in the database (sealingKeyFor).
  */
 export function sealingKey(env: Record<string, string | undefined> = process.env): Buffer | null {
   const hex = env.PRESHIFT_SECRET_KEY;
   if (hex && /^[0-9a-fA-F]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
-  if (env.NODE_ENV === 'production' || env.VERCEL === '1') return null;
+  if (deployed(env)) return null;
   return createHash('sha256').update('preshift development sealing key, never for real data').digest();
 }
+
+/**
+ * The key for sealing, following the rest of sign-in: nothing has to be set outside the app.
+ * PRESHIFT_SECRET_KEY, if set, is stronger, as the key then never sits in the database it
+ * protects; otherwise a key is made once and kept in the settings table, apart from the data.
+ */
+export async function sealingKeyFor(settings: { settingOnce(key: string, make: () => string): Promise<string> }, env: Record<string, string | undefined> = process.env): Promise<Buffer> {
+  const fixed = sealingKey(env);
+  if (fixed) return fixed;
+  return Buffer.from(await settings.settingOnce(SETTING, () => randomBytes(32).toString('hex')), 'hex');
+}
+
+/** Where the key comes from, for the screens: never the key. */
+export const sealingSource = (env: Record<string, string | undefined> = process.env) =>
+  env.PRESHIFT_SECRET_KEY && /^[0-9a-fA-F]{64}$/.test(env.PRESHIFT_SECRET_KEY) ? 'environment' : deployed(env) ? 'database' : 'development';
 
 export function seal(plain: string, key: Buffer): string {
   const iv = randomBytes(12);

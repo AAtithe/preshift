@@ -1,37 +1,28 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildApp } from './app';
-import { TeamPaySimulator } from './integrations/payroll/simulator';
-import { seal, sealingKey, unseal } from './secrets';
+import { seal, sealingKey, sealingKeyFor, unseal } from './secrets';
 import { DEMO_TOTP_SECRET } from './seedUsers';
-import { COOKIE, createSession, readSession } from './session';
-import { MemoryStore } from './store';
+import { COOKIE, readSession } from './session';
+import { kit } from './testkit';
 import { base32Encode, codeAt, stepAt, verifyCode } from './totp';
 
-const SECRET = 'x'.repeat(48);
 const OLIVIA = 'olivia@marylebonegroup.example'; // Owner: enrolled in the demo with the published demo secret
 const NADIA = 'nadia@marylebonegroup.example'; // Finance director: role needs an authenticator, has none
-const SYSTEM = [{ key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] }, { key: 'priya-key', orgId: 'demo', name: 'Priya key', scopes: ['*' as const], userId: 'usr_gm_mar' }];
+const KEYS = [
+  { key: 'system', orgId: 'demo', name: 'System', scopes: ['*'] as ['*'] },
+  { key: 'priya-key', orgId: 'demo', name: 'Priya key', scopes: ['*'] as ['*'], userId: 'usr_gm_mar' },
+  // James, operations director, resets other people's authenticators: never his own, never by a system key.
+  { key: 'james-key', orgId: 'demo', name: 'James key', scopes: ['*'] as ['*'], userId: 'usr_ops', mfa: true },
+];
 const invite = (n: number) => ({ email: `new${n}@example.com`, name: `New ${n}`, audience: 'operator', roleId: 'viewer' });
 
 async function boot() {
-  const { app } = await buildApp({ apiKeys: SYSTEM, store: new MemoryStore(['demo'], '2026-10-21'), provider: new TeamPaySimulator(), autoDispatch: false, env: { SESSION_SECRET: SECRET } });
+  const k = await kit({ keys: KEYS });
   const call = async (method: string, url: string, as: { cookie?: string; key?: string }, body?: unknown) => {
-    const res = await app.inject({
-      method: method as 'GET',
-      url,
-      headers: {
-        ...(as.cookie ? { cookie: `${COOKIE}=${as.cookie}` } : {}),
-        ...(as.key ? { authorization: `Bearer ${as.key}` } : {}),
-        ...(body ? { 'content-type': 'application/json' } : {}),
-      },
-      payload: body ? JSON.stringify(body) : undefined,
-    });
-    const set = res.headers['set-cookie'];
-    const cookie = typeof set === 'string' ? set.split(';')[0].split('=').slice(1).join('=') : undefined;
-    return { status: res.statusCode, body: res.body ? res.json() : undefined, cookie, raw: res.body };
+    const res = await k.call(method, url, as.cookie ? `${COOKIE}=${as.cookie}` : as.key ? { key: as.key } : null, body);
+    return { ...res, cookie: res.cookie?.split('=').slice(1).join('=') };
   };
-  const signIn = (email: string) => createSession({ email, orgId: 'demo' }, SECRET);
-  return { call, signIn };
+  const signIn = async (email: string) => (await k.as(email)).split('=').slice(1).join('=');
+  return { call, signIn, store: k.store };
 }
 
 afterEach(() => {
@@ -69,7 +60,7 @@ describe('codes', () => {
 
 describe('the authenticator in a session', () => {
   it('keeps strong rights off until this session enters a code, then switches them on', async () => {
-    const { call, signIn } = await boot();
+    const { call, signIn, store } = await boot();
     const before = await signIn(OLIVIA);
     const me = await call('GET', '/v1/me', { cookie: before });
     expect(me.body.authenticator).toMatchObject({ required: true, enrolled: true, verified: false });
@@ -79,7 +70,7 @@ describe('the authenticator in a session', () => {
 
     const ok = await call('POST', '/v1/me/authenticator/verify', { cookie: before }, { code: codeAt(DEMO_TOTP_SECRET, stepAt(Date.now())) });
     expect(ok.status).toBe(200);
-    expect((await readSession(ok.cookie, SECRET))?.mfa).toBe('demo-usr_owner');
+    expect((await readSession(ok.cookie, await store.sessionSecret()))?.mfa).toBe('demo-usr_owner');
     expect((await call('GET', '/v1/me', { cookie: ok.cookie })).body.authenticator.verified).toBe(true);
     expect((await call('POST', '/v1/users', { cookie: ok.cookie }, invite(2))).status).toBe(201);
     // The cookie from before the code still has no proof.
@@ -102,7 +93,7 @@ describe('the authenticator in a session', () => {
     for (let i = 0; i < 5; i++) expect((await call('POST', '/v1/me/authenticator/verify', { cookie: session }, { code: '000000' })).status).toBe(422);
     const locked = await call('POST', '/v1/me/authenticator/verify', { cookie: session }, { code: codeAt(DEMO_TOTP_SECRET, stepAt(Date.now())) });
     expect(locked.status).toBe(429);
-    const trail = (await call('GET', '/v1/access/audit?userId=usr_owner', { key: 'system' })).body.map((e: { action: string }) => e.action);
+    const trail = (await call('GET', '/v1/access/audit?userId=usr_owner', { key: 'james-key' })).body.map((e: { action: string }) => e.action);
     expect(trail).toContain('authenticator.locked');
   });
 
@@ -133,7 +124,7 @@ describe('the authenticator in a session', () => {
     const { call, signIn } = await boot();
     const ok = await call('POST', '/v1/me/authenticator/verify', { cookie: await signIn(OLIVIA) }, { code: codeAt(DEMO_TOTP_SECRET, stepAt(Date.now())) });
     expect((await call('POST', '/v1/users', { cookie: ok.cookie }, invite(4))).status).toBe(201);
-    expect((await call('POST', '/v1/users/usr_owner/reset-authenticator', { key: 'system' })).status).toBe(200);
+    expect((await call('POST', '/v1/users/usr_owner/reset-authenticator', { key: 'james-key' })).status).toBe(200);
     expect((await call('POST', '/v1/users', { cookie: ok.cookie }, invite(5))).status).toBe(422);
     expect((await call('GET', '/v1/me', { cookie: ok.cookie })).body.authenticator).toMatchObject({ enrolled: false, verified: false });
 
@@ -163,12 +154,21 @@ describe('the authenticator in a session', () => {
     }
   });
 
-  it('does not let an API key type a code, and will not enrol where no sealing key is set', async () => {
-    const { call, signIn } = await boot();
+  it('does not let an API key type a code, and keeps the key in the database when none is set', async () => {
+    const { call, signIn, store } = await boot();
     expect((await call('POST', '/v1/me/authenticator/verify', { key: 'priya-key' }, { code: '123456' })).status).toBe(400);
     process.env.VERCEL = '1';
-    const res = await call('POST', '/v1/me/authenticator/start', { cookie: await signIn(NADIA) });
-    expect(res.status).toBe(503);
-    expect(res.body.message).toMatch(/PRESHIFT_SECRET_KEY/);
+    try {
+      // A deployment without PRESHIFT_SECRET_KEY makes a key once, keeps it in the settings table and reuses it.
+      const first = await sealingKeyFor(store);
+      expect((await sealingKeyFor(store)).equals(first)).toBe(true);
+      expect(first.equals(sealingKey({})!)).toBe(false);
+      expect((await call('POST', '/v1/me/authenticator/start', { cookie: await signIn(NADIA) })).status).toBe(200);
+      // A key set in the environment wins over the stored one.
+      const fixed = 'ab'.repeat(32);
+      expect((await sealingKeyFor(store, { VERCEL: '1', PRESHIFT_SECRET_KEY: fixed })).toString('hex')).toBe(fixed);
+    } finally {
+      delete process.env.VERCEL;
+    }
   });
 });

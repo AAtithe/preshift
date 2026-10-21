@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import { seedState } from '../src/engine/seed';
 import { toISODate } from '../src/engine/time';
@@ -70,7 +71,7 @@ export interface OrgData {
   users: User[];
   accessReviews: AccessReview[];
   /** Invitation tokens by their SHA-256; the plain token is shown once, to whoever sent it. */
-  inviteTokens: Record<string, { userId: string; expiresAt: string }>;
+  inviteTokens: Record<string, { userId: string; expiresAt: string; kind?: 'invite' | 'reset' }>;
   /** When each person's invitation was last sent, to stop resend floods. */
   inviteSends: Record<string, string[]>;
   /** Authenticators by user id. */
@@ -79,12 +80,50 @@ export interface OrgData {
   version?: number;
 }
 
+export type UserRole = 'admin' | 'member';
+
+/** A person who signs in to the web app. Passwords are held only as scrypt salt and hash. */
+export interface UserRecord {
+  email: string;
+  orgId: string;
+  role: UserRole;
+  salt: string;
+  hash: string;
+  createdAt: string;
+  /** Sessions issued before this (epoch milliseconds) are refused: set on a password change or reset. */
+  sessionsValidFrom: number;
+  failedAttempts: number;
+  /** Epoch seconds; sign-in is refused until then after repeated failures. */
+  lockedUntil: number;
+}
+
+/**
+ * People and deployment settings, kept in the same database as the organisations so that
+ * nothing about access is configured outside the app.
+ */
+export interface UserStore {
+  /** The key that signs session cookies, created on first use and kept in the database. */
+  sessionSecret(): Promise<string>;
+  getUser(email: string): Promise<UserRecord | null>;
+  listUsers(orgId: string): Promise<UserRecord[]>;
+  hasUsers(): Promise<boolean>;
+  /** Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists. */
+  createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
+  updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
+  deleteUser(email: string): Promise<void>;
+  /** Secrets and settings kept apart from organisation data, so no data endpoint can return them. */
+  getSetting(key: string): Promise<string | null>;
+  setSetting(key: string, value: string | null): Promise<void>;
+  /** A setting written once and never overwritten: whoever writes first wins, and everyone reads that. */
+  settingOnce(key: string, make: () => string): Promise<string>;
+}
+
 /**
  * Tenancy boundary: every request loads exactly one organisation, works on it,
  * and saves it once at the end. A save that finds the organisation changed
  * underneath it is refused rather than overwriting someone else's work.
  */
-export interface Store {
+export interface Store extends UserStore {
   load(orgId: string): Promise<OrgData>;
   /** Whether the organisation exists, without creating it as load() would. */
   has(orgId: string): Promise<boolean>;
@@ -93,6 +132,8 @@ export interface Store {
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
 }
+
+const newSecret = () => randomBytes(32).toString('hex');
 
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   const people = seeded ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
@@ -135,6 +176,8 @@ export function upgradeState(state: RotaState): RotaState {
 
 export class MemoryStore implements Store {
   private readonly orgs = new Map<string, OrgData>();
+  private readonly users = new Map<string, UserRecord>();
+  private readonly secret = newSecret();
 
   constructor(private readonly seedOrgIds: string[] = ['demo'], private readonly today?: string) {}
 
@@ -161,6 +204,54 @@ export class MemoryStore implements Store {
 
   async orgIds() {
     return [...this.orgs.keys()];
+  }
+
+  async sessionSecret() {
+    return this.secret;
+  }
+
+  async getUser(email: string) {
+    const user = this.users.get(email);
+    return user ? { ...user } : null;
+  }
+
+  async listUsers(orgId: string) {
+    return [...this.users.values()].filter((u) => u.orgId === orgId).map((u) => ({ ...u }));
+  }
+
+  async hasUsers() {
+    return this.users.size > 0;
+  }
+
+  async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
+    if (this.users.has(user.email) || (options.onlyIfFirst && this.users.size > 0)) return false;
+    this.users.set(user.email, { ...user });
+    return true;
+  }
+
+  async updateUser(email: string, patch: Partial<UserRecord>) {
+    const user = this.users.get(email);
+    if (user) this.users.set(email, { ...user, ...patch, email });
+  }
+
+  async deleteUser(email: string) {
+    this.users.delete(email);
+  }
+
+  private readonly settings = new Map<string, string>();
+
+  async getSetting(key: string) {
+    return this.settings.get(key) ?? null;
+  }
+
+  async setSetting(key: string, value: string | null) {
+    if (value === null) this.settings.delete(key);
+    else this.settings.set(key, value);
+  }
+
+  async settingOnce(key: string, make: () => string) {
+    if (!this.settings.has(key)) this.settings.set(key, make());
+    return this.settings.get(key)!;
   }
 }
 
@@ -204,6 +295,17 @@ export class PgStore implements Store {
          )`,
         [],
       );
+      await this.query(
+        `create table if not exists preshift.users (
+           email text primary key,
+           org_id text not null,
+           data jsonb not null,
+           created_at timestamptz not null default now()
+         )`,
+        [],
+      );
+      await this.query('create index if not exists users_org_idx on preshift.users (org_id)', []);
+      await this.query('create table if not exists preshift.settings (key text primary key, value text not null)', []);
     })().catch((err) => {
       // Instances starting together can collide creating the schema; let the next request try again
       // rather than leave this instance failing every request until it is recycled.
@@ -262,6 +364,88 @@ export class PgStore implements Store {
     const rows = await this.query('select org_id from preshift.orgs', []);
     return rows.map((r) => String(r.org_id));
   }
+
+  private secretCache: string | null = null;
+
+  async sessionSecret() {
+    if (this.secretCache) return this.secretCache;
+    await this.init();
+    // Instances racing on first start all keep whichever secret was written first.
+    await this.query(`insert into preshift.settings (key, value) values ('session_secret', $1) on conflict do nothing`, [newSecret()]);
+    const rows = await this.query(`select value from preshift.settings where key = 'session_secret'`, []);
+    this.secretCache = String(rows[0].value);
+    return this.secretCache;
+  }
+
+  async getUser(email: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.users where email = $1', [email]);
+    return rows.length ? userFrom(rows[0].data) : null;
+  }
+
+  async listUsers(orgId: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.users where org_id = $1 order by created_at', [orgId]);
+    return rows.map((r) => userFrom(r.data));
+  }
+
+  async hasUsers() {
+    await this.init();
+    return (await this.query('select 1 from preshift.users limit 1', [])).length > 0;
+  }
+
+  async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
+    await this.init();
+    // One statement, so two people racing to create the first account cannot both succeed.
+    const rows = await this.query(
+      `insert into preshift.users (email, org_id, data)
+       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users)
+       on conflict do nothing returning email`,
+      [user.email, user.orgId, JSON.stringify(user), Boolean(options.onlyIfFirst)],
+    );
+    return rows.length > 0;
+  }
+
+  async updateUser(email: string, patch: Partial<UserRecord>) {
+    const user = await this.getUser(email);
+    if (!user) return;
+    const next = { ...user, ...patch, email };
+    await this.query('update preshift.users set org_id = $2, data = $3 where email = $1', [email, next.orgId, JSON.stringify(next)]);
+  }
+
+  async deleteUser(email: string) {
+    await this.init();
+    await this.query('delete from preshift.users where email = $1', [email]);
+  }
+
+  async getSetting(key: string) {
+    await this.init();
+    const rows = await this.query('select value from preshift.settings where key = $1', [key]);
+    return rows.length ? String(rows[0].value) : null;
+  }
+
+  async settingOnce(key: string, make: () => string) {
+    await this.init();
+    // Instances racing on first use all keep whichever value was written first.
+    await this.query('insert into preshift.settings (key, value) values ($1, $2) on conflict do nothing', [key, make()]);
+    const rows = await this.query('select value from preshift.settings where key = $1', [key]);
+    return String(rows[0].value);
+  }
+
+  async setSetting(key: string, value: string | null) {
+    await this.init();
+    if (value === null) await this.query('delete from preshift.settings where key = $1', [key]);
+    else {
+      await this.query(
+        'insert into preshift.settings (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value',
+        [key, value],
+      );
+    }
+  }
+}
+
+function userFrom(data: unknown): UserRecord {
+  return (typeof data === 'string' ? JSON.parse(data) : data) as UserRecord;
 }
 
 function serialise(org: OrgData): string {

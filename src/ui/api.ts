@@ -1,6 +1,7 @@
 // The web app is a client of the public Preshift API, with no private back door.
-// In production it authenticates with the sign-in session cookie and carries no key. The local
-// API accepts a development key, which is only ever added to development builds.
+// It authenticates with the sign-in session cookie and carries no key, locally as well as live.
+// One exception, in development builds only: someone may choose to act as a demo person, and then
+// that person's demo key is sent instead, until they go back to their own sign-in.
 
 const env = (import.meta as unknown as { env: Record<string, string | boolean | undefined> }).env;
 const DEMO_KEY = 'preshift.demoKey';
@@ -13,20 +14,28 @@ function storedKey(): string | null {
   }
 }
 
-// In development the demo can sign in as any seeded person; the choice is this browser's own.
-const DEV_KEY = env.DEV ? storedKey() ?? String(env.VITE_PRESHIFT_API_KEY ?? 'dev-key') : null;
+const DEV_KEY = env.DEV ? storedKey() : null;
 
-/** Only a development build signs in with a key, so only it can switch demo person. */
-export const canSwitchDemo = Boolean(DEV_KEY);
+/** Only a development build can act as a demo person. */
+export const canSwitchDemo = Boolean(env.DEV);
+/** Acting as a demo person rather than as the signed-in account. */
+export const actingAsDemo = Boolean(DEV_KEY);
 
 export function signInAsDemo(userId: string | null) {
   try {
     if (userId) localStorage.setItem(DEMO_KEY, `dev-${userId}`);
     else localStorage.removeItem(DEMO_KEY);
   } catch {
-    // Without storage the demo stays as the owner.
+    // Without storage the demo stays as the signed-in account.
   }
   location.reload();
+}
+
+/** The demo people, asked with the development key whoever is signed in. */
+export async function demoPeople<T>(): Promise<T> {
+  const res = await fetch('/v1/dev/people', { headers: { authorization: 'Bearer dev-key' } });
+  if (!res.ok) throw new Error('No demo');
+  return res.json();
 }
 
 export class ApiError extends Error {
@@ -38,13 +47,10 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: {
-      ...(DEV_KEY ? { authorization: `Bearer ${DEV_KEY}` } : {}),
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
+    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 && !DEV_KEY) {
+  if (res.status === 401) {
     // Session ended: back to sign-in, returning here afterwards.
     window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
   }

@@ -12,6 +12,7 @@ const person = (key: string, userId: string) => ({ key, orgId: 'demo', name: `${
 const KEYS = [
   { key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] },
   person('owner', 'usr_owner'),
+  person('james', 'usr_ops'),
   person('priya', 'usr_gm_mar'),
   person('grace', 'usr_sup'),
   person('nadia', 'usr_fd'),
@@ -117,7 +118,8 @@ describe('access on the team and pay', () => {
   it('never lets someone change their own pay', async () => {
     const call = await setup();
     expect((await call('PATCH', '/v1/employees/mar-3', { hourlyRate: 15.5 }, 'owner')).status).toBe(200);
-    await call('PATCH', '/v1/users/usr_owner', { employeeId: 'mar-3' });
+    // Linking someone to their rota record is access management, done by someone else.
+    expect((await call('PATCH', '/v1/users/usr_owner', { employeeId: 'mar-3' }, 'james')).status).toBe(200);
     const own = await call('PATCH', '/v1/employees/mar-3', { hourlyRate: 30 }, 'owner');
     expect(own.status).toBe(403);
     expect(own.body.message).toMatch(/your own pay/);
