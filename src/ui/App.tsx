@@ -3,22 +3,26 @@ import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
-import type { Shift } from '../engine/types';
+import { newEmployee } from '../engine/employees';
+import type { Employee, Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
+import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
+import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'people' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
+  { id: 'people', label: 'People' },
   { id: 'close', label: 'Close' },
 ];
 
@@ -29,6 +33,8 @@ export function App() {
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
+  const today = toISODate(new Date());
 
   const site = state.sites.find((s) => s.id === siteId)!;
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
@@ -118,7 +124,16 @@ export function App() {
           />
         )}
         {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
+        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} dates={dates} />}
+        {tab === 'people' && (
+          <PeopleView
+            state={state}
+            siteId={siteId}
+            today={today}
+            onEdit={setEditingPerson}
+            onAdd={() => setEditingPerson(newEmployee(siteId, state.roles[0].id, today))}
+          />
+        )}
         {tab === 'close' && <CloseView state={state} week={week} />}
       </main>
 
@@ -128,6 +143,17 @@ export function App() {
           Reset demo
         </button>
       </footer>
+
+      {editingPerson && (
+        <EmployeeEditor
+          state={state}
+          employee={editingPerson}
+          today={today}
+          onSave={(employee) => { dispatch({ type: 'upsertEmployee', employee }); setEditingPerson(null); }}
+          onDelete={(id) => { dispatch({ type: 'deleteEmployee', id }); setEditingPerson(null); }}
+          onClose={() => setEditingPerson(null)}
+        />
+      )}
 
       {editing && (
         <ShiftEditor

@@ -1,5 +1,6 @@
 import type { Employee, RotaState, Shift } from './types';
 import { shiftPaidMinutes } from './cost';
+import { isEmployedOn } from './employees';
 import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
@@ -60,6 +61,8 @@ export function checkEmployeeWeek(
         absoluteMinute(anchor, a.date, a.startMinute) - absoluteMinute(anchor, b.date, b.startMinute),
     );
   const week = mine.filter((s) => inWeek.has(s.date));
+  // Someone not on the books this week, and not rostered, has nothing to check.
+  if (week.length === 0 && !dates.some((d) => isEmployedOn(employee, d))) return [];
   const age = ageOn(employee.dateOfBirth, weekStartDate);
   const young = age < 18;
   const push = (i: Omit<Issue, 'employeeId'>) => issues.push({ employeeId: employee.id, ...i });
@@ -78,6 +81,14 @@ export function checkEmployeeWeek(
         severity: 'block',
         message: `${(length / H).toFixed(1)}h shift needs a ${needed} minute break${young ? ' (under 18)' : ''}.`,
       });
+    }
+    if (!isEmployedOn(employee, shift.date)) {
+      const before = employee.startDate && shift.date < employee.startDate;
+      push({ ...base, code: 'not-employed', severity: 'block', message: before ? `Starts on ${employee.startDate}.` : `Left on ${employee.endDate}.` });
+    }
+    const rtw = employee.rightToWork;
+    if (rtw?.checked && rtw.expiry && shift.date > rtw.expiry) {
+      push({ ...base, code: 'right-to-work', severity: 'block', message: `Right to work expired on ${rtw.expiry}.` });
     }
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
@@ -108,6 +119,10 @@ export function checkEmployeeWeek(
         push({ ...base, code: 'young-night', severity: 'warn', message: 'Under 18 working between 22:00 and 06:00. Check the hospitality exemption applies and is supervised.' });
       }
     }
+  }
+
+  if (week.length > 0 && employee.rightToWork && !employee.rightToWork.checked) {
+    push({ code: 'right-to-work', severity: 'block', message: 'No right to work check on file.' });
   }
 
   // Overlaps and daily rest, including across the week boundary.
@@ -150,7 +165,8 @@ export function checkEmployeeWeek(
   if (hours > employee.maxWeeklyHours) {
     push({ code: 'max-hours', severity: 'warn', message: `${hours.toFixed(1)}h exceeds their ${employee.maxWeeklyHours}h maximum.` });
   }
-  if (employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
+  const fullWeek = dates.every((d) => isEmployedOn(employee, d));
+  if (fullWeek && employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
     push({ code: 'under-contract', severity: 'warn', message: `${hours.toFixed(1)}h is below ${employee.contractedHours} contracted hours. You pay the gap either way.` });
   }
   return issues;

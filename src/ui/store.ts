@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from 'react';
-import type { RotaState, Shift } from '../engine/types';
+import { isEmployedOn } from '../engine/employees';
+import type { Employee, RotaState, Shift } from '../engine/types';
 import { seedState } from '../engine/seed';
 import { weekDates } from '../engine/time';
 
@@ -9,6 +10,8 @@ export type Action =
   | { type: 'setShifts'; shifts: Shift[] }
   | { type: 'clearWeek'; siteId: string; weekStart: string }
   | { type: 'publishWeek'; siteId: string; weekStart: string }
+  | { type: 'upsertEmployee'; employee: Employee }
+  | { type: 'deleteEmployee'; id: string }
   | { type: 'reset' };
 
 const KEY = 'preshift.rota.v1';
@@ -47,6 +50,22 @@ function reducer(state: RotaState, action: Action): RotaState {
       return {
         ...state,
         shifts: state.shifts.map((s) => (inWeek(s, action.siteId, action.weekStart) ? { ...s, published: true } : s)),
+      };
+    case 'upsertEmployee': {
+      const { employee } = action;
+      const exists = state.employees.some((e) => e.id === employee.id);
+      return {
+        ...state,
+        employees: exists ? state.employees.map((e) => (e.id === employee.id ? employee : e)) : [...state.employees, employee],
+        // Shifts outside the new employment dates go: a leaver cannot be left on next week's rota.
+        shifts: state.shifts.filter((s) => s.employeeId !== employee.id || isEmployedOn(employee, s.date)),
+      };
+    }
+    case 'deleteEmployee':
+      return {
+        ...state,
+        employees: state.employees.filter((e) => e.id !== action.id),
+        shifts: state.shifts.filter((s) => s.employeeId !== action.id),
       };
     case 'reset':
       return seedState();

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { autoSchedule } from './autoschedule';
 import { checkEmployeeWeek, checkWeek, requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, weekCost } from './cost';
+import { employedShare, employeeStatus, reviewEmployee } from './employees';
 import { dayDemand, headcountAt } from './demand';
 import { rotaJournal, toXeroCsv } from './journal';
 import { weekMetrics } from './metrics';
@@ -193,5 +194,67 @@ describe('journal', () => {
     const csv = toXeroCsv(lines);
     expect(csv.split('\n')[0]).toContain('*AccountCode');
     expect(csv).toContain('25/10/2026');
+  });
+});
+
+describe('employees', () => {
+  const TODAY = '2026-10-21';
+  const ok = { rightToWork: { checked: true } };
+  const codes = (e: Employee) => reviewEmployee(e, TODAY).map((c) => c.code);
+
+  it('passes a complete, lawful record', () => {
+    expect(codes(person(ok))).toEqual([]);
+  });
+
+  it('blocks a missing right to work check and an expired one', () => {
+    expect(codes(person())).toContain('right-to-work');
+    expect(codes(person({ rightToWork: { checked: true, expiry: '2026-10-01' } }))).toContain('right-to-work');
+    expect(codes(person({ rightToWork: { checked: true, expiry: '2026-11-30' } }))).toContain('right-to-work-expiring');
+  });
+
+  it('warns ahead of a birthday that moves the minimum wage band', () => {
+    // Turns 21 on 2026-11-15 on £10.85: must rise to the National Living Wage.
+    expect(codes(person({ ...ok, dateOfBirth: '2005-11-15', hourlyRate: 10.85 }))).toContain('wage-step');
+    expect(codes(person({ ...ok, dateOfBirth: '2005-11-15', hourlyRate: 12.71 }))).not.toContain('wage-step');
+  });
+
+  it('stops under 18s opting out of the 48 hour limit', () => {
+    expect(codes(person({ ...ok, dateOfBirth: '2009-01-01', hourlyRate: 8, optedOutOf48: true }))).toContain('opt-out');
+  });
+
+  it('flags a salary that falls below minimum wage at maximum hours', () => {
+    expect(codes(person({ ...ok, payBasis: 'salaried', annualSalary: 30_000, maxWeeklyHours: 55, optedOutOf48: true }))).toContain('salary-nmw');
+  });
+
+  it('flags an eligible jobholder who is not enrolled', () => {
+    expect(codes(person({ ...ok, pensionEnrolled: false, contractedHours: 30 }))).toContain('pension');
+    expect(codes(person({ ...ok, pensionEnrolled: false, contractedHours: 10 }))).not.toContain('pension');
+  });
+
+  it('knows starters, leavers and who has left', () => {
+    expect(employeeStatus(person({ startDate: '2026-11-01' }), TODAY)).toBe('starter');
+    expect(employeeStatus(person({ endDate: '2026-10-25' }), TODAY)).toBe('leaving');
+    expect(employeeStatus(person({ endDate: '2026-10-01' }), TODAY)).toBe('left');
+  });
+
+  it('pro-rates guaranteed pay for a mid-week leaver and drops them after', () => {
+    const leaver = person({ contractedHours: 35, endDate: addDays(WEEK, 2) });
+    expect(employedShare(leaver, WEEK)).toBeCloseTo(3 / 7);
+    expect(weekCost({ employees: [leaver], shifts: [] }, WEEK).employees.get('e1')!.gross).toBeCloseTo(15 * 13, 1);
+    expect(weekCost({ employees: [leaver], shifts: [] }, addDays(WEEK, 7)).employees.has('e1')).toBe(false);
+  });
+
+  it('blocks shifts outside employment dates', () => {
+    const starter = person({ ...ok, startDate: addDays(WEEK, 3) });
+    const issues = checkEmployeeWeek(starter, WEEK, [shift(WEEK, 12, 16)]).map((i) => i.code);
+    expect(issues).toContain('not-employed');
+  });
+
+  it('never auto-builds someone before they start', () => {
+    const state = seedState(WEEK);
+    const starter = { ...state.employees.find((e) => e.siteId === 'mar' && e.roleIds[0] === 'server')!, startDate: addDays(WEEK, 7) };
+    state.employees = state.employees.map((e) => (e.id === starter.id ? starter : e));
+    const { shifts } = autoSchedule(state, 'mar', WEEK);
+    expect(shifts.some((s) => s.employeeId === starter.id)).toBe(false);
   });
 });

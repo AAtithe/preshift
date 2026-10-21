@@ -31,6 +31,17 @@ export interface Availability {
   toMinute: number;
 }
 
+/** Home Office right to work check. Without one on file the employer has no statutory excuse. */
+export interface RightToWork {
+  checked: boolean;
+  /** ISO date the check was done. */
+  checkedOn?: string;
+  /** Evidence seen, e.g. 'British passport', 'Share code'. */
+  evidence?: string;
+  /** Time-limited permission: a follow-up check is due before this date. */
+  expiry?: string;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -52,6 +63,13 @@ export interface Employee {
   availability: Availability[];
   /** ISO dates the person is on approved leave. */
   leave: string[];
+  email?: string;
+  phone?: string;
+  /** First day of employment. Absent means employed before records began. */
+  startDate?: string;
+  /** Last day of employment for a leaver. */
+  endDate?: string;
+  rightToWork?: RightToWork;
 }
 
 export interface Shift {
