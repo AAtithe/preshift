@@ -34,6 +34,22 @@ where that gap is caught, explained and closed every day rather than found at mo
 | Labour flash | Actual sales, clocked labour, actual labour % against target by day, closed days only, so a mid-week flash is never flattered by days not yet traded. | `src/engine/actuals.ts` |
 | Clocked compliance | Working Time and young worker checks run on clocked hours. A legal rota can produce an illegal week: an overrun pushes a 6 hour shift past the break threshold, a skipped break, a week over 48 hours. | `src/engine/actuals.ts` |
 
+## Compliance priced
+
+Incumbents show a red triangle. This puts a pound figure on the breach, the way HMRC, the Home
+Office or a tribunal would, because the firm that signs the accounts is the one explaining it.
+
+| Area | What it does | Where |
+| --- | --- | --- |
+| Minimum wage on hours worked | Weekly pay reference period test on clocked hours, with deductions for the employer's benefit and salary sacrifice taken off. Arrears, the HMRC penalty ceiling (200% of arrears, capped at £20,000 per worker), arrears over a year if the pattern holds, and headroom: how many more hours a salaried person can work before pay drops below the band. The rota warns before a salaried week breaches. | `src/engine/nmw.ts` |
+| Right to work | Check on file, permission expiry, and student term-time hour limits with vacations. The rota blocks a shift after permission ends or a student week over the limit, warns inside 2 hours of it because clocked hours decide the breach, and the auto-build keeps that buffer. Priced at the Home Office civil penalty ceiling per illegal worker (£45,000 first breach, £60,000 repeat). | `src/engine/compliance.ts` |
+| Working Time | Breaches on clocked hours are listed and counted, not priced: there is no tariff and a tribunal sets compensation case by case. | `src/engine/actuals.ts` |
+| Employment Rights Act 2025 | On stated assumptions, because the regulations that set the numbers have not been made: who would be owed a guaranteed hours offer on hours regularly worked and what that turns into fixed cost each week, compensation on short-notice cuts, and a cut call that prices it in. | `src/engine/era.ts`, `src/engine/cutcall.ts` |
+| Exposure register | All of the above per site and week: owed to staff now, penalty ceiling, annualised arrears, unpriced breaches, and the Employment Rights Act scenario. | `src/engine/exposure.ts`, `src/ui/RiskView.tsx` |
+
+Penalties are ceilings, not predictions. Regulators reduce them for prompt disclosure, which is
+why finding the breach first is worth more than the penalty.
+
 ## Running it
 
 ```bash
@@ -47,7 +63,9 @@ The demo runs two London sites (Marylebone and Shoreditch) with realistic teams,
 forecasts. Last week and this week are built from forecast and traded through to 18:00 today, with
 the habits that open the gap on a real floor: early clock-ins, closers running over, skipped
 breaks, the odd no-show and an unrostered shift. Today is trading slowly so there is a cut call to
-make. Data is held in the browser only; "Reset demo" regenerates it.
+make. Salaried managers work the long weeks they do in practice, one of them on a salary that does
+not cover the hours; a student was hand-rostered to the full term-time limit last week and an
+overrun took them over it; a visa at Shoreditch runs out next week. Data is held in the browser only; "Reset demo" regenerates it.
 
 ## Structure
 

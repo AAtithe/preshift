@@ -147,6 +147,8 @@ interface Slot {
   endMinute: number;
 }
 
+const WEEK_LIMITS = new Set(['young-weekly', 'max-hours', 'wtr-48', 'weekly-rest', 'rtw-student-hours', 'rtw-student-buffer', 'rtw-missing']);
+
 function pickEmployee(employees: Employee[], shifts: Shift[], slot: Slot): Shift | null {
   const ws = weekStart(slot.date);
   const week = new Set(weekDates(ws));
@@ -179,7 +181,7 @@ function pickEmployee(employees: Employee[], shifts: Shift[], slot: Slot): Shift
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter(
-      (i) => i.shiftId === shift.id || i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
+      (i) => i.shiftId === shift.id || WEEK_LIMITS.has(i.code),
     );
     // Auto-build never creates a breach: anything flagged on the new shift rules the person out,
     // except being under contract, which the shift itself is helping to fix.

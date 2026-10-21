@@ -15,8 +15,8 @@ export type Action =
   | { type: 'approveClocks'; ids: string[] }
   | { type: 'reset' };
 
-// v2 adds clockings and sales actuals; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v2';
+// v3 adds right to work records and salaried managers; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v3';
 
 function load(): RotaState {
   try {

@@ -228,3 +228,6 @@ tr.muted td { color: var(--muted); }
   .live-grid { grid-template-columns: minmax(0, 1fr); }
   .kpis.four { grid-template-columns: repeat(2, 1fr); }
 }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.panel-head h3 { margin: 0; }
+.risk .intro { max-width: 820px; margin-top: 0; }

@@ -61,6 +61,26 @@ export interface Employee {
   availability: Availability[];
   /** ISO dates the person is on approved leave. */
   leave: string[];
+  rightToWork?: RightToWork;
+  /**
+   * Weekly deductions and payments that reduce pay for minimum wage purposes:
+   * uniform or tools the worker pays for, salary sacrifice, and similar.
+   */
+  nmwReducingDeductionsWeekly?: number;
+}
+
+/** The right to work check on file and any conditions on the person's permission. */
+export interface RightToWork {
+  /** Unlimited covers British and Irish citizens and settled status. */
+  basis: 'unlimited' | 'time-limited' | 'student';
+  /** Date the check was done. Without one there is no statutory excuse. */
+  checkedOn?: string;
+  /** Last day of permission for time-limited and student permission. */
+  expires?: string;
+  /** Student permission: maximum hours in a Monday to Sunday week during term time. */
+  weeklyHourLimit?: number;
+  /** Student permission: the institution's official vacations, when full-time work is allowed. */
+  vacations?: { from: string; to: string }[];
 }
 
 export interface Shift {

@@ -1,6 +1,6 @@
 import type { Employee, RotaState, Shift } from './types';
-import { shiftPaidMinutes } from './cost';
-import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { nmwPay, shiftPaidMinutes } from './cost';
+import { absoluteMinute, ageOn, addDays, daysBetween, weekDates, weekday } from './time';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
 export type Severity = 'block' | 'warn';
@@ -79,6 +79,10 @@ export function checkEmployeeWeek(
         message: `${(length / H).toFixed(1)}h shift needs a ${needed} minute break${young ? ' (under 18)' : ''}.`,
       });
     }
+    const permit = employee.rightToWork;
+    if (permit?.expires && shift.date > permit.expires) {
+      push({ ...base, code: 'rtw-expired', severity: 'block', message: `Right to work ended ${permit.expires}. Working now is illegal working.` });
+    }
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
     }
@@ -150,8 +154,60 @@ export function checkEmployeeWeek(
   if (hours > employee.maxWeeklyHours) {
     push({ code: 'max-hours', severity: 'warn', message: `${hours.toFixed(1)}h exceeds their ${employee.maxWeeklyHours}h maximum.` });
   }
+  issues.push(...rightToWorkWeek(employee, dates, hours, week.length > 0));
+  if (employee.payBasis === 'salaried' && hours > 0) {
+    const band = minimumWageFor(ageOn(employee.dateOfBirth, weekStartDate), rates);
+    const pay = nmwPay(employee, hours);
+    if (band && pay < band.hourly * hours) {
+      push({
+        code: 'nmw-salaried',
+        severity: 'warn',
+        message: `At ${hours.toFixed(1)}h the salary works out at £${(pay / hours).toFixed(2)}/h, below the ${band.label} of £${band.hourly.toFixed(2)}. Cap at ${(pay / band.hourly).toFixed(1)}h.`,
+      });
+    }
+  }
   if (employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
     push({ code: 'under-contract', severity: 'warn', message: `${hours.toFixed(1)}h is below ${employee.contractedHours} contracted hours. You pay the gap either way.` });
+  }
+  return issues;
+}
+
+const EXPIRY_WARNING_DAYS = 60;
+const STUDENT_BUFFER_HOURS = 2;
+
+/** Term-time unless every day of the week falls inside an official vacation. */
+export function isTermTimeWeek(dates: string[], vacations: { from: string; to: string }[] = []): boolean {
+  return !dates.every((d) => vacations.some((v) => d >= v.from && d <= v.to));
+}
+
+function rightToWorkWeek(employee: Employee, dates: string[], hours: number, working: boolean): Issue[] {
+  const issues: Issue[] = [];
+  const push = (i: Omit<Issue, 'employeeId'>) => issues.push({ employeeId: employee.id, ...i });
+  const permit = employee.rightToWork;
+  if (!permit?.checkedOn) {
+    if (working) {
+      push({ code: 'rtw-missing', severity: 'block', message: 'No right to work check on file. There is no statutory excuse if they cannot work here.' });
+    }
+    return issues;
+  }
+  if (permit.expires && permit.expires >= dates[0] && daysBetween(dates[0], permit.expires) <= EXPIRY_WARNING_DAYS) {
+    push({ code: 'rtw-expiring', severity: 'warn', message: `Permission ends ${permit.expires}. Book the follow-up check before then.` });
+  }
+  if (permit.basis === 'student' && permit.weeklyHourLimit !== undefined && isTermTimeWeek(dates, permit.vacations)) {
+    if (hours > permit.weeklyHourLimit) {
+      push({
+        code: 'rtw-student-hours',
+        severity: 'block',
+        message: `Student permission allows ${permit.weeklyHourLimit}h a week in term time; ${hours.toFixed(1)}h rostered. Breaching it is illegal working.`,
+      });
+    } else if (hours > permit.weeklyHourLimit - STUDENT_BUFFER_HOURS) {
+      // Clocked hours, not rostered hours, decide a breach: a few minutes of overrun is enough.
+      push({
+        code: 'rtw-student-buffer',
+        severity: 'warn',
+        message: `${hours.toFixed(1)}h rostered against a ${permit.weeklyHourLimit}h term-time limit. Leave ${STUDENT_BUFFER_HOURS}h for overruns.`,
+      });
+    }
   }
   return issues;
 }

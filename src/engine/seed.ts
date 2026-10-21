@@ -8,6 +8,7 @@ const roles: Role[] = [
   { id: 'chef', name: 'Chef', department: 'BOH', nominalCode: '7001' },
   { id: 'kp', name: 'Kitchen Porter', department: 'BOH', nominalCode: '7001' },
   { id: 'gm', name: 'General Manager', department: 'MGMT', nominalCode: '7003' },
+  { id: 'am', name: 'Assistant Manager', department: 'MGMT', nominalCode: '7003' },
 ];
 
 const sites: Site[] = [
@@ -43,6 +44,7 @@ function team(siteId: string, people: Seed[]): Employee[] {
     pensionEnrolled: true,
     availability: [],
     leave: [],
+    rightToWork: { basis: 'unlimited', checkedOn: '2025-03-01' },
     ...extra,
   }));
 }
@@ -51,6 +53,8 @@ function employees(today: string): Employee[] {
   return [
     ...team('mar', [
       ['Priya Shah', ['gm'], 0, '1986-03-14', 0, { payBasis: 'salaried', annualSalary: 52_000, maxWeeklyHours: 55, optedOutOf48: true }],
+      // Salaried head chef on a salary that only clears minimum wage at 45 hours a week.
+      ['Ivan Petrov', ['chef'], 0, '1992-05-11', 0, { payBasis: 'salaried', annualSalary: 30_000, maxWeeklyHours: 55, optedOutOf48: true, nmwReducingDeductionsWeekly: 6 }],
       ['Marco Bianchi', ['chef'], 16.5, '1990-07-02', 40],
       ['Aisha Okafor', ['chef'], 15.0, '1995-11-20', 40],
       ['Tom Reilly', ['chef', 'kp'], 13.5, '2001-02-09', 0],
@@ -59,7 +63,12 @@ function employees(today: string): Employee[] {
       ['Grace Mensah', ['server', 'host'], 13.25, '1997-01-25', 32],
       ['Oliver Hughes', ['server'], 12.85, '2000-06-18', 0],
       ['Sofia Rossi', ['server', 'bar'], 13.0, '1998-12-03', 24],
-      ['Ellie Carter', ['server', 'host'], 10.85, '2006-08-08', 0],
+      ['Ellie Carter', ['server', 'host'], 10.85, '2006-08-08', 0, {
+        rightToWork: {
+          basis: 'student', checkedOn: '2025-09-20', expires: '2027-10-31', weeklyHourLimit: 20,
+          vacations: [{ from: '2026-12-12', to: '2027-01-10' }, { from: '2027-03-27', to: '2027-04-25' }, { from: '2027-06-12', to: '2027-09-26' }],
+        },
+      }],
       ['Jamie Patel', ['host', 'server'], 8.0, '2009-04-21', 0, { availability: [4, 5, 6].map((weekday) => ({ weekday, fromMinute: 11 * 60, toMinute: 21 * 60 })) }],
       ['Ben Ford', ['bar'], 13.75, '1994-10-10', 36],
       ['Chloe Dubois', ['bar', 'server'], 12.9, '2002-03-27', 0, { leave: [addDays(today, 2)] }],
@@ -71,6 +80,7 @@ function employees(today: string): Employee[] {
     ]),
     ...team('shd', [
       ['Hannah Lee', ['gm'], 0, '1988-09-01', 0, { payBasis: 'salaried', annualSalary: 48_000, maxWeeklyHours: 55, optedOutOf48: true }],
+      ['Owen Hart', ['am'], 0, '1998-01-19', 0, { payBasis: 'salaried', annualSalary: 27_500, maxWeeklyHours: 55, optedOutOf48: true }],
       ['Kwame Asante', ['chef'], 16.0, '1991-04-04', 40],
       ['Nina Petrova', ['chef', 'kp'], 14.0, '1996-02-14', 0],
       ['Sam Oduya', ['kp'], 12.71, '2000-12-12', 0],
@@ -83,7 +93,7 @@ function employees(today: string): Employee[] {
       ['Ruby Clarke', ['bar'], 13.0, '2000-07-07', 0],
       ['Dev Kapoor', ['bar', 'server'], 12.9, '1999-03-03', 0],
       ['Lily Evans', ['server', 'host'], 12.71, '2004-11-19', 0],
-      ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0],
+      ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0, { rightToWork: { basis: 'time-limited', checkedOn: '2025-02-10', expires: addDays(today, 9) } }],
     ]),
   ];
 }

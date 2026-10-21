@@ -11,12 +11,13 @@ import { DemandView } from './DemandView';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { LiveView } from './LiveView';
+import { RiskView } from './RiskView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'today' | 'actuals' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'today' | 'actuals' | 'risk' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
@@ -24,6 +25,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'team', label: 'Team' },
   { id: 'today', label: 'Today' },
   { id: 'actuals', label: 'Actuals' },
+  { id: 'risk', label: 'Risk' },
   { id: 'close', label: 'Close' },
 ];
 
@@ -127,6 +129,7 @@ export function App() {
         {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
         {tab === 'today' && <LiveView state={state} siteId={siteId} today={today} initialMinute={DEMO_MINUTE} dispatch={dispatch} />}
         {tab === 'actuals' && <ActualsView state={state} siteId={siteId} week={week} asOf={today} dispatch={dispatch} />}
+        {tab === 'risk' && <RiskView state={state} siteId={siteId} week={week} asOf={today} />}
         {tab === 'close' && <CloseView state={state} week={week} asOf={today} />}
       </main>
 

@@ -1,8 +1,9 @@
 import type { RotaState, Shift } from './types';
-import { blendedShifts } from './actuals';
+import { blendedShifts, loadedHourlyRate } from './actuals';
 import { requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, shiftsInWeek } from './cost';
 import { headcountAt, requiredHeadcount } from './demand';
+import { shortNoticeCompensation, type EraPolicy } from './era';
 import { ageOn, weekStart } from './time';
 
 export interface CutOptions {
@@ -13,6 +14,11 @@ export interface CutOptions {
   paceCeiling: number;
   /** Not worth sending someone home with less than this left on their shift. */
   minMinutesSaved: number;
+  /**
+   * When set, cuts are priced with Employment Rights Act short-notice
+   * compensation. A cut on the day is always short notice.
+   */
+  era?: EraPolicy;
 }
 
 export const DEFAULT_CUT_OPTIONS: CutOptions = { minTradedShare: 0.1, paceFloor: 0.5, paceCeiling: 1.5, minMinutesSaved: 45 };
@@ -27,7 +33,9 @@ export interface CutRecommendation {
   standDown: boolean;
   newBreakMinutes: number;
   minutesSaved: number;
-  /** Loaded saving to the week, after guaranteed hours and on-cost thresholds. */
+  /** Short-notice compensation owed for the cut, when Employment Rights Act pricing is on. */
+  compensation: number;
+  /** Loaded saving to the week, after guaranteed hours, on-cost thresholds and any compensation. */
   saving: number;
 }
 
@@ -49,7 +57,7 @@ export interface CutCall {
   confident: boolean;
   recommendations: CutRecommendation[];
   totalSaving: number;
-  /** People whose shift could be cut but who cost nothing extra to keep, so they stay. */
+  /** People whose shift could be cut but whose early finish saves nothing, so they stay. */
   keptAtNoCost: string[];
   /** Hours still to come that are short on the reforecast: call someone in or move people. */
   short: ShortHour[];
@@ -155,7 +163,9 @@ export function cutCall(
       const next: Shift = { ...shift, endMinute: newEnd, breakMinutes: newBreakMinutes };
       const before = employeeWeekCost(employee, weekOf(shifts, employee.id)).total;
       const after = employeeWeekCost(employee, weekOf(shifts.map((s) => (s.id === shift.id ? next : s)), employee.id)).total;
-      const saving = round2(before - after);
+      const minutesSaved = shift.endMinute - newEnd;
+      const compensation = opts.era ? shortNoticeCompensation(minutesSaved, loadedHourlyRate(employee), opts.era) : 0;
+      const saving = round2(before - after - compensation);
       if (saving <= 0) {
         keptAtNoCost.add(employee.id);
         continue;
@@ -168,7 +178,8 @@ export function cutCall(
         newEnd,
         standDown: newEnd <= shift.startMinute,
         newBreakMinutes,
-        minutesSaved: shift.endMinute - newEnd,
+        minutesSaved,
+        compensation,
         saving,
       };
       if (!best || rec.saving > best.rec.saving) best = { rec, next };

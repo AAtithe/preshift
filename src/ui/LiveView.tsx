@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { liveBoard, type LiveStatus } from '../engine/actuals';
 import { checkClockIn, endClock, startClock } from '../engine/clocking';
 import { cutCall, type ShortHour } from '../engine/cutcall';
+import { ERA_ASSUMPTIONS } from '../engine/era';
 import { formatMinute, parseClock } from '../engine/time';
 import type { GeoPoint, RotaState } from '../engine/types';
 import type { Action } from './store';
@@ -26,9 +27,13 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
   const [where, setWhere] = useState<Where>('on-site');
   const [message, setMessage] = useState<{ tone: 'bad' | 'warn'; text: string } | null>(null);
   const [walkIn, setWalkIn] = useState('');
+  const [priceEra, setPriceEra] = useState(false);
 
   const site = state.sites.find((s) => s.id === siteId)!;
-  const call = useMemo(() => cutCall(state, siteId, today, now), [state, siteId, today, now]);
+  const call = useMemo(
+    () => cutCall(state, siteId, today, now, priceEra ? { era: ERA_ASSUMPTIONS } : {}),
+    [state, siteId, today, now, priceEra],
+  );
   const board = useMemo(() => liveBoard(state, siteId, today, now), [state, siteId, today, now]);
   const name = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
   const roleName = (id: string) => state.roles.find((r) => r.id === id)?.name ?? id;
@@ -101,7 +106,13 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
 
       <div className="live-grid">
         <div className="panel">
-          <h3>The cut call</h3>
+          <div className="panel-head">
+            <h3>The cut call</h3>
+            <label className="inline">
+              <input type="checkbox" checked={priceEra} onChange={(e) => setPriceEra(e.target.checked)} />
+              Price Employment Rights Act compensation (assumed)
+            </label>
+          </div>
           {!call.confident ? (
             <p className="muted">Too early to call. Wait until at least a tenth of the day's forecast has traded.</p>
           ) : call.recommendations.length === 0 ? (
@@ -120,7 +131,8 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
                       {r.standDown
                         ? `Stand down before the ${formatMinute(r.newEnd)} start.`
                         : `Finish at ${formatMinute(r.newEnd)}, not ${formatMinute(r.currentEnd)}.`}{' '}
-                      {(r.minutesSaved / 60).toFixed(1)}h saved.
+                      {(r.minutesSaved / 60).toFixed(1)}h saved
+                      {r.compensation > 0 ? `, less ${money(r.compensation)} compensation` : ''}.
                     </div>
                   </div>
                   <div className="call-act">
@@ -135,7 +147,10 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
           )}
           {call.keptAtNoCost.length > 0 && (
             <p className="small muted">
-              Kept on: {call.keptAtNoCost.map(name).join(', ')}. Still inside guaranteed hours, so an early finish saves nothing.
+              Kept on: {call.keptAtNoCost.map(name).join(', ')}.{' '}
+              {priceEra
+                ? 'Compensation for the short-notice cut would cancel the saving.'
+                : 'Still inside guaranteed hours, so an early finish saves nothing.'}
             </p>
           )}
           {call.short.length > 0 && (

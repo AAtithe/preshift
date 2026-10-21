@@ -64,6 +64,11 @@ trading pace, rota-to-payroll variance by cause with manager approval, the labou
 days, Working Time checks on clocked hours, and the accrual built from clocked hours. Engine and
 UI only; the clock-ins and sales are simulated in the demo.
 
+Phase 1c, done: compliance priced. Minimum wage on clocked hours with arrears, penalty ceiling
+and headroom; right to work with student term-time limits and expiry; Working Time breaches on
+clocked hours; the Employment Rights Act 2025 zero and low hours measures on stated assumptions
+until the regulations are made; an exposure register per site and week.
+
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
 - Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
@@ -71,13 +76,15 @@ Phase 2, first live sites (8 to 10 weeks):
 - Live sales feed from Preshift Reports into the hourly actuals, so the cut call and labour %
   run on real trading through the day.
 - Payroll exports for the payrolls WS clients run, carrying approved clocked hours only.
-- Salaried minimum wage test on clocked hours for each pay reference period.
+- Monthly pay reference periods and the salaried hours work annual calculation, so the minimum
+  wage test matches how each client actually pays.
+- Replace the Employment Rights Act assumptions with the regulations as each part commences.
 
 Phase 3:
 - Forecasting model trained on each site's actuals, weather and local events.
 - Tronc and tips allocation under the Employment (Allocation of Tips) Act 2023, with the
   troncmaster audit trail.
-- 17 week WTR reference period tracking, holiday entitlement balances, right to work checks.
+- 17 week WTR reference period tracking, holiday entitlement balances, right to work document capture and Home Office online share code checks.
 - Group view across sites with cross-site cover and labour benchmarks across the WS client
   base (anonymised), which no single-vendor tool can offer.
 

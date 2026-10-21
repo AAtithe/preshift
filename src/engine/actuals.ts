@@ -224,8 +224,10 @@ const ACTUAL_COMPLIANCE_CODES = new Set([
   'weekly-rest',
   'young-weekly',
   'wtr-48',
+  'rtw-expired',
+  'rtw-student-hours',
 ]);
-const WEEK_LEVEL_CODES = new Set(['weekly-rest', 'young-weekly', 'wtr-48']);
+const WEEK_LEVEL_CODES = new Set(['weekly-rest', 'young-weekly', 'wtr-48', 'rtw-student-hours']);
 
 /**
  * Working Time and young worker checks on what was clocked, not what was

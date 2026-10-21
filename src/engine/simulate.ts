@@ -1,4 +1,4 @@
-import type { ClockRecord, HourActual, RotaState } from './types';
+import type { ClockRecord, HourActual, RotaState, Shift } from './types';
 import { autoSchedule } from './autoschedule';
 import { addDays, toISODate, weekStart } from './time';
 import { seedState } from './seed';
@@ -26,7 +26,7 @@ export interface TradeUntil {
  * running over, skipped breaks, the odd no-show and an unrostered shift.
  * Trading stops at `until`; anyone still on shift then is left clocked in.
  */
-export function simulateTrading(state: RotaState, until: TradeUntil, seed = 15, slowToday = 0.68): RotaState {
+export function simulateTrading(state: RotaState, until: TradeUntil, seed = 22, slowToday = 0.68): RotaState {
   const rnd = random(seed);
   const between = (lo: number, hi: number) => Math.round(lo + rnd() * (hi - lo));
   const traded = (date: string, minute: number) => date < until.date || (date === until.date && minute <= until.minute);
@@ -36,7 +36,9 @@ export function simulateTrading(state: RotaState, until: TradeUntil, seed = 15, 
     .filter((s) => traded(s.date, s.startMinute))
     .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute || a.employeeId.localeCompare(b.employeeId));
   for (const shift of shifts) {
-    if (rnd() < 0.02) continue; // no-show
+    // No-shows happen on the floor; a manager who misses a day is covering elsewhere, not absent.
+    const noShow = rnd() < 0.02;
+    if (noShow && !shift.id.startsWith('mgr-')) continue;
     const site = state.sites.find((s) => s.id === shift.siteId)!;
     const r = rnd();
     const clockIn = shift.startMinute + (r < 0.45 ? -between(3, 10) : r < 0.6 ? between(2, 20) : 0);
@@ -97,6 +99,45 @@ export function simulateTrading(state: RotaState, until: TradeUntil, seed = 15, 
   return { ...state, clocks, actuals };
 }
 
+// Salaried managers are rostered by hand: [employee, role, first weekday, start, end, break].
+const MANAGERS: [string, string, number, number, number, number][] = [
+  ['mar-1', 'gm', 0, 10 * 60, 20 * 60, 30],
+  ['mar-2', 'chef', 1, 10 * 60, 21 * 60, 60],
+  ['shd-1', 'gm', 0, 11 * 60, 21 * 60, 30],
+  ['shd-2', 'am', 2, 11 * 60 + 30, 22 * 60 + 30, 30],
+];
+
+/** Five days a week each, the long days hospitality managers actually work. */
+function managerRota(week: string): Shift[] {
+  return MANAGERS.flatMap(([employeeId, roleId, first, startMinute, endMinute, breakMinutes]) =>
+    Array.from({ length: 5 }, (_, i) => ({
+      id: `mgr-${employeeId}-${addDays(week, first + i)}`,
+      employeeId,
+      roleId,
+      siteId: employeeId.slice(0, 3),
+      date: addDays(week, first + i),
+      startMinute,
+      endMinute,
+      breakMinutes,
+      published: true,
+    })),
+  );
+}
+
+function studentToTheLimit(week: string): Shift[] {
+  return [2, 3, 4, 5, 6].map((day) => ({
+    id: `hand-mar-11-${addDays(week, day)}`,
+    employeeId: 'mar-11',
+    roleId: 'server',
+    siteId: 'mar',
+    date: addDays(week, day),
+    startMinute: 18 * 60,
+    endMinute: 22 * 60,
+    breakMinutes: 0,
+    published: true,
+  }));
+}
+
 /** Where the demo's trading day has got to. */
 export const DEMO_MINUTE = 18 * 60;
 
@@ -104,7 +145,11 @@ export const DEMO_MINUTE = 18 * 60;
 export function seedDemo(today = toISODate(new Date()), minute = DEMO_MINUTE): RotaState {
   let state = seedState(today);
   const thisWeek = weekStart(today);
-  for (const week of [addDays(thisWeek, -7), thisWeek]) {
+  const lastWeek = addDays(thisWeek, -7);
+  for (const week of [lastWeek, thisWeek]) {
+    // Last week a GM hand-rostered the student to the full 20 hours, past the buffer warning.
+    const handBuilt = week === lastWeek ? studentToTheLimit(week) : [];
+    state = { ...state, shifts: [...state.shifts, ...managerRota(week), ...handBuilt] };
     for (const site of state.sites) {
       state = { ...state, shifts: autoSchedule(state, site.id, week).shifts.map((s) => ({ ...s, published: true })) };
     }

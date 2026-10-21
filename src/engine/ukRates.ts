@@ -18,6 +18,12 @@ export interface UkRates {
   holidayAccrualRate: number;
   /** Annual Employment Allowance, offset against the employer NI bill at entity level. */
   employmentAllowance: number;
+  /** HMRC minimum wage penalty as a multiple of arrears, and its cap per worker. */
+  nmwPenaltyRate: number;
+  nmwPenaltyCapPerWorker: number;
+  /** Home Office civil penalty ceiling per illegal worker: first breach and repeat breach. */
+  illegalWorkingPenaltyFirst: number;
+  illegalWorkingPenaltyRepeat: number;
 }
 
 export const UK_RATES_2026_27: UkRates = {
@@ -35,6 +41,10 @@ export const UK_RATES_2026_27: UkRates = {
   employerPensionRate: 0.03,
   holidayAccrualRate: 0.1207,
   employmentAllowance: 10_500,
+  nmwPenaltyRate: 2,
+  nmwPenaltyCapPerWorker: 20_000,
+  illegalWorkingPenaltyFirst: 45_000,
+  illegalWorkingPenaltyRepeat: 60_000,
 };
 
 export function minimumWageFor(age: number, rates: UkRates = UK_RATES_2026_27) {
