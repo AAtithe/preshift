@@ -16,13 +16,14 @@ export type Permission =
   | 'costs.view'
   | 'time.record' | 'time.approve' | 'time.lock'
   | 'team.manage' | 'pay.edit'
+  | 'hr.view' | 'hr.manage' | 'hr.cases'
   | 'payroll.view' | 'payroll.send'
   | 'close.export'
   | 'users.manage' | 'users.sites' | 'audit.view'
-  | 'settings.manage';
+  | 'settings.manage' | 'privacy.manage';
 
 export interface PermissionDef {
-  area: 'Rota' | 'Labour cost' | 'Time' | 'Team' | 'Payroll' | 'Finance' | 'Access' | 'Settings';
+  area: 'Rota' | 'Labour cost' | 'Time' | 'Team' | 'HR' | 'Payroll' | 'Finance' | 'Access' | 'Settings';
   label: string;
 }
 
@@ -37,6 +38,9 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
   'time.lock': { area: 'Time', label: 'Lock a pay period once sent' },
   'team.manage': { area: 'Team', label: 'Add starters, mark leavers, change availability' },
   'pay.edit': { area: 'Team', label: 'Change pay rates and salaries' },
+  'hr.view': { area: 'HR', label: 'Read personnel files, absence reasons, training and reviews' },
+  'hr.manage': { area: 'HR', label: 'Record absence, training, reviews and personnel details' },
+  'hr.cases': { area: 'HR', label: 'See and record disciplinary, grievance and capability cases' },
   'payroll.view': { area: 'Payroll', label: 'See payroll submissions and pay runs' },
   'payroll.send': { area: 'Payroll', label: 'Send approved hours to TeamPay' },
   'close.export': { area: 'Finance', label: 'Export the labour accrual journal' },
@@ -44,12 +48,13 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
   'users.sites': { area: 'Access', label: 'Give people a site role at their own sites' },
   'audit.view': { area: 'Access', label: 'Read the access audit trail and record access reviews' },
   'settings.manage': { area: 'Settings', label: 'Change sites, targets, integrations and API keys' },
+  'privacy.manage': { area: 'Settings', label: "Answer staff data requests, export or erase a person's data, set retention" },
 };
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
 /** Refused to a session without an authenticator when the role requires one. */
-export const STRONG: Permission[] = ['pay.edit', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage'];
+export const STRONG: Permission[] = ['pay.edit', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage'];
 
 export interface RoleDef {
   id: string;
@@ -77,7 +82,7 @@ export const ROLES: RoleDef[] = [
   {
     id: 'ops_director', name: 'Operations director', audience: 'operator', scope: 'org', mfa: true,
     about: 'Runs every site. Owns the rota, the team and who has access, but not pay rates or payroll.',
-    permissions: [...SITE_RUN, 'time.lock', 'team.manage', 'payroll.view', 'users.manage', 'users.sites', 'audit.view'],
+    permissions: [...SITE_RUN, 'time.lock', 'team.manage', 'hr.view', 'hr.manage', 'payroll.view', 'users.manage', 'users.sites', 'audit.view'],
   },
   {
     id: 'finance_director', name: 'Finance director', audience: 'operator', scope: 'org', mfa: true,
@@ -91,18 +96,18 @@ export const ROLES: RoleDef[] = [
   },
   {
     id: 'people_manager', name: 'People manager', audience: 'operator', scope: 'org', mfa: true,
-    about: 'Starters, leavers and pay rates. Never sends pay.',
-    permissions: [...VIEW, 'team.manage', 'pay.edit'],
+    about: 'Starters, leavers, pay rates, personnel files, HR cases and staff data requests. Never sends pay.',
+    permissions: [...VIEW, 'team.manage', 'pay.edit', 'hr.view', 'hr.manage', 'hr.cases', 'privacy.manage'],
   },
   {
     id: 'area_manager', name: 'Area manager', audience: 'operator', scope: 'sites', mfa: true,
     about: 'Runs a group of sites: rota, hours, team, and site roles for their GMs.',
-    permissions: [...SITE_RUN, 'team.manage', 'payroll.view', 'users.sites'],
+    permissions: [...SITE_RUN, 'team.manage', 'hr.view', 'hr.manage', 'payroll.view', 'users.sites'],
   },
   {
     id: 'general_manager', name: 'General manager', audience: 'operator', scope: 'sites', mfa: false,
     about: 'Runs a site: builds and publishes the rota, approves hours, gives their team site roles.',
-    permissions: [...SITE_RUN, 'team.manage', 'users.sites'],
+    permissions: [...SITE_RUN, 'team.manage', 'hr.view', 'hr.manage', 'users.sites'],
   },
   {
     id: 'assistant_manager', name: 'Assistant manager', audience: 'operator', scope: 'sites', mfa: false,

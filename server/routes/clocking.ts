@@ -7,6 +7,7 @@ import { actorName, guard } from '../guard';
 import { forReader } from './employees';
 import { geofenceBody, geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { employeeView } from './hr';
 import { clockIn, clockOut, endBreak, onBreak } from './time';
 
 const REPEAT_TAP_MINUTES = 2;
@@ -89,7 +90,7 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
       if (holder) throw new HttpError(409, 'badge_in_use', `That card is already enrolled for ${holder.name}. Remove it from them first.`);
       employee.badgeId = badgeId;
       audit(org, actorName(g), 'employee.badge_enrolled', { id: employee.id });
-      return forReader(g, employee);
+      return forReader(g, employeeView(req, employee, g));
     },
   );
 
@@ -104,7 +105,7 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
       g.allow('team.manage', employee.siteId);
       delete employee.badgeId;
       audit(org, actorName(g), 'employee.badge_removed', { id: employee.id });
-      return forReader(g, employee);
+      return forReader(g, employeeView(req, employee, g));
     },
   );
 

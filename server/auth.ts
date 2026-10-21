@@ -3,7 +3,7 @@ import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
 import { orgsOfAccount, type UserRecord, type UserStore } from './store';
 
-export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'users:manage' | '*';
+export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'hr:read' | 'hr:write' | 'users:manage' | '*';
 
 export interface ApiKey {
   key: string;

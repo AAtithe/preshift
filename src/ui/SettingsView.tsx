@@ -8,6 +8,8 @@ export interface Account {
   orgId: string;
   /** Every organisation the person may switch to, this one included. */
   organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
+  /** Set in the public demo, where each visitor has a sandbox of their own. */
+  demo?: boolean;
 }
 
 interface EmailStatus {
@@ -26,6 +28,21 @@ interface Settings {
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
 export function SettingsView({ account, canSettings }: { account: Account | null; canSettings: boolean }) {
+  if (account?.demo) {
+    return (
+      <div className="settings">
+        <section className="settings-card">
+          <h2>Settings in the demo</h2>
+          <p className="small muted">
+            In the live product this is where the Claude API key and email are set up, and where each person changes their own
+            password. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
+            your own copy of the demo group, and it is deleted after a day.
+          </p>
+          <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
+        </section>
+      </div>
+    );
+  }
   return (
     <div className="settings">
       <section className="settings-card">

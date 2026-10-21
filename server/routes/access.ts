@@ -105,11 +105,12 @@ async function linkTarget(store: Store, token: string) {
 }
 
 /** Sign-in, first-run setup and setting a password from a link. Registered outside the authenticated API. */
-export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
+export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { demo?: boolean } = {}) {
   const { store } = ctx;
   const hidden = { schema: { hide: true } };
+  const demo = options.demo ? { demo: true } : {};
 
-  app.get('/auth/status', hidden, async () => ({ setupNeeded: !(await store.hasUsers()) }));
+  app.get('/auth/status', hidden, async () => (options.demo ? { setupNeeded: false, ...demo } : { setupNeeded: !(await store.hasUsers()) }));
 
   // First run only: whoever opens the app first on a fresh database creates the owner account,
   // with the Owner role on record, so their access follows the same rules as everyone's.
@@ -219,7 +220,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const session = await signedIn(req.headers.cookie, store);
     if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
     // What the person may do is their access record (/v1/me), not anything on the account.
-    return { email: session.user.email, orgId: session.claims.orgId, organisations: await organisationsOf(session.user, session.claims.orgId) };
+    return { email: session.user.email, orgId: session.claims.orgId, organisations: await organisationsOf(session.user, session.claims.orgId), ...demo };
   });
 
   /** The organisations a person can switch to: their own list, never anyone else's. */

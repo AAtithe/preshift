@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
-import { seedState } from '../src/engine/seed';
+import { seedHrRecords, seedState } from '../src/engine/seed';
+import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -99,6 +100,10 @@ export interface OrgData {
   authenticators: Record<string, AuthenticatorRecord>;
   /** Emails sent through Resend, by Resend's id, with what Resend has reported since. Never their content. */
   mail: Record<string, MailRecord>;
+  /** Personnel file entries: training, reviews, cases, documents and notes. Served only to HR scopes. */
+  hrRecords: HrRecord[];
+  /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
+  privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
@@ -222,6 +227,8 @@ export interface Store extends UserStore, StaffStore {
   todayISO(): string;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
+  /** Removes the organisation's data for good. Used only to clear away expired demo sandboxes. */
+  deleteOrg(orgId: string): Promise<void>;
 }
 
 const newSecret = () => randomBytes(32).toString('hex');
@@ -247,6 +254,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     inviteSends: {},
     mail: {},
     authenticators: seeded ? demoAuthenticators(people.users) : {},
+    hrRecords: seeded ? seedHrRecords(today) : [],
   };
 }
 
@@ -300,6 +308,10 @@ export class MemoryStore implements Store {
 
   async orgIds() {
     return [...this.orgs.keys()];
+  }
+
+  async deleteOrg(orgId: string) {
+    this.orgs.delete(orgId);
   }
 
   async sessionSecret() {
@@ -512,6 +524,11 @@ export class PgStore implements Store {
     return rows.map((r) => String(r.org_id));
   }
 
+  async deleteOrg(orgId: string) {
+    await this.init();
+    await this.query('delete from preshift.orgs where org_id = $1', [orgId]);
+  }
+
   private secretCache: string | null = null;
 
   async sessionSecret() {
@@ -673,6 +690,7 @@ function deserialise(data: unknown, version: number): OrgData {
   // Organisations saved before access management load with nobody on record, not a failure.
   return {
     ...raw,
+    hrRecords: raw.hrRecords ?? [],
     state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],

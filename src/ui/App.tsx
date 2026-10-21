@@ -18,22 +18,28 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { AbsenceView } from './AbsenceView';
+import { HrFile, type HrSection } from './HrFile';
+import { HrOverview } from './HrOverview';
+import { CasesView, ReviewsView } from './ReviewsView';
+import { TrainingView } from './TrainingView';
 import { IntegrationsView } from './IntegrationsView';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
+import { PrivacyView } from './PrivacyView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Account } from './SettingsView';
 import { allowFor, NOT_YOURS, type Allow } from './permissions';
 import { ShiftEditor } from './ShiftEditor';
-import { useRotaStore } from './store';
+import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'access' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 type AtAll = Allow;
@@ -64,6 +70,17 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     ],
   },
   {
+    heading: 'HR',
+    items: [
+      // Personnel files go by site, as the rest of the team's records do; cases are confidential.
+      { id: 'hr', label: 'HR overview', offered: (all) => all('hr.view') },
+      { id: 'absence', label: 'Absence', offered: (all) => all('hr.view') },
+      { id: 'training', label: 'Training', offered: (all) => all('hr.view') },
+      { id: 'reviews', label: 'Probation and reviews', offered: (all) => all('hr.view') },
+      { id: 'cases', label: 'Cases', offered: (_all, a) => a('hr.cases') },
+    ],
+  },
+  {
     heading: 'Finance',
     items: [
       { id: 'payroll', label: 'Payroll', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
@@ -74,6 +91,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     heading: 'Admin',
     items: [
       { id: 'integrations', label: 'Integrations', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
+      { id: 'privacy', label: 'GDPR', offered: (_all, a) => a('privacy.manage') },
       { id: 'access', label: 'Access', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },
       // Everyone who signs in can change their own password there.
       { id: 'settings', label: 'Settings' },
@@ -114,12 +132,12 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} me={me} error={error} clearError={() => setError(null)} actions={actions} />;
+  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} />;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, me, error, clearError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; clearError: () => void; actions: Store['actions'] }) {
+function Workspace({ state, me, error, setError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [entityId, setEntityId] = useState(ALL);
   const [siteId, setSiteId] = useState(ALL);
@@ -137,6 +155,9 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
   const today = toISODate(new Date());
   // The signed-in account (sign-in), as against `me`, the access record and what it allows.
   const [account, setAccount] = useState<Account | null>(null);
+  const [hrPerson, setHrPerson] = useState<{ id: string; section?: HrSection } | null>(null);
+  const hr = useHrRecords(setError);
+  const openHr = (e: Employee, section?: HrSection) => setHrPerson({ id: e.id, section });
 
   useEffect(() => {
     fetch('/auth/me')
@@ -288,7 +309,7 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
         </nav>
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {account && (
+          {account && !account.demo && (
             <>
               <span className="small">Signed in as {account.email}</span>
               <a className="link" href="/auth/logout">Sign out</a>
@@ -348,9 +369,23 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
 
         <div className="shell">
           <div className="main">
+            {account?.demo && (
+              <div className="notice demo-banner">
+                <span>
+                  <strong>Live demo.</strong> This is your own copy of a sample group of three London sites, so change anything:
+                  build the week, edit shifts, add people, run payroll against the TeamPay simulator, post the accrual. Nobody
+                  else sees it, and it is deleted after a day.
+                </span>
+                <span className="demo-actions">
+                  <a className="link" href="/demo?fresh=1">Start again</a>
+                  <a className="button primary" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>
+                </span>
+              </div>
+            )}
+
             {error && (
               <div className="notice error">
-                {error} <button className="link" onClick={clearError}>Dismiss</button>
+                {error} <button className="link" onClick={() => setError(null)}>Dismiss</button>
               </div>
             )}
 
@@ -462,11 +497,19 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
                   showCost={showCost}
                 />
               )}
+              {activeTab === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'absence' && (
+                <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
+              )}
+              {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} singleSite={!!single} today={today} onOpen={setTab} />
               )}
+              {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {activeTab === 'access' && <AccessView state={state} />}
               {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} />}
             </main>
@@ -517,6 +560,22 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
 
       {opening && (
         <AssignPanel state={state} opening={opening} onPreview={setPreview} onAdd={(s) => void addShift(s)} onClose={() => setOpening(null)} />
+      )}
+
+      {hrPerson && state.employees.some((e) => e.id === hrPerson.id) && (
+        <HrFile
+          key={hrPerson.id}
+          state={state}
+          employee={state.employees.find((e) => e.id === hrPerson.id)!}
+          hr={hr}
+          today={today}
+          isAdmin={allow('hr.cases')}
+          initialSection={hrPerson.section}
+          onSaveProfile={actions.saveHrProfile}
+          onSaveAbsence={actions.saveAbsence}
+          onDeleteAbsence={actions.deleteAbsence}
+          onClose={() => setHrPerson(null)}
+        />
       )}
 
       {editingPerson && (

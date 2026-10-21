@@ -24,6 +24,9 @@ locally. Set these to connect to real TeamPay:
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
 | `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
+| `PRESHIFT_DEMO` | `1` makes the deployment the public demo: a sandbox per visitor at `/demo`, no account changes, simulator payroll. See the README |
+| `PRESHIFT_DEMO_CLAUDE_KEY` | Demo only. Claude API key the sandboxes share for the rota assistant, capped per sandbox. Unset means the assistant is off in the demo |
+| `PRESHIFT_DEMO_URL` | Live system only. Where its `/demo` sends visitors, the demo deployment's `/demo` |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
 ## Authentication and tenancy
@@ -33,8 +36,10 @@ session is matched by email to the person's access record in their organisation,
 then decide (below). A session with no access record keeps full access to its organisation, as every
 account had before roles, and the Access overview lists it as a finding until it is given a record.
 People and access (`/v1/users`, `/v1/access/*`) are managed by people only, never by an integration
-key; settings (`/v1/settings`) need a signed-in person with `settings.manage`. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
+key; settings (`/v1/settings`) need a signed-in person with `settings.manage`, and staff data
+requests (`/v1/privacy/*` beyond the register) a person with `privacy.manage`. Personnel files
+(`/v1/hr/*`) need `hr.view` or `hr.manage` where the person works, and cases `hr.cases`. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
+`time:write`, `time:approve`, `payroll:write`, `hr:read`, `hr:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -103,6 +108,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | --- | --- |
 | Reference | `GET /v1/sites`, `/v1/roles`, `/v1/demand-rules` |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
+| HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, type, from, to}`. Cases are returned to signed-in admins only, never to members. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
