@@ -547,3 +547,36 @@ body.dragging-move .add, body.dragging-resize .add { opacity: 0 !important; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 .table .issues.compact { min-width: 240px; }
+
+/* Adding a shift from the timeline */
+.tl-plot { cursor: crosshair; }
+.tl-draft {
+  position: absolute; z-index: 1; pointer-events: none; display: grid; place-items: start center; padding-top: 4px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent); border: 1.5px dashed var(--ink); border-radius: 6px;
+}
+.tl-draft span { font: 600 11px/1 var(--mono); background: var(--ink); color: var(--accent-text); padding: 4px 6px; border-radius: 4px; white-space: nowrap; }
+button.tl-cell.short { border: none; border-left: 1px solid var(--card); border-radius: 0; padding: 0; cursor: pointer; }
+button.tl-cell.short:hover:not(:disabled) { filter: brightness(0.88); box-shadow: inset 0 0 0 2px var(--ink); }
+.modal.assign { width: min(620px, 100%); }
+.assign-form { grid-template-columns: 1.4fr 1fr 1fr; }
+.assign-need { margin: 12px 0 10px; font-size: 13px; padding-left: 10px; border-left: 3px solid var(--rule-strong); color: var(--ink-2); }
+.assign-need.bad { border-left-color: var(--bad-fill); color: var(--bad); }
+.assign-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; max-height: 46vh; overflow: auto; }
+.assign-row {
+  width: 100%; display: grid; grid-template-columns: auto 1fr auto 90px; gap: 12px; align-items: center; text-align: left;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--rule); background: var(--card);
+}
+.assign-row:hover:not(:disabled), .assign-row:focus-visible { border-color: var(--ink); box-shadow: var(--shadow); }
+.assign-row:disabled { opacity: 1; cursor: not-allowed; background: var(--surface-2); }
+.assign-row:disabled .assign-who, .assign-row:disabled .avatar { opacity: 0.55; }
+.assign-who { display: grid; }
+.assign-status { font-size: 12px; max-width: 220px; text-align: right; }
+.assign-status.good { color: var(--good); }
+.assign-status.warn { color: var(--warn); }
+.assign-status.bad { color: var(--bad); }
+.assign-cost { display: grid; justify-items: end; font-weight: 650; }
+@media (max-width: 720px) {
+  .assign-form { grid-template-columns: 1fr 1fr; }
+  .assign-row { grid-template-columns: auto 1fr 76px; }
+  .assign-status { grid-column: 2 / 4; text-align: left; max-width: none; }
+}

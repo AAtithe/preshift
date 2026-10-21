@@ -1,9 +1,10 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Issue } from '../engine/compliance';
 import { dayDemand } from '../engine/demand';
 import type { WeekMetrics } from '../engine/metrics';
 import { formatMinute, toISODate } from '../engine/time';
 import type { Department, RotaState, Shift, Site } from '../engine/types';
+import { openingForGap, rangeFromDraw, shortestRole, type Opening } from './assign';
 import { dropBlocker, keyChange, nudgeShift, resizeShift } from './drag';
 import { DragReadout } from './DragReadout';
 import { money, pct } from './format';
@@ -30,8 +31,25 @@ interface Props {
   onPreview: (shift: Shift | null) => void;
   onCommit: (shift: Shift, before: Shift) => void;
   onBlocked: (message: string) => void;
+  /** Open the picker for a new shift drawn on a day or picked from a short hour. */
+  onOpen: (opening: Opening) => void;
   baseLabourCost: number;
 }
+
+interface Draw {
+  date: string;
+  a: number;
+  b: number;
+  left: number;
+  width: number;
+  x: number;
+  y: number;
+  touch: boolean;
+  moved: boolean;
+}
+
+/** A tap that moves further than this is a scroll, not a request for a shift. */
+const TAP_SLOP = 8;
 
 interface Placed {
   shift: Shift;
@@ -54,8 +72,10 @@ interface Lane {
  * shifts stacked as bars by department and a coverage strip that reads short or over by the
  * hour. Bars drag along the day to move, by their ends to resize, and up or down to another day.
  */
-export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, baseLabourCost }: Props) {
+export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost }: Props) {
   const layer = useRef<HTMLDivElement>(null);
+  const [draw, setDraw] = useState<Draw | null>(null);
+  const drawRef = useRef<Draw | null>(null);
   const deptOf = (roleId: string) => base.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
   const siteShifts = base.shifts.filter((s) => s.siteId === site.id && dates.includes(s.date));
 
@@ -65,6 +85,56 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
   const span = to - from;
   const x = (m: number) => ((m - from) / span) * 100;
   const hours = Array.from({ length: span / 60 + 1 }, (_, i) => from + i * 60);
+  const minuteAt = (d: Draw, clientX: number) => from + ((clientX - d.left) / d.width) * span;
+  const geometry = useRef({ from, span, siteId: site.id, state, onOpen });
+  geometry.current = { from, span, siteId: site.id, state, onOpen };
+
+  // Drag across an empty stretch of a day to draw a shift; a click or tap drops a four hour block.
+  useEffect(() => {
+    const update = (d: Draw | null) => {
+      drawRef.current = d;
+      setDraw(d);
+    };
+    function move(e: PointerEvent) {
+      const d = drawRef.current;
+      if (!d) return;
+      const travelled = Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_SLOP;
+      // On touch any real movement is a scroll, so the draw is abandoned.
+      if (d.touch) return travelled ? update(null) : undefined;
+      const g = geometry.current;
+      update({ ...d, moved: d.moved || travelled, b: g.from + ((e.clientX - d.left) / d.width) * g.span });
+    }
+    function up() {
+      const d = drawRef.current;
+      if (!d) return;
+      update(null);
+      const g = geometry.current;
+      const b = d.moved ? d.b : d.a;
+      const lo = Math.min(d.a, b);
+      const hi = Math.max(d.a, b);
+      const role = shortestRole(g.state, g.siteId, d.date, Math.floor(lo / 60) * 60, Math.max(hi, lo + 60)) ?? g.state.demandRules.find((r) => r.siteId === g.siteId)?.roleId ?? g.state.roles[0].id;
+      g.onOpen(rangeFromDraw(d.a, b, role, g.siteId, d.date));
+    }
+    const cancel = () => update(null);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+  }, []);
+
+  function startDraw(e: ReactPointerEvent<HTMLDivElement>, date: string) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.tl-cell')) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const d: Draw = { date, a: 0, b: 0, left: box.left, width: box.width, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', moved: false };
+    d.a = d.b = minuteAt(d, e.clientX);
+    drawRef.current = d;
+    setDraw(d);
+    if (!d.touch) e.preventDefault();
+  }
 
   // Lay out every day once from the rota as it was before the drag.
   let top = 0;
@@ -185,7 +255,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                 <div className="tl-daysales tnum">{money(m.forecastSales)}</div>
                 <div className="muted small">forecast sales</div>
               </header>
-              <div className="tl-plot">
+              <div className="tl-plot" onPointerDown={(e) => startDraw(e, lane.date)}>
                 <svg className="tl-curve" viewBox={`0 0 ${span} 100`} preserveAspectRatio="none" aria-hidden style={{ top: PAD, height: plotH }}>
                   <path d={curvePath(forecast, from, forecastMax)} />
                 </svg>
@@ -194,18 +264,37 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                     {DEPT_SHORT[g.dept]}
                   </span>
                 ))}
-                {lane.rows === 0 && <span className="tl-empty">No shifts. Drag one here or build from the forecast.</span>}
+                {lane.rows === 0 && <span className="tl-empty">No shifts. Drag across the day to add one, or build from the forecast.</span>}
+                {draw?.date === lane.date && draw.moved && (
+                  <DraftBand from={Math.min(draw.a, draw.b)} to={Math.max(draw.a, draw.b)} x={x} top={PAD} height={plotH} />
+                )}
                 <div className="tl-strip" style={{ bottom: PAD }}>
                   {coverage.map((c) =>
                     c.hour * 60 >= from && c.hour * 60 < to ? (
-                      <span
-                        key={c.hour}
-                        className={`tl-cell ${c.gap > 0 ? 'short' : c.gap < 0 ? 'over' : c.required ? 'ok' : ''}`}
-                        style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
-                        title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}`}
-                      >
-                        {c.gap > 0 ? `-${c.gap}` : c.gap < 0 ? `+${-c.gap}` : ''}
-                      </span>
+                      c.gap > 0 ? (
+                        <button
+                          key={c.hour}
+                          className="tl-cell short"
+                          style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
+                          title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}. Click to fill the gap.`}
+                          aria-label={`${c.gap} short at ${formatMinute(c.hour * 60)}. Fill the gap`}
+                          onClick={() => {
+                            const opening = openingForGap(state, site.id, lane.date, c.hour);
+                            if (opening) onOpen(opening);
+                          }}
+                        >
+                          -{c.gap}
+                        </button>
+                      ) : (
+                        <span
+                          key={c.hour}
+                          className={`tl-cell ${c.gap < 0 ? 'over' : c.required ? 'ok' : ''}`}
+                          style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
+                          title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}`}
+                        >
+                          {c.gap < 0 ? `+${-c.gap}` : ''}
+                        </span>
+                      )
                     ) : null,
                   )}
                 </div>
@@ -294,6 +383,18 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
           touch={pointer.touch}
         />
       )}
+    </div>
+  );
+}
+
+/** The stretch being drawn, with its snapped times and length. */
+function DraftBand({ from, to, x, top, height }: { from: number; to: number; x: (m: number) => number; top: number; height: number }) {
+  const opening = rangeFromDraw(from, to, '', '', '');
+  return (
+    <div className="tl-draft" style={{ left: `${x(opening.startMinute)}%`, width: `${x(opening.endMinute) - x(opening.startMinute)}%`, top, height }}>
+      <span className="tnum">
+        {formatMinute(opening.startMinute)}-{formatMinute(opening.endMinute)} · {((opening.endMinute - opening.startMinute) / 60).toFixed(1)}h
+      </span>
     </div>
   );
 }

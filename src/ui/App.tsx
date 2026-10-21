@@ -4,6 +4,8 @@ import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, formatMinute, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Shift } from '../engine/types';
+import type { Opening } from './assign';
+import { AssignPanel } from './AssignPanel';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { dayLabel, isoWeek } from './format';
@@ -44,7 +46,8 @@ export function App() {
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [preview, setPreview] = useState<Shift | null>(null);
-  const [lastChange, setLastChange] = useState<{ before: Shift; after: Shift } | null>(null);
+  const [lastChange, setLastChange] = useState<{ before: Shift | null; after: Shift } | null>(null);
+  const [opening, setOpening] = useState<Opening | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
 
@@ -59,7 +62,12 @@ export function App() {
 
   // While a shift is being dragged every figure on the page is worked from the previewed rota.
   const view = useMemo(
-    () => (preview ? { ...state, shifts: state.shifts.map((s) => (s.id === preview.id ? preview : s)) } : state),
+    () => {
+      if (!preview) return state;
+      // A shift not yet in the rota (a name hovered in the picker) is previewed as an addition.
+      const exists = state.shifts.some((s) => s.id === preview.id);
+      return { ...state, shifts: exists ? state.shifts.map((s) => (s.id === preview.id ? preview : s)) : [...state.shifts, preview] };
+    },
     [state, preview],
   );
   const site = state.sites.find((s) => s.id === siteId)!;
@@ -82,6 +90,14 @@ export function App() {
   function commitChange(after: Shift, before: Shift) {
     dispatch({ type: 'upsertShift', shift: after });
     setLastChange({ before, after });
+    setRefusal(null);
+  }
+
+  function addShift(shift: Shift) {
+    dispatch({ type: 'upsertShift', shift });
+    setPreview(null);
+    setOpening(null);
+    setLastChange({ before: null, after: shift });
     setRefusal(null);
   }
 
@@ -202,7 +218,7 @@ export function App() {
               </div>
               <span className="muted small">
                 {rotaView === 'timeline'
-                  ? 'Each day over its sales curve. The strip under each day shows hours short or over. Drag a bar to move it, its ends to change the hours.'
+                  ? 'Each day over its sales curve, with hours short or over in the strip beneath. Drag a bar to move it or its ends to change the hours. Drag across a day, or click a red hour, to add a shift.'
                   : 'Every person across the week. Drag a shift to another person or day.'}
               </span>
             </div>
@@ -219,6 +235,7 @@ export function App() {
               onPreview={setPreview}
               onCommit={commitChange}
               onBlocked={refuse}
+              onOpen={setOpening}
               baseLabourCost={baseMetrics.labourCost}
             />
           )}
@@ -273,13 +290,24 @@ export function App() {
             <button
               className="ghost"
               onClick={() => {
-                dispatch({ type: 'upsertShift', shift: lastChange.before });
+                if (lastChange.before) dispatch({ type: 'upsertShift', shift: lastChange.before });
+                else dispatch({ type: 'deleteShift', id: lastChange.after.id });
                 setLastChange(null);
               }}
             >
               Undo
             </button>
           </div>
+        )}
+
+        {opening && (
+          <AssignPanel
+            state={state}
+            opening={opening}
+            onPreview={setPreview}
+            onAdd={addShift}
+            onClose={() => setOpening(null)}
+          />
         )}
 
         {editing && (
@@ -296,9 +324,10 @@ export function App() {
   );
 }
 
-function describeChange(before: Shift, after: Shift, state: { employees: { id: string; name: string }[] }) {
+function describeChange(before: Shift | null, after: Shift, state: { employees: { id: string; name: string }[] }) {
   const name = (id: string) => state.employees.find((e) => e.id === id)?.name.split(' ')[0] ?? '';
   const when = (s: Shift) => `${dayLabel(s.date).short} ${formatMinute(s.startMinute)}-${formatMinute(s.endMinute)}`;
+  if (!before) return `Added ${name(after.employeeId)}, ${when(after)}`;
   if (before.employeeId !== after.employeeId) return `Moved ${name(before.employeeId)}'s shift to ${name(after.employeeId)}, ${when(after)}`;
   if (before.date !== after.date) return `Moved ${name(after.employeeId)} to ${when(after)}`;
   return `${name(after.employeeId)} now ${when(after)}`;
