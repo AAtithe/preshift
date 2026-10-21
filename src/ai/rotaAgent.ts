@@ -195,6 +195,9 @@ export function describeAgentError(err: unknown): string {
   if (err instanceof Anthropic.AuthenticationError && JSON.stringify(err.error).includes('session_expired')) {
     return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
   }
+  // The public demo says in its own words why the assistant is unavailable there.
+  const demo = err instanceof Anthropic.PermissionDeniedError && (err.error as { error?: { type?: string; message?: string } })?.error;
+  if (demo && demo.type === 'demo' && demo.message) return demo.message;
   if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('spend_limit')) {
     const body = err.error as { error?: { message?: string } } | undefined;
     return body?.error?.message ?? 'The rota assistant has reached its spending limit.';

@@ -31,6 +31,15 @@ describe('people insights', () => {
     expect(i.averageWeeklyHours).toBeCloseTo(20 / 4, 1);
   });
 
+  it('does not count a day off sick as a no-show', () => {
+    const state = seedState(TODAY);
+    state.shifts = [shift('mon', '2026-10-12', 12, 16), shift('tue', '2026-10-13', 12, 16)];
+    const oliver = state.employees.find((e) => e.id === 'mar-8')!;
+    oliver.absences = [{ id: 'a1', type: 'sickness', from: '2026-10-13', to: '2026-10-13' }];
+    const i = peopleInsights(state, [oliver], [entry('mon', '2026-10-12', 12 * 60)], WEEK, TODAY)['mar-8'];
+    expect(i.noShows).toBe(0);
+  });
+
   it('does not mark anyone late or absent at a site that does not use clocking', () => {
     const state = seedState(TODAY);
     state.shifts = [shift('a', '2026-10-14', 12, 16)];

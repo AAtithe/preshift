@@ -1,5 +1,6 @@
 import { shiftPaidHours } from './cost';
 import { holidayBalance, workedShifts } from './holiday';
+import { isAbsentOn } from './hr';
 import { entriesAsShifts } from './timesheet';
 import { addDays, daysBetween, weekday } from './time';
 import type { Employee, RotaState, TimeEntry } from './types';
@@ -64,7 +65,8 @@ export function peopleInsights(
       const entry = mine.find((t) => t.shiftId === s.id) ?? mine.find((t) => t.date === s.date && t.siteId === s.siteId);
       return entry !== undefined && entry.clockIn > s.startMinute + LATE_AFTER_MINUTES;
     }).length;
-    const noShows = clocked.filter((s) => !e.leave.includes(s.date) && !mine.some((t) => t.date === s.date)).length;
+    // A day off sick or on leave is not a no-show.
+    const noShows = clocked.filter((s) => !e.leave.includes(s.date) && !isAbsentOn(e, s.date) && !mine.some((t) => t.date === s.date)).length;
 
     const insight: PersonInsight = {
       employeeId: e.id,

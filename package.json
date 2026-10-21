@@ -10,6 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "dev:api": "tsx watch server/index.ts",
+    "dev:demo": "PRESHIFT_DEMO=1 node scripts/dev.mjs",
     "dev:web": "vite",
     "start": "tsx server/index.ts",
     "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",

@@ -88,6 +88,16 @@ describe('rota tools', () => {
     expect(nadia.employed_this_week).toEqual(['2026-10-24', '2026-10-25']);
   });
 
+  it('shows the days someone is off, but never why, and refuses rostering them', () => {
+    const d = draft();
+    const oliver = d.state.employees.find((e) => e.id === 'mar-8')!;
+    oliver.absences = [{ id: 'a1', type: 'sickness', from: '2026-10-22', to: '2026-10-23', reason: 'Flu' }];
+    const team = executeRotaTool(d, 'list_team', { site_id: 'mar' }).result as { id: string; off_this_week: string[] }[];
+    expect(team.find((p) => p.id === 'mar-8')?.off_this_week).toEqual(['2026-10-22', '2026-10-23']);
+    expect(JSON.stringify(team)).not.toMatch(/Flu|sickness/);
+    expect(add(d, 'mar-8', '2026-10-23', '12:00', '16:00').isError).toBe(true);
+  });
+
   it('refuses someone who has not agreed to cover the site, and a starter with no right to work check', () => {
     const d = draft();
     expect(JSON.stringify(add(d, idOf(d, 'Hannah Lee'), '2026-10-23', '12:00', '18:00').result)).toContain('has not agreed to cover');

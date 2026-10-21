@@ -3,6 +3,7 @@ import { checkWeek, requiredBreakMinutes, type Issue } from '../engine/complianc
 import { shiftPaidHours, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
 import { isEmployedOn } from '../engine/employees';
+import { isAbsentOn } from '../engine/hr';
 import type { PersonInsight } from '../engine/insights';
 import { weekMetrics } from '../engine/metrics';
 import { hasStarted, type LondonNow } from '../engine/rotaWeek';
@@ -57,7 +58,8 @@ export const ROTA_TOOLS: ToolDefinition[] = [
     description:
       'Everyone who can work at a site this week: its own team, then people from other sites who have agreed to cover it. ' +
       'For each: id, roles (first is primary), pay, age, contracted (guaranteed) hours, maximum weekly hours, availability, ' +
-      'approved leave, the days they are employed if they start or leave this week, whether they can be rostered at all ' +
+      'approved leave, days they are off (sickness or other absence; rostering them is refused), the days they are ' +
+      'employed if they start or leave this week, whether they can be rostered at all ' +
       '(right to work), hours already rostered this week at this site and elsewhere, and what borrowing them costs: home ' +
       'team, a sister site in the same company, or another company in the group, which means an intercompany recharge. ' +
       'Contracted hours are paid whether rostered or not, so use them first.',
@@ -351,6 +353,8 @@ function team(d: RotaDraft, siteId: string) {
           ? e.availability.map((a) => `${WEEKDAYS[a.weekday]} ${formatMinute(a.fromMinute)}-${formatMinute(a.toMinute)}`)
           : 'any',
         leave_this_week: e.leave.filter((l) => dates.includes(l)),
+        // Only the days: the type and reason of an absence (often health data) never leave the app.
+        off_this_week: dates.filter((day) => isAbsentOn(e, day)),
         employed_this_week: employedDays.length === 7 ? 'all week' : employedDays,
         right_to_work: rightToWork(e, dates),
         rostered_hours_here: round2(mine.filter((s) => s.siteId === siteId).reduce((sum, s) => sum + shiftPaidHours(s), 0)),
