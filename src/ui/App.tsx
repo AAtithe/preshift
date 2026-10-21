@@ -25,6 +25,7 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import type { ProposalDeps } from './proposals';
@@ -40,9 +41,9 @@ const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ defa
 const Shifty = lazy(() => import('./Shifty').then((m) => ({ default: m.Shifty })));
 const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.CommandBar })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings' | 'howto';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'reports' | 'integrations' | 'privacy' | 'settings' | 'howto';
 
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
+// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
 type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
@@ -80,6 +81,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'close', label: 'Close' },
     ],
   },
+  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports' }] },
   {
     heading: 'Admin',
     items: [
@@ -502,6 +504,17 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {activeTab === 'reports' && (
+                <ReportsView
+                  state={state}
+                  siteIds={siteIds}
+                  entityIds={entityIds}
+                  week={week}
+                  today={today}
+                  onSaveSales={actions.saveSales}
+                  scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
+                />
+              )}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}

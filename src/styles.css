@@ -821,6 +821,12 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .hr-split { grid-template-columns: 1fr; }
   .form { grid-template-columns: 1fr; }
 }
+.report-actions { justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.report-block { margin-top: 16px; }
+.report-kpis { grid-template-columns: repeat(4, 1fr); margin-top: 0; }
+.notice.good { background: var(--good-bg); color: var(--good); }
+.button-like { display: inline-block; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
+.button-like:hover { background: var(--surface-2); }
 .table tr.clickable { cursor: pointer; }
 
 /* Command bar and Shifty */
@@ -876,3 +882,9 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .shifty-launcher, .shifty { right: 12px; bottom: 70px; }
 }
 @media print { .command-bar, .shifty, .shifty-launcher { display: none; } }
+.table tr.clickable:hover td { background: var(--surface-2); }
+.table tr.detail > td { background: var(--surface-2); padding: 4px 8px 10px 24px; }
+.table.compact td { padding: 4px 8px; border-bottom: none; }
+.table.takings td, .table.takings th { padding-left: 4px; padding-right: 4px; }
+.takings-input { width: 68px; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .report-kpis { grid-template-columns: repeat(2, 1fr); } }

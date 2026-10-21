@@ -5,10 +5,10 @@ import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
-import type { HourForecast, Shift } from '../../src/engine/types';
+import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
-import { forecastBody, idParam, rangeQuery, shiftBody, sitesWeekBody, siteWeekQuery } from '../schemas';
+import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
 
@@ -363,4 +363,37 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     audit(org, req.principal.name, 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };
   });
+
+  app.get<{ Querystring: Range }>('/v1/sales', { ...read, schema: { tags: ['Sales'], querystring: rangeQuery, description: 'Actual takings by site and day, net of VAT.' } }, async (req) =>
+    (orgOf(req).state.sales ?? []).filter(inRange(req.query)),
+  );
+
+  // A till or EPOS integration pushes each day's takings here; the web app keys them in or imports a file.
+  app.put<{ Body: { rows: (Omit<DaySales, 'source'> & { source?: DaySales['source'] })[] } }>(
+    '/v1/sales',
+    { ...write, schema: { tags: ['Sales'], body: salesBody, description: 'Adds or replaces takings for each site and day given. Net of VAT.' } },
+    async (req) => {
+      const org = orgOf(req);
+      for (const r of req.body.rows) requireSite(org, r.siteId);
+      const key = (r: { siteId: string; date: string }) => `${r.siteId}|${r.date}`;
+      const incoming = new Map(req.body.rows.map((r): [string, DaySales] => [key(r), { ...r, netSales: Math.round(r.netSales * 100) / 100, source: r.source ?? 'till' }]));
+      org.state.sales = [...(org.state.sales ?? []).filter((s) => !incoming.has(key(s))), ...incoming.values()];
+      audit(org, req.principal.name, 'sales.upserted', { rows: incoming.size });
+      return { upserted: incoming.size };
+    },
+  );
+
+  app.delete<{ Querystring: { siteId: string; date: string } }>(
+    '/v1/sales',
+    { ...write, schema: { tags: ['Sales'], querystring: siteDateQuery, description: "Removes one day's takings, so reports fall back to the forecast for it." } },
+    async (req, reply) => {
+      const org = orgOf(req);
+      const { siteId, date } = req.query;
+      const before = (org.state.sales ?? []).length;
+      org.state.sales = (org.state.sales ?? []).filter((s) => !(s.siteId === siteId && s.date === date));
+      if (org.state.sales.length === before) throw notFound(`Takings for ${siteId} on ${date}`);
+      audit(org, req.principal.name, 'sales.deleted', { siteId, date });
+      return reply.code(204).send();
+    },
+  );
 }
