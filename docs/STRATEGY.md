@@ -73,6 +73,9 @@ Phase 1d, done: tronc. Allocation on clocked hours and points with department sp
 penny passed on, NI saving from an independent troncmaster on each person's whole week, VAT on a
 mandatory service charge, the Act's policy, review, deadline and tips record requirements.
 
+Phase 1e, done: compliance pricing deepened. Monthly pay reference periods, the 48 hour limit
+as a 17 week average, and tips owed and NI at stake in the risk register.
+
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
 - Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
@@ -80,15 +83,15 @@ Phase 2, first live sites (8 to 10 weeks):
 - Live sales feed from Preshift Reports into the hourly actuals, so the cut call and labour %
   run on real trading through the day.
 - Payroll exports for the payrolls WS clients run, carrying approved clocked hours only.
-- Monthly pay reference periods and the salaried hours work annual calculation, so the minimum
-  wage test matches how each client actually pays.
+- The salaried hours work annual calculation, so the minimum wage test for salaried staff
+  matches HMRC's method over the year, not only each pay period.
 - Replace the Employment Rights Act assumptions with the regulations as each part commences.
 
 Phase 3:
 - Forecasting model trained on each site's actuals, weather and local events.
 - Tronc audit trail: who changed the scheme and when, troncmaster sign-off of each run, and the
   three year record the Act requires, held server-side.
-- 17 week WTR reference period tracking, holiday entitlement balances, right to work document capture and Home Office online share code checks.
+- Holiday entitlement balances, right to work document capture and Home Office online share code checks.
 - Group view across sites with cross-site cover and labour benchmarks across the WS client
   base (anonymised), which no single-vendor tool can offer.
 

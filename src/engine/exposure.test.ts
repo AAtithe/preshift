@@ -4,11 +4,12 @@ import { nmwPay } from './cost';
 import { cutCall } from './cutcall';
 import { compensationOnEarlyFinishes, ERA_ASSUMPTIONS, guaranteedHoursOffers } from './era';
 import { complianceExposure } from './exposure';
-import { nmwCheck } from './nmw';
+import { nmwCheck, payPeriodFor } from './nmw';
+import { workingTimeAverages } from './wtr';
 import { seedDemo } from './simulate';
 import { addDays, weekDates } from './time';
-import type { ClockRecord, DemandRule, Employee, HourActual, HourForecast, RotaState, Shift } from './types';
-import { weekVariance } from './actuals';
+import type { ClockRecord, DemandRule, Employee, HourActual, HourForecast, RotaState, Shift, TroncScheme } from './types';
+import { actualCompliance, weekVariance } from './actuals';
 
 const WEEK = '2026-10-19'; // a Monday
 const NEXT = addDays(WEEK, 7);
@@ -220,5 +221,103 @@ describe('demo exposure', () => {
   it('flags the visa running out at Shoreditch', () => {
     const r = complianceExposure(demo, 'shd', WEEK, '2026-10-21');
     expect(r.rightToWork.some((l) => l.code === 'rtw-expiring')).toBe(true);
+  });
+});
+
+describe('monthly pay reference periods', () => {
+  const monthly = person('chef', {
+    payBasis: 'salaried',
+    annualSalary: 30_000,
+    hourlyRate: 0,
+    nmwReducingDeductionsWeekly: 6,
+    payFrequency: 'monthly',
+  });
+  const october = Array.from({ length: 31 }, (_, i) => addDays('2026-10-01', i));
+  // Ten hour days with a 30 minute break on every weekday of the month.
+  const weekdays = october.filter((d) => new Date(`${d}T00:00:00Z`).getUTCDay() % 6 !== 0);
+
+  it('uses the month that holds most of the week', () => {
+    expect(payPeriodFor('monthly', '2026-10-26')).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
+    expect(payPeriodFor('monthly', '2026-09-28')).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
+    expect(payPeriodFor('weekly', WEEK)).toMatchObject({ from: WEEK, to: addDays(WEEK, 6) });
+  });
+
+  it('tests a whole month of clocked hours against a twelfth of the salary', () => {
+    const shifts = weekdays.map((d) => shift('chef', d, 11, 21, 30));
+    const st = state({ employees: [monthly], shifts, clocks: shifts.map((s) => clocked(s)) });
+    const [row] = nmwCheck(st, WEEK, '2026-11-02');
+    expect(row).toMatchObject({ basis: 'clocked', coverage: 1, hoursWorked: 9.5 * 22 });
+    const pay = 30_000 / 12 - (6 * 52) / 12;
+    expect(row.arrears).toBeCloseTo(12.71 * 209 - pay, 2);
+    expect(row.annualisedArrears).toBeCloseTo(row.arrears * 12, 2);
+    // A 22 weekday month costs more than the same pattern tested weekly.
+    const weekly = nmwCheck({ ...st, employees: [{ ...monthly, payFrequency: 'weekly' }] }, WEEK, '2026-11-02')[0];
+    expect(row.arrears).toBeGreaterThan((weekly.arrears * 52) / 12);
+  });
+
+  it('projects the rest of the month at the same daily rate when the rota runs out', () => {
+    const firstHalf = weekdays.filter((d) => d < '2026-10-16').map((d) => shift('chef', d, 11, 21, 30));
+    const st = state({ employees: [monthly], shifts: firstHalf, clocks: firstHalf.map((s) => clocked(s)) });
+    const [row] = nmwCheck(st, '2026-10-12', '2026-10-16');
+    expect(row.basis).toBe('projected');
+    expect(row.coverage).toBeLessThan(1);
+    expect(row.hoursWorked).toBeCloseTo((9.5 * firstHalf.length * 31) / 15, 1);
+  });
+});
+
+describe('17 week Working Time average', () => {
+  const worker = person('w', { optedOutOf48: false });
+  const weeks = (count: number, hoursPerDay: number) =>
+    Array.from({ length: count }, (_, i) => addDays(WEEK, -7 * (i + 1))).flatMap((w) =>
+      weekDates(w).slice(0, 5).map((d) => shift('w', d, 10, 10 + hoursPerDay)),
+    );
+  const run = (shifts: Shift[]) => workingTimeAverages(state({ employees: [worker], shifts, clocks: shifts.map((s) => clocked(s)) }), 'mar', WEEK)[0];
+
+  it('treats one long week as legal and a steady 50 as a breach', () => {
+    expect(run(weeks(1, 12))).toMatchObject({ breach: false, onCourseToBreach: false, average: 60 });
+    expect(run(weeks(17, 10))).toMatchObject({ breach: true, average: 50 });
+  });
+
+  it('calls the trend after four weeks and says what hours are left', () => {
+    const r = run(weeks(4, 10));
+    expect(r.onCourseToBreach).toBe(true);
+    expect(r.allowedAverageAhead).toBeCloseTo((48 * 17 - 200) / 13, 2);
+  });
+
+  it('no longer reports a single clocked week over 48 as a breach', () => {
+    const shifts = weeks(1, 12);
+    const st = state({ employees: [worker], shifts, clocks: shifts.map((s) => clocked(s)) });
+    expect(actualCompliance(st, addDays(WEEK, -7), WEEK).map((i) => i.code)).not.toContain('wtr-48');
+  });
+});
+
+describe('tips in the register', () => {
+  const sept = '2026-09-07';
+  const team = [person('a'), person('b')];
+  const shifts = team.map((e) => shift(e.id, sept, 12, 20, 30));
+  const scheme: TroncScheme = {
+    siteId: 'mar',
+    troncmaster: 'Head server',
+    independent: true,
+    pointsPerHour: { server: 10 },
+    serviceCharge: 'discretionary',
+    policyPublishedOn: '2025-01-01',
+    lastReviewedOn: '2025-01-01',
+  };
+  const tips = [{ id: 't1', siteId: 'mar', date: sept, source: 'service-charge' as const, amount: 200 }];
+  const base = state({ employees: team, shifts, clocks: shifts.map((s) => clocked(s)), tips, troncSchemes: [scheme] });
+
+  it('counts tips past the deadline as owed, with a tribunal award per worker', () => {
+    expect(complianceExposure(base, 'mar', '2026-10-26', '2026-10-31').tronc.overdue).toBe(0);
+    const r = complianceExposure(base, 'mar', '2026-10-26', '2026-11-01');
+    expect(r.tronc).toMatchObject({ overdue: 200, overdueWorkers: 2, tribunalCeiling: 10_000 });
+    expect(r.owedNow).toBe(200);
+  });
+
+  it('shows the NI that rests on the troncmaster’s independence', () => {
+    const r = complianceExposure(base, 'mar', sept, '2026-09-14');
+    expect(r.tronc.niAtStakeAnnual).toBeGreaterThan(0);
+    const employerRun = { ...base, troncSchemes: [{ ...scheme, independent: false }] };
+    expect(complianceExposure(employerRun, 'mar', sept, '2026-09-14').tronc.niAtStakeAnnual).toBe(0);
   });
 });

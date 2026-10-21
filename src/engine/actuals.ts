@@ -223,11 +223,11 @@ const ACTUAL_COMPLIANCE_CODES = new Set([
   'young-night',
   'weekly-rest',
   'young-weekly',
-  'wtr-48',
   'rtw-expired',
   'rtw-student-hours',
 ]);
-const WEEK_LEVEL_CODES = new Set(['weekly-rest', 'young-weekly', 'wtr-48', 'rtw-student-hours']);
+// The 48 hour limit is a 17 week average, so one long week is not a breach; see wtr.ts.
+const WEEK_LEVEL_CODES = new Set(['weekly-rest', 'young-weekly', 'rtw-student-hours']);
 
 /**
  * Working Time and young worker checks on what was clocked, not what was

@@ -31,6 +31,8 @@ export interface UkRates {
   /** Home Office civil penalty ceiling per illegal worker: first breach and repeat breach. */
   illegalWorkingPenaltyFirst: number;
   illegalWorkingPenaltyRepeat: number;
+  /** Employment tribunal award cap per worker under the tips legislation, on top of the tips owed. */
+  tipsTribunalAwardCap: number;
 }
 
 export const UK_RATES_2026_27: UkRates = {
@@ -57,6 +59,7 @@ export const UK_RATES_2026_27: UkRates = {
   nmwPenaltyCapPerWorker: 20_000,
   illegalWorkingPenaltyFirst: 45_000,
   illegalWorkingPenaltyRepeat: 60_000,
+  tipsTribunalAwardCap: 5_000,
 };
 
 export function minimumWageFor(age: number, rates: UkRates = UK_RATES_2026_27) {

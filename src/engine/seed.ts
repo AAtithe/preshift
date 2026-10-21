@@ -54,7 +54,7 @@ function employees(today: string): Employee[] {
     ...team('mar', [
       ['Priya Shah', ['gm'], 0, '1986-03-14', 0, { payBasis: 'salaried', annualSalary: 52_000, maxWeeklyHours: 55, optedOutOf48: true }],
       // Salaried head chef on a salary that only clears minimum wage at 45 hours a week.
-      ['Ivan Petrov', ['chef'], 0, '1992-05-11', 0, { payBasis: 'salaried', annualSalary: 30_000, maxWeeklyHours: 55, optedOutOf48: true, nmwReducingDeductionsWeekly: 6 }],
+      ['Ivan Petrov', ['chef'], 0, '1992-05-11', 0, { payBasis: 'salaried', annualSalary: 30_000, maxWeeklyHours: 55, optedOutOf48: true, nmwReducingDeductionsWeekly: 6, payFrequency: 'monthly' }],
       ['Marco Bianchi', ['chef'], 16.5, '1990-07-02', 40],
       ['Aisha Okafor', ['chef'], 15.0, '1995-11-20', 40],
       ['Tom Reilly', ['chef', 'kp'], 13.5, '2001-02-09', 0],

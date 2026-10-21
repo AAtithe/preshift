@@ -62,6 +62,8 @@ export interface Employee {
   /** ISO dates the person is on approved leave. */
   leave: string[];
   rightToWork?: RightToWork;
+  /** How often the person is paid, which sets the minimum wage pay reference period. Weekly if absent. */
+  payFrequency?: 'weekly' | 'monthly';
   /**
    * Weekly deductions and payments that reduce pay for minimum wage purposes:
    * uniform or tools the worker pays for, salary sacrifice, and similar.

@@ -36,9 +36,9 @@ export function RiskView({ state, siteId, week, asOf }: Props) {
       </p>
 
       <section className="kpis">
-        <Kpi label="Owed to staff now" value={money2(r.owedNow)} hint="Minimum wage arrears this week" tone={r.owedNow > 0 ? 'bad' : 'good'} />
-        <Kpi label="Penalty ceiling" value={money(r.penaltyCeiling)} hint="HMRC and Home Office maximum" tone={r.penaltyCeiling > 0 ? 'bad' : 'good'} />
-        <Kpi label="Arrears over a year" value={money(r.annualisedArrears)} hint="If this week's pattern holds" tone={r.annualisedArrears > 0 ? 'warn' : 'good'} />
+        <Kpi label="Owed to staff now" value={money2(r.owedNow)} hint="Minimum wage arrears and overdue tips" tone={r.owedNow > 0 ? 'bad' : 'good'} />
+        <Kpi label="Penalty ceiling" value={money(r.penaltyCeiling)} hint="HMRC, Home Office and tribunal maximum" tone={r.penaltyCeiling > 0 ? 'bad' : 'good'} />
+        <Kpi label="Arrears over a year" value={money(r.annualisedArrears)} hint="If the pattern holds" tone={r.annualisedArrears > 0 ? 'warn' : 'good'} />
         <Kpi
           label="Working Time breaches"
           value={String(r.workingTime.length)}
@@ -63,7 +63,7 @@ export function RiskView({ state, siteId, week, asOf }: Props) {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Basis</th>
+                <th>Pay period</th>
                 <th className="num">Hours</th>
                 <th className="num">Pay for NMW</th>
                 <th className="num">Per hour</th>
@@ -80,7 +80,12 @@ export function RiskView({ state, siteId, week, asOf }: Props) {
                     {name(row.employeeId)}
                     {salary(row.employeeId) > 0 && <div className="muted small">{money(salary(row.employeeId))} salary</div>}
                   </td>
-                  <td>{row.basis === 'clocked' ? 'Clocked' : 'Clocked and rota'}</td>
+                  <td>
+                    {row.period.frequency === 'monthly' ? monthLabel(row.period.from) : `w/c ${dayLabel(row.period.from).date}`}
+                    <div className="muted small">
+                      {row.basis === 'clocked' ? 'Clocked' : `Projected, ${Math.round(row.coverage * 100)}% actual or rostered`}
+                    </div>
+                  </td>
                   <td className="num">{hours(row.hoursWorked)}</td>
                   <td className="num">{money2(row.pay)}</td>
                   <td className={`num ${row.arrears > 0 ? 'bad-text' : ''}`}>£{row.effectiveRate.toFixed(2)}</td>
@@ -95,9 +100,11 @@ export function RiskView({ state, siteId, week, asOf }: Props) {
         </div>
       )}
       <p className="small muted">
-        Pay for minimum wage is basic pay less deductions for the employer's benefit, such as uniform and salary
+        The test runs over each person's own pay period: the week for weekly pay, the calendar month for monthly pay.
+        A monthly salary is the same in every month but the hours are not, so long months fail first. Pay for minimum
+        wage is basic pay less deductions for the employer's benefit, such as uniform and salary
         sacrifice; holiday pay, tips and on-costs do not count. Headroom is how many more hours the person can work this
-        week before pay falls below the band. Fix: cap the hours on the rota, or raise the salary to what the hours need.
+        pay period before pay falls below the band. Fix: cap the hours on the rota, or raise the salary to what the hours need.
       </p>
 
       <h3 className="section">Right to work</h3>
@@ -154,6 +161,81 @@ export function RiskView({ state, siteId, week, asOf }: Props) {
         evidence. A pattern of missed breaks is what turns one claim into a group claim.
       </p>
 
+      <h3 className="section">48 hour average</h3>
+      {r.workingTimeAverages.length === 0 ? (
+        <p className="muted">Nobody without an opt-out is averaging within four hours of 48.</p>
+      ) : (
+        <div className="grid-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th className="num">Weeks so far</th>
+                <th className="num">Average</th>
+                <th className="num">Can average from here</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.workingTimeAverages.map((a) => (
+                <tr key={a.employeeId}>
+                  <td>{name(a.employeeId)}</td>
+                  <td className="num">{a.weeksUsed} of 17</td>
+                  <td className={`num ${a.average > 48 ? 'bad-text' : 'warn-text'}`}>{hours(a.average)}</td>
+                  <td className="num">{a.weeksRemaining > 0 ? `${hours(Math.max(0, a.allowedAverageAhead))} for ${a.weeksRemaining} weeks` : ''}</td>
+                  <td>
+                    {a.breach ? (
+                      <span className="bad-text">Breach</span>
+                    ) : a.onCourseToBreach ? (
+                      <span className="bad-text">On course to breach</span>
+                    ) : (
+                      <span className="muted">Too early to call</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="small muted">
+        The 48 hour limit is an average over 17 weeks, not a weekly cap: one 55 hour week is legal, a steady 50 is not. The
+        fix is an opt-out the person signs freely, or hours planned down for the rest of the period. Trends are called after
+        four weeks of clocked hours.
+      </p>
+
+      <h3 className="section">Tips</h3>
+      <div className="grid-wrap">
+        <table className="table">
+          <tbody>
+            <tr>
+              <td>Tips past the deadline</td>
+              <td className={`num ${r.tronc.overdue > 0 ? 'bad-text strong' : ''}`}>{money2(r.tronc.overdue)}</td>
+              <td className="muted small">
+                Owed to staff from the end of the month after the tips were taken.
+                {r.tronc.overdueWorkers > 0 && ` ${r.tronc.overdueWorkers} workers could each claim up to ${money(UK_RATES_2026_27.tipsTribunalAwardCap)} on top.`}
+              </td>
+            </tr>
+            <tr>
+              <td>NI resting on the troncmaster's independence</td>
+              <td className="num">{r.tronc.niAtStakeAnnual > 0 ? `${money(r.tronc.niAtStakeAnnual)} a year` : 'None'}</td>
+              <td className="muted small">
+                {r.tronc.niAtStakeAnnual > 0
+                  ? 'Not owed. At stake if HMRC finds the business influenced the allocation, and backdated. Keep the evidence: the troncmaster sets points, signs off each run, and minutes it.'
+                  : 'The business decides the allocation, so NI is paid on tips as it goes. See the Tronc tab for the saving.'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {r.tronc.issues.length > 0 && (
+        <ul className="issues">
+          {r.tronc.issues.map((i) => (
+            <li key={i.code} className={i.severity}>{i.message}</li>
+          ))}
+        </ul>
+      )}
+
       <h3 className="section">Employment Rights Act 2025</h3>
       <div className="notice small">
         The thresholds and rates below are assumptions, not the law. The Act leaves them to regulations that have not been
@@ -203,4 +285,8 @@ export function RiskView({ state, siteId, week, asOf }: Props) {
       </p>
     </div>
   );
+}
+
+function monthLabel(iso: string) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }

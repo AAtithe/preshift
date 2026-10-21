@@ -18,8 +18,8 @@ export type Action =
   | { type: 'markTipsPaid'; siteId: string; weekStart: string; date: string }
   | { type: 'reset' };
 
-// v4 adds tips and tronc schemes; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v4';
+// v5 adds pay frequency; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v5';
 
 function load(): RotaState {
   try {
