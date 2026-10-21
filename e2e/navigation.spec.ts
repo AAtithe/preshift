@@ -6,12 +6,12 @@ import { expect, test, type Page } from '@playwright/test';
 const SECTIONS = [
   'Sites', 'Rota', 'Demand', 'Clock in',
   'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
-  'Labour cost', 'Payroll', 'Close',
+  'Labour cost', 'Payroll', 'Close', 'Reports',
   'Integrations', 'GDPR', 'Settings', 'How to',
 ];
 const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Staff', 'Payroll'];
 const PLANNING = ['Sites', 'Rota', 'Demand'];
-const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close'];
+const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close', 'Reports'];
 const ORG = ['Integrations', 'GDPR', 'Settings', 'How to'];
 
 const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });

@@ -25,6 +25,7 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
@@ -36,9 +37,9 @@ import { TravelPanel } from './TravelPanel';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings' | 'howto';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'reports' | 'integrations' | 'privacy' | 'settings' | 'howto';
 
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
+// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
 // Every item is always clickable, so the map never changes. A site-only item opened across several
 // sites asks which site; nothing is greyed out except Cases for non-admins.
 // Each section says what it is scoped by, so the header only shows controls that change what is on screen:
@@ -77,6 +78,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'close', label: 'Close', scope: 'week' },
     ],
   },
+  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports', scope: 'week' }] },
   {
     heading: 'Organisation',
     items: [
@@ -554,6 +556,17 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {activeTab === 'reports' && (
+                <ReportsView
+                  state={state}
+                  siteIds={siteIds}
+                  entityIds={entityIds}
+                  week={week}
+                  today={today}
+                  onSaveSales={actions.saveSales}
+                  scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
+                />
+              )}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
