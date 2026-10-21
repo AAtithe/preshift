@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { POST as login } from '../api/auth/login.js';
 import { GET as logout } from '../api/auth/logout.js';
 import { GET as me } from '../api/auth/me.js';
-import { requireSession } from './session.js';
+import { requireSession } from './session';
 
 const ROUTES = { 'POST /api/auth/login': login, 'GET /api/auth/logout': logout, 'GET /api/auth/me': me };
 

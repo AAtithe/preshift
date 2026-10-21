@@ -60,13 +60,16 @@ These are decisions for the founders, with the trade-offs.
 Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal, and a
 rota assistant that writes and edits the week from plain English instructions through the same engine.
 
+Done since phase 1: the API platform, time and attendance with approval, and native TeamPay
+payroll (starters, leavers, approved hours out; pay runs and variance back). See `docs/API.md`.
+
 Phase 2, first live sites (8 to 10 weeks):
-- Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
-- Staff mobile app: see rota, swap shifts, set availability, request leave, clock in.
-- Time and attendance with geofenced clocking, so actual hours replace rostered hours in the
-  accrual and the rota-to-actual variance is reported daily.
-- Live sales feed from Preshift Reports so labour % updates through the day.
-- Payroll exports for the payrolls WS clients run.
+- Confirm the TeamPay client against the TeamPay API reference and run on sandbox keys.
+- Postgres persistence, staff accounts, the outbox as a separate worker.
+- Staff mobile app on the same API: see rota, swap shifts, set availability, request leave,
+  geofenced clocking.
+- Live sales feed from Preshift Reports into `PUT /v1/forecast` so labour % updates through the day.
+- Fortnightly, four-weekly and monthly pay schedules.
 
 Phase 3:
 - Forecasting model trained on each site's actuals, weather and local events.

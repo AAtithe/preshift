@@ -1,11 +1,11 @@
-// Prints an APP_USERS entry: npm run hash-password -- name@example.com
+// Prints an APP_USERS entry: npm run hash-password -- name@example.com [organisation id]
 // The password is read from the terminal without echoing, so it never lands in shell history.
 import { createInterface } from 'node:readline';
-import { hashPassword } from '../server/passwords.js';
+import { DEFAULT_ORG, hashPassword } from '../server/passwords';
 
-const email = process.argv[2];
+const [email, orgId = DEFAULT_ORG] = process.argv.slice(2);
 if (!email || !email.includes('@')) {
-  console.error('Usage: npm run hash-password -- name@example.com');
+  console.error('Usage: npm run hash-password -- name@example.com [organisation id]');
   process.exit(1);
 }
 
@@ -26,4 +26,4 @@ if (password.length < 12) {
   console.error('Use at least 12 characters.');
   process.exit(1);
 }
-console.log(`${email.toLowerCase()}:${await hashPassword(password)}`);
+console.log(`${email.toLowerCase()}:${await hashPassword(password)}:${orgId}`);

@@ -3,7 +3,7 @@
 // public deployment cannot be used as a general-purpose Claude endpoint on our key. The session
 // check repeats the middleware's, so the key stays protected even if the middleware is bypassed.
 
-import { requireSession } from '../../../server/session.js';
+import { requireSession } from '../../../server/session';
 
 const MODEL = 'claude-opus-5-5';
 const MAX_TOKENS = 16000;

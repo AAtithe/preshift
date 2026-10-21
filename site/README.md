@@ -16,8 +16,8 @@ Preview locally:
 npx serve site        # or: python3 -m http.server -d site 4173
 ```
 
-Vercel builds with `npm run build:vercel` (see `vercel.json`): the marketing site is served at `/`
-and the rota demo app at `/app/`. Any other static host can serve the `site` folder on its own.
+Vercel builds with `npm run build:vercel` (see `vercel.json` and the Deployment section of the
+root README): the marketing site is served at `/`, the web app at `/app/` and the API at `/v1`. Any other static host can serve the `site` folder on its own.
 
 The true cost calculator in `main.js` mirrors `employeeWeekCost` in `src/engine/cost.ts`.
 When the statutory rates in `src/engine/ukRates.ts` change each April, update the `RATES`

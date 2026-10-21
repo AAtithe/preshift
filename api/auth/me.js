@@ -1,6 +1,6 @@
-import { currentUser } from '../../server/session.js';
+import { currentUser } from '../../server/session';
 
 export async function GET(request) {
-  const email = await currentUser(request);
-  return email ? Response.json({ email }) : Response.json({ email: null }, { status: 401 });
+  const user = await currentUser(request);
+  return user ? Response.json(user) : Response.json({ email: null }, { status: 401 });
 }

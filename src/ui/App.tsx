@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
+import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
@@ -8,6 +8,7 @@ import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
+import { PayrollView } from './PayrollView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
@@ -16,18 +17,33 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'rota' | 'demand' | 'team' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
+  { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
 ];
 
 export function App() {
-  const [state, dispatch] = useRotaStore();
-  const [siteId, setSiteId] = useState(state.sites[0].id);
+  const { state, error, setError, actions } = useRotaStore();
+  if (!state) {
+    return (
+      <div className="app">
+        <p className="muted">{error ? `Cannot reach the Preshift API: ${error}` : 'Loading'}</p>
+        {error && <button onClick={() => void actions.reload()}>Try again</button>}
+      </div>
+    );
+  }
+  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} />;
+}
+
+type Store = ReturnType<typeof useRotaStore>;
+
+function Workspace({ state, error, clearError, actions }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions'] }) {
+  const [siteId, setSiteId] = useState(state.sites[0]?.id ?? '');
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
@@ -51,10 +67,9 @@ export function App() {
   const weekShifts = state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
 
-  function runAutoBuild() {
-    const result = autoSchedule(state, siteId, week);
-    dispatch({ type: 'setShifts', shifts: result.shifts });
-    setUnfilled(result.unfilled);
+  async function runAutoBuild() {
+    const gaps = await actions.build(siteId, week);
+    if (gaps) setUnfilled(gaps);
   }
 
   return (
@@ -92,16 +107,22 @@ export function App() {
         <div className="tab-actions">
           <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>
           <button onClick={runAutoBuild}>Build from forecast</button>
-          <button onClick={() => { dispatch({ type: 'clearWeek', siteId, weekStart: week }); setUnfilled(null); }}>Clear week</button>
+          <button onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>Clear week</button>
           <button
             disabled={blocks > 0 || weekShifts.length === 0 || published}
             title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
-            onClick={() => dispatch({ type: 'publishWeek', siteId, weekStart: week })}
+            onClick={() => void actions.publish(siteId, week)}
           >
             {published ? 'Published' : 'Publish'}
           </button>
         </div>
       </nav>
+
+      {error && (
+        <div className="notice error">
+          {error} <button className="link" onClick={clearError}>Dismiss</button>
+        </div>
+      )}
 
       {unfilled && unfilled.length > 0 && (
         <div className="notice">
@@ -133,15 +154,14 @@ export function App() {
         )}
         {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
         {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
-        {tab === 'close' && <CloseView state={state} week={week} />}
+        {tab === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} onChanged={actions.refreshShifts} />}
+        {tab === 'close' && <CloseView week={week} />}
       </main>
 
       <footer className="foot">
-        <span>UK rates 2026/27. Demo data is held in this browser only.</span>
+        <span>UK rates 2026/27. Running on the Preshift API.</span>
         <span>
-          <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
-            Reset demo
-          </button>
+          <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {user && (
             <>
               {' '}Signed in as {user}{' '}
@@ -157,7 +177,7 @@ export function App() {
             state={state}
             siteId={siteId}
             week={week}
-            onApply={(shifts) => { dispatch({ type: 'setShifts', shifts }); setUnfilled(null); setAssistantOpen(false); }}
+            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
             onClose={() => setAssistantOpen(false)}
           />
         </Suspense>
@@ -167,8 +187,11 @@ export function App() {
         <ShiftEditor
           state={state}
           shift={editing}
-          onSave={(shift) => { dispatch({ type: 'upsertShift', shift }); setEditing(null); }}
-          onDelete={(id) => { dispatch({ type: 'deleteShift', id }); setEditing(null); }}
+          onSave={async (shift) => {
+            const isNew = !state.shifts.some((s) => s.id === shift.id);
+            if (await actions.saveShift(shift, isNew)) setEditing(null);
+          }}
+          onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
         />
       )}
