@@ -1,0 +1,31 @@
+name: CI
+
+# Every pull request must typecheck and pass the test suite before it merges.
+# Runs on main too, so a red main shows up on its own rather than on the next PR.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same PR cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
