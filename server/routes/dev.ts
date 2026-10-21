@@ -55,7 +55,9 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
       ...write,
       schema: {
         tags: ['Demo'],
-        description: 'Has the TeamPay simulator run payroll for the week and send its signed webhook back to Preshift.',
+        description:
+          "Has the TeamPay simulator run payroll for the week, once for each company that has sent hours, each under its " +
+          'own employer, and send each signed webhook back to Preshift.',
         body: { type: 'object', required: ['weekStart'], properties: { weekStart: isoDate } },
       },
     },
@@ -64,21 +66,36 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
       await ctx.dispatcher.processOrg(org);
       const pending = org.outbox.filter((i) => i.status === 'pending').length;
       if (pending) throw new HttpError(409, 'outbox_pending', `${pending} changes are still waiting to reach TeamPay`);
-      const sent = org.submissions.filter((s) => s.periodStart === req.body.weekStart && s.status === 'sent').at(-1);
-      const item = sent && org.outbox.find((i) => i.type === 'hours.submit' && i.payload.submissionId === sent.id);
-      if (!item || item.type !== 'hours.submit') throw new HttpError(409, 'no_hours_sent', 'Send this week\'s hours to TeamPay first');
-      const { run, body, signature } = simulator.runPayroll(req.body.weekStart, addDays(req.body.weekStart, 6), org.state.employees, item.payload.batch);
-      // The webhook is its own request with its own load and save, exactly as when TeamPay calls in.
-      await ctx.store.save(org);
-      const res = await app.inject({
-        method: 'POST',
-        url: `/v1/integrations/teampay/webhook/${org.orgId}`,
-        headers: { 'content-type': 'application/json', 'x-teampay-signature': signature },
-        payload: body,
+      // The latest sent batch for each company this week.
+      const latest = new Map<string, (typeof org.submissions)[number]>();
+      for (const s of org.submissions) {
+        if (s.periodStart === req.body.weekStart && s.status === 'sent') latest.set(s.entityId ?? org.state.entities[0]?.id ?? '', s);
+      }
+      if (latest.size === 0) throw new HttpError(409, 'no_hours_sent', 'Send this week\'s hours to TeamPay first');
+      const webhooks = [...latest].map(([entityId, sent]) => {
+        const item = org.outbox.find((i) => i.type === 'hours.submit' && i.payload.submissionId === sent.id);
+        if (!item || item.type !== 'hours.submit') throw new HttpError(409, 'no_hours_sent', 'Send this week\'s hours to TeamPay first');
+        const people = org.state.employees.filter((e) => e.entityId === entityId);
+        return simulator.runPayroll(sent.employerId!, req.body.weekStart, addDays(req.body.weekStart, 6), people, item.payload.batch);
       });
-      if (res.statusCode !== 200) throw new HttpError(502, 'webhook_failed', res.body);
+      // Each webhook is its own request with its own load and save, exactly as when TeamPay calls in.
+      await ctx.store.save(org);
+      for (const { body, signature } of webhooks) {
+        const res = await app.inject({
+          method: 'POST',
+          url: `/v1/integrations/teampay/webhook/${org.orgId}`,
+          headers: { 'content-type': 'application/json', 'x-teampay-signature': signature },
+          payload: body,
+        });
+        if (res.statusCode !== 200) throw new HttpError(502, 'webhook_failed', res.body);
+      }
       req.org = await ctx.store.load(org.orgId);
-      return { run: { id: run.id, employees: run.employees.length }, payRun: req.org.payRuns.at(-1) };
+      const ids = new Set(webhooks.map((w) => w.run.id));
+      return {
+        runs: webhooks.map(({ run }) => ({ id: run.id, employerId: run.employerId, employees: run.employees.length })),
+        payRuns: req.org.payRuns.filter((r) => ids.has(r.id)),
+      };
     },
   );
+
 }

@@ -103,10 +103,14 @@ describe('rota to TeamPay, end to end', () => {
     expect(sub.status).toBe(202);
     await ctx.dispatcher.processDue();
 
-    expect(simulator.submissions).toHaveLength(1);
-    const sent = simulator.submissions[0].batch;
-    expect(sent.lines.every((l) => l.payrollId?.startsWith('tp_emp_'))).toBe(true);
-    expect(sent.totalHours).toBe(sub.body.totalHours);
+    // One batch per company with hours, each to its own employer, holding only that company's people.
+    expect(simulator.submissions).toHaveLength(sub.body.submissions.length);
+    expect(new Set(simulator.submissions.map((s) => s.employerId)).size).toBe(simulator.submissions.length);
+    for (const s of simulator.submissions) {
+      expect(s.batch.lines.every((l) => l.payrollId?.startsWith('tp_emp_'))).toBe(true);
+      expect(s.batch.lines.every((l) => simulator.employees.get(l.payrollId!)?.employerId === s.employerId)).toBe(true);
+    }
+    expect(simulator.submissions.reduce((t, s) => t + s.batch.totalHours, 0)).toBeCloseTo(sub.body.totalHours, 2);
     const subs = await call('GET', '/v1/payroll/submissions');
     expect(subs.body[0].status).toBe('sent');
 
@@ -117,9 +121,11 @@ describe('rota to TeamPay, end to end', () => {
 
     const run = await call('POST', '/v1/dev/teampay/run-payroll', { weekStart: WEEK });
     expect(run.status).toBe(200);
-    const variance = run.body.payRun.variance;
-    expect(variance.actual).toBeGreaterThan(0);
-    expect(Math.abs(variance.variancePct)).toBeLessThan(0.01);
+    expect(run.body.payRuns.length).toBe(sub.body.submissions.length);
+    for (const payRun of run.body.payRuns) {
+      expect(payRun.variance.actual).toBeGreaterThan(0);
+      expect(Math.abs(payRun.variance.variancePct)).toBeLessThan(0.01);
+    }
 
     // Accrual journal now uses approved actuals.
     const journal = await call('GET', `/v1/journal?weekStart=${WEEK}`);
@@ -187,6 +193,7 @@ describe('TeamPay client', () => {
     const tp = new TeamPayProvider({ baseUrl: 'https://tp.test/v1', apiKey: 'k', webhookSecret: 's', employerId: 'er_1', fetchImpl });
 
     await tp.submitHours(
+      'er_2',
       { periodStart: WEEK, periodEnd: '2026-10-25', totalHours: 8, salariedEntryIds: [], lines: [{ employeeId: 'e', payrollId: 'tp_e', siteId: 'mar', roleId: 'server', hours: 8, rate: 13, entryIds: ['a'] }] },
       'hours:demo:v1',
     );
@@ -194,14 +201,19 @@ describe('TeamPay client', () => {
     expect(calls[0].url).toBe('https://tp.test/v1/hours');
     expect(headers.authorization).toBe('Bearer k');
     expect(headers['idempotency-key']).toBe('hours:demo:v1');
-    expect(headers['x-teampay-employer']).toBe('er_1');
+    // The employer named on the call wins: a group sends each company's hours to its own scheme.
+    expect(headers['x-teampay-employer']).toBe('er_2');
     expect(JSON.parse(calls[0].init.body as string).lines[0]).toMatchObject({ employee_id: 'tp_e', hours: 8, cost_centre: 'mar' });
 
     status = 503;
-    await expect(tp.getPayRun('r1')).rejects.toMatchObject({ retryable: true, status: 503 });
+    await expect(tp.getPayRun('er_1', 'r1')).rejects.toMatchObject({ retryable: true, status: 503 });
     status = 422;
-    await expect(tp.getPayRun('r1')).rejects.toBeInstanceOf(PayrollError);
-    await expect(tp.getPayRun('r1')).rejects.toMatchObject({ retryable: false });
+    await expect(tp.getPayRun('er_1', 'r1')).rejects.toBeInstanceOf(PayrollError);
+    await expect(tp.getPayRun('er_1', 'r1')).rejects.toMatchObject({ retryable: false });
+    // Never a call without an employer, so nothing can land on a default scheme by accident.
+    const before = calls.length;
+    await expect(tp.getPayRun('', 'r1')).rejects.toMatchObject({ retryable: false });
+    expect(calls.length).toBe(before);
   });
 });
 

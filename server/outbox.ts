@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PayrollHoursBatch } from '../src/engine/timesheet';
 import type { Employee } from '../src/engine/types';
 import { PayrollError, type PayrollEmployee, type PayrollProvider } from './integrations/payroll/provider';
+import { employerFor, type EmployerConfig } from './payrollEmployers';
 import { audit, type OrgData, type Store } from './store';
 
 export type OutboxItem = {
@@ -16,7 +17,8 @@ export type OutboxItem = {
 } & (
   | { type: 'employee.upsert'; payload: { employeeId: string } }
   | { type: 'employee.leaver'; payload: { employeeId: string } }
-  | { type: 'hours.submit'; payload: { submissionId: string; batch: PayrollHoursBatch } }
+  // entityId is absent on items queued before per-scheme payroll; they belong to the only company.
+  | { type: 'hours.submit'; payload: { submissionId: string; batch: PayrollHoursBatch; entityId?: string } }
 );
 
 type NewItem = Pick<OutboxItem, 'type' | 'payload'> & { idempotencyKey: string };
@@ -58,6 +60,7 @@ export class OutboxDispatcher {
   constructor(
     private readonly store: Store,
     private readonly providerFor: (orgId: string) => PayrollProvider,
+    private readonly employers: EmployerConfig,
   ) {}
 
   /** Processes everything due now across all organisations. Concurrent calls share one run. */
@@ -118,17 +121,23 @@ export class OutboxDispatcher {
       if (!e) throw new PayrollError(`Employee ${id} no longer exists`, false);
       return e;
     };
+    // Resolved at send time, so setting a missing employer and retrying is enough to recover.
+    const employerOf = (entityId: string) => employerFor(org, entityId, this.employers);
     switch (item.type) {
       case 'employee.upsert': {
         const e = findEmployee(item.payload.employeeId);
-        const { payrollId } = await provider.upsertEmployee(toPayrollEmployee(e), e.payrollId, item.idempotencyKey);
+        // Once set up, a person stays on the scheme that holds their record; moving schemes is a leaver and a starter.
+        const employerId = e.payrollId && e.payrollEmployerId ? e.payrollEmployerId : employerOf(e.entityId);
+        const { payrollId } = await provider.upsertEmployee(employerId, toPayrollEmployee(e), e.payrollId, item.idempotencyKey);
         e.payrollId = payrollId;
+        e.payrollEmployerId = employerId;
         return;
       }
       case 'employee.leaver': {
         const e = findEmployee(item.payload.employeeId);
         if (!e.payrollId) throw new PayrollError(`${e.name} is not set up in payroll yet`, true);
-        await provider.markLeaver(e.payrollId, e.leaveDate ?? new Date().toISOString().slice(0, 10), item.idempotencyKey);
+        const employerId = e.payrollEmployerId ?? employerOf(e.entityId);
+        await provider.markLeaver(employerId, e.payrollId, e.leaveDate ?? new Date().toISOString().slice(0, 10), item.idempotencyKey);
         return;
       }
       case 'hours.submit': {
@@ -140,11 +149,14 @@ export class OutboxDispatcher {
             payrollId: org.state.employees.find((e) => e.id === l.employeeId)?.payrollId,
           })),
         };
-        const { submissionId } = await provider.submitHours(batch, item.idempotencyKey);
+        const entityId = item.payload.entityId ?? org.state.entities[0]?.id ?? '';
+        const employerId = employerOf(entityId);
+        const { submissionId } = await provider.submitHours(employerId, batch, item.idempotencyKey);
         const sub = org.submissions.find((s) => s.id === item.payload.submissionId);
         if (sub) {
           sub.status = 'sent';
           sub.providerSubmissionId = submissionId;
+          sub.employerId = employerId;
         }
         return;
       }

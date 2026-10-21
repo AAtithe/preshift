@@ -294,3 +294,5 @@ button.link.danger { color: var(--bad); }
 .clock-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .clock-setup-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .nowrap { white-space: nowrap; }
+.employer-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.employer-row span { min-width: 220px; }
