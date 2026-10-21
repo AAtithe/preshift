@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import {
   accessHealth, ALL_PERMISSIONS, can, canOrgWide, checkAuthority, checkGrant, CONFLICTS, holders, INVITE_DAYS, live,
   ORG_DUTIES, PERMISSIONS, ROLES, SITE_DUTIES, sitesWith, STRONG, type Actor, type Audience, type Membership, type User,
 } from '../../src/engine/access';
 import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
+import { actorOf } from '../guard';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -33,16 +34,6 @@ interface GrantBody { roleId: string; siteIds?: string[] | null; starts?: string
 interface InviteBody extends GrantBody { email: string; name: string; jobTitle?: string; audience: Audience; employeeId?: string }
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
-
-function actorOf(req: FastifyRequest, org: OrgData): Actor {
-  const uid = req.principal.userId;
-  if (!uid) return { kind: 'system', name: req.principal.name };
-  const user = org.users.find((u) => u.id === uid);
-  if (!user) throw new HttpError(403, 'forbidden', 'This key belongs to a person who no longer has an account');
-  if (user.status !== 'active') throw new HttpError(403, 'forbidden', `${user.name}'s account is ${user.status}`);
-  user.lastSeenAt = new Date().toISOString();
-  return { kind: 'user', user };
-}
 
 const nameOf = (a: Actor) => (a.kind === 'system' ? a.name : a.user.name);
 

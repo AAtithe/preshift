@@ -30,9 +30,25 @@ Bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
-A key with a `userId` is a personal key: on the user and access routes it acts as that person,
-so their roles decide what they may see and change. A key without one is a system key with
-organisation-wide authority. The web app uses a personal key.
+A key with a `userId` is a personal key: on every route it acts as that person, so their key's
+scopes and their roles must both allow it, at the site in question (`server/guard.ts`). A key
+without one is a system key with organisation-wide authority. The web app uses a personal key;
+outside production each seeded person has one (`dev-<userId>`) and the demo can sign in as any of them.
+
+| Route | Needs, at the site |
+| --- | --- |
+| Sites, shifts, demand rules, forecast, staff list | `rota.view` (staff: or `team.manage`). Lists are trimmed to those sites |
+| Shift changes, build, clear | `rota.edit` (a moved shift, at both sites) |
+| Publish | `rota.publish` |
+| Forecast upload | `demand.manage` at every site in the upload |
+| Rota week's cost, staff pay rates | `costs.view` or `pay.edit`; otherwise `metrics` is null and pay reads nought with `payHidden` |
+| Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record |
+| Clocking, manual entries, edits | `time.record` |
+| Time entries and rota against clock | `time.record`, `time.approve` or `payroll.view` |
+| Approval | `time.approve`; your own hours are skipped by range (`ownSkipped`) and refused by id |
+| Payroll status, submissions, runs, outbox | `payroll.view` |
+| Sync, send hours, retry | `payroll.send` |
+| Labour accrual journal | `close.export` |
 
 ## Users and access
 
@@ -127,5 +143,3 @@ Because WS runs TeamPay, these can be settled in one working session. Change tha
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
 - Sign-in for people: passwords or SSO, TOTP enrolment that sets `mfaEnrolled`, sessions ended on
   suspend, revoke and authenticator reset, and invitation emails instead of returning the link.
-- Apply `can()` to the rota, time and payroll routes for personal keys, so a GM's key reaches only
-  their sites. Today those routes check key scopes only.

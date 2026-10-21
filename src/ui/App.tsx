@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Shift } from '../engine/types';
 import { AccessView } from './access/AccessView';
+import type { Me } from './access/model';
+import { api, signInAsDemo } from './api';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { dayLabel } from './format';
@@ -12,22 +14,24 @@ import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
+import { allowFor, NOT_YOURS, type Allow } from './permissions';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
 type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close' | 'access';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'rota', label: 'Rota' },
-  { id: 'demand', label: 'Demand' },
-  { id: 'team', label: 'Team' },
-  { id: 'payroll', label: 'Payroll' },
-  { id: 'close', label: 'Close' },
-  { id: 'access', label: 'Access' },
+// A tab is offered only where the person can use it at this site; the screen still asks the server.
+const TABS: { id: Tab; label: string; offered: (allow: Allow, siteId: string) => boolean }[] = [
+  { id: 'rota', label: 'Rota', offered: () => true },
+  { id: 'demand', label: 'Demand', offered: () => true },
+  { id: 'team', label: 'Team', offered: () => true },
+  { id: 'payroll', label: 'Payroll', offered: (a, s) => a('time.record', s) || a('time.approve', s) || a('payroll.view') },
+  { id: 'close', label: 'Close', offered: (a) => a('close.export') },
+  { id: 'access', label: 'Access', offered: (a, s) => a('users.manage') || a('users.sites', s) || a('audit.view') },
 ];
 
 export function App() {
-  const { state, error, setError, actions } = useRotaStore();
+  const { state, me, error, setError, actions } = useRotaStore();
   if (!state) {
     return (
       <div className="app">
@@ -36,12 +40,20 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} />;
+  if (state.sites.length === 0) {
+    return (
+      <div className="app">
+        <p className="muted">Your roles do not reach any site yet. Ask whoever manages access to grant you one.</p>
+        <DemoSwitch me={me} />
+      </div>
+    );
+  }
+  return <Workspace state={state} me={me} error={error} clearError={() => setError(null)} actions={actions} />;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, error, clearError, actions }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions'] }) {
+function Workspace({ state, me, error, clearError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; clearError: () => void; actions: Store['actions'] }) {
   const [siteId, setSiteId] = useState(state.sites[0]?.id ?? '');
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('rota');
@@ -49,6 +61,10 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
 
   const site = state.sites.find((s) => s.id === siteId)!;
+  const allow = useMemo(() => allowFor(me), [me]);
+  const showCost = allow('costs.view', siteId);
+  const tabs = TABS.filter((t) => t.offered(allow, siteId));
+  const current = tabs.some((t) => t.id === tab) ? tab : 'rota';
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
   const issues = useMemo(() => checkWeek(state, week, siteId), [state, siteId, week]);
   const dates = weekDates(week);
@@ -72,6 +88,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           </div>
         </div>
         <div className="controls">
+          <DemoSwitch me={me} />
           <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Site">
             {state.sites.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
@@ -85,20 +102,24 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         </div>
       </header>
 
-      <KpiBar metrics={metrics} issues={issues} />
+      <KpiBar metrics={metrics} issues={issues} showCost={showCost} />
 
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+        {tabs.map((t) => (
+          <button key={t.id} className={current === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">Build from forecast</button>
-          <button onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>Clear week</button>
+          <button onClick={runAutoBuild} className="primary" disabled={!allow('rota.edit', siteId)} title={allow('rota.edit', siteId) ? undefined : NOT_YOURS}>
+            Build from forecast
+          </button>
+          <button disabled={!allow('rota.edit', siteId)} title={allow('rota.edit', siteId) ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>
+            Clear week
+          </button>
           <button
-            disabled={blocks > 0 || weekShifts.length === 0 || published}
-            title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
+            disabled={blocks > 0 || weekShifts.length === 0 || published || !allow('rota.publish', siteId)}
+            title={!allow('rota.publish', siteId) ? NOT_YOURS : blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
             onClick={() => void actions.publish(siteId, week)}
           >
             {published ? 'Published' : 'Publish'}
@@ -130,21 +151,22 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
       )}
 
       <main>
-        {tab === 'rota' && (
+        {current === 'rota' && (
           <RotaGrid
             state={state}
             site={site}
             dates={dates}
             metrics={metrics}
             issues={issues}
-            onEdit={setEditing}
+            showCost={showCost}
+            onEdit={allow('rota.edit', siteId) ? setEditing : undefined}
           />
         )}
-        {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
-        {tab === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} onChanged={actions.refreshShifts} />}
-        {tab === 'close' && <CloseView week={week} />}
-        {tab === 'access' && <AccessView state={state} />}
+        {current === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
+        {current === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} showCost={showCost} />}
+        {current === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} allow={allow} onChanged={actions.refreshShifts} />}
+        {current === 'close' && <CloseView week={week} />}
+        {current === 'access' && <AccessView state={state} />}
       </main>
 
       <footer className="foot">
@@ -156,6 +178,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         <ShiftEditor
           state={state}
           shift={editing}
+          showCost={showCost}
           onSave={async (shift) => {
             const isNew = !state.shifts.some((s) => s.id === shift.id);
             if (await actions.saveShift(shift, isNew)) setEditing(null);
@@ -165,5 +188,26 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         />
       )}
     </div>
+  );
+}
+
+interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
+
+/** Demo only: sign in as any seeded person to see what their roles allow. Absent when the API is not the demo. */
+function DemoSwitch({ me }: { me: Me | null }) {
+  const [people, setPeople] = useState<DemoPerson[] | null>(null);
+  useEffect(() => {
+    void api.get<DemoPerson[]>('/v1/dev/people').then(setPeople).catch(() => setPeople(null));
+  }, []);
+  if (!people) return null;
+  return (
+    <label className="demo-switch">
+      <span className="muted small">Demo: signed in as</span>
+      <select value={me?.user?.id ?? ''} onChange={(e) => signInAsDemo(e.target.value === 'usr_owner' ? null : e.target.value)}>
+        {people.filter((p) => p.status === 'active').map((p) => (
+          <option key={p.id} value={p.id}>{p.name}{p.jobTitle ? `, ${p.jobTitle}` : ''}</option>
+        ))}
+      </select>
+    </label>
   );
 }

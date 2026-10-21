@@ -56,6 +56,8 @@ export interface Employee {
   payrollId?: string;
   status?: 'active' | 'leaver';
   leaveDate?: string;
+  /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
+  payHidden?: boolean;
 }
 
 export interface Shift {

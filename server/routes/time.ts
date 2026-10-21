@@ -5,11 +5,15 @@ import { weekDates } from '../../src/engine/time';
 import type { TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard } from '../guard';
 import { idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { inRange } from './rota';
 
 type Range = { siteId?: string; from?: string; to?: string };
+
+/** Who may read time: those who record it, approve it, or check it for payroll. */
+const TIME_READERS = ['time.record', 'time.approve', 'payroll.view'] as const;
 
 /** Approved time inside a period already sent to payroll is locked; corrections go in as a resubmission. */
 function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>) {
@@ -26,9 +30,10 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
   const write = { preHandler: requireScope('time:write') };
   const approve = { preHandler: requireScope('time:approve') };
 
-  app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) =>
-    orgOf(ctx, req).timeEntries.filter(inRange(req.query)),
-  );
+  app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) => {
+    const org = orgOf(ctx, req);
+    return org.timeEntries.filter(inRange(req.query)).filter(guard(ctx, req, org).at(...TIME_READERS));
+  });
 
   app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string } }>(
     '/v1/time-entries/clock-in',
@@ -48,6 +53,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(ctx, req);
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
+      guard(ctx, req, org).allow('time.record', req.body.siteId);
       if (org.timeEntries.some((t) => t.employeeId === employee.id && t.status === 'open')) {
         throw new HttpError(409, 'already_clocked_in', `${employee.name} is already clocked in`);
       }
@@ -84,6 +90,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(ctx, req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      guard(ctx, req, org).allow('time.record', entry.siteId);
       if (entry.status !== 'open') throw new HttpError(409, 'not_open', 'Already clocked out');
       const { date, minute } = londonParts(req.body.at ? new Date(req.body.at) : new Date());
       // Past midnight the clock-out minute is carried on from the shift's start date.
@@ -101,10 +108,12 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(ctx, req);
       if (!org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
+      const g = guard(ctx, req, org);
+      g.allow('time.record', req.body.siteId);
       if ((req.body.clockOut ?? 0) <= req.body.clockIn) throw new HttpError(422, 'invalid_time', 'Clock out must be after clock in');
       const entry: TimeEntry = { ...req.body, id: `te_${randomUUID().slice(0, 12)}`, status: 'submitted', source: 'manual' };
       org.timeEntries.push(entry);
-      audit(org, req.principal.name, 'time.manual_entry', { id: entry.id });
+      audit(org, actorName(g), 'time.manual_entry', { id: entry.id });
       return reply.code(201).send(entry);
     },
   );
@@ -127,9 +136,11 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(ctx, req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      g.allow('time.record', entry.siteId);
       assertEditable(org, entry);
       Object.assign(entry, req.body, { status: entry.status === 'open' ? 'open' : 'submitted', approvedBy: undefined, approvedAt: undefined });
-      audit(org, req.principal.name, 'time.edited', { id: entry.id, fields: Object.keys(req.body) });
+      audit(org, actorName(g), 'time.edited', { id: entry.id, fields: Object.keys(req.body) });
       return entry;
     },
   );
@@ -140,7 +151,9 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       ...approve,
       schema: {
         tags: ['Time'],
-        description: 'Manager sign-off. Only approved time is ever sent to payroll.',
+        description:
+          'Manager sign-off. Only approved time is ever sent to payroll. A person never approves their own hours: ' +
+          'by range they are skipped and counted in ownSkipped, by id they are refused.',
         body: {
           type: 'object',
           properties: {
@@ -155,20 +168,29 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(ctx, req);
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
+      const g = guard(ctx, req, org);
+      if (body.siteId) g.allow('time.approve', body.siteId);
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
-      const now = new Date().toISOString();
-      let approved = 0;
-      for (const t of org.timeEntries) {
-        if (t.status === 'submitted' && match(t)) {
-          t.status = 'approved';
-          t.approvedBy = req.principal.name;
-          t.approvedAt = now;
-          approved++;
+      const own = (t: TimeEntry) => !!g.user?.employeeId && t.employeeId === g.user.employeeId;
+      const candidates = org.timeEntries.filter((t) => t.status === 'submitted' && match(t));
+      if (body.ids) {
+        for (const t of candidates) {
+          g.allow('time.approve', t.siteId);
+          if (own(t)) throw new HttpError(403, 'forbidden', 'Somebody else approves your own hours.', { id: t.id });
         }
       }
+      // By range, only what this person may approve: their sites, never their own hours.
+      const approvable = candidates.filter(g.at('time.approve')).filter((t) => !own(t));
+      const now = new Date().toISOString();
+      for (const t of approvable) {
+        t.status = 'approved';
+        t.approvedBy = actorName(g);
+        t.approvedAt = now;
+      }
+      const ownSkipped = candidates.filter(own).length;
       const stillOpen = org.timeEntries.filter((t) => t.status === 'open' && match(t)).length;
-      audit(org, req.principal.name, 'time.approved', { approved });
-      return { approved, stillOpen };
+      audit(org, actorName(g), 'time.approved', { approved: approvable.length, ownSkipped });
+      return { approved: approvable.length, ownSkipped, stillOpen };
     },
   );
 
@@ -177,6 +199,8 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...read, schema: { tags: ['Time'], description: 'Rostered against clocked hours per person.', querystring: siteWeekQuery } },
     async (req) => {
       const org = orgOf(ctx, req);
+      const g = guard(ctx, req, org);
+      if (!g.at(...TIME_READERS)({ siteId: req.query.siteId })) g.allow('time.approve', req.query.siteId);
       return rosterVsActual(org.state, org.timeEntries, weekDates(req.query.weekStart), req.query.siteId);
     },
   );

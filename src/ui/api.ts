@@ -1,6 +1,27 @@
 // The web app is a client of the public Preshift API, with no private back door.
 
-const KEY = (import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_PRESHIFT_API_KEY ?? 'dev-key';
+const DEMO_KEY = 'preshift.demoKey';
+
+function storedKey(): string | null {
+  try {
+    return localStorage.getItem(DEMO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// The demo can sign in as any seeded person; the choice is this browser's own.
+const KEY = storedKey() ?? (import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_PRESHIFT_API_KEY ?? 'dev-key';
+
+export function signInAsDemo(userId: string | null) {
+  try {
+    if (userId) localStorage.setItem(DEMO_KEY, `dev-${userId}`);
+    else localStorage.removeItem(DEMO_KEY);
+  } catch {
+    // Without storage the demo stays as the owner.
+  }
+  location.reload();
+}
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
 import type { RotaState, Shift } from '../engine/types';
+import type { Me } from './access/model';
 import { api } from './api';
 
 /**
@@ -11,10 +12,12 @@ import { api } from './api';
  */
 export function useRotaStore() {
   const [state, setState] = useState<RotaState | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
+      setMe(await api.get<Me>('/v1/me'));
       const [sites, roles, demandRules, employees, shifts, forecast] = await Promise.all([
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
@@ -86,5 +89,5 @@ export function useRotaStore() {
     guard,
   };
 
-  return { state, error, setError, actions };
+  return { state, me, error, setError, actions };
 }

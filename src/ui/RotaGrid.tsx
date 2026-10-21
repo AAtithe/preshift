@@ -14,10 +14,13 @@ interface Props {
   dates: string[];
   metrics: WeekMetrics;
   issues: Issue[];
-  onEdit: (shift: Shift) => void;
+  /** Labour cost is shown only to those who may see pay. */
+  showCost: boolean;
+  /** Absent when the person cannot edit this site's rota: the grid is then read only. */
+  onEdit?: (shift: Shift) => void;
 }
 
-export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props) {
+export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit }: Props) {
   const roleOf = (id: string) => state.roles.find((r) => r.id === id);
   const people = state.employees.filter(
     (e) => e.siteId === site.id || state.shifts.some((s) => s.employeeId === e.id && s.siteId === site.id && dates.includes(s.date)),
@@ -73,7 +76,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
                       <div className="name">{e.name}</div>
                       <div className="muted">
                         {e.roleIds.map((r) => roleOf(r)?.name).join(', ')}
-                        {e.payBasis === 'salaried' ? ' · salaried' : ` · £${e.hourlyRate.toFixed(2)}`}
+                        {e.payBasis === 'salaried' ? ' · salaried' : showCost && !e.payHidden ? ` · £${e.hourlyRate.toFixed(2)}` : ''}
                       </div>
                     </th>
                     {dates.map((date) => {
@@ -91,7 +94,8 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
                               <button
                                 key={s.id}
                                 className={`chip dept-${role?.department ?? 'FOH'} ${level} ${s.published ? 'pub' : ''} ${elsewhere ? 'elsewhere' : ''}`}
-                                onClick={() => onEdit(s)}
+                                disabled={!onEdit}
+                                onClick={() => onEdit?.(s)}
                                 title={flagged.map((i) => i.message).join('\n') || undefined}
                               >
                                 <span className="chip-time">
@@ -99,13 +103,13 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
                                 </span>
                                 <span className="chip-meta">
                                   {elsewhere ? state.sites.find((x) => x.id === s.siteId)?.name : role?.name}
-                                  {sc ? ` · ${money(sc.total)}` : ''}
+                                  {sc && showCost ? ` · ${money(sc.total)}` : ''}
                                 </span>
                               </button>
                             );
                           })}
                           {onLeave && shifts.length === 0 && <span className="muted small">Leave</span>}
-                          {!onLeave && (
+                          {!onLeave && onEdit && (
                             <button className="add" onClick={() => onEdit(newShift(e, date))} aria-label={`Add shift for ${e.name}`}>
                               +
                             </button>
@@ -115,7 +119,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
                     })}
                     <td className="tot">
                       <div>{ec ? hours(ec.paidHours) : '0.0h'}</div>
-                      <div className="muted">{ec ? money(ec.total) : '£0'}</div>
+                      {showCost && <div className="muted">{ec ? money(ec.total) : '£0'}</div>}
                       {weekLevel.length > 0 && (
                         <div className={`flag ${weekLevel.some((i) => i.severity === 'block') ? 'block' : 'warn'}`} title={weekLevel.map((i) => i.message).join('\n')}>
                           {weekLevel.length} flag{weekLevel.length > 1 ? 's' : ''}
@@ -134,6 +138,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
             {metrics.days.map((d) => <td key={d.date}>{money(d.forecastSales)}</td>)}
             <td className="tot">{money(metrics.forecastSales)}</td>
           </tr>
+          {showCost && (<>
           <tr>
             <th className="who">Labour cost</th>
             {metrics.days.map((d) => <td key={d.date}>{money(d.labourCost)}</td>)}
@@ -146,6 +151,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
             ))}
             <td className={`tot ${metrics.labourPct > metrics.targetPct ? 'over' : 'under'}`}>{pct(metrics.labourPct)}</td>
           </tr>
+          </>)}
         </tfoot>
       </table>
     </div>

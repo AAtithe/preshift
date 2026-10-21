@@ -5,6 +5,7 @@ import type { PayrollVariance, RosterVsActual } from '../engine/timesheet';
 import type { RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
 import { hours, money, money2, pct } from './format';
+import { NOT_YOURS, type Allow } from './permissions';
 
 interface Status {
   provider: string;
@@ -19,10 +20,11 @@ interface Props {
   state: RotaState;
   siteId: string;
   week: string;
+  allow: Allow;
   onChanged: () => Promise<void>;
 }
 
-export function PayrollView({ state, siteId, week, onChanged }: Props) {
+export function PayrollView({ state, siteId, week, allow, onChanged }: Props) {
   const [status, setStatus] = useState<Status | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [compare, setCompare] = useState<RosterVsActual[]>([]);
@@ -32,16 +34,29 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const end = addDays(week, 6);
-  const isSimulator = status?.provider.includes('simulator');
+  // Demo controls depend on running against the simulator, which people without payroll rights learn from the demo routes.
+  const [demo, setDemo] = useState(false);
+  useEffect(() => {
+    void api.get('/v1/dev/people').then(() => setDemo(true)).catch(() => setDemo(false));
+  }, []);
+  const isSimulator = status ? status.provider.includes('simulator') : demo;
+
+  const seesTime = allow('time.record', siteId) || allow('time.approve', siteId) || allow('payroll.view');
+  const seesPayroll = allow('payroll.view');
+  const sends = allow('payroll.send');
+  const approves = allow('time.approve', siteId);
+  const records = allow('time.record', siteId);
 
   const refresh = useCallback(async () => {
+    // Ask only for what this person may read; the API would refuse the rest.
+    const none = <T,>(v: T) => Promise.resolve(v);
     const [st, te, cmp, sb, rn, ob] = await Promise.all([
-      api.get<Status>('/v1/integrations/payroll'),
-      api.get<TimeEntry[]>(`/v1/time-entries?siteId=${siteId}&from=${week}&to=${end}`),
-      api.get<RosterVsActual[]>(`/v1/time-entries/compare?siteId=${siteId}&weekStart=${week}`),
-      api.get<Submission[]>('/v1/payroll/submissions'),
-      api.get<PayRun[]>('/v1/payroll/runs'),
-      api.get<OutboxItem[]>('/v1/integrations/payroll/outbox'),
+      seesPayroll ? api.get<Status>('/v1/integrations/payroll') : none(null),
+      seesTime ? api.get<TimeEntry[]>(`/v1/time-entries?siteId=${siteId}&from=${week}&to=${end}`) : none([]),
+      seesTime ? api.get<RosterVsActual[]>(`/v1/time-entries/compare?siteId=${siteId}&weekStart=${week}`) : none([]),
+      seesPayroll ? api.get<Submission[]>('/v1/payroll/submissions') : none([]),
+      seesPayroll ? api.get<PayRun[]>('/v1/payroll/runs') : none([]),
+      seesPayroll ? api.get<OutboxItem[]>('/v1/integrations/payroll/outbox') : none([]),
     ]);
     setStatus(st);
     setEntries(te);
@@ -49,7 +64,7 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
     setSubs(sb.filter((s) => s.periodStart === week));
     setRuns(rn.filter((r) => r.periodStart === week));
     setFailed(ob.filter((i) => i.status === 'failed'));
-  }, [siteId, week, end]);
+  }, [siteId, week, end, seesPayroll, seesTime]);
 
   useEffect(() => {
     void refresh();
@@ -81,43 +96,46 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
     <div className="payroll">
       <section className="pipeline">
         <Step n={1} title="People in TeamPay" done={!!status && status.employees.synced === status.employees.total}>
-          <div>{status ? `${status.employees.synced} of ${status.employees.total} set up` : '...'}</div>
-          <button disabled={busy || !status || status.employees.synced === status.employees.total} onClick={() => step('Sync people', () => api.post('/v1/integrations/payroll/sync-employees'))}>
+          <div>{status ? `${status.employees.synced} of ${status.employees.total} set up` : seesPayroll ? '...' : 'For those who run payroll'}</div>
+          <button disabled={busy || !sends || !status || status.employees.synced === status.employees.total} title={sends ? undefined : NOT_YOURS} onClick={() => step('Sync people', () => api.post('/v1/integrations/payroll/sync-employees'))}>
             Set up in TeamPay
           </button>
         </Step>
         <Step n={2} title="Clocked hours" done={entries.length > 0}>
           <div>{entries.length} records, {count('open')} still clocked in</div>
           {isSimulator && (
-            <button disabled={busy} onClick={() => step('Simulate clocking', () => api.post('/v1/dev/simulate-clocking', { siteId, weekStart: week }))}>
+            <button disabled={busy || !records} title={records ? undefined : NOT_YOURS} onClick={() => step('Simulate clocking', () => api.post('/v1/dev/simulate-clocking', { siteId, weekStart: week }))}>
               Simulate clocking
             </button>
           )}
         </Step>
         <Step n={3} title="Manager approval" done={entries.length > 0 && unapproved === 0}>
           <div>{count('approved')} approved, {unapproved} waiting</div>
-          <button disabled={busy || count('submitted') === 0} onClick={() => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }))}>
+          <button disabled={busy || !approves || count('submitted') === 0} title={approves ? 'Your own hours are left for someone else to approve' : NOT_YOURS} onClick={() => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }))}>
             Approve all
           </button>
         </Step>
         <Step n={4} title="Hours to TeamPay" done={subs[0]?.status === 'sent'}>
           <div>{subs[0] ? `v${subs[0].version} ${subs[0].status}, ${hours(subs[0].totalHours)}` : 'Not sent'}</div>
-          <button className="primary" disabled={busy || count('approved') === 0 || unapproved > 0} onClick={() => step('Send hours', () => api.post('/v1/payroll/submissions', { weekStart: week }))}>
+          <button className="primary" disabled={busy || !sends || count('approved') === 0 || unapproved > 0} title={sends ? undefined : NOT_YOURS} onClick={() => step('Send hours', () => api.post('/v1/payroll/submissions', { weekStart: week }))}>
             {subs[0] ? 'Resend' : 'Send to TeamPay'}
           </button>
         </Step>
         <Step n={5} title="Pay run back" done={!!latestRun}>
           <div>{latestRun ? `Variance ${money2(latestRun.variance.variance)} (${pct(latestRun.variance.variancePct, 2)})` : 'Waiting for TeamPay'}</div>
           {isSimulator && (
-            <button disabled={busy || subs[0]?.status !== 'sent'} onClick={() => step('Run payroll', () => api.post('/v1/dev/teampay/run-payroll', { weekStart: week }))}>
+            <button disabled={busy || !sends || subs[0]?.status !== 'sent'} title={sends ? undefined : NOT_YOURS} onClick={() => step('Run payroll', () => api.post('/v1/dev/teampay/run-payroll', { weekStart: week }))}>
               Run payroll (simulator)
             </button>
           )}
         </Step>
       </section>
 
+      {!seesPayroll && (
+        <p className="notice">You see this site's hours. Payroll submissions and pay runs are for those who run payroll.</p>
+      )}
       <p className="muted small">
-        Connected to {status?.provider ?? '...'}. Hours go to payroll only once approved, every change is queued and retried
+        {status ? `Connected to ${status.provider}. ` : ''}Hours go to payroll only once approved, every change is queued and retried
         until TeamPay confirms it, and the period locks once sent. Tronc stays in TeamPay Tronc, fed by the same hours.
         {status && status.outbox.pending > 0 && ` ${status.outbox.pending} change(s) on their way.`}
       </p>
@@ -218,9 +236,17 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
   );
 }
 
+const WORDS: Record<string, string> = {
+  approved: 'approved',
+  ownSkipped: 'your own, left for someone else to approve',
+  stillOpen: 'still clocked in',
+  created: 'created',
+  queued: 'queued',
+};
+
 function summarise(res: object) {
   return Object.entries(res)
-    .filter(([, v]) => typeof v === 'number')
-    .map(([k, v]) => `${k} ${v}`)
+    .filter(([k, v]) => typeof v === 'number' && !(k === 'ownSkipped' && v === 0))
+    .map(([k, v]) => `${v} ${WORDS[k] ?? k}`)
     .join(', ');
 }

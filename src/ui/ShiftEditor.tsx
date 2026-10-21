@@ -8,12 +8,14 @@ import { dayLabel, money2 } from './format';
 interface Props {
   state: RotaState;
   shift: Shift;
+  /** The marginal cost is pay, shown only to those who may see it. */
+  showCost: boolean;
   onSave: (shift: Shift) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }
 
-export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) {
+export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose }: Props) {
   const [draft, setDraft] = useState<Shift>(shift);
   const isNew = !state.shifts.some((s) => s.id === shift.id);
   const employee = state.employees.find((e) => e.id === draft.employeeId)!;
@@ -92,7 +94,7 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
           </div>
         </div>
 
-        <div className="cost-box">
+        {showCost && <div className="cost-box">
           <div>
             <div className="muted small">What this shift adds to the week</div>
             <div className="big">{money2(marginal.total)}</div>
@@ -104,7 +106,7 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
                 ? 'Covered by guaranteed hours you already pay for.'
                 : `Includes ${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
           </div>
-        </div>
+        </div>}
 
         {issues.length > 0 && (
           <ul className="issues">

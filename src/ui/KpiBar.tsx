@@ -2,7 +2,7 @@ import type { Issue } from '../engine/compliance';
 import type { WeekMetrics } from '../engine/metrics';
 import { money, pct } from './format';
 
-export function KpiBar({ metrics, issues }: { metrics: WeekMetrics; issues: Issue[] }) {
+export function KpiBar({ metrics, issues, showCost }: { metrics: WeekMetrics; issues: Issue[]; showCost: boolean }) {
   const blocks = issues.filter((i) => i.severity === 'block').length;
   const warns = issues.length - blocks;
   const over = metrics.varianceToTarget > 0;
@@ -10,6 +10,7 @@ export function KpiBar({ metrics, issues }: { metrics: WeekMetrics; issues: Issu
   return (
     <section className="kpis">
       <Kpi label="Forecast sales" value={money(metrics.forecastSales)} hint="Net of VAT" />
+      {showCost ? (<>
       <Kpi label="Labour cost" value={money(metrics.labourCost)} hint="Loaded: holiday, NI, pension" />
       <Kpi
         label="Labour %"
@@ -24,6 +25,9 @@ export function KpiBar({ metrics, issues }: { metrics: WeekMetrics; issues: Issu
         tone={status}
       />
       <Kpi label="Sales per labour hour" value={money(metrics.splh)} hint={`${metrics.paidHours.toFixed(0)} paid hours`} />
+      </>) : (
+        <Kpi label="Rostered hours" value={`${metrics.paidHours.toFixed(0)}h`} hint="Labour cost is for those who see pay" />
+      )}
       <Kpi
         label="Compliance"
         value={blocks ? `${blocks} blocking` : warns ? `${warns} to review` : 'Clear'}

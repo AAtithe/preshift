@@ -9,9 +9,11 @@ interface Props {
   siteId: string;
   metrics: WeekMetrics;
   issues: Issue[];
+  /** Pay and labour cost columns, for those who may see pay. */
+  showCost: boolean;
 }
 
-export function TeamView({ state, siteId, metrics, issues }: Props) {
+export function TeamView({ state, siteId, metrics, issues, showCost }: Props) {
   const people = state.employees.filter((e) => e.siteId === siteId);
   const totals = { gross: 0, holiday: 0, ni: 0, pension: 0, total: 0 };
   return (
@@ -21,14 +23,18 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
           <tr>
             <th>Name</th>
             <th>Roles</th>
+            {showCost && (<>
             <th className="num">Pay</th>
+            </>)}
             <th className="num">Contract</th>
             <th className="num">Rostered</th>
+            {showCost && (<>
             <th className="num">Gross</th>
             <th className="num">Holiday</th>
             <th className="num">Employer NI</th>
             <th className="num">Pension</th>
             <th className="num">Loaded cost</th>
+            </>)}
             <th>Flags</th>
           </tr>
         </thead>
@@ -51,14 +57,16 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
                   {age < 18 && <span className="tag">Under 18</span>}
                 </td>
                 <td className="muted">{e.roleIds.map((r) => state.roles.find((x) => x.id === r)?.name).join(', ')}</td>
-                <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>
+                {showCost && <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>}
                 <td className="num">{e.contractedHours ? hours(e.contractedHours) : 'Flexible'}</td>
                 <td className="num">{hours(c?.paidHours ?? 0)}</td>
+                {showCost && (<>
                 <td className="num">{money(c?.gross ?? 0)}</td>
                 <td className="num">{money(c?.holiday ?? 0)}</td>
                 <td className="num">{money(c?.employerNi ?? 0)}</td>
                 <td className="num">{money(c?.pension ?? 0)}</td>
                 <td className="num strong">{money(c?.total ?? 0)}</td>
+                </>)}
                 <td>
                   {flags.length === 0 ? (
                     <span className="muted">None</span>
@@ -73,7 +81,7 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
             );
           })}
         </tbody>
-        <tfoot>
+        {showCost && <tfoot>
           <tr>
             <th colSpan={5}>Site total</th>
             <td className="num">{money(totals.gross)}</td>
@@ -83,7 +91,7 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
             <td className="num strong">{money(totals.total)}</td>
             <td />
           </tr>
-        </tfoot>
+        </tfoot>}
       </table>
     </div>
   );

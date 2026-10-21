@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 
 export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'users:manage' | '*';
 
@@ -29,7 +30,12 @@ export function loadApiKeys(env = process.env): ApiKey[] {
   if (env.PRESHIFT_API_KEYS) return JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
   if (env.NODE_ENV === 'production') return [];
   // The demo signs in as the seeded owner, so access rules apply to the web app as they would to a person.
-  return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: 'usr_owner' }];
+  // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
+  const people = seedUsers(new Date().toISOString().slice(0, 10)).users;
+  return [
+    { key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: DEMO_OWNER_ID },
+    ...people.map((u) => ({ key: `dev-${u.id}`, orgId: 'demo', name: `${u.name} (demo)`, scopes: ['*' as const], userId: u.id })),
+  ];
 }
 
 export function authenticate(keys: ApiKey[]) {
