@@ -18,6 +18,7 @@ import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
+import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
@@ -41,6 +42,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** Outbound HTTP for postcode and journey lookups (tests pass a stub). */
+  fetch?: typeof fetch;
   /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
 }
@@ -92,6 +95,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
+    fetch: options.fetch ?? fetch,
+    tflAppKey: env.TFL_APP_KEY || undefined,
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -213,6 +218,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     hrRoutes(api);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
+    travelRoutes(api, ctx);
     payrollRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);

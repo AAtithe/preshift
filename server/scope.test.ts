@@ -87,7 +87,7 @@ describe('site managers', () => {
     expect(overview.summary.headcount).toBe(9);
   });
 
-  it('cannot reach payroll, the books, company settings, GDPR or user management', async () => {
+  it('cannot reach payroll, the books, company settings, travel times, GDPR or user management', async () => {
     const t = await withManager();
     for (const [method, url] of [
       ['GET', '/v1/journal?weekStart=2026-10-19'],
@@ -98,6 +98,9 @@ describe('site managers', () => {
       ['GET', '/v1/privacy/register'],
       ['GET', '/v1/users'],
       ['POST', '/v1/dev/simulate-clocking'],
+      ['PUT', '/v1/sites/fitz/location'],
+      ['POST', '/v1/sites/travel/refresh'],
+      ['PUT', '/v1/sites/fitz/travel/mar'],
     ]) {
       const res = await t.call(t.gm, method, url, method === 'GET' ? undefined : {});
       expect(res.status, `${method} ${url}`).toBe(403);
