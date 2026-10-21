@@ -10,6 +10,7 @@ import { OutboxDispatcher } from './outbox';
 import { accessRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
 import { devRoutes } from './routes/dev';
+import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
@@ -103,6 +104,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     }
   });
 
+  // Uploaded files arrive as the raw request body. The route checks what the bytes really are.
+  app.addContentTypeParser(UPLOAD_CONTENT_TYPES, { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES }, (_req, body, done) => {
+    done(null, body);
+  });
+
   await app.register(swagger, {
     openapi: {
       info: {
@@ -178,6 +184,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     payrollRoutes(api, ctx);

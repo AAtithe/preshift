@@ -41,6 +41,7 @@ confined to its key's organisation.
 | --- | --- |
 | Reference | `GET /v1/sites`, `/v1/roles`, `/v1/demand-rules` |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
+| Right to work copies | `POST /v1/employees/:id/right-to-work/documents?fileName=` with the file as the raw body (PDF, JPEG, PNG or WebP, up to 4 MB; the type is read from the bytes, anything else is 415), `GET .../documents/:docId` to view, `DELETE .../documents/:docId` (signed-in admins only). Each copy is listed on the employee's `rightToWork.documents` with its SHA-256, who added it and when. Editing the employee never changes that list. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
@@ -126,6 +127,12 @@ without its delivery to TeamPay also being recorded.
 `PgStore` keeps each organisation as one JSONB document in its own `preshift` schema, using
 Neon's HTTPS driver (works from serverless functions). Tests run the same code on PGlite.
 
+Uploaded files (right to work copies) are kept in `preshift.documents`, one row per file, never
+inside the organisation document, so loading the rota never carries passport scans. The
+organisation document holds only each file's name, size, hash and who added it. A file written
+by a request whose save then fails is removed again, and a deleted file is only removed once the
+record no longer names it.
+
 ## Deployment (Vercel)
 
 `npm run build:vercel` writes one deployment using Vercel's Build Output API:
@@ -147,3 +154,6 @@ net, not the main path.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
 - Split the JSONB document into tables when cross-organisation reporting needs SQL.
+- Right to work copies are personal data of the highest sensitivity. Neon encrypts at rest; decide
+  whether to add application-level encryption with a key held outside the database, and whether
+  viewing a copy should be written to the audit log (today additions and deletions are; views are not).

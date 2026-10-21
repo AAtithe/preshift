@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { employeeWeekCost } from '../engine/cost';
-import { isEmployedOn, reviewEmployee } from '../engine/employees';
+import { isEmployedOn, reviewEmployee, rightToWorkRetainUntil, RTW_RETENTION_YEARS } from '../engine/employees';
 import { holidayBalance, STATUTORY_WEEKS } from '../engine/holiday';
 import { formatMinute, parseClock } from '../engine/time';
 import type { Availability, Employee, HolidayRecord, RotaState } from '../engine/types';
+import { fileSize, MAX_UPLOAD_BYTES, shrinkPhoto } from './files';
 import { money } from './format';
 
 interface Props {
@@ -12,6 +13,9 @@ interface Props {
   today: string;
   onSave: (employee: Employee) => void;
   onLeaver: (id: string, leaveDate: string) => void;
+  /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
+  onAddDocument: (id: string, file: Blob, fileName: string) => Promise<Employee>;
+  onDeleteDocument: (id: string, documentId: string) => Promise<Employee>;
   onClose: () => void;
 }
 
@@ -19,8 +23,10 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAddDocument, onDeleteDocument, onClose }: Props) {
   const [draft, setDraft] = useState<Employee>(employee);
+  const [uploading, setUploading] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
   const [leaveDay, setLeaveDay] = useState('');
   const [leaving, setLeaving] = useState<string | null>(null);
   const isNew = !state.employees.some((e) => e.id === employee.id);
@@ -72,6 +78,40 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
   }
   function restrictAvailability() {
     set('availability', WEEKDAYS.map((_, weekday) => ({ weekday, fromMinute: 9 * 60, toMinute: 24 * 60 })));
+  }
+
+  // The server owns the list of copies; take it from the saved record and keep the rest of the draft.
+  const takeDocuments = (saved: Employee) =>
+    setDraft((d) => ({ ...d, rightToWork: { ...(d.rightToWork ?? { checked: false }), documents: saved.rightToWork?.documents ?? [] } }));
+  const documents = rtw.documents ?? [];
+  const retainUntil = rightToWorkRetainUntil(draft);
+
+  async function addDocuments(files: FileList | null) {
+    if (!files?.length) return;
+    setDocError(null);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const body = await shrinkPhoto(file);
+        if (body.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is ${fileSize(body.size)}. The limit is ${fileSize(MAX_UPLOAD_BYTES)}: scan it at a lower resolution.`);
+        const name = body === file ? file.name : file.name.replace(/\.[^.]*$/, '') + '.jpg';
+        takeDocuments(await onAddDocument(draft.id, body, name));
+      }
+    } catch (e) {
+      setDocError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteDocument(documentId: string, fileName: string) {
+    if (!window.confirm(`Delete ${fileName}? Without a copy of each document checked there is no statutory excuse.`)) return;
+    setDocError(null);
+    try {
+      takeDocuments(await onDeleteDocument(draft.id, documentId));
+    } catch (e) {
+      setDocError((e as Error).message);
+    }
   }
 
   function addLeave() {
@@ -228,7 +268,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
         <div className="form">
           <label className="check">
             <input type="checkbox" checked={rtw.checked} onChange={(e) => set('rightToWork', { ...rtw, checked: e.target.checked })} />
-            Check done and copy held on file
+            Check done
           </label>
           <label>
             Checked on
@@ -249,6 +289,41 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
             <input type="date" value={rtw.expiry ?? ''} onChange={(e) => set('rightToWork', { ...rtw, expiry: e.target.value || undefined })} />
           </label>
         </div>
+        <p className="muted small">
+          Keep a clear copy of every document checked: the photo page of a passport, both sides of a card, or the online
+          check result for a share code. Hold it for the whole employment and {RTW_RETENTION_YEARS} years after, then delete it.
+        </p>
+        {documents.length > 0 && (
+          <ul className="doc-list">
+            {documents.map((d) => (
+              <li key={d.id}>
+                <a href={`/v1/employees/${draft.id}/right-to-work/documents/${d.id}`} target="_blank" rel="noopener noreferrer">{d.fileName}</a>
+                <span className="muted small">
+                  {fileSize(d.bytes)}, added {d.uploadedAt.slice(0, 10)} by {d.uploadedBy}
+                </span>
+                <button className="link danger" onClick={() => void deleteDocument(d.id, d.fileName)}>Delete</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {isNew ? (
+          <p className="muted small">Save the record first, then add the copies.</p>
+        ) : (
+          <label className={`file-pick${uploading ? ' busy' : ''}`}>
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              multiple
+              disabled={uploading}
+              onChange={(e) => { void addDocuments(e.target.files); e.target.value = ''; }}
+            />
+            {uploading ? 'Uploading...' : documents.length ? 'Add another copy' : 'Add copy (PDF or photo)'}
+          </label>
+        )}
+        {retainUntil && documents.length > 0 && (
+          <p className={`hint small ${today > retainUntil ? 'warn-text' : 'muted'}`}>Delete these copies on {retainUntil}, two years after they left.</p>
+        )}
+        {docError && <p className="hint bad-text">{docError}</p>}
 
         <h3 className="section">Availability</h3>
         {anyTime ? (

@@ -322,3 +322,12 @@ button.link.danger { color: var(--bad); }
 .check-inline { display: inline-flex; gap: 6px; align-items: center; }
 .leave-chip .day-hours { width: 56px; padding: 1px 4px; font-size: 12px; }
 .holiday-box { margin-top: 8px; }
+
+.doc-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.doc-list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); font-size: 13px; }
+.doc-list a { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.doc-list button.link { margin-left: auto; }
+.file-pick { position: relative; display: inline-block; margin-top: 4px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.file-pick:hover { border-color: var(--muted); }
+.file-pick.busy { opacity: 0.6; cursor: progress; }
+.file-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }

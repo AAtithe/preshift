@@ -139,12 +139,28 @@ export interface StaffStore {
   deleteStaffLogin(orgId: string, employeeId: string): Promise<void>;
 }
 
+/** An uploaded file: its bytes and the type they were checked to be. */
+export interface StoredFile {
+  contentType: string;
+  data: Buffer;
+}
+
+/**
+ * Files such as right to work copies, kept apart from the organisation document so that loading
+ * the rota never pulls scans of passports with it. The record that names a file lives in OrgData.
+ */
+export interface DocumentStore {
+  putDocument(orgId: string, id: string, file: StoredFile): Promise<void>;
+  getDocument(orgId: string, id: string): Promise<StoredFile | null>;
+  deleteDocument(orgId: string, id: string): Promise<void>;
+}
+
 /**
  * Tenancy boundary: every request loads exactly one organisation, works on it,
  * and saves it once at the end. A save that finds the organisation changed
  * underneath it is refused rather than overwriting someone else's work.
  */
-export interface Store extends UserStore, StaffStore {
+export interface Store extends UserStore, StaffStore, DocumentStore {
   load(orgId: string): Promise<OrgData>;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
@@ -282,6 +298,21 @@ export class MemoryStore implements Store {
     return { ...next };
   }
 
+  private readonly documents = new Map<string, StoredFile>();
+
+  async putDocument(orgId: string, id: string, file: StoredFile) {
+    this.documents.set(`${orgId}/${id}`, { contentType: file.contentType, data: Buffer.from(file.data) });
+  }
+
+  async getDocument(orgId: string, id: string) {
+    const file = this.documents.get(`${orgId}/${id}`);
+    return file ? { contentType: file.contentType, data: Buffer.from(file.data) } : null;
+  }
+
+  async deleteDocument(orgId: string, id: string) {
+    this.documents.delete(`${orgId}/${id}`);
+  }
+
   private readonly settings = new Map<string, string>();
 
   async getSetting(key: string) {
@@ -352,6 +383,18 @@ export class PgStore implements Store {
            email text unique,
            data jsonb not null,
            primary key (org_id, employee_id)
+         )`,
+        [],
+      );
+      // Base64 text rather than bytea: Neon's HTTP driver and PGlite pass strings identically.
+      await this.query(
+        `create table if not exists preshift.documents (
+           org_id text not null,
+           id text not null,
+           content_type text not null,
+           data text not null,
+           created_at timestamptz not null default now(),
+           primary key (org_id, id)
          )`,
         [],
       );
@@ -515,6 +558,26 @@ export class PgStore implements Store {
       [tokenHash, nowSeconds, JSON.stringify(patch)],
     );
     return rows.length ? userFrom(rows[0].data) : null;
+  }
+
+  async putDocument(orgId: string, id: string, file: StoredFile) {
+    await this.init();
+    await this.query(
+      `insert into preshift.documents (org_id, id, content_type, data) values ($1, $2, $3, $4)
+       on conflict (org_id, id) do update set content_type = excluded.content_type, data = excluded.data`,
+      [orgId, id, file.contentType, file.data.toString('base64')],
+    );
+  }
+
+  async getDocument(orgId: string, id: string) {
+    await this.init();
+    const rows = await this.query('select content_type, data from preshift.documents where org_id = $1 and id = $2', [orgId, id]);
+    return rows.length ? { contentType: String(rows[0].content_type), data: Buffer.from(String(rows[0].data), 'base64') } : null;
+  }
+
+  async deleteDocument(orgId: string, id: string) {
+    await this.init();
+    await this.query('delete from preshift.documents where org_id = $1 and id = $2', [orgId, id]);
   }
 
   async getSetting(key: string) {
