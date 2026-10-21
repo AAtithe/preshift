@@ -25,7 +25,7 @@ accrual so the P&L carries true labour before payroll has even run.
 
 ## Design
 
-The product is meant to read like management accounts, not like a rota app. Paper and ink, ruled like a ledger, a serif for headings and mono for labels. Colour is reserved for money and the law: green inside budget, vermilion over budget or blocked, ochre to review. Roles and departments are told apart by position and label, never by colour, so anything coloured on screen is something to act on.
+The product is meant to read like management accounts, not like a rota app, in Williams, Stanley & Co. colours: WS navy (#003359) on white over a pale blue gradient, ledger rules and double rules under totals, set in Geist with Geist Mono for figures and labels. Beyond the navy, colour is reserved for money and the law: teal inside budget, coral over budget or blocked, gold to review, each checked for colour-blind separation and always shown with a label or mark. Roles and departments are told apart by position and label, never by colour, so anything coloured on screen is something to act on.
 
 ## Running it
 
