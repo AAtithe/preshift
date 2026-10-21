@@ -8,6 +8,8 @@ export interface Me {
   key: string;
   user?: User;
   permissions: Permission[];
+  /** Signed in with no access record: organisation-wide, as before roles existed. */
+  withoutRecord?: boolean;
 }
 
 export interface AuditRow {

@@ -21,16 +21,22 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_BASE_URL` | Defaults to `https://api.team-pay.co.uk/v1` |
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
-| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`; a `dev-key` (acting as the demo owner) exists only outside production |
+| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
+| `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
+| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
 ## Authentication and tenancy
 
-Bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, `users:manage`, or `*`. A GM key can build rotas and approve
+People in the web app authenticate with the session cookie from signing in (see Sign in in the
+README). A session is matched by email to the person's access record in their organisation, and
+their roles then decide (below). A session with no access record keeps full access to its
+organisation, as every session had before roles, and the Access overview lists it as a finding
+until it is given a record. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
+`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
-A key with a `userId` is a personal key: on every route it acts as that person, so their key's
+A key with a `userId` is a personal key: on every route it acts as that person, as a session does, so their key's
 scopes and their roles must both allow it, at the site in question (`server/guard.ts`). A key
 without one is a system key with organisation-wide authority. The web app uses a personal key;
 outside production each seeded person has one (`dev-<userId>`) and the demo can sign in as any of them.
@@ -65,7 +71,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until one is set up. |
 | Yourself | Nobody changes their own access. |
 | Last administrator | Nothing removes, suspends or resets the last person who can manage access for the organisation. |
-| Invitations | Single-use token, stored hashed, valid seven days, at most three sends an hour. |
+| Invitations | Single-use token, stored hashed, valid seven days, at most three sends an hour. Signing in with the invited email accepts it; passwords still come from `APP_USERS`. |
 | Self-approval | A person linked to a rota record who can approve hours at their own site is flagged. |
 
 | Endpoint | Purpose |
@@ -79,7 +85,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | `GET /v1/access/health` | What needs attention, and who covers each duty at each site |
 | `GET/POST /v1/access/reviews` | Quarterly access reviews |
 | `GET /v1/access/audit` | Every access change, newest first |
-| `POST /v1/invites/accept` | Public; the token is the proof |
+| `POST /v1/invites/accept` | Public; the token is the proof. Signing in with the invited email also accepts it |
 
 ## Endpoints
 
@@ -134,12 +140,37 @@ assumptions until checked against the API reference:
 Because WS runs TeamPay, these can be settled in one working session. Change that file, run
 `npm test`, and the rest of the system is unaffected.
 
-## Moving to production
+## Storage
 
-- Swap `MemoryStore` for Postgres; each collection on `OrgData` becomes a table keyed by
-  `org_id`, and the outbox insert shares a transaction with the change that caused it.
-- Run the outbox dispatcher as a worker rather than a timer in the API process.
+Each request loads one organisation, works on it, and saves it once, only if the request
+succeeded. Saves use optimistic locking: if two requests change the same organisation at once,
+the second is refused with 409 instead of overwriting the first. Payroll changes are queued in
+the same save as the change that caused them, so a starter or a batch of hours is never saved
+without its delivery to TeamPay also being recorded.
+
+`PgStore` keeps each organisation as one JSONB document in its own `preshift` schema, using
+Neon's HTTPS driver (works from serverless functions). Tests run the same code on PGlite.
+
+## Deployment (Vercel)
+
+`npm run build:vercel` writes one deployment using Vercel's Build Output API:
+
+| Path | Served by |
+| --- | --- |
+| `/` | Marketing site (`site/`) |
+| `/app` | Rota web app |
+| `/v1/*`, `/docs`, `/health` | The API, as one Node function |
+| `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
+
+Payroll changes are also delivered inside the request that makes them, so the cron is a safety
+net, not the main path.
+
+## Before real client data
+
+- Give Preshift its own Neon project and set `PRESHIFT_DATABASE_URL`. Do not share a database
+  with the WS operations platform: the JV is a separate controller of its client data.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
-- Sign-in for people: passwords or SSO, TOTP enrolment that sets `mfaEnrolled`, sessions ended on
+- Split the JSONB document into tables when cross-organisation reporting needs SQL.
+- People in the database, not `APP_USERS`: passwords set by invitation, TOTP enrolment that sets `mfaEnrolled`, sessions ended on
   suspend, revoke and authenticator reset, and invitation emails instead of returning the link.

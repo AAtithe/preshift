@@ -1,20 +1,53 @@
 import type { FastifyRequest } from 'fastify';
 import { can, PERMISSIONS, roleOf, STRONG, type Actor, type Permission, type User } from '../src/engine/access';
 import { HttpError, type AppContext } from './context';
-import type { OrgData } from './store';
+import { audit, type OrgData } from './store';
 
 // Every rota, time and payroll route asks here, after the key's scopes have passed.
 // A system key (no person) keeps organisation-wide authority. A personal key acts
 // as its person, so their roles decide, site by site, as src/engine/access.ts says.
 
-export function actorOf(req: FastifyRequest, org: OrgData): Actor {
-  const uid = req.principal.userId;
-  if (!uid) return { kind: 'system', name: req.principal.name };
-  const user = org.users.find((u) => u.id === uid);
-  if (!user) throw new HttpError(403, 'forbidden', 'This key belongs to a person who no longer has an account');
+/**
+ * Who is acting. A personal key names its person; a signed-in session is matched to its
+ * person by email. A session with no access record keeps organisation-wide authority, as
+ * every session had before roles existed, so nobody is locked out on the day roles arrive;
+ * the Access overview lists them until they are given a record.
+ */
+export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().toISOString().slice(0, 10)): Actor {
+  const { userId, email } = req.principal;
+  const user = userId
+    ? org.users.find((u) => u.id === userId)
+    : email
+      ? org.users.find((u) => u.email === email.toLowerCase())
+      : undefined;
+  if (!user) {
+    if (userId) throw new HttpError(403, 'forbidden', 'This key belongs to a person who no longer has an account');
+    return { kind: 'system', name: req.principal.name };
+  }
+  // Signing in proves the email, so it accepts a waiting invitation.
+  if (user.status === 'invited' && email) {
+    if (user.inviteExpiresAt && user.inviteExpiresAt < today) throw new HttpError(403, 'forbidden', 'Your invitation has expired. Ask for a new one.');
+    user.status = 'active';
+    user.activatedAt = new Date().toISOString();
+    user.inviteExpiresAt = undefined;
+    for (const [k, v] of Object.entries(org.inviteTokens)) if (v.userId === user.id) delete org.inviteTokens[k];
+    audit(org, user.name, 'invite.accepted', { userId: user.id, by: 'sign-in' });
+    req.orgChanged = true;
+  }
   if (user.status !== 'active') throw new HttpError(403, 'forbidden', `${user.name}'s account is ${user.status}`);
-  user.lastSeenAt = new Date().toISOString();
+  // Last seen drives the dormant-access finding, so it must persist on reads too; at most hourly, best effort.
+  const now = new Date();
+  if (!user.lastSeenAt || now.getTime() - Date.parse(user.lastSeenAt) > 3_600_000) {
+    user.lastSeenAt = now.toISOString();
+    req.orgTouched = true;
+  }
   return { kind: 'user', user };
+}
+
+/** A signed-in person with no access record: still organisation-wide, and a finding until they have one. */
+export function withoutRecord(req: FastifyRequest, org: OrgData): boolean {
+  const { userId, email } = req.principal;
+  return !userId && !!email && !org.users.some((u) => u.email === email.toLowerCase());
 }
 
 export interface Guard {
@@ -31,8 +64,8 @@ export interface Guard {
 }
 
 export function guard(ctx: AppContext, req: FastifyRequest, org: OrgData): Guard {
-  const actor = actorOf(req, org);
   const today = ctx.store.todayISO();
+  const actor = actorOf(req, org, today);
   const user = actor.kind === 'user' ? actor.user : undefined;
   const siteName = (id?: string) => (id ? org.state.sites.find((s) => s.id === id)?.name ?? id : undefined);
 

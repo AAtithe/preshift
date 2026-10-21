@@ -31,7 +31,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
   const approve = { preHandler: requireScope('time:approve') };
 
   app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) => {
-    const org = orgOf(ctx, req);
+    const org = orgOf(req);
     return org.timeEntries.filter(inRange(req.query)).filter(guard(ctx, req, org).at(...TIME_READERS));
   });
 
@@ -50,7 +50,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
       guard(ctx, req, org).allow('time.record', req.body.siteId);
@@ -87,7 +87,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
       guard(ctx, req, org).allow('time.record', entry.siteId);
@@ -106,7 +106,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     '/v1/time-entries',
     { ...write, schema: { tags: ['Time'], description: 'Manual entry by a manager, for a missed clock.', body: timeEntryBody } },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       if (!org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
       const g = guard(ctx, req, org);
       g.allow('time.record', req.body.siteId);
@@ -133,7 +133,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
       const g = guard(ctx, req, org);
@@ -166,7 +166,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
       const g = guard(ctx, req, org);
       if (body.siteId) g.allow('time.approve', body.siteId);
@@ -198,7 +198,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     '/v1/time-entries/compare',
     { ...read, schema: { tags: ['Time'], description: 'Rostered against clocked hours per person.', querystring: siteWeekQuery } },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const g = guard(ctx, req, org);
       if (!g.at(...TIME_READERS)({ siteId: req.query.siteId })) g.allow('time.approve', req.query.siteId);
       return rosterVsActual(org.state, org.timeEntries, weekDates(req.query.weekStart), req.query.siteId);

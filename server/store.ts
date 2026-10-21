@@ -3,6 +3,7 @@ import { seedState } from '../src/engine/seed';
 import { toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { RotaState, TimeEntry } from '../src/engine/types';
+import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
 import { seedUsers } from './seedUsers';
 
@@ -47,58 +48,195 @@ export interface OrgData {
   audit: AuditEvent[];
   users: User[];
   accessReviews: AccessReview[];
-  /** Invitation tokens are stored hashed; the plain token is shown once, to whoever sent it. */
-  inviteTokens: Map<string, { userId: string; expiresAt: string }>;
+  /** Invitation tokens by their SHA-256; the plain token is shown once, to whoever sent it. */
+  inviteTokens: Record<string, { userId: string; expiresAt: string }>;
   /** When each person's invitation was last sent, to stop resend floods. */
-  inviteSends: Map<string, string[]>;
+  inviteSends: Record<string, string[]>;
+  /** Row version for optimistic locking in persistent stores. */
+  version?: number;
 }
 
 /**
- * Tenancy boundary: every request works on exactly one organisation's data.
- * In memory for now; the interface is what a Postgres implementation will
- * provide, with each OrgData collection becoming a table keyed by org_id.
+ * Tenancy boundary: every request loads exactly one organisation, works on it,
+ * and saves it once at the end. A save that finds the organisation changed
+ * underneath it is refused rather than overwriting someone else's work.
  */
-export class MemoryStore {
+export interface Store {
+  load(orgId: string): Promise<OrgData>;
+  /** Whether the organisation exists, without creating it as load() would. */
+  has(orgId: string): Promise<boolean>;
+  /** Today in this store's world: fixed in tests, real otherwise. */
+  todayISO(): string;
+  save(org: OrgData): Promise<void>;
+  orgIds(): Promise<string[]>;
+}
+
+function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
+  const people = seeded ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
+  return {
+    orgId,
+    state: seeded ? seedState(today) : { sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    timeEntries: [],
+    submissions: [],
+    payRuns: [],
+    outbox: [],
+    processedWebhookIds: new Set(),
+    audit: [],
+    users: people.users,
+    accessReviews: people.reviews,
+    inviteTokens: {},
+    inviteSends: {},
+  };
+}
+
+export class MemoryStore implements Store {
   private readonly orgs = new Map<string, OrgData>();
 
   constructor(private readonly seedOrgIds: string[] = ['demo'], private readonly today?: string) {}
 
-  org(orgId: string): OrgData {
+  async load(orgId: string) {
     let data = this.orgs.get(orgId);
     if (!data) {
-      const seeded = this.seedOrgIds.includes(orgId);
-      const people = seeded ? seedUsers(this.today ?? toISODate(new Date())) : { users: [], reviews: [] };
-      data = {
-        orgId,
-        state: seeded ? seedState(this.today) : emptyState(),
-        timeEntries: [],
-        submissions: [],
-        payRuns: [],
-        outbox: [],
-        processedWebhookIds: new Set(),
-        audit: [],
-        users: people.users,
-        accessReviews: people.reviews,
-        inviteTokens: new Map(),
-        inviteSends: new Map(),
-      };
+      data = newOrg(orgId, this.seedOrgIds.includes(orgId), this.today);
       this.orgs.set(orgId, data);
     }
     return data;
   }
 
-  /** Today in this store's world: fixed in tests, real otherwise. */
-  todayISO(): string {
+  async save() {
+    // Requests work on the stored object directly.
+  }
+
+  async has(orgId: string) {
+    return this.orgs.has(orgId) || this.seedOrgIds.includes(orgId);
+  }
+
+  todayISO() {
     return this.today ?? toISODate(new Date());
   }
 
-  all(): OrgData[] {
-    return [...this.orgs.values()];
+  async orgIds() {
+    return [...this.orgs.keys()];
   }
 }
 
-function emptyState(): RotaState {
-  return { sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] };
+/** Runs one parameterised statement and returns its rows. Neon's HTTP driver and PGlite both fit. */
+export type Query = (text: string, params: unknown[]) => Promise<Record<string, unknown>[]>;
+
+/**
+ * Postgres store. Each organisation is one JSONB document with a version
+ * number, in its own `preshift` schema. Right for this stage: one round trip
+ * per request, no migrations while the model moves. Split into tables when
+ * reporting across organisations needs SQL over shifts and hours.
+ */
+export class PgStore implements Store {
+  private ready: Promise<void> | null = null;
+
+  constructor(private readonly query: Query, private readonly seedOrgIds: string[] = ['demo'], private readonly today?: string) {}
+
+  private init() {
+    this.ready ??= (async () => {
+      // Interlock: Preshift only ever runs in a database of its own. If this one already holds
+      // another system's tables, refuse to touch it rather than write the JV's data alongside them.
+      const foreign = await this.query(
+        `select count(*)::int as n from information_schema.tables
+         where table_schema not in ('information_schema', 'preshift', 'neon_auth') and table_schema not like 'pg\\_%'`,
+        [],
+      );
+      if (Number(foreign[0].n) > 0) {
+        throw new HttpError(
+          503,
+          'database_not_dedicated',
+          'This database already belongs to another system, so Preshift will not use it. Give Preshift its own Neon database.',
+        );
+      }
+      await this.query('create schema if not exists preshift', []);
+      await this.query(
+        `create table if not exists preshift.orgs (
+           org_id text primary key,
+           data jsonb not null,
+           version integer not null default 1,
+           updated_at timestamptz not null default now()
+         )`,
+        [],
+      );
+    })().catch((err) => {
+      // Instances starting together can collide creating the schema; let the next request try again
+      // rather than leave this instance failing every request until it is recycled.
+      this.ready = null;
+      throw err;
+    });
+    return this.ready;
+  }
+
+  async load(orgId: string): Promise<OrgData> {
+    await this.init();
+    let rows = await this.query('select data, version from preshift.orgs where org_id = $1', [orgId]);
+    if (rows.length === 0) {
+      const fresh = newOrg(orgId, this.seedOrgIds.includes(orgId), this.today);
+      await this.query('insert into preshift.orgs (org_id, data) values ($1, $2) on conflict do nothing', [orgId, serialise(fresh)]);
+      rows = await this.query('select data, version from preshift.orgs where org_id = $1', [orgId]);
+    }
+    return deserialise(rows[0].data, Number(rows[0].version));
+  }
+
+  async save(org: OrgData) {
+    await this.init();
+    const rows = await this.query(
+      `update preshift.orgs set data = $2, version = version + 1, updated_at = now()
+       where org_id = $1 and version = $3 returning version`,
+      [org.orgId, serialise(org), org.version ?? 1],
+    );
+    if (rows.length === 0) {
+      throw new HttpError(409, 'conflict', 'Someone else changed this organisation at the same time. Reload and try again.');
+    }
+    org.version = Number(rows[0].version);
+  }
+
+  /** Whether the database is reachable and Preshift's own; for the health check. */
+  async status(): Promise<'ok' | string> {
+    try {
+      await this.init();
+      return 'ok';
+    } catch (err) {
+      return err instanceof HttpError ? err.code : 'unreachable';
+    }
+  }
+
+  async has(orgId: string) {
+    await this.init();
+    if (this.seedOrgIds.includes(orgId)) return true;
+    return (await this.query('select 1 from preshift.orgs where org_id = $1', [orgId])).length > 0;
+  }
+
+  todayISO() {
+    return this.today ?? toISODate(new Date());
+  }
+
+  async orgIds() {
+    await this.init();
+    const rows = await this.query('select org_id from preshift.orgs', []);
+    return rows.map((r) => String(r.org_id));
+  }
+}
+
+function serialise(org: OrgData): string {
+  const { version: _version, processedWebhookIds, ...rest } = org;
+  return JSON.stringify({ ...rest, processedWebhookIds: [...processedWebhookIds] });
+}
+
+function deserialise(data: unknown, version: number): OrgData {
+  const raw = (typeof data === 'string' ? JSON.parse(data) : data) as Omit<OrgData, 'processedWebhookIds'> & { processedWebhookIds: string[] };
+  // Organisations saved before access management load with nobody on record, not a failure.
+  return {
+    ...raw,
+    users: raw.users ?? [],
+    accessReviews: raw.accessReviews ?? [],
+    inviteTokens: raw.inviteTokens ?? {},
+    inviteSends: raw.inviteSends ?? {},
+    processedWebhookIds: new Set(raw.processedWebhookIds),
+    version,
+  };
 }
 
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {

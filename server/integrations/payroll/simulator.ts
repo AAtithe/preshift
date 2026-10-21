@@ -44,15 +44,15 @@ export class TeamPaySimulator implements PayrollProvider {
   async markLeaver(payrollId: string, leaveDate: string, key: string) {
     this.once(key, () => {
       const e = this.employees.get(payrollId);
-      if (!e) throw new PayrollError(`Unknown employee ${payrollId}`, false, 404);
-      e.leaveDate = leaveDate;
+      if (e) e.leaveDate = leaveDate;
     });
   }
 
   async submitHours(batch: PayrollHoursBatch, key: string) {
     return this.once(key, () => {
-      const unknown = batch.lines.filter((l) => !l.payrollId || !this.employees.has(l.payrollId));
-      if (unknown.length) throw new PayrollError(`${unknown.length} line(s) for unknown employees`, true, 422);
+      // Lenient on ids it has not seen: on serverless a fresh instance starts with an empty simulator.
+      const unknown = batch.lines.filter((l) => !l.payrollId);
+      if (unknown.length) throw new PayrollError(`${unknown.length} line(s) for people not set up`, true, 422);
       const id = `tp_sub_${randomUUID().slice(0, 8)}`;
       this.submissions.push({ id, batch });
       return { submissionId: id };
@@ -70,19 +70,18 @@ export class TeamPaySimulator implements PayrollProvider {
   }
 
   /**
-   * Runs payroll for a period from the hours submitted, the way TeamPay would,
-   * and returns the signed `payroll.run.completed` webhook to deliver.
+   * Runs payroll for a period from the hours batch TeamPay holds for it, the
+   * way TeamPay would, and returns the signed `payroll.run.completed` webhook.
+   * The batch is passed in rather than remembered, so this works on a fresh
+   * serverless instance.
    */
-  runPayroll(periodStart: string, periodEnd: string, people: Employee[]) {
-    const hoursByPayrollId = new Map<string, number>();
-    for (const { batch } of this.submissions) {
-      if (batch.periodStart !== periodStart || batch.periodEnd !== periodEnd) continue;
-      for (const l of batch.lines) hoursByPayrollId.set(l.payrollId!, (hoursByPayrollId.get(l.payrollId!) ?? 0) + l.hours);
-    }
+  runPayroll(periodStart: string, periodEnd: string, people: Employee[], batch: PayrollHoursBatch) {
+    const hoursByEmployee = new Map<string, number>();
+    for (const l of batch.lines) hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
     const employees: PayRun['employees'] = [];
     for (const person of people) {
-      if (!person.payrollId || !this.employees.has(person.payrollId)) continue;
-      const hours = hoursByPayrollId.get(person.payrollId) ?? 0;
+      if (!person.payrollId) continue;
+      const hours = hoursByEmployee.get(person.id) ?? 0;
       if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0) continue;
       // Price the paid hours with the same statutory model; a real payroll's rounding differs slightly.
       const cost = employeeWeekCost(person, [

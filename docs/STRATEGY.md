@@ -57,7 +57,8 @@ These are decisions for the founders, with the trade-offs.
 
 ## Roadmap
 
-Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal.
+Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal, and a
+rota assistant that writes and edits the week from plain English instructions through the same engine.
 
 Done since phase 1: the API platform, time and attendance with approval, and native TeamPay
 payroll (starters, leavers, approved hours out; pay runs and variance back). See `docs/API.md`.

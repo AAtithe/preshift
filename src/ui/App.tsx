@@ -1,30 +1,37 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
-import type { Shift } from '../engine/types';
+import { newEmployee } from '../engine/employees';
+import type { Employee, Shift } from '../engine/types';
+import { CloseView } from './CloseView';
+import { DemandView } from './DemandView';
 import { AccessView } from './access/AccessView';
 import type { Me } from './access/model';
 import { api, signInAsDemo } from './api';
-import { CloseView } from './CloseView';
-import { DemandView } from './DemandView';
+import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
+import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { allowFor, NOT_YOURS, type Allow } from './permissions';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close' | 'access';
+// Loaded on first use so the Claude SDK stays out of the main bundle.
+const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
+
+type Tab = 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access';
 
 // A tab is offered only where the person can use it at this site; the screen still asks the server.
 const TABS: { id: Tab; label: string; offered: (allow: Allow, siteId: string) => boolean }[] = [
   { id: 'rota', label: 'Rota', offered: () => true },
   { id: 'demand', label: 'Demand', offered: () => true },
   { id: 'team', label: 'Team', offered: () => true },
+  { id: 'people', label: 'People', offered: (a, s) => a('team.manage', s) || a('costs.view', s) },
   { id: 'payroll', label: 'Payroll', offered: (a, s) => a('time.record', s) || a('time.approve', s) || a('payroll.view') },
   { id: 'close', label: 'Close', offered: (a) => a('close.export') },
   { id: 'access', label: 'Access', offered: (a, s) => a('users.manage') || a('users.sites', s) || a('audit.view') },
@@ -59,10 +66,24 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
+  const today = toISODate(new Date());
+  const [user, setUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
+      .catch(() => setUser(null));
+  }, []);
 
   const site = state.sites.find((s) => s.id === siteId)!;
   const allow = useMemo(() => allowFor(me), [me]);
   const showCost = allow('costs.view', siteId);
+  const canEdit = allow('rota.edit', siteId);
+  const canTeam = allow('team.manage', siteId);
   const tabs = TABS.filter((t) => t.offered(allow, siteId));
   const current = tabs.some((t) => t.id === tab) ? tab : 'rota';
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
@@ -111,12 +132,9 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary" disabled={!allow('rota.edit', siteId)} title={allow('rota.edit', siteId) ? undefined : NOT_YOURS}>
-            Build from forecast
-          </button>
-          <button disabled={!allow('rota.edit', siteId)} title={allow('rota.edit', siteId) ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>
-            Clear week
-          </button>
+          <button onClick={() => setAssistantOpen(true)} className="primary" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>
+          <button onClick={runAutoBuild} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Build from forecast</button>
+          <button disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>Clear week</button>
           <button
             disabled={blocks > 0 || weekShifts.length === 0 || published || !allow('rota.publish', siteId)}
             title={!allow('rota.publish', siteId) ? NOT_YOURS : blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
@@ -159,11 +177,20 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
             metrics={metrics}
             issues={issues}
             showCost={showCost}
-            onEdit={allow('rota.edit', siteId) ? setEditing : undefined}
+            onEdit={canEdit ? setEditing : undefined}
           />
         )}
         {current === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {current === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} showCost={showCost} />}
+        {current === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
+        {current === 'people' && (
+          <PeopleView
+            state={state}
+            siteId={siteId}
+            today={today}
+            onEdit={setEditingPerson}
+            onAdd={canTeam ? () => setEditingPerson(newEmployee(siteId, state.roles[0].id, today)) : undefined}
+          />
+        )}
         {current === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} allow={allow} onChanged={actions.refreshShifts} />}
         {current === 'close' && <CloseView week={week} />}
         {current === 'access' && <AccessView state={state} />}
@@ -171,8 +198,44 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
 
       <footer className="foot">
         <span>UK rates 2026/27. Running on the Preshift API.</span>
-        <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        <span>
+          <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+          {user && (
+            <>
+              {' '}Signed in as {user}{' '}
+              <a className="link" href="/api/auth/logout">Sign out</a>
+            </>
+          )}
+        </span>
       </footer>
+
+      {assistantOpen && (
+        <Suspense fallback={null}>
+          <AssistantPanel
+            state={state}
+            siteId={siteId}
+            week={week}
+            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
+            onClose={() => setAssistantOpen(false)}
+          />
+        </Suspense>
+      )}
+
+      {editingPerson && (
+        <EmployeeEditor
+          state={state}
+          employee={editingPerson}
+          canEditPay={allow('pay.edit', editingPerson.siteId) && me?.user?.employeeId !== editingPerson.id}
+          today={today}
+          onSave={async (employee) => {
+            const isNew = !state.employees.some((e) => e.id === employee.id);
+            const withPay = allow('pay.edit', employee.siteId) && me?.user?.employeeId !== employee.id;
+            if (await actions.saveEmployee(employee, isNew, withPay)) setEditingPerson(null);
+          }}
+          onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
+          onClose={() => setEditingPerson(null)}
+        />
+      )}
 
       {editing && (
         <ShiftEditor
@@ -193,17 +256,17 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
 
 interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
 
-/** Demo only: sign in as any seeded person to see what their roles allow. Absent when the API is not the demo. */
+/** Demo only: sign in as any seeded person to see what their roles allow. Absent outside the demo. */
 function DemoSwitch({ me }: { me: Me | null }) {
   const [people, setPeople] = useState<DemoPerson[] | null>(null);
   useEffect(() => {
     void api.get<DemoPerson[]>('/v1/dev/people').then(setPeople).catch(() => setPeople(null));
   }, []);
-  if (!people) return null;
+  if (!people || !me?.user) return null;
   return (
     <label className="demo-switch">
       <span className="muted small">Demo: signed in as</span>
-      <select value={me?.user?.id ?? ''} onChange={(e) => signInAsDemo(e.target.value === 'usr_owner' ? null : e.target.value)}>
+      <select value={me.user.id} onChange={(e) => signInAsDemo(e.target.value === 'usr_owner' ? null : e.target.value)}>
         {people.filter((p) => p.status === 'active').map((p) => (
           <option key={p.id} value={p.id}>{p.name}{p.jobTitle ? `, ${p.jobTitle}` : ''}</option>
         ))}

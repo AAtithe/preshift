@@ -64,6 +64,18 @@ describe('rota', () => {
     expect((await call('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: WEEK })).status).toBe(200);
   });
 
+  it('replaces a week in one go, as when a rota assistant draft is applied', async () => {
+    const { call } = await setup();
+    await call('POST', '/v1/rota/build', { siteId: 'mar', weekStart: WEEK });
+    const draft = [{ id: 'd1', employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: WEEK, startMinute: 600, endMinute: 960, breakMinutes: 0 }];
+    const res = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: WEEK, shifts: draft });
+    expect(res.status).toBe(200);
+    const week = await call('GET', `/v1/shifts?siteId=mar&from=${WEEK}&to=2026-10-25`);
+    expect(week.body.map((s: { id: string }) => s.id)).toEqual(['d1']);
+    const outside = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: WEEK, shifts: [{ ...draft[0], date: '2026-11-02' }] });
+    expect(outside.status).toBe(422);
+  });
+
   it('validates input', async () => {
     const { call } = await setup();
     expect((await call('POST', '/v1/shifts', { employeeId: 'mar-2' })).status).toBe(400);

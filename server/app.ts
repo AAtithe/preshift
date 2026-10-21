@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
+import { sessionSecret } from './session';
 import { HttpError, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -13,16 +14,19 @@ import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { userRoutes } from './routes/users';
-import { MemoryStore } from './store';
+import { neon } from '@neondatabase/serverless';
+import { MemoryStore, PgStore, type Store } from './store';
 
 export interface BuildOptions {
   apiKeys?: ApiKey[];
-  store?: MemoryStore;
+  store?: Store;
   /** Supply a provider directly (tests). Otherwise TeamPay if configured, else the simulator. */
   provider?: PayrollProvider;
   autoDispatch?: boolean;
   logger?: boolean;
   env?: NodeJS.ProcessEnv;
+  /** Where the Swagger UI assets live when the server is bundled (Vercel). */
+  docsBaseDir?: string;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -40,10 +44,24 @@ function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; si
   return { provider: simulator, simulator };
 }
 
+/**
+ * Which database Preshift uses. PRESHIFT_DATABASE_URL wins. On Vercel only, the
+ * DATABASE_URL that the project's Neon integration sets is used otherwise; a
+ * generic DATABASE_URL anywhere else (a laptop, a CI box, a coding container)
+ * is ignored. Either way PgStore refuses a database that holds another
+ * system's tables.
+ */
+export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
+  const url = env.PRESHIFT_DATABASE_URL ?? (env.VERCEL === '1' ? env.DATABASE_URL : undefined);
+  if (!url) return new MemoryStore();
+  const sql = neon(url);
+  return new PgStore((text, params) => sql(text, params) as Promise<Record<string, unknown>[]>);
+}
+
 export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const env = options.env ?? process.env;
   const app = Fastify({ logger: options.logger ?? false });
-  const store = options.store ?? new MemoryStore();
+  const store = options.store ?? storeFromEnv(env);
   const payroll = options.provider
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
     : payrollFromEnv(env);
@@ -82,7 +100,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       security: [{ bearer: [] }],
     },
   });
-  await app.register(swaggerUi, { routePrefix: '/docs' });
+  await app.register(swaggerUi, { routePrefix: '/docs', ...(options.docsBaseDir ? { baseDir: options.docsBaseDir } : {}) });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof HttpError) {
@@ -94,14 +112,55 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return reply.code(500).send({ error: 'internal', message: 'Something went wrong' });
   });
 
-  app.get('/health', { schema: { hide: true } }, async () => ({ ok: true, payroll: payroll.provider.name }));
+  app.get('/health', { schema: { hide: true } }, async (_req, reply) => {
+    const database = store instanceof PgStore ? await store.status() : 'not configured';
+    const ok = database === 'ok' || database === 'not configured';
+    return reply.code(ok ? 200 : 503).send({
+      ok,
+      payroll: payroll.provider.name,
+      storage: store instanceof PgStore ? 'postgres' : 'memory',
+      database,
+    });
+  });
+
+  // Scheduled retry of anything payroll has not yet confirmed (Vercel Cron sends CRON_SECRET).
+  app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await ctx.dispatcher.processDue();
+    return { ok: true };
+  });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
-  const auth = authenticate(keys);
+  const auth = authenticate(keys, sessionSecret(env));
   await app.register(async (api) => {
+    const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
+    // Accepting an invitation is public: the single-use token is the proof, and the handler loads its organisation.
+    const isPublic = (url: string) => url === '/v1/invites/accept';
     api.addHook('onRequest', async (req, reply) => {
-      if (req.url.startsWith('/v1/integrations/teampay/webhook/') || req.url === '/v1/invites/accept') return;
+      if (isWebhook(req.url) || isPublic(req.url)) return;
       return auth(req, reply);
+    });
+    // Load the organisation once per request; webhooks name it in the path, everything else by API key.
+    api.addHook('preHandler', async (req) => {
+      if (isPublic(req.url)) return;
+      const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
+      req.org = await store.load(orgId);
+    });
+    // Save once, only after a successful write, so a failed request leaves nothing half done.
+    api.addHook('onSend', async (req, reply, payload) => {
+      if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
+        await store.save(req.org).catch(() => undefined);
+        return payload;
+      }
+      if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
+      try {
+        await store.save(req.org);
+        return payload;
+      } catch (err) {
+        const e = err instanceof HttpError ? err : new HttpError(500, 'internal', 'Could not save');
+        reply.code(e.statusCode).header('content-type', 'application/json; charset=utf-8');
+        return JSON.stringify({ error: e.code, message: e.message });
+      }
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
@@ -113,3 +172,4 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
 
   return { app, ctx };
 }
+

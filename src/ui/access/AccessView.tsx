@@ -59,6 +59,7 @@ export function AccessView({ state }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [unrecorded, setUnrecorded] = useState<string[]>([]);
 
   const auditor = !!me && (!me.user || can(me.user, 'audit.view', today()) || canOrgWide(me.user, 'users.manage', today()));
 
@@ -67,6 +68,7 @@ export function AccessView({ state }: Props) {
       const who = await api.get<Me>('/v1/me');
       setMe(who);
       setUsers(await api.get<User[]>('/v1/users'));
+      setUnrecorded((await api.get<{ signInsWithoutRecord: string[] }>('/v1/access/health')).signInsWithoutRecord ?? []);
       const audits = !who.user || who.permissions.includes('audit.view') || who.permissions.includes('users.manage');
       if (audits) {
         const [rv, tr] = await Promise.all([api.get<AccessReview[]>('/v1/access/reviews'), api.get<AuditRow[]>('/v1/access/audit')]);
@@ -183,6 +185,12 @@ export function AccessView({ state }: Props) {
         {canInvite && <button className="primary" onClick={() => setGranting({})}>Invite a person</button>}
       </div>
 
+      {me.withoutRecord && (
+        <div className="notice">
+          You are signed in without an access record, so you have full access, as everyone did before roles. Invite yourself
+          here with the role you need. From then on your roles decide what you can do, and only someone else can change them.
+        </div>
+      )}
       {message && <div className="notice">{message} <button className="link" onClick={() => setMessage(null)}>Dismiss</button></div>}
       {error && <div className="notice error">{error}</div>}
 
@@ -216,6 +224,18 @@ export function AccessView({ state }: Props) {
               </div>
 
               <h3>Needs attention</h3>
+              {unrecorded.length > 0 && (
+                <ul className="attention">
+                  <li className="block">
+                    <span className="sev">Fix now</span>
+                    <span>
+                      {unrecorded.length} {unrecorded.length === 1 ? 'person signs' : 'people sign'} in with full access and no access record: {unrecorded.join(', ')}.
+                      No role, no site limit, no paired-duty check. Invite each of them here with the role they need.
+                    </span>
+                    <span />
+                  </li>
+                </ul>
+              )}
               {attention.length === 0 ? (
                 <p className="muted">Nothing. Every duty is covered, nobody holds paired duties, and access has been reviewed.</p>
               ) : (

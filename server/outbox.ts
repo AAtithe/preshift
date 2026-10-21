@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PayrollHoursBatch } from '../src/engine/timesheet';
 import type { Employee } from '../src/engine/types';
 import { PayrollError, type PayrollEmployee, type PayrollProvider } from './integrations/payroll/provider';
-import { audit, type MemoryStore, type OrgData } from './store';
+import { audit, type OrgData, type Store } from './store';
 
 export type OutboxItem = {
   id: string;
@@ -56,11 +56,11 @@ export class OutboxDispatcher {
   private running: Promise<void> | null = null;
 
   constructor(
-    private readonly store: MemoryStore,
+    private readonly store: Store,
     private readonly providerFor: (orgId: string) => PayrollProvider,
   ) {}
 
-  /** Processes everything due now. Concurrent calls share one run. */
+  /** Processes everything due now across all organisations. Concurrent calls share one run. */
   processDue(now = Date.now()): Promise<void> {
     if (!this.running) {
       this.running = this.run(now).finally(() => {
@@ -71,7 +71,21 @@ export class OutboxDispatcher {
   }
 
   private async run(now: number) {
-    for (const org of this.store.all()) {
+    for (const orgId of await this.store.orgIds()) {
+      const org = await this.store.load(orgId);
+      if (!org.outbox.some((i) => i.status === 'pending' && i.nextAttemptAt <= now)) continue;
+      await this.processOrg(org, now);
+      try {
+        await this.store.save(org);
+      } catch {
+        // A request changed this organisation meanwhile; its own dispatch or the next run picks this up.
+      }
+    }
+  }
+
+  /** Delivers one organisation's due items. The caller saves the organisation afterwards. */
+  async processOrg(org: OrgData, now = Date.now()) {
+    {
       const provider = this.providerFor(org.orgId);
       const due = org.outbox
         .filter((i) => i.status === 'pending' && i.nextAttemptAt <= now)

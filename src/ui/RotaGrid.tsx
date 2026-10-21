@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Issue } from '../engine/compliance';
+import { isEmployedOn } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { formatMinute } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
@@ -23,7 +24,9 @@ interface Props {
 export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit }: Props) {
   const roleOf = (id: string) => state.roles.find((r) => r.id === id);
   const people = state.employees.filter(
-    (e) => e.siteId === site.id || state.shifts.some((s) => s.employeeId === e.id && s.siteId === site.id && dates.includes(s.date)),
+    (e) =>
+      (e.siteId === site.id && dates.some((d) => isEmployedOn(e, d))) ||
+      state.shifts.some((s) => s.employeeId === e.id && s.siteId === site.id && dates.includes(s.date)),
   );
   const groups = DEPT_ORDER.map((dept) => ({
     dept,

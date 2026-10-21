@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
+import { cookieFrom, readSession } from './session';
 
 export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'users:manage' | '*';
 
@@ -9,11 +10,12 @@ export interface ApiKey {
   name: string;
   scopes: Scope[];
   /**
-   * A personal key acts as that person: user management then follows their roles,
-   * not the key's scopes alone. Keys without a user are system keys with
-   * organisation-wide authority.
+   * A personal key acts as that person: their roles decide, not the key's scopes alone.
+   * Keys without a user are system keys with organisation-wide authority.
    */
   userId?: string;
+  /** Set for a signed-in session: the person is found by this email in their organisation's access records. */
+  email?: string;
 }
 
 declare module 'fastify' {
@@ -29,7 +31,7 @@ declare module 'fastify' {
 export function loadApiKeys(env = process.env): ApiKey[] {
   if (env.PRESHIFT_API_KEYS) return JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
   if (env.NODE_ENV === 'production') return [];
-  // The demo signs in as the seeded owner, so access rules apply to the web app as they would to a person.
+  // The demo acts as the seeded owner, so access rules apply locally as they would to a person.
   // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
   const people = seedUsers(new Date().toISOString().slice(0, 10)).users;
   return [
@@ -38,14 +40,24 @@ export function loadApiKeys(env = process.env): ApiKey[] {
   ];
 }
 
-export function authenticate(keys: ApiKey[]) {
+/**
+ * Integrations authenticate with an API key. People in the web app authenticate with the signed
+ * session cookie from signing in, scoped to their own organisation, so the browser carries no key.
+ */
+export function authenticate(keys: ApiKey[], sessionSecret: string | null = null) {
   const byKey = new Map(keys.map((k) => [k.key, k]));
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const header = req.headers.authorization ?? '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    const principal = byKey.get(token);
-    if (!principal) return reply.code(401).send({ error: 'unauthorised', message: 'Missing or invalid API key' });
-    req.principal = principal;
+    const keyed = byKey.get(token);
+    if (keyed) {
+      req.principal = keyed;
+      return;
+    }
+    const user = await readSession(cookieFrom(req.headers.cookie), sessionSecret);
+    if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Sign in, or send a valid API key' });
+    // The scopes let a session reach every route; the person's access record then decides (server/guard.ts).
+    req.principal = { key: `session:${user.email}`, orgId: user.orgId, name: user.email, scopes: ['*'], email: user.email };
   };
 }
 

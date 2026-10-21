@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { RotaState, Shift } from '../engine/types';
+import type { Employee, RotaState, Shift } from '../engine/types';
 import type { Me } from './access/model';
 import { api } from './api';
 
@@ -85,6 +85,50 @@ export function useRotaStore() {
       guard(async () => {
         await api.post('/v1/rota/publish', { siteId, weekStart });
         await refreshShifts();
+      }),
+    /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
+    saveEmployee: (employee: Employee, isNew: boolean, withPay = true) =>
+      guard(async () => {
+        // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
+        const { id, payrollId: _p, status: _s, leaveDate: _l, payHidden, ...fields } = employee;
+        // Pay this reader never received is left out, never sent back as nought.
+        const { hourlyRate: _r, annualSalary: _a, ...unpaid } = fields;
+        // Without pay rights, pay is not sent at all: a starter begins at nought for whoever sets pay.
+        const body = payHidden || !withPay ? unpaid : fields;
+        const saved = isNew
+          ? await api.post<Employee>('/v1/employees', body)
+          : await api.patch<Employee>(`/v1/employees/${id}`, body);
+        setState((s) => s && { ...s, employees: isNew ? [...s.employees, saved] : s.employees.map((x) => (x.id === id ? saved : x)) });
+        await refreshShifts();
+        return saved;
+      }),
+    /** Marks a leaver: the server removes later shifts and tells TeamPay. */
+    markLeaver: (id: string, leaveDate: string) =>
+      guard(async () => {
+        const res = await api.post<{ employee: Employee; shiftsRemoved: number }>(`/v1/employees/${id}/leaver`, { leaveDate });
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === id ? res.employee : x)) });
+        await refreshShifts();
+        return res;
+      }),
+    /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
+    applyDraft: (current: Shift[], draft: Shift[]) =>
+      guard(async () => {
+        const before = new Map(current.map((s) => [s.id, s]));
+        const after = new Map(draft.map((s) => [s.id, s]));
+        const fields = (s: Shift) => {
+          const { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = s;
+          return { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes };
+        };
+        try {
+          for (const id of before.keys()) if (!after.has(id)) await api.del(`/v1/shifts/${id}`);
+          for (const [id, shift] of after) {
+            const old = before.get(id);
+            if (!old) await api.post('/v1/shifts', { id, ...fields(shift) });
+            else if (JSON.stringify(fields(old)) !== JSON.stringify(fields(shift))) await api.patch(`/v1/shifts/${id}`, fields(shift));
+          }
+        } finally {
+          await refreshShifts();
+        }
       }),
     guard,
   };

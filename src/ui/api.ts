@@ -1,5 +1,8 @@
 // The web app is a client of the public Preshift API, with no private back door.
+// In production it authenticates with the sign-in session cookie and carries no key. The local
+// API accepts a development key, which is only ever added to development builds.
 
+const env = (import.meta as unknown as { env: Record<string, string | boolean | undefined> }).env;
 const DEMO_KEY = 'preshift.demoKey';
 
 function storedKey(): string | null {
@@ -10,8 +13,8 @@ function storedKey(): string | null {
   }
 }
 
-// The demo can sign in as any seeded person; the choice is this browser's own.
-const KEY = storedKey() ?? (import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_PRESHIFT_API_KEY ?? 'dev-key';
+// In development the demo can sign in as any seeded person; the choice is this browser's own.
+const DEV_KEY = env.DEV ? storedKey() ?? String(env.VITE_PRESHIFT_API_KEY ?? 'dev-key') : null;
 
 export function signInAsDemo(userId: string | null) {
   try {
@@ -32,9 +35,16 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: { authorization: `Bearer ${KEY}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: {
+      ...(DEV_KEY ? { authorization: `Bearer ${DEV_KEY}` } : {}),
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401 && !DEV_KEY) {
+    // Session ended: back to sign-in, returning here afterwards.
+    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'http_error', message: res.statusText }));
     throw new ApiError(res.status, err.error, err.message, err.details);
