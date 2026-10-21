@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
+import { lazy, Suspense, useMemo, useState } from 'react';
+import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
@@ -10,29 +10,49 @@ import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
+import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'people' | 'close';
+// Loaded on first use so the Claude SDK stays out of the main bundle.
+const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
+
+type Tab = 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
   { id: 'people', label: 'People' },
+  { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
 ];
 
 export function App() {
-  const [state, dispatch] = useRotaStore();
-  const [siteId, setSiteId] = useState(state.sites[0].id);
+  const { state, error, setError, actions } = useRotaStore();
+  if (!state) {
+    return (
+      <div className="app">
+        <p className="muted">{error ? `Cannot reach the Preshift API: ${error}` : 'Loading'}</p>
+        {error && <button onClick={() => void actions.reload()}>Try again</button>}
+      </div>
+    );
+  }
+  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} />;
+}
+
+type Store = ReturnType<typeof useRotaStore>;
+
+function Workspace({ state, error, clearError, actions }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions'] }) {
+  const [siteId, setSiteId] = useState(state.sites[0]?.id ?? '');
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const today = toISODate(new Date());
 
@@ -44,10 +64,9 @@ export function App() {
   const weekShifts = state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
 
-  function runAutoBuild() {
-    const result = autoSchedule(state, siteId, week);
-    dispatch({ type: 'setShifts', shifts: result.shifts });
-    setUnfilled(result.unfilled);
+  async function runAutoBuild() {
+    const gaps = await actions.build(siteId, week);
+    if (gaps) setUnfilled(gaps);
   }
 
   return (
@@ -83,17 +102,24 @@ export function App() {
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">Build from forecast</button>
-          <button onClick={() => { dispatch({ type: 'clearWeek', siteId, weekStart: week }); setUnfilled(null); }}>Clear week</button>
+          <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>
+          <button onClick={runAutoBuild}>Build from forecast</button>
+          <button onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>Clear week</button>
           <button
             disabled={blocks > 0 || weekShifts.length === 0 || published}
             title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
-            onClick={() => dispatch({ type: 'publishWeek', siteId, weekStart: week })}
+            onClick={() => void actions.publish(siteId, week)}
           >
             {published ? 'Published' : 'Publish'}
           </button>
         </div>
       </nav>
+
+      {error && (
+        <div className="notice error">
+          {error} <button className="link" onClick={clearError}>Dismiss</button>
+        </div>
+      )}
 
       {unfilled && unfilled.length > 0 && (
         <div className="notice">
@@ -134,23 +160,37 @@ export function App() {
             onAdd={() => setEditingPerson(newEmployee(siteId, state.roles[0].id, today))}
           />
         )}
-        {tab === 'close' && <CloseView state={state} week={week} />}
+        {tab === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} onChanged={actions.refreshShifts} />}
+        {tab === 'close' && <CloseView week={week} />}
       </main>
 
       <footer className="foot">
-        <span>UK rates 2026/27. Demo data is held in this browser only.</span>
-        <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
-          Reset demo
-        </button>
+        <span>UK rates 2026/27. Running on the Preshift API.</span>
+        <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
       </footer>
+
+      {assistantOpen && (
+        <Suspense fallback={null}>
+          <AssistantPanel
+            state={state}
+            siteId={siteId}
+            week={week}
+            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
+            onClose={() => setAssistantOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {editingPerson && (
         <EmployeeEditor
           state={state}
           employee={editingPerson}
           today={today}
-          onSave={(employee) => { dispatch({ type: 'upsertEmployee', employee }); setEditingPerson(null); }}
-          onDelete={(id) => { dispatch({ type: 'deleteEmployee', id }); setEditingPerson(null); }}
+          onSave={async (employee) => {
+            const isNew = !state.employees.some((e) => e.id === employee.id);
+            if (await actions.saveEmployee(employee, isNew)) setEditingPerson(null);
+          }}
+          onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
           onClose={() => setEditingPerson(null)}
         />
       )}
@@ -159,8 +199,11 @@ export function App() {
         <ShiftEditor
           state={state}
           shift={editing}
-          onSave={(shift) => { dispatch({ type: 'upsertShift', shift }); setEditing(null); }}
-          onDelete={(id) => { dispatch({ type: 'deleteShift', id }); setEditing(null); }}
+          onSave={async (shift) => {
+            const isNew = !state.shifts.some((s) => s.id === shift.id);
+            if (await actions.saveShift(shift, isNew)) setEditing(null);
+          }}
+          onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
         />
       )}

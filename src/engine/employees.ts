@@ -8,7 +8,7 @@ export const LOOKAHEAD_DAYS = 60;
 
 export function isEmployedOn(employee: Employee, date: string): boolean {
   if (employee.startDate && date < employee.startDate) return false;
-  if (employee.endDate && date > employee.endDate) return false;
+  if (employee.leaveDate && date > employee.leaveDate) return false;
   return true;
 }
 
@@ -20,9 +20,9 @@ export function employedShare(employee: Employee, weekStartDate: string): number
 export type EmployeeStatus = 'starter' | 'active' | 'leaving' | 'left';
 
 export function employeeStatus(employee: Employee, today: string): EmployeeStatus {
-  if (employee.endDate && employee.endDate < today) return 'left';
+  if (employee.leaveDate && employee.leaveDate < today) return 'left';
   if (employee.startDate && employee.startDate > today) return 'starter';
-  if (employee.endDate) return 'leaving';
+  if (employee.leaveDate) return 'leaving';
   return 'active';
 }
 
@@ -61,7 +61,7 @@ export function reviewEmployee(
   } else if (age < 16) {
     push('dob', 'block', 'Under school leaving age. Needs a local authority permit and cannot work in a bar or kitchen.');
   }
-  if (employee.startDate && employee.endDate && employee.endDate < employee.startDate) {
+  if (employee.startDate && employee.leaveDate && employee.leaveDate < employee.startDate) {
     push('dates', 'block', 'Leaving date is before the start date.');
   }
 

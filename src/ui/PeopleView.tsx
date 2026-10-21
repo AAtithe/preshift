@@ -75,7 +75,7 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
       .map(({ e, status }) => [
         e.name,
         status === 'starter' ? 'Starter' : 'Leaver',
-        (status === 'starter' ? e.startDate : e.endDate) ?? '',
+        (status === 'starter' ? e.startDate : e.leaveDate) ?? '',
         e.dateOfBirth,
         roleName(e.roleIds[0]),
         e.payBasis,
@@ -166,7 +166,7 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
                   <td>
                     <span className={`status status-${status}`}>{STATUS_LABEL[status]}</span>
                     {status === 'starter' && <div className="muted small">from {e.startDate}</div>}
-                    {(status === 'leaving' || status === 'left') && <div className="muted small">last day {e.endDate}</div>}
+                    {(status === 'leaving' || status === 'left') && <div className="muted small">last day {e.leaveDate}</div>}
                   </td>
                   <td className="muted">{e.roleIds.map(roleName).join(', ')}</td>
                   <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>

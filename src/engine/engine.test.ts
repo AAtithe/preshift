@@ -233,12 +233,12 @@ describe('employees', () => {
 
   it('knows starters, leavers and who has left', () => {
     expect(employeeStatus(person({ startDate: '2026-11-01' }), TODAY)).toBe('starter');
-    expect(employeeStatus(person({ endDate: '2026-10-25' }), TODAY)).toBe('leaving');
-    expect(employeeStatus(person({ endDate: '2026-10-01' }), TODAY)).toBe('left');
+    expect(employeeStatus(person({ leaveDate: '2026-10-25' }), TODAY)).toBe('leaving');
+    expect(employeeStatus(person({ leaveDate: '2026-10-01' }), TODAY)).toBe('left');
   });
 
   it('pro-rates guaranteed pay for a mid-week leaver and drops them after', () => {
-    const leaver = person({ contractedHours: 35, endDate: addDays(WEEK, 2) });
+    const leaver = person({ contractedHours: 35, leaveDate: addDays(WEEK, 2) });
     expect(employedShare(leaver, WEEK)).toBeCloseTo(3 / 7);
     expect(weekCost({ employees: [leaver], shifts: [] }, WEEK).employees.get('e1')!.gross).toBeCloseTo(15 * 13, 1);
     expect(weekCost({ employees: [leaver], shifts: [] }, addDays(WEEK, 7)).employees.has('e1')).toBe(false);
@@ -248,6 +248,13 @@ describe('employees', () => {
     const starter = person({ ...ok, startDate: addDays(WEEK, 3) });
     const issues = checkEmployeeWeek(starter, WEEK, [shift(WEEK, 12, 16)]).map((i) => i.code);
     expect(issues).toContain('not-employed');
+  });
+
+  it('never auto-builds someone without a right to work check', () => {
+    const state = seedState(WEEK);
+    const id = state.employees.find((e) => e.siteId === 'mar' && e.roleIds[0] === 'server')!.id;
+    state.employees = state.employees.map((e) => (e.id === id ? { ...e, rightToWork: { checked: false } } : e));
+    expect(autoSchedule(state, 'mar', WEEK).shifts.some((s) => s.employeeId === id)).toBe(false);
   });
 
   it('never auto-builds someone before they start', () => {

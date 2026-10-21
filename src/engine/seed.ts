@@ -82,7 +82,7 @@ function employees(today: string): Employee[] {
       ['Ruby Clarke', ['bar'], 13.0, '2000-07-07', 0],
       ['Dev Kapoor', ['bar', 'server'], 12.9, '1999-03-03', 0],
       ['Lily Evans', ['server', 'host'], 12.71, '2004-11-19', 0],
-      ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0, { endDate: addDays(today, 3) }],
+      ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0, { status: 'leaver', leaveDate: addDays(today, 3) }],
     ]),
   ];
 }

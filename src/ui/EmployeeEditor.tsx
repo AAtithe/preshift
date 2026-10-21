@@ -10,7 +10,7 @@ interface Props {
   employee: Employee;
   today: string;
   onSave: (employee: Employee) => void;
-  onDelete: (id: string) => void;
+  onLeaver: (id: string, leaveDate: string) => void;
   onClose: () => void;
 }
 
@@ -18,9 +18,10 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, onSave, onDelete, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClose }: Props) {
   const [draft, setDraft] = useState<Employee>(employee);
   const [leaveDay, setLeaveDay] = useState('');
+  const [leaving, setLeaving] = useState<string | null>(null);
   const isNew = !state.employees.some((e) => e.id === employee.id);
   const set = <K extends keyof Employee>(key: K, value: Employee[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const rtw = draft.rightToWork ?? { checked: false };
@@ -96,7 +97,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onDelete, onClo
           </label>
           <label>
             Leaving date
-            <input type="date" value={draft.endDate ?? ''} onChange={(e) => set('endDate', e.target.value || undefined)} />
+            <input type="date" value={draft.leaveDate ?? ''} disabled title="Set through Mark as leaver, which tells payroll" />
           </label>
         </div>
         {dropped > 0 && (
@@ -268,13 +269,19 @@ export function EmployeeEditor({ state, employee, today, onSave, onDelete, onClo
         )}
 
         <div className="modal-actions">
-          {!isNew && shifts.length === 0 && (
-            <button className="danger" onClick={() => { if (confirm(`Delete ${draft.name || 'this record'}? Use a leaving date for anyone who has worked.`)) onDelete(draft.id); }}>
-              Delete
-            </button>
+          {!isNew && draft.status !== 'leaver' && leaving === null && (
+            <button className="danger" onClick={() => setLeaving(today)}>Mark as leaver</button>
           )}
-          {!isNew && !draft.endDate && shifts.length > 0 && (
-            <button onClick={() => set('endDate', today)}>Mark as leaver</button>
+          {leaving !== null && (
+            <span className="leaver-confirm">
+              <label className="muted small">
+                Last day <input type="date" value={leaving} onChange={(e) => setLeaving(e.target.value)} />
+              </label>
+              <button className="danger" disabled={!leaving} onClick={() => onLeaver(draft.id, leaving)}>
+                Confirm leaver ({shifts.filter((s) => s.date > leaving).length} later shifts removed, payroll told)
+              </button>
+              <button className="link" onClick={() => setLeaving(null)}>Cancel</button>
+            </span>
           )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>

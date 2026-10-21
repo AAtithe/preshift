@@ -67,9 +67,12 @@ export interface Employee {
   phone?: string;
   /** First day of employment. Absent means employed before records began. */
   startDate?: string;
-  /** Last day of employment for a leaver. */
-  endDate?: string;
   rightToWork?: RightToWork;
+  /** The person's employee id in the payroll system (TeamPay). Set once synced. */
+  payrollId?: string;
+  status?: 'active' | 'leaver';
+  /** Last day of employment for a leaver. */
+  leaveDate?: string;
 }
 
 export interface Shift {
@@ -105,6 +108,25 @@ export interface DemandRule {
   /** Headcount floor whenever the site is open. */
   minimumWhileOpen: number;
   maximum: number;
+}
+
+export type TimeEntryStatus = 'open' | 'submitted' | 'approved' | 'rejected';
+
+/** Actual time worked, from clocking or a manager's manual entry. Payroll is paid from these, not the rota. */
+export interface TimeEntry {
+  id: string;
+  employeeId: string;
+  siteId: string;
+  roleId: string;
+  shiftId?: string;
+  date: string;
+  clockIn: number; // minutes from midnight on `date`
+  clockOut?: number;
+  breakMinutes: number;
+  status: TimeEntryStatus;
+  source: 'clock' | 'manual';
+  approvedBy?: string;
+  approvedAt?: string;
 }
 
 export interface RotaState {

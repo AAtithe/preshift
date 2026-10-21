@@ -84,10 +84,12 @@ export function checkEmployeeWeek(
     }
     if (!isEmployedOn(employee, shift.date)) {
       const before = employee.startDate && shift.date < employee.startDate;
-      push({ ...base, code: 'not-employed', severity: 'block', message: before ? `Starts on ${employee.startDate}.` : `Left on ${employee.endDate}.` });
+      push({ ...base, code: 'not-employed', severity: 'block', message: before ? `Starts on ${employee.startDate}.` : `Left on ${employee.leaveDate}.` });
     }
     const rtw = employee.rightToWork;
-    if (rtw?.checked && rtw.expiry && shift.date > rtw.expiry) {
+    if (rtw && !rtw.checked) {
+      push({ ...base, code: 'right-to-work', severity: 'block', message: 'No right to work check on file.' });
+    } else if (rtw?.expiry && shift.date > rtw.expiry) {
       push({ ...base, code: 'right-to-work', severity: 'block', message: `Right to work expired on ${rtw.expiry}.` });
     }
     if (employee.leave.includes(shift.date)) {
@@ -119,10 +121,6 @@ export function checkEmployeeWeek(
         push({ ...base, code: 'young-night', severity: 'warn', message: 'Under 18 working between 22:00 and 06:00. Check the hospitality exemption applies and is supervised.' });
       }
     }
-  }
-
-  if (week.length > 0 && employee.rightToWork && !employee.rightToWork.checked) {
-    push({ code: 'right-to-work', severity: 'block', message: 'No right to work check on file.' });
   }
 
   // Overlaps and daily rest, including across the week boundary.

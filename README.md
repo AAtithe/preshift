@@ -19,30 +19,74 @@ accrual so the P&L carries true labour before payroll has even run.
 | UK compliance | Working Time Regulations breaks, 11 hour daily rest (across week boundaries), weekly rest, 48 hour average without opt-out, young worker limits (8h/day, 40h/week, 30 minute break, 12h rest, night work), minimum wage by age, double booking, leave, availability, training. Blocking issues stop publication. | `src/engine/compliance.ts` |
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
 | People | Employee records: details, employment dates, roles, contract and pay, right to work, availability and leave. Each record is checked before it reaches the rota: right to work missing or expired, pay below the legal minimum, upcoming birthdays that move the minimum wage band, salaried pay that falls below minimum wage at maximum hours, under 18 opt-outs, auto-enrolment eligibility. Starters and leavers are pro-rated in cost, kept off the auto-build outside their dates, and exported for payroll. | `src/engine/employees.ts`, `src/ui/PeopleView.tsx`, `src/ui/EmployeeEditor.tsx` |
-| Close | Rota to labour accrual journal by role nominal and site tracking category, exported in Xero manual journal format, plus an hours file for payroll. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
+| Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools. Every shift it proposes is costed by the payroll model and checked by the compliance engine; anything with a blocking issue is refused, so it cannot roster illegally. The GM sees labour % before and after, the changes, and a short note on gaps and trade-offs, then applies or discards the draft. | `src/ai/rotaTools.ts`, `src/ai/rotaAgent.ts`, `src/ui/AssistantPanel.tsx` |
+| Close | Labour accrual journal by role nominal and site tracking category, from approved actuals once available, otherwise the rota, exported in Xero manual journal format. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
+| API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
+| TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
+| Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 
 ## Running it
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # engine tests
+npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
+npm test         # engine and API tests
 npm run build    # typecheck and production build
 ```
 
+The rota assistant needs a Claude API key on the server. Put it in `.env.local` (git ignored):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The browser never sees the key: it calls `/api/anthropic` on the dev or preview server, which adds the
+key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
+moves with it. On Vercel the same route is served by `api/anthropic/v1/messages.js`; set
+`ANTHROPIC_API_KEY` in the Vercel project's environment variables to switch the assistant on. That
+function only forwards the assistant's own requests (one model, capped output), but until the app has
+logins anyone who can open /app can spend against the key, so put a monthly spend limit on it in the
+Claude Console. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
-forecasts. Press "Build from forecast" to generate the week. Data is held in the browser only.
+forecasts, against a TeamPay simulator. Press "Build from forecast", then work through the
+Payroll tab: set people up in TeamPay, simulate clocking, approve, send hours, run payroll.
+Set the `TEAMPAY_*` variables to connect to real TeamPay and `PRESHIFT_DATABASE_URL` for
+Postgres; see `docs/API.md`, which also covers the Vercel deployment.
+
+## Deployment (Vercel)
+
+`npm run build:vercel` (set in `vercel.json`) writes `.vercel/output` with the Build Output API:
+
+| Path | What |
+| --- | --- |
+| `/` | Marketing site, from `site/` |
+| `/app/` | Web app |
+| `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
+| `/api/anthropic/v1/messages` | Rota assistant proxy, from `api/anthropic/v1/messages.js` (needs `ANTHROPIC_API_KEY`) |
+| `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
+
+Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
+in Postgres across cold starts and instances. Without it, data is held in memory and resets when
+the function cold starts: fine for a demo, not for customers. Preshift never reads the generic
+`DATABASE_URL`, so it cannot write into another system's database by accident. With no
+`PRESHIFT_API_KEYS` set it accepts the public demo key the web app ships with; set
+`PRESHIFT_API_KEYS` in Vercel before any real data goes in.
 
 ## Structure
 
 ```
-src/engine   Pure TypeScript domain logic. No UI, fully unit tested. This is the product.
-src/ui       React front end over the engine.
-docs         Strategy and roadmap.
+src/engine   Pure TypeScript domain logic, shared by API, browser and assistant. Fully unit tested.
+src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
+server       The Preshift API: routes, auth, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
+src/ui       React web app, a client of the API.
+site         Marketing site (static, no build step).
+scripts      Local dev runner and the Vercel build.
+docs         API and integration guide, strategy and roadmap.
 ```
 
-The engine is deliberately framework-free so it can move server-side unchanged when we add
-persistence, multi-user access and integrations.
+The engine runs in both places: the server is the source of truth, and the browser runs the
+same code for instant cost and compliance feedback while editing.
 
 ## Statutory rates
 
