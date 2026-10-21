@@ -15,6 +15,7 @@
     "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0",
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^4.1.0",
     "fastify": "^4.28.1",

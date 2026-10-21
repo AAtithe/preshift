@@ -2,6 +2,7 @@
 //   /         marketing site (site/)
 //   /app/     rota web app (Vite build)
 //   /v1, /docs, /health   Preshift API as one bundled Node function
+//   /api/anthropic/v1/messages   rota assistant proxy (api/anthropic/v1/messages.js)
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -20,22 +21,42 @@ for (const f of ['index.html', 'styles.css', 'main.js', 'img']) {
   await cp(`site/${f}`, `${out}/static/${f}`, { recursive: true });
 }
 
-await esbuild({
-  entryPoints: ['server/vercel.ts'],
-  outfile: `${fn}/index.cjs`,
-  bundle: true,
-  platform: 'node',
-  target: 'node22',
-  format: 'cjs',
-  logLevel: 'warning',
-});
+// Each function is one CommonJS file exporting the (req, res) handler itself.
+async function nodeFunction(dir, entry, extra = {}) {
+  await esbuild({
+    ...entry,
+    outfile: `${dir}/index.cjs`,
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+    footer: { js: 'module.exports = module.exports.default;' },
+    logLevel: 'warning',
+  });
+  await writeFile(
+    `${dir}/.vc-config.json`,
+    JSON.stringify({ runtime: 'nodejs22.x', handler: 'index.cjs', launcherType: 'Nodejs', shouldAddHelpers: false, ...extra }, null, 2),
+  );
+}
+
+await nodeFunction(fn, { entryPoints: ['server/vercel.ts'] });
 // Swagger UI reads its assets from disk at runtime.
 const swaggerUi = path.dirname(require.resolve('@fastify/swagger-ui/package.json'));
 await cp(path.join(swaggerUi, 'static'), `${fn}/static`, { recursive: true });
 
-await writeFile(
-  `${fn}/.vc-config.json`,
-  JSON.stringify({ runtime: 'nodejs22.x', handler: 'index.cjs', launcherType: 'Nodejs', shouldAddHelpers: false }, null, 2),
+await nodeFunction(
+  `${out}/functions/api/anthropic/v1/messages.func`,
+  {
+    stdin: {
+      contents:
+        "import * as mod from './api/anthropic/v1/messages.js';\n" +
+        "import { toNodeHandler } from './scripts/web-to-node.mjs';\n" +
+        'export default toNodeHandler(mod);\n',
+      resolveDir: process.cwd(),
+      sourcefile: 'anthropic-entry.mjs',
+    },
+  },
+  { maxDuration: 300 },
 );
 
 await mkdir(out, { recursive: true });
