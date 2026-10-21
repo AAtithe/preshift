@@ -293,7 +293,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           <div className="sections">
             <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-              {single && <button onClick={() => setAssistantOpen(true)}>Ask the assistant</button>}
+              {siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)}>Ask the assistant</button>}
               <button className="ghost" onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
                 Clear week
               </button>
@@ -450,15 +450,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         </div>
       )}
 
-      {assistantOpen && single && (
+      {assistantOpen && siteIds.length > 0 && (
         <Suspense fallback={null}>
           <AssistantPanel
             state={state}
-            siteId={single.id}
+            siteIds={siteIds}
             week={week}
-            onApply={async (shifts, baseline, instructions) => {
+            onApply={async (shifts, baselines, instructions) => {
               // Close only once saved; a refused save (someone else edited the week) stays open to redraft.
-              const problem = await actions.applyDraft(single.id, week, shifts, baseline, instructions);
+              const problem = await actions.applyDraft(week, shifts, baselines, instructions);
               if (!problem) {
                 setUnfilled(null);
                 setAssistantOpen(false);

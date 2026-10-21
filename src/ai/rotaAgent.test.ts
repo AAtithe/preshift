@@ -7,10 +7,10 @@ import { executeRotaTool, ROTA_TOOLS, type RotaDraft } from './rotaTools';
 
 const WEEK = '2026-10-19'; // a Monday; seed leave for Chloe falls on the Wednesday
 const MONDAY_MORNING = { date: WEEK, minute: 0 }; // nothing in the week has started yet
-const draft = (now = MONDAY_MORNING): RotaDraft => ({ state: seedState(WEEK), siteId: 'mar', weekStart: WEEK, now });
+const draft = (now = MONDAY_MORNING): RotaDraft => ({ state: seedState(WEEK), siteIds: ['mar'], weekStart: WEEK, now });
 const idOf = (d: RotaDraft, name: string) => d.state.employees.find((e) => e.name === name)!.id;
 const add = (d: RotaDraft, employee_id: string, date: string, start: string, end: string, role_id = 'server') =>
-  executeRotaTool(d, 'add_shift', { employee_id, role_id, date, start, end });
+  executeRotaTool(d, 'add_shift', { site_id: 'mar', employee_id, role_id, date, start, end });
 
 describe('rota tools', () => {
   it('adds a legal shift with the statutory break and reports what it costs', () => {
@@ -58,7 +58,7 @@ describe('rota tools', () => {
 
   it('builds from the forecast, honours exclusions, and never creates a blocking issue', () => {
     const d = draft();
-    executeRotaTool(d, 'build_from_forecast', { exclude_employee_ids: ['mar-12'], allow_cover: true });
+    executeRotaTool(d, 'build_from_forecast', { site_ids: null, exclude_employee_ids: ['mar-12'], allow_cover: true });
     expect(d.state.shifts.length).toBeGreaterThan(20);
     expect(d.state.shifts.some((s) => s.employeeId === 'mar-12')).toBe(false);
     expect(checkWeek(d.state, WEEK, 'mar').filter((i) => i.severity === 'block')).toEqual([]);
@@ -66,15 +66,16 @@ describe('rota tools', () => {
 
   it('reports status the model can act on', () => {
     const d = draft();
-    const status = executeRotaTool(d, 'get_rota_status', {}).result as { labour_target_pct: number; days: { cover: unknown[] }[] };
-    expect(status.labour_target_pct).toBe(28);
-    expect(status.days).toHaveLength(7);
-    expect(status.days[0].cover.length).toBeGreaterThan(0); // an empty week is short everywhere
+    const status = executeRotaTool(d, 'get_rota_status', { site_id: null }).result as { sites: { labour_target_pct: number; days: { cover: unknown[] }[] }[] };
+    expect(status.sites).toHaveLength(1);
+    expect(status.sites[0].labour_target_pct).toBe(28);
+    expect(status.sites[0].days).toHaveLength(7);
+    expect(status.sites[0].days[0].cover.length).toBeGreaterThan(0); // an empty week is short everywhere
   });
 
   it('shows cover staff after the home team, with what borrowing them costs, and who can be rostered', () => {
     const d = draft();
-    const team = executeRotaTool(d, 'list_team', {}).result as { id: string; name: string; cover: string; right_to_work: string; employed_this_week: unknown }[];
+    const team = executeRotaTool(d, 'list_team', { site_id: 'mar' }).result as { id: string; name: string; cover: string; right_to_work: string; employed_this_week: unknown }[];
     const cover = (name: string) => team.find((p) => p.name === name)?.cover;
     expect(cover('Grace Mensah')).toBe('home team');
     expect(cover('Yusuf Demir')).toBe('sister site, same company');
@@ -105,9 +106,9 @@ describe('rota tools', () => {
     expect(JSON.stringify(add(d, 'mar-8', '2026-10-21', '11:00', '15:00').result)).toContain('already started');
     expect(executeRotaTool(d, 'remove_shift', { shift_id: monday.id }).isError).toBe(true);
     expect(executeRotaTool(d, 'update_shift', { shift_id: monday.id, employee_id: null, start: '13:00', end: null }).isError).toBe(true);
-    expect(executeRotaTool(d, 'clear_week', {}).result).toMatchObject({ removed: 0, kept_because_started: 1 });
+    expect(executeRotaTool(d, 'clear_week', { site_id: null }).result).toMatchObject({ removed: 0, kept_because_started: 1 });
 
-    executeRotaTool(d, 'build_from_forecast', { exclude_employee_ids: [], allow_cover: true });
+    executeRotaTool(d, 'build_from_forecast', { site_ids: null, exclude_employee_ids: [], allow_cover: true });
     const added = d.state.shifts.filter((s) => s.id !== monday.id);
     expect(added.length).toBeGreaterThan(10);
     expect(added.every((s) => s.date > '2026-10-21' || (s.date === '2026-10-21' && s.startMinute > 12 * 60))).toBe(true);
@@ -116,9 +117,36 @@ describe('rota tools', () => {
 
   it('can build without borrowing from other sites', () => {
     const d = draft();
-    executeRotaTool(d, 'build_from_forecast', { exclude_employee_ids: [], allow_cover: false });
+    executeRotaTool(d, 'build_from_forecast', { site_ids: null, exclude_employee_ids: [], allow_cover: false });
     const home = new Set(d.state.employees.filter((e) => e.siteId === 'mar').map((e) => e.id));
     expect(d.state.shifts.every((s) => home.has(s.employeeId))).toBe(true);
+  });
+
+  it('plans several sites together: each home team first, then sharing, and stays inside the sites given', () => {
+    const d: RotaDraft = { ...draft(), siteIds: ['mar', 'fitz'] };
+    const status = executeRotaTool(d, 'get_rota_status', { site_id: null }).result as { sites: { site_id: string }[]; all_sites: unknown };
+    expect(status.sites.map((x) => x.site_id)).toEqual(['mar', 'fitz']);
+    expect(status.all_sites).toBeDefined();
+    executeRotaTool(d, 'build_from_forecast', { site_ids: null, exclude_employee_ids: [], allow_cover: true });
+    const sites = new Set(d.state.shifts.map((s) => s.siteId));
+    expect([...sites].sort()).toEqual(['fitz', 'mar']);
+    expect(checkWeek(d.state, WEEK, ['mar', 'fitz']).filter((i) => i.severity === 'block')).toEqual([]);
+    // Shoreditch is not being planned, so nothing can be added there.
+    const out = executeRotaTool(d, 'add_shift', { site_id: 'shd', employee_id: 'shd-2', role_id: 'chef', date: '2026-10-23', start: '12:00', end: '18:00' });
+    expect(JSON.stringify(out.result)).toContain('not one of the sites being planned');
+    // Yusuf is Fitzrovia's and covers Marylebone, so he can be put on at either.
+    const yusuf = idOf(d, 'Yusuf Demir');
+    const team = executeRotaTool(d, 'list_team', { site_id: 'mar' }).result as { id: string; cover: string }[];
+    expect(team.find((p) => p.id === yusuf)?.cover).toBe('sister site, same company');
+  });
+
+  it('gives the model each person\'s recent history, notes and holiday, or says plainly it has none', () => {
+    const d = draft();
+    expect(executeRotaTool(d, 'get_people_insights', { site_id: null }).result).toMatchObject({ available: false });
+    d.insights = { 'mar-8': { employeeId: 'mar-8', from: '2026-09-21', to: '2026-10-18', averageWeeklyHours: 31.5, weekendShifts: 8, closingShifts: 6, lateArrivals: 2, noShows: 0, notes: 'No Sunday closes', holiday: { remainingHours: 40, leaveYearEnd: '2026-12-31', daysToYearEnd: 72, shouldPlanLeave: false } } };
+    const res = executeRotaTool(d, 'get_people_insights', { site_id: 'mar' }).result as { available: boolean; people: Record<string, unknown>[] };
+    expect(res.available).toBe(true);
+    expect(res.people.find((p) => p.id === 'mar-8')).toMatchObject({ weekend_shifts: 8, late_arrivals: 2, notes: 'No Sunday closes', holiday_left_hours: 40 });
   });
 
   it('declares closed schemas with every field required', () => {
@@ -150,7 +178,7 @@ function fakeClient(replies: Reply[]) {
 }
 
 describe('rota agent loop', () => {
-  const request = { state: seedState(WEEK), siteId: 'mar', weekStart: WEEK, instruction: 'Cover Friday lunch.', now: MONDAY_MORNING };
+  const request = { state: seedState(WEEK), siteIds: ['mar'], weekStart: WEEK, instruction: 'Cover Friday lunch.', now: MONDAY_MORNING };
 
   it('runs the tools Claude asks for on a copy and returns the draft with its summary', async () => {
     const { client, requests } = fakeClient([
@@ -158,8 +186,8 @@ describe('rota agent loop', () => {
         stop_reason: 'tool_use',
         content: [
           { type: 'thinking', thinking: '', signature: 'sig' },
-          { type: 'tool_use', id: 't1', name: 'add_shift', input: { employee_id: 'mar-8', role_id: 'server', date: '2026-10-23', start: '11:00', end: '16:00' } },
-          { type: 'tool_use', id: 't2', name: 'add_shift', input: { employee_id: 'mar-13', role_id: 'bar', date: '2026-10-21', start: '17:00', end: '23:00' } },
+          { type: 'tool_use', id: 't1', name: 'add_shift', input: { site_id: 'mar', employee_id: 'mar-8', role_id: 'server', date: '2026-10-23', start: '11:00', end: '16:00' } },
+          { type: 'tool_use', id: 't2', name: 'add_shift', input: { site_id: 'mar', employee_id: 'mar-13', role_id: 'bar', date: '2026-10-21', start: '17:00', end: '23:00' } },
         ],
       },
       { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Oliver covers Friday lunch.' }] },
@@ -182,13 +210,13 @@ describe('rota agent loop', () => {
   it('continues a draft with a follow-up, keeping earlier changes, the conversation and the running cost', async () => {
     const usage = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     const first = fakeClient([
-      { stop_reason: 'tool_use', usage, content: [{ type: 'tool_use', id: 't1', name: 'add_shift', input: { employee_id: 'mar-8', role_id: 'server', date: '2026-10-23', start: '11:00', end: '16:00' } }] },
+      { stop_reason: 'tool_use', usage, content: [{ type: 'tool_use', id: 't1', name: 'add_shift', input: { site_id: 'mar', employee_id: 'mar-8', role_id: 'server', date: '2026-10-23', start: '11:00', end: '16:00' } }] },
       { stop_reason: 'end_turn', usage, content: [{ type: 'text', text: 'Oliver covers Friday lunch.' }] },
     ] as Reply[]);
     const draft1 = await runRotaAgent(first.client, request);
 
     const second = fakeClient([
-      { stop_reason: 'tool_use', usage, content: [{ type: 'tool_use', id: 't2', name: 'add_shift', input: { employee_id: 'mar-8', role_id: 'server', date: '2026-10-24', start: '11:00', end: '16:00' } }] },
+      { stop_reason: 'tool_use', usage, content: [{ type: 'tool_use', id: 't2', name: 'add_shift', input: { site_id: 'mar', employee_id: 'mar-8', role_id: 'server', date: '2026-10-24', start: '11:00', end: '16:00' } }] },
       { stop_reason: 'end_turn', usage, content: [{ type: 'text', text: 'And Saturday lunch.' }] },
     ] as Reply[]);
     const draft2 = await runRotaAgent(second.client, { ...request, instruction: 'Same on Saturday.', previous: draft1 });

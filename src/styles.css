@@ -732,3 +732,6 @@ button.link.danger { color: var(--bad); }
 .refine { display: flex; gap: 8px; margin-top: 12px; }
 .refine input { flex: 1; min-width: 0; }
 .settings-sub { margin: 14px 0 4px; font-size: 13px; }
+.preview-table td, .preview-table th { padding: 6px 8px; }
+.notes { display: grid; gap: 4px; margin-top: 8px; }
+.notes textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; }

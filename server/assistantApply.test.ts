@@ -115,3 +115,42 @@ describe('editing worked shifts by hand', () => {
     expect(built.every((s) => s.date > now.date || (s.date === now.date && s.startMinute > now.minute))).toBe(true);
   });
 });
+
+describe('saving a group draft', () => {
+  it('saves every site together, or none of them', async () => {
+    const t = await setup();
+    const { app } = await buildApp({ apiKeys: [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*'] }], store: t.store, provider: new TeamPaySimulator(), autoDispatch: false });
+    const putWeeks = (body: unknown) =>
+      app.inject({ method: 'PUT', url: '/v1/rota/weeks', headers: { authorization: 'Bearer admin', 'content-type': 'application/json' }, payload: JSON.stringify(body) });
+    const at = (siteId: string, id: string, employeeId: string): Shift => ({ ...t.shift(NEXT_WEEK, id), siteId, employeeId });
+    const base = (siteId: string) => weekFingerprint(t.org.state.shifts, siteId, NEXT_WEEK);
+
+    const marBaseline = base('mar');
+    const fitzBaseline = base('fitz');
+    t.org.state.shifts.push(at('fitz', 'colleague', 'fitz-2')); // someone edits Fitzrovia meanwhile
+    const refused = await putWeeks({
+      weekStart: NEXT_WEEK,
+      sites: [
+        { siteId: 'mar', baseline: marBaseline, shifts: [at('mar', 'm1', 'mar-8')] },
+        { siteId: 'fitz', baseline: fitzBaseline, shifts: [at('fitz', 'f1', 'fitz-3')] },
+      ],
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'rota_changed', details: { siteId: 'fitz' } });
+    expect(t.org.state.shifts.some((s) => s.id === 'm1')).toBe(false); // Marylebone untouched too
+
+    const ok = await putWeeks({
+      weekStart: NEXT_WEEK,
+      source: 'assistant',
+      instruction: 'Share staff across both.',
+      sites: [
+        { siteId: 'mar', baseline: base('mar'), shifts: [at('mar', 'm1', 'mar-8')] },
+        { siteId: 'fitz', baseline: base('fitz'), shifts: [at('fitz', 'f1', 'fitz-3')] },
+      ],
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(t.org.state.shifts.filter((s) => s.date === NEXT_WEEK).map((s) => s.id).sort()).toEqual(['f1', 'm1']);
+    expect(t.org.audit.at(-1)).toMatchObject({ action: 'rota.assistant_applied', detail: { siteIds: ['mar', 'fitz'], instruction: 'Share staff across both.' } });
+    expect((await putWeeks({ weekStart: NEXT_WEEK, sites: [{ siteId: 'mar', shifts: [] }, { siteId: 'mar', shifts: [] }] })).statusCode).toBe(422);
+  });
+});

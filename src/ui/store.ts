@@ -129,34 +129,29 @@ export function useRotaStore() {
         return entity;
       }),
     /**
-     * Saves an accepted assistant draft for one site's week in a single all-or-nothing call. The
-     * server refuses it if the week changed since the draft began (baseline) or if it would move a
-     * shift that has started, and records the instructions in the audit log.
+     * Saves an accepted assistant draft for every site it covered in a single all-or-nothing call.
+     * The server refuses it if any site's week changed since the draft began (baselines) or if it
+     * would move a shift that has started, and records the instructions in the audit log.
      */
-    applyDraft: async (siteId: string, weekStart: string, draft: Shift[], baseline: string, instructions: string[]): Promise<string | null> => {
-      {
-        const dates = weekDates(weekStart);
-        const shifts = draft
+    applyDraft: async (weekStart: string, draft: Shift[], baselines: Record<string, string>, instructions: string[]): Promise<string | null> => {
+      const dates = weekDates(weekStart);
+      const sites = Object.entries(baselines).map(([siteId, baseline]) => ({
+        siteId,
+        baseline,
+        shifts: draft
           .filter((s) => s.siteId === siteId && dates.includes(s.date))
           .map(({ id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes }) => ({
             id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes,
-          }));
-        try {
-          await api.put('/v1/rota/week', {
-            siteId,
-            weekStart,
-            shifts,
-            baseline,
-            source: 'assistant',
-            instruction: instructions.join('\n').slice(0, 2000),
-          });
-          return null;
-        } catch (e) {
-          // Returned rather than shown behind the assistant, so the manager sees why and can redraft.
-          return (e as Error).message;
-        } finally {
-          await refreshShifts();
-        }
+          })),
+      }));
+      try {
+        await api.put('/v1/rota/weeks', { weekStart, sites, source: 'assistant', instruction: instructions.join('\n').slice(0, 2000) });
+        return null;
+      } catch (e) {
+        // Returned rather than shown behind the assistant, so the manager sees why and can redraft.
+        return (e as Error).message;
+      } finally {
+        await refreshShifts();
       }
     },
     guard,

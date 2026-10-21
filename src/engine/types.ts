@@ -158,6 +158,8 @@ export interface Employee {
   leaveDate?: string;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
+  rotaNotes?: string;
 }
 
 export interface Shift {

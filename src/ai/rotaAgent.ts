@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { PersonInsight } from '../engine/insights';
 import type { LondonNow } from '../engine/rotaWeek';
 import type { RotaState } from '../engine/types';
 import { formatMinute } from '../engine/time';
@@ -18,25 +19,30 @@ Priorities, in order:
 2. The manager's instructions. If one cannot be met, say so plainly rather than quietly ignoring it.
 3. Cover the forecast. Hours short of headcount are lost sales and a poor guest experience.
 4. Labour % at or under the site target. Use people already paid for through contracted hours first, then the home team, then a sister site in the same company, and only then another company in the group, which costs an intercompany recharge. Within that, the lowest cost legal person. Remove cover in hours that are over the forecast.
-5. A fair, workable rota: sensible shift lengths, clear days off, primary roles first, no needless split shifts, and no one borrowed from a site that is short itself.
+5. A fair, workable rota: sensible shift lengths, clear days off, primary roles first, no needless split shifts, and no one borrowed from a site that is short itself. Use get_people_insights: spread weekends and closes so the same people are not always on them, respect what people's rota notes say, and avoid relying on someone with recent late arrivals or no-shows for a shift they would cover alone. Be factual and neutral about individuals in your note.
+6. Holiday: where someone is flagged should_plan_leave and a quiet day has more cover than it needs, say in your note that they could be offered it as leave. Never book leave yourself.
 
 How to work:
-- Start with get_rota_status and list_team. Use build_from_forecast as the starting point for an empty or part-built week unless the manager asks otherwise, then refine with add_shift, update_shift and remove_shift.
+- Start with get_rota_status, list_team and get_people_insights. Use build_from_forecast as the starting point for an empty or part-built week unless the manager asks otherwise, then refine with add_shift, update_shift and remove_shift.
+- When several sites are being planned together, treat them as one team: each site's own people first, then share between sites, sister sites in the same company before other companies. Report labour % for each site against its own target, not only the total.
 - Shifts that have started are history: people have clocked against them. Leave them alone and only plan the hours still ahead.
 - Use ids exactly as the tools return them. Never invent people or roles.
 - Check get_rota_status again before you finish.
 
 The manager may come back with follow-up changes to the same draft. Make just those changes, keep the rest of the draft as it is, and check the status again.
 
-Finish with a short note to the manager in plain British English, no headings and no markdown tables: what you did, the week's labour % against target, anyone borrowed from another site or company, any gaps you could not fill and what would fix them (hire, cross-train, accept the gap), and any instruction you could not follow and why. Keep it under 150 words.`;
+Finish with a short note to the manager in plain British English, no headings and no markdown tables: what you did, the week's labour % against target (each site's, when there are several), anyone borrowed from another site or company, any gaps you could not fill and what would fix them (hire, cross-train, accept the gap), anyone who could be offered leave, and any instruction you could not follow and why. Keep it under 150 words, or 220 for several sites.`;
 
 export interface RotaAgentRequest {
   state: RotaState;
-  siteId: string;
+  /** The sites to plan together: one, a company's, or the whole group. */
+  siteIds: string[];
   weekStart: string;
   instruction: string;
   /** UK wall-clock time now; drafting never touches hours that have already started. */
   now: LondonNow;
+  /** What the last few weeks say about each person (peopleInsights). Optional: the draft works without it. */
+  insights?: Record<string, PersonInsight>;
   /** Continue an earlier draft with a follow-up instruction, keeping its changes and conversation. */
   previous?: RotaAgentResult;
 }
@@ -85,10 +91,10 @@ export async function runRotaAgent(
   onStep: (step: string) => void = () => {},
   signal?: AbortSignal,
 ): Promise<RotaAgentResult> {
-  const site = req.state.sites.find((s) => s.id === req.siteId);
-  if (!site) throw new RotaAgentError(`Unknown site ${req.siteId}.`);
+  const sites = req.siteIds.map((id) => req.state.sites.find((s) => s.id === id));
+  if (!sites.length || sites.some((s) => !s)) throw new RotaAgentError(`Unknown site in ${req.siteIds.join(', ')}.`);
   const base = req.previous?.state ?? req.state;
-  const draft: RotaDraft = { state: structuredClone(base), siteId: req.siteId, weekStart: req.weekStart, now: req.now };
+  const draft: RotaDraft = { state: structuredClone(base), siteIds: req.siteIds, weekStart: req.weekStart, now: req.now, insights: req.insights };
   const steps: string[] = [...(req.previous?.steps ?? [])];
   const step = (s: string) => {
     steps.push(s);
@@ -106,8 +112,9 @@ export async function runRotaAgent(
       role: 'user',
       content: req.previous
         ? `It is now ${clock}. Change to the draft:\n${instruction}`
-        : `Site: ${site.name} (id ${site.id}). Week commencing ${req.weekStart}. Labour target ${(site.labourTargetPct * 100).toFixed(1)}%. ` +
-          `It is now ${clock} UK time.\n\nManager's request:\n${instruction}`,
+        : `${sites.length > 1 ? 'Sites, planned together' : 'Site'}: ` +
+          sites.map((x) => `${x!.name} (id ${x!.id}, labour target ${(x!.labourTargetPct * 100).toFixed(1)}%)`).join('; ') +
+          `. Week commencing ${req.weekStart}. It is now ${clock} UK time.\n\nManager's request:\n${instruction}`,
     },
   ];
 
