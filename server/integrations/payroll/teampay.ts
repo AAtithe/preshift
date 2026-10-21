@@ -6,7 +6,10 @@ export interface TeamPayConfig {
   baseUrl: string; // e.g. https://api.team-pay.co.uk/v1 (sandbox and production keys come from the TeamPay dashboard)
   apiKey: string;
   webhookSecret: string;
-  /** TeamPay employer the client company is set up as. */
+  /**
+   * TeamPay employer for an organisation with one company. A group sets an
+   * employer on each company instead; this is never used for more than one.
+   */
   employerId: string;
   fetchImpl?: typeof fetch;
 }
@@ -24,7 +27,7 @@ export class TeamPayProvider implements PayrollProvider {
     this.fetch = config.fetchImpl ?? fetch;
   }
 
-  async upsertEmployee(e: PayrollEmployee, payrollId: string | undefined, idempotencyKey: string) {
+  async upsertEmployee(employerId: string, e: PayrollEmployee, payrollId: string | undefined, idempotencyKey: string) {
     const body = {
       external_ref: e.externalRef,
       name: e.name,
@@ -39,22 +42,23 @@ export class TeamPayProvider implements PayrollProvider {
       start_date: e.startDate,
     };
     const res = payrollId
-      ? await this.request<{ id: string }>('PATCH', `/employees/${encodeURIComponent(payrollId)}`, body, idempotencyKey)
-      : await this.request<{ id: string }>('POST', '/employees', body, idempotencyKey);
+      ? await this.request<{ id: string }>(employerId, 'PATCH', `/employees/${encodeURIComponent(payrollId)}`, body, idempotencyKey)
+      : await this.request<{ id: string }>(employerId, 'POST', '/employees', body, idempotencyKey);
     return { payrollId: res.id };
   }
 
-  async markLeaver(payrollId: string, leaveDate: string, idempotencyKey: string) {
-    await this.request('POST', `/employees/${encodeURIComponent(payrollId)}/leaver`, { leave_date: leaveDate }, idempotencyKey);
+  async markLeaver(employerId: string, payrollId: string, leaveDate: string, idempotencyKey: string) {
+    await this.request(employerId, 'POST', `/employees/${encodeURIComponent(payrollId)}/leaver`, { leave_date: leaveDate }, idempotencyKey);
   }
 
-  async submitHours(batch: PayrollHoursBatch, idempotencyKey: string) {
+  async submitHours(employerId: string, batch: PayrollHoursBatch, idempotencyKey: string) {
     const missing = batch.lines.filter((l) => !l.payrollId);
     if (missing.length) {
       // Retryable: the starter sync for these people is queued ahead of this batch.
       throw new PayrollError(`${missing.length} line(s) for people not yet set up in TeamPay`, true);
     }
     const res = await this.request<{ id: string }>(
+      employerId,
       'POST',
       '/hours',
       {
@@ -75,7 +79,7 @@ export class TeamPayProvider implements PayrollProvider {
     return { submissionId: res.id };
   }
 
-  async getPayRun(id: string): Promise<PayRun> {
+  async getPayRun(employerId: string, id: string): Promise<PayRun> {
     const r = await this.request<{
       id: string;
       period_start: string;
@@ -89,9 +93,10 @@ export class TeamPayProvider implements PayrollProvider {
         employer_ni: number;
         employer_pension: number;
       }[];
-    }>('GET', `/pay-runs/${encodeURIComponent(id)}`);
+    }>(employerId, 'GET', `/pay-runs/${encodeURIComponent(id)}`);
     return {
       id: r.id,
+      employerId,
       periodStart: r.period_start,
       periodEnd: r.period_end,
       status: r.status,
@@ -110,7 +115,8 @@ export class TeamPayProvider implements PayrollProvider {
     return verifyHmac(this.config.webhookSecret, rawBody, signature);
   }
 
-  private async request<T = unknown>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+  private async request<T = unknown>(employerId: string, method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+    if (!employerId) throw new PayrollError('No TeamPay employer given for this call', false);
     let res: Response;
     try {
       res = await this.fetch(`${this.config.baseUrl}${path}`, {
@@ -118,7 +124,7 @@ export class TeamPayProvider implements PayrollProvider {
         headers: {
           authorization: `Bearer ${this.config.apiKey}`,
           'content-type': 'application/json',
-          'x-teampay-employer': this.config.employerId,
+          'x-teampay-employer': employerId,
           ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),

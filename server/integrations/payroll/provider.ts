@@ -20,6 +20,8 @@ export interface PayRun {
   periodStart: string;
   periodEnd: string;
   status: 'draft' | 'approved' | 'completed';
+  /** The payroll employer (PAYE scheme) the run belongs to. */
+  employerId: string;
   employees: (PayRunEmployee & { payrollId: string })[];
 }
 
@@ -30,11 +32,13 @@ export interface PayRun {
  */
 export interface PayrollProvider {
   readonly name: string;
+  // Every call names the payroll employer it is for. One TeamPay account can hold several
+  // employers, one per PAYE scheme, and each company in a group runs its own payroll.
   /** Creates the person if new, updates them if not. Returns the payroll's id for them. */
-  upsertEmployee(employee: PayrollEmployee, payrollId: string | undefined, idempotencyKey: string): Promise<{ payrollId: string }>;
-  markLeaver(payrollId: string, leaveDate: string, idempotencyKey: string): Promise<void>;
-  submitHours(batch: PayrollHoursBatch, idempotencyKey: string): Promise<{ submissionId: string }>;
-  getPayRun(id: string): Promise<PayRun>;
+  upsertEmployee(employerId: string, employee: PayrollEmployee, payrollId: string | undefined, idempotencyKey: string): Promise<{ payrollId: string }>;
+  markLeaver(employerId: string, payrollId: string, leaveDate: string, idempotencyKey: string): Promise<void>;
+  submitHours(employerId: string, batch: PayrollHoursBatch, idempotencyKey: string): Promise<{ submissionId: string }>;
+  getPayRun(employerId: string, id: string): Promise<PayRun>;
   /** Checks an inbound webhook really came from the payroll. */
   verifyWebhook(rawBody: string, signature: string | undefined): boolean;
 }

@@ -19,7 +19,7 @@ locally. Set these to connect to real TeamPay:
 | --- | --- |
 | `TEAMPAY_API_KEY` | Sandbox or production key from the TeamPay dashboard |
 | `TEAMPAY_BASE_URL` | Defaults to `https://api.team-pay.co.uk/v1` |
-| `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
+| `TEAMPAY_EMPLOYER_ID` | The client's employer in TeamPay, for an organisation with one company only. A group sets an employer on each company instead (`PATCH /v1/entities/:id`); this variable is never used for more than one company. |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. Outside production a `dev-key` exists. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
@@ -46,7 +46,7 @@ confined to its key's organisation.
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve`, `GET /compare` |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. Card taps are not location checked, as the reader is fixed on site. |
-| Payroll | `GET /v1/integrations/payroll`, `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions`, `GET /v1/payroll/runs` |
+| Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |
 
@@ -72,6 +72,29 @@ confined to its key's organisation.
    and reports the variance between what was accrued and what payroll cost, per person.
 6. Tronc stays in TeamPay Tronc and allocates from the same hours TeamPay receives.
 
+## One payroll per PAYE scheme
+
+Each company in a group is its own employer with its own PAYE scheme, so each has its own
+TeamPay employer and runs its own payroll. Every call to TeamPay names the employer it is for.
+
+- A person is set up, changed and made a leaver under the employer of the company that employs
+  them, wherever they work. The employer is recorded against them once set up, and a later
+  leaver goes to that same scheme.
+- Hours are sent as one batch per company, holding only that company's people (including hours
+  they worked at a sister company's site). Each batch has its own version and idempotency key,
+  and resending one company supersedes only that company's batch.
+- Sending is all or nothing: if any company with hours has no TeamPay employer, nothing is sent
+  (409 `payroll_employer_missing`). Starters for such a company fail in the outbox with the
+  reason, and go through on retry once the employer is set.
+- A pay run webhook carries `employer_id`. Preshift matches it to the company and compares the
+  run with that company's accrual only. A run for an employer no company is set up as is refused
+  (422) and not marked processed, so TeamPay's retry succeeds once it is set.
+- Moving a person who is already in payroll to another company is refused (409
+  `scheme_transfer`): in law it is a leaver from one scheme, with a P45, and a starter in the
+  other. Pointing a company at a different employer once its people are set up is refused for the
+  same reason (409 `employer_has_people`), and two companies cannot share one employer.
+- An organisation with one company keeps working on `TEAMPAY_EMPLOYER_ID` as before.
+
 ## What must be confirmed with the TeamPay API reference
 
 The TeamPay client (`server/integrations/payroll/teampay.ts`) is the only file that knows
@@ -81,6 +104,8 @@ assumptions until checked against the API reference:
 
 - Paths: `POST /employees`, `PATCH /employees/:id`, `POST /employees/:id/leaver`, `POST /hours`, `GET /pay-runs/:id`.
 - Field names (snake case), and whether cost centre and role are accepted on hours lines.
+- That one API key can act for several employers by naming one per call, and that the
+  `payroll.run.completed` webhook says which employer the run is for (`employer_id`).
 - Header names for the employer (`x-teampay-employer`), idempotency (`idempotency-key`) and the
   webhook signature (`x-teampay-signature: sha256=<hex HMAC of the raw body>`).
 - How TeamPay treats a resubmitted hours batch for the same period (replace or add).

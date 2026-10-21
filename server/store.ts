@@ -18,6 +18,10 @@ export interface PayrollSubmission {
   createdBy: string;
   /** Loaded labour per person accrued for this period when it was sent, to compare with the pay run. */
   accrued: Record<string, number>;
+  /** The employing company: each PAYE scheme gets its own batch. Absent on records from before per-scheme payroll. */
+  entityId?: string;
+  /** The payroll employer the batch went to, once sent. */
+  employerId?: string;
 }
 
 export interface PayRunRecord {
@@ -26,6 +30,8 @@ export interface PayRunRecord {
   periodEnd: string;
   receivedAt: string;
   variance: PayrollVariance;
+  entityId?: string;
+  employerId?: string;
 }
 
 export interface AuditEvent {

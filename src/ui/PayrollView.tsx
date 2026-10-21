@@ -6,13 +6,22 @@ import type { RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
 import { hours, money, money2, pct } from './format';
 
+interface Employer {
+  entityId: string;
+  name: string;
+  payeReference: string;
+  employerId: string | null;
+  problem: string | null;
+  employees: { total: number; synced: number };
+}
 interface Status {
   provider: string;
   employees: { total: number; synced: number };
+  employers: Employer[];
   outbox: { pending: number; failed: number; delivered: number };
 }
-interface Submission { id: string; periodStart: string; version: number; status: string; totalHours: number; lineCount: number; createdAt: string }
-interface PayRun { id: string; periodStart: string; receivedAt: string; variance: PayrollVariance }
+interface Submission { id: string; entityId?: string; periodStart: string; version: number; status: string; totalHours: number; lineCount: number; createdAt: string }
+interface PayRun { id: string; entityId?: string; periodStart: string; receivedAt: string; variance: PayrollVariance }
 interface OutboxItem { id: string; type: string; status: string; attempts: number; lastError?: string }
 
 interface Props {
@@ -31,6 +40,7 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
   const [failed, setFailed] = useState<OutboxItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [employerDraft, setEmployerDraft] = useState<Record<string, string>>({});
   const end = addDays(week, 6);
   const isSimulator = status?.provider.includes('simulator');
 
@@ -75,13 +85,30 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
   const name = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
   const count = (s: TimeEntry['status']) => entries.filter((e) => e.status === s).length;
   const unapproved = count('open') + count('submitted');
-  const latestRun = runs[0];
+  // Each company is its own PAYE scheme: its latest batch and pay run this week, newest first from the API.
+  const only = state.entities.length === 1 ? state.entities[0].id : undefined;
+  const companyOf = (x: { entityId?: string }) => x.entityId ?? only;
+  const employers = status?.employers ?? [];
+  const latestSub = (entityId: string) => subs.find((s) => companyOf(s) === entityId);
+  const latestRunOf = (entityId: string) => runs.find((r) => companyOf(r) === entityId);
+  const sent = employers.filter((e) => latestSub(e.entityId)).length;
+  const allSent = sent > 0 && employers.filter((e) => latestSub(e.entityId)).every((e) => latestSub(e.entityId)!.status === 'sent');
+  const ranFor = employers.filter((e) => latestRunOf(e.entityId));
+  const missingEmployer = employers.filter((e) => !e.employerId);
 
   return (
     <div className="payroll">
       <section className="pipeline">
-        <Step n={1} title="People in TeamPay" done={!!status && status.employees.synced === status.employees.total}>
-          <div>{status ? `${status.employees.synced} of ${status.employees.total} set up` : '...'}</div>
+        <Step n={1} title="People in TeamPay" done={!!status && status.employees.synced === status.employees.total && missingEmployer.length === 0}>
+          {employers.length > 1 ? (
+            employers.map((e) => (
+              <div key={e.entityId} className={e.employerId ? '' : 'bad-text'}>
+                {e.name}: {e.employerId ? `${e.employees.synced} of ${e.employees.total}` : 'no TeamPay employer'}
+              </div>
+            ))
+          ) : (
+            <div>{status ? `${status.employees.synced} of ${status.employees.total} set up` : '...'}</div>
+          )}
           <button disabled={busy || !status || status.employees.synced === status.employees.total} onClick={() => step('Sync people', () => api.post('/v1/integrations/payroll/sync-employees'))}>
             Set up in TeamPay
           </button>
@@ -100,16 +127,39 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
             Approve all
           </button>
         </Step>
-        <Step n={4} title="Hours to TeamPay" done={subs[0]?.status === 'sent'}>
-          <div>{subs[0] ? `v${subs[0].version} ${subs[0].status}, ${hours(subs[0].totalHours)}` : 'Not sent'}</div>
-          <button className="primary" disabled={busy || count('approved') === 0 || unapproved > 0} onClick={() => step('Send hours', () => api.post('/v1/payroll/submissions', { weekStart: week }))}>
-            {subs[0] ? 'Resend' : 'Send to TeamPay'}
+        <Step n={4} title="Hours to TeamPay" done={allSent}>
+          {sent === 0 ? (
+            <div>Not sent</div>
+          ) : (
+            employers.map((e) => {
+              const s = latestSub(e.entityId);
+              return s ? <div key={e.entityId}>{employers.length > 1 ? `${e.name}: ` : ''}v{s.version} {s.status}, {hours(s.totalHours)}</div> : null;
+            })
+          )}
+          <button
+            className="primary"
+            disabled={busy || count('approved') === 0 || unapproved > 0 || missingEmployer.length > 0}
+            title={missingEmployer.length ? 'Set a TeamPay employer for every company first' : undefined}
+            onClick={() => step('Send hours', () => api.post('/v1/payroll/submissions', { weekStart: week }))}
+          >
+            {sent ? 'Resend' : 'Send to TeamPay'}
           </button>
         </Step>
-        <Step n={5} title="Pay run back" done={!!latestRun}>
-          <div>{latestRun ? `Variance ${money2(latestRun.variance.variance)} (${pct(latestRun.variance.variancePct, 2)})` : 'Waiting for TeamPay'}</div>
+        <Step n={5} title="Pay run back" done={ranFor.length > 0 && ranFor.length === sent}>
+          {ranFor.length === 0 ? (
+            <div>Waiting for TeamPay</div>
+          ) : (
+            ranFor.map((e) => {
+              const r = latestRunOf(e.entityId)!;
+              return (
+                <div key={e.entityId}>
+                  {employers.length > 1 ? `${e.name}: ` : ''}variance {money2(r.variance.variance)} ({pct(r.variance.variancePct, 2)})
+                </div>
+              );
+            })
+          )}
           {isSimulator && (
-            <button disabled={busy || subs[0]?.status !== 'sent'} onClick={() => step('Run payroll', () => api.post('/v1/dev/teampay/run-payroll', { weekStart: week }))}>
+            <button disabled={busy || !allSent} onClick={() => step('Run payroll', () => api.post('/v1/dev/teampay/run-payroll', { weekStart: week }))}>
               Run payroll (simulator)
             </button>
           )}
@@ -122,6 +172,29 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
         {status && status.outbox.pending > 0 && ` ${status.outbox.pending} change(s) on their way.`}
       </p>
       {message && <div className="notice">{message}</div>}
+      {missingEmployer.length > 0 && (
+        <div className="notice error">
+          <strong>Each company runs its own PAYE scheme, so each needs its own TeamPay employer.</strong> Nothing is sent
+          to TeamPay until every company with hours has one.
+          {missingEmployer.map((e) => (
+            <div key={e.entityId} className="employer-row">
+              <span>{e.name}{e.payeReference ? ` (PAYE ${e.payeReference})` : ''}</span>
+              <input
+                placeholder="TeamPay employer id"
+                value={employerDraft[e.entityId] ?? ''}
+                onChange={(ev) => setEmployerDraft((d) => ({ ...d, [e.entityId]: ev.target.value }))}
+                aria-label={`TeamPay employer for ${e.name}`}
+              />
+              <button
+                disabled={busy || !employerDraft[e.entityId]?.trim()}
+                onClick={() => step(`Set ${e.name}'s employer`, () => api.patch(`/v1/entities/${e.entityId}`, { payrollEmployerId: employerDraft[e.entityId].trim() }))}
+              >
+                Save
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {failed.length > 0 && (
         <div className="notice error">
           <strong>{failed.length} change(s) TeamPay rejected.</strong>
@@ -176,29 +249,35 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
                 <th className="num">Variance</th>
               </tr>
             </thead>
-            <tbody>
-              {!latestRun && (
+            {ranFor.length === 0 && (
+              <tbody>
                 <tr><td colSpan={4} className="muted">Appears when TeamPay completes the pay run for this week.</td></tr>
-              )}
-              {latestRun?.variance.lines.slice(0, 15).map((l) => (
-                <tr key={l.employeeId}>
-                  <td>{name(l.employeeId)}</td>
-                  <td className="num">{money(l.accrued)}</td>
-                  <td className="num">{money(l.actual)}</td>
-                  <td className={`num ${Math.abs(l.variance) > 5 ? 'bad-text' : ''}`}>{money2(l.variance)}</td>
-                </tr>
-              ))}
-            </tbody>
-            {latestRun && (
-              <tfoot>
-                <tr>
-                  <th>Total</th>
-                  <td className="num strong">{money(latestRun.variance.accrued)}</td>
-                  <td className="num strong">{money(latestRun.variance.actual)}</td>
-                  <td className="num strong">{money2(latestRun.variance.variance)}</td>
-                </tr>
-              </tfoot>
+              </tbody>
             )}
+            {ranFor.map((e) => {
+              const r = latestRunOf(e.entityId)!;
+              return (
+                <tbody key={e.entityId}>
+                  {employers.length > 1 && (
+                    <tr className="entity-head"><th colSpan={4}>{e.name}</th></tr>
+                  )}
+                  {r.variance.lines.slice(0, 15).map((l) => (
+                    <tr key={l.employeeId}>
+                      <td>{name(l.employeeId)}</td>
+                      <td className="num">{money(l.accrued)}</td>
+                      <td className="num">{money(l.actual)}</td>
+                      <td className={`num ${Math.abs(l.variance) > 5 ? 'bad-text' : ''}`}>{money2(l.variance)}</td>
+                    </tr>
+                  ))}
+                  <tr className="subtotal">
+                    <td>{employers.length > 1 ? `Total ${e.name}` : 'Total'}</td>
+                    <td className="num strong">{money(r.variance.accrued)}</td>
+                    <td className="num strong">{money(r.variance.actual)}</td>
+                    <td className="num strong">{money2(r.variance.variance)}</td>
+                  </tr>
+                </tbody>
+              );
+            })}
           </table>
         </div>
       </div>

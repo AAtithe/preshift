@@ -94,6 +94,14 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const before = org.state.employees[i];
       const after: Employee = { ...before, ...req.body, id: before.id };
       validateEmployment(org, after);
+      if (before.payrollId && after.entityId !== before.entityId) {
+        throw new HttpError(
+          409,
+          'scheme_transfer',
+          `${before.name} is on ${before.entityId}'s payroll. Moving to another company's PAYE scheme is a leaver there ` +
+            '(with a P45) and a new starter in the other, so mark them as a leaver and add them again under the new company.',
+        );
+      }
       org.state.employees[i] = after;
       if (after.startDate && after.startDate !== before.startDate) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
