@@ -132,6 +132,9 @@ export function describeAgentError(err: unknown): string {
   if (err instanceof Anthropic.AuthenticationError && JSON.stringify(err.error).includes('session_expired')) {
     return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
   }
+  // The public demo says in its own words why the assistant is unavailable there.
+  const demo = err instanceof Anthropic.PermissionDeniedError && (err.error as { error?: { type?: string; message?: string } })?.error;
+  if (demo && demo.type === 'demo' && demo.message) return demo.message;
   if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('not_configured')) {
     return 'The assistant is not set up yet. An admin needs to add the Claude API key under Settings.';
   }
