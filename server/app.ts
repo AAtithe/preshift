@@ -15,6 +15,7 @@ import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
+import { insightRoutes } from './routes/insights';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -34,6 +35,8 @@ export interface BuildOptions {
   loginPage?: string;
   /** The built web app, served at /app/ to signed-in people only. Unset in development, where Vite serves it. */
   appDir?: string;
+  /** Fixes the clock for tests. */
+  now?: () => Date;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -81,6 +84,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
+    now: options.now ?? (() => new Date()),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -176,6 +180,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     employeeRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
+    insightRoutes(api, ctx);
     payrollRoutes(api, ctx);
     devRoutes(api, ctx);
     accessRoutes(api, store);

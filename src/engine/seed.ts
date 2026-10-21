@@ -1,4 +1,4 @@
-import type { DemandRule, Employee, Entity, HourForecast, Role, RotaState, Site } from './types';
+import type { DemandRule, Employee, Entity, HourActual, HourForecast, Role, RotaState, Site } from './types';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -141,6 +141,39 @@ function forecast(start: string): HourForecast[] {
           const hour = Number(h);
           if (hour * 60 < site.openMinute || hour * 60 >= site.closeMinute) continue;
           const sales = Math.round(day * share);
+          const covers = Math.round(sales / AVERAGE_SPEND);
+          rows.push({ siteId: site.id, date, hour, sales, covers, modelSales: sales, modelCovers: covers });
+        }
+      });
+    }
+  }
+  return rows;
+}
+
+/** Repeatable noise in [-1, 1] for a key, so the demo history is the same on every run. */
+function noise(key: string): number {
+  let h = 2166136261;
+  for (const c of key) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return ((Math.abs(h) % 2001) / 1000) - 1;
+}
+
+/**
+ * Twelve weeks of till history up to yesterday: the forecast pattern, a little
+ * busier each week (trade is growing), with day and hour noise either way.
+ */
+function actuals(start: string, today: string): HourActual[] {
+  const rows: HourActual[] = [];
+  for (const site of sites) {
+    for (let w = -12; w <= 0; w++) {
+      weekDates(addDays(start, w * 7)).forEach((date, weekday) => {
+        if (date >= today) return;
+        const growth = 1 + 0.004 * (w + 12);
+        const dayNoise = 1 + 0.08 * noise(`${site.id}${date}`);
+        const day = DAILY[site.id as keyof typeof DAILY][weekday] * growth * dayNoise;
+        for (const [h, share] of Object.entries(CURVE)) {
+          const hour = Number(h);
+          if (hour * 60 < site.openMinute || hour * 60 >= site.closeMinute) continue;
+          const sales = Math.max(0, Math.round(day * share * (1 + 0.12 * noise(`${site.id}${date}${hour}`))));
           rows.push({ siteId: site.id, date, hour, sales, covers: Math.round(sales / AVERAGE_SPEND) });
         }
       });
@@ -160,5 +193,7 @@ export function seedState(today = toISODate(new Date())): RotaState {
     shifts: [],
     forecast: forecast(start),
     demandRules: rules,
+    actuals: actuals(start, today),
+    forecastAdjustments: [],
   };
 }

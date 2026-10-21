@@ -68,3 +68,13 @@ export function taxYearOf(iso: string): string {
 export function taxYearStartDate(taxYear: string): string {
   return `${taxYear.slice(0, 4)}-04-06`;
 }
+
+/** The London calendar date of an instant, so a publish just after midnight in summer time lands on the right day. */
+export function londonDate(isoInstant: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date(isoInstant))
+      .map((x) => [x.type, x.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}

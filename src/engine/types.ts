@@ -158,6 +158,43 @@ export interface HourForecast {
   hour: number; // 0-23
   sales: number; // net of VAT
   covers: number;
+  /**
+   * What the baseline model said, kept when someone overrides it, so each
+   * override can be scored against what actually happened.
+   */
+  modelSales?: number;
+  modelCovers?: number;
+  /** Who last changed the figure away from the model, and why. */
+  overriddenBy?: string;
+  overrideReason?: string;
+}
+
+/** What one trading hour actually took, from the till. The forecast model learns from these. */
+export interface HourActual {
+  siteId: string;
+  date: string;
+  hour: number; // 0-23
+  sales: number; // net of VAT
+  covers: number;
+}
+
+export type AdjustmentReason = 'weather' | 'event' | 'bank_holiday' | 'closure' | 'other';
+
+/**
+ * A known one-off that moves a day's trade: a heatwave, a match at the stadium
+ * down the road, a closure. Applied to the model as a multiplier on the day, or
+ * on a span of hours when only part of the day is affected.
+ */
+export interface ForecastAdjustment {
+  id: string;
+  siteId: string;
+  date: string;
+  /** 1.15 is fifteen per cent busier, 0 is closed. */
+  factor: number;
+  reason: AdjustmentReason;
+  note?: string;
+  fromHour?: number;
+  toHour?: number;
 }
 
 /** How a role's demand is driven by the forecast. */
@@ -204,4 +241,7 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  /** Till actuals by hour. Absent on organisations saved before forecasting learnt from history. */
+  actuals?: HourActual[];
+  forecastAdjustments?: ForecastAdjustment[];
 }

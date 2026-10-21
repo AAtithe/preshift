@@ -5,6 +5,8 @@ export interface Me {
   email: string;
   orgId: string;
   role: 'admin' | 'member';
+  /** The Williams, Stanley & Co. lead on the labour programme. */
+  lead?: boolean;
 }
 
 interface Person {

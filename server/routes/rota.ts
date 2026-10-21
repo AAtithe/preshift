@@ -61,7 +61,7 @@ function shiftIssues(org: OrgData, shift: Shift) {
   return checkEmployeeWeek(employee, ws, context);
 }
 
-export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
+export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
 
@@ -198,11 +198,22 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     if (blocks.length) throw new HttpError(409, 'compliance_block', 'Resolve blocking issues before publishing', blocks);
     const dates = weekDates(ws);
     let published = 0;
+    const sitesPublished = new Set<string>();
     for (const s of org.state.shifts) {
       if (siteIds.includes(s.siteId) && dates.includes(s.date)) {
         s.published = true;
         published++;
+        sitesPublished.add(s.siteId);
       }
+    }
+    // Kept per site so the scorecard can measure how much notice staff were given. Only sites with shifts
+    // count, or an empty week published early would score as on time. The first and the latest are enough.
+    const publishedAt = ctx.now().toISOString();
+    for (const siteId of sitesPublished) {
+      const earlier = org.publications.filter((p) => p.siteId === siteId && p.weekStart === ws).sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+      const keep = new Set(earlier.slice(0, 1));
+      org.publications = org.publications.filter((p) => !(p.siteId === siteId && p.weekStart === ws) || keep.has(p));
+      org.publications.push({ siteId, weekStart: ws, publishedAt, by: req.principal.name });
     }
     audit(org, req.principal.name, 'rota.published', { siteIds, weekStart: ws, published });
     return { published };
@@ -216,7 +227,17 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
   app.put<{ Body: { rows: HourForecast[] } }>('/v1/forecast', { ...write, schema: { tags: ['Forecast'], body: forecastBody } }, async (req) => {
     const org = orgOf(req);
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
-    const incoming = new Map(req.body.rows.map((r) => [key(r), r]));
+    const existing = new Map(org.state.forecast.map((f) => [key(f), f]));
+    // A feed replaces the figures but keeps the model's underneath, so a change is still scored as an override.
+    const incoming = new Map(
+      req.body.rows.map((r) => {
+        const { siteId, date, hour, sales, covers } = r;
+        const prior = existing.get(key(r));
+        if (prior?.modelSales === undefined) return [key(r), { siteId, date, hour, sales, covers }];
+        const changed = sales !== prior.modelSales || covers !== prior.modelCovers;
+        return [key(r), { siteId, date, hour, sales, covers, modelSales: prior.modelSales, modelCovers: prior.modelCovers, ...(changed ? { overriddenBy: req.principal.name } : {}) }];
+      }),
+    );
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];
     audit(org, req.principal.name, 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };

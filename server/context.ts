@@ -15,6 +15,8 @@ export interface AppContext {
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
+  /** The clock, so tests can fix today. */
+  now: () => Date;
 }
 
 declare module 'fastify' {
@@ -41,6 +43,9 @@ export class HttpError extends Error {
 }
 
 export const notFound = (what: string) => new HttpError(404, 'not_found', `${what} not found`);
+
+/** Today's date in London. */
+export const londonToday = (ctx: AppContext) => londonParts(ctx.now()).date;
 
 /** Local date and minute in London for an instant: clocking is always UK wall-clock time. */
 export function londonParts(at: Date): { date: string; minute: number } {

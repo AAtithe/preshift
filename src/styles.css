@@ -292,3 +292,33 @@ button.link.danger { color: var(--bad); }
 .nowrap { white-space: nowrap; }
 .employer-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .employer-row span { min-width: 220px; }
+
+.coach { display: grid; gap: 12px; }
+.coach-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.coach-head > div:first-child { max-width: 760px; }
+.coach-total { text-align: right; }
+.moves { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; counter-reset: move; }
+.move { display: flex; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); flex-wrap: wrap; }
+.move-body { flex: 1; min-width: 260px; display: grid; gap: 4px; }
+.move-title { font-weight: 600; }
+.move-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.move-decline { margin-top: 6px; }
+.ladder { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ladder li { display: flex; gap: 8px; align-items: flex-start; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.ladder li.met { border-color: var(--good); }
+.ladder li.met .step-n { background: var(--good-bg); color: var(--good); }
+.ladder li.next { border-color: var(--warn); }
+.coach-next { margin: 8px 0 0; }
+.adjustments { margin: 10px 0 0; padding-left: 18px; font-size: 13px; }
+.phase { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
+.phase.current h3 { color: var(--accent); }
+.phase h3 { margin: 0; font-size: 14px; }
+.milestones { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.milestones li { display: flex; gap: 8px; align-items: flex-start; }
+.milestones li > div { flex: 1; }
+.milestones li.done .step-n { background: var(--good-bg); color: var(--good); }
+.programme-start { margin-top: 12px; }
+.tag.verified { background: var(--good-bg); color: var(--good); }
+.settings-card .settings-form + .settings-form { margin-top: 10px; }
+@media (max-width: 900px) { .ladder { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .ladder { grid-template-columns: 1fr; } .coach-total { text-align: left; } }

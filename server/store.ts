@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { seedState } from '../src/engine/seed';
+import type { MoveRecord } from '../src/engine/coach';
+import type { Programme } from '../src/engine/programme';
+import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
@@ -50,8 +53,23 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  /** Every weekly move offered to a GM, and whether it was taken. */
+  moves: MoveRecord[];
+  /** When each site's week was published, for measuring notice. */
+  publications: Publication[];
+  /** The labour programme each site is on, if any. */
+  programmes: Programme[];
+  settings: OrgSettings;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
+}
+
+export interface OrgSettings {
+  /**
+   * Shares this organisation's site figures, anonymised, with other operators who also share, and
+   * in return sees the cohort's. Off until an admin turns it on: give to get.
+   */
+  benchmarking?: boolean;
 }
 
 export type UserRole = 'admin' | 'member';
@@ -69,6 +87,8 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
+  /** Williams, Stanley & Co.'s lead on the labour programme: signs off milestones and savings. Set only by a WS key. */
+  lead?: boolean;
 }
 
 /**
@@ -106,13 +126,17 @@ const newSecret = () => randomBytes(32).toString('hex');
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
-    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], actuals: [], forecastAdjustments: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
     outbox: [],
     processedWebhookIds: new Set(),
     audit: [],
+    moves: [],
+    publications: [],
+    programmes: [],
+    settings: {},
   };
 }
 
@@ -133,7 +157,7 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees };
+  return { ...state, entities, sites, employees, actuals: state.actuals ?? [], forecastAdjustments: state.forecastAdjustments ?? [] };
 }
 
 export class MemoryStore implements Store {
@@ -386,7 +410,17 @@ function serialise(org: OrgData): string {
 
 function deserialise(data: unknown, version: number): OrgData {
   const raw = (typeof data === 'string' ? JSON.parse(data) : data) as Omit<OrgData, 'processedWebhookIds'> & { processedWebhookIds: string[] };
-  return { ...raw, state: upgradeState(raw.state), processedWebhookIds: new Set(raw.processedWebhookIds), version };
+  return {
+    ...raw,
+    state: upgradeState(raw.state),
+    processedWebhookIds: new Set(raw.processedWebhookIds),
+    // Organisations saved before coaching and the programme existed.
+    moves: raw.moves ?? [],
+    publications: raw.publications ?? [],
+    programmes: raw.programmes ?? [],
+    settings: raw.settings ?? {},
+    version,
+  };
 }
 
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {

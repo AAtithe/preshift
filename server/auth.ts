@@ -2,7 +2,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { cookieFrom, readSession } from './session';
 import type { UserRecord, UserStore } from './store';
 
-export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | '*';
+/** `programme:lead` is never implied by `*`: it belongs to Williams, Stanley & Co. alone. */
+export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'programme:lead' | '*';
 
 export interface ApiKey {
   key: string;
@@ -10,7 +11,7 @@ export interface ApiKey {
   name: string;
   scopes: Scope[];
   /** Set when the caller is a signed-in person rather than an integration key. */
-  user?: { email: string; role: UserRecord['role'] };
+  user?: { email: string; role: UserRecord['role']; lead?: boolean };
 }
 
 declare module 'fastify' {
@@ -65,7 +66,7 @@ export function authenticate(keys: ApiKey[], users: UserStore) {
       orgId: user.orgId,
       name: user.email,
       scopes: ['*'],
-      user: { email: user.email, role: user.role },
+      user: { email: user.email, role: user.role, lead: user.lead === true },
     };
   };
 }

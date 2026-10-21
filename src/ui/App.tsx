@@ -7,13 +7,16 @@ import { newEmployee } from '../engine/employees';
 import type { Employee, Shift } from '../engine/types';
 import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
+import { CoachView } from './CoachView';
 import { DemandView } from './DemandView';
+import { ForecastView } from './ForecastView';
 import { GroupView } from './GroupView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
+import { ProgrammeView } from './ProgrammeView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
@@ -23,23 +26,27 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'settings';
+type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'programme' | 'settings';
 
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
+  { id: 'coach', label: 'Coach' },
+  { id: 'forecast', label: 'Forecast' },
   { id: 'clock', label: 'Clock in' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
   { id: 'people', label: 'People' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
+  { id: 'programme', label: 'Programme' },
   { id: 'settings', label: 'Settings' },
 ];
 const GROUP_TABS: { id: Tab; label: string }[] = [
   { id: 'sites', label: 'Sites' },
   { id: 'team', label: 'Team' },
   { id: 'close', label: 'Close' },
+  { id: 'programme', label: 'Programme' },
   { id: 'settings', label: 'Settings' },
 ];
 const ALL = '';
@@ -209,6 +216,9 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             onEdit={setEditing}
           />
         )}
+        {activeTab === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+        {activeTab === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
+        {activeTab === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={me} onOpenSite={chooseSite} />}
         {activeTab === 'clock' && single && (
           <ClockView
             state={state}

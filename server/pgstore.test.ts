@@ -103,3 +103,42 @@ describe('Postgres store', () => {
     expect(storeFromEnv({ PRESHIFT_DATABASE_URL: url })).toBeInstanceOf(PgStore);
   });
 });
+
+describe('Postgres store: coaching and programme data', () => {
+  it('keeps moves, publications, programmes and settings across a cold start, and defaults them on old rows', async () => {
+    const query = pglite();
+    const keys = [...KEYS, { key: 'ws', orgId: 'demo', name: 'WS lead', scopes: ['rota:read' as const, 'rota:write' as const, 'programme:lead' as const] }];
+    const boot2 = async () => {
+      const { app } = await buildApp({ apiKeys: keys, store: new PgStore(query, ['demo'], '2026-10-21'), provider: new TeamPaySimulator(), now: () => new Date('2026-10-21T10:00:00Z') });
+      return async (method: string, url: string, body?: unknown, key = 'admin') => {
+        const res = await app.inject({ method: method as 'GET', url, headers: { authorization: `Bearer ${key}`, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+        return { status: res.statusCode, body: res.body ? res.json() : undefined };
+      };
+    };
+    const first = await boot2();
+    await first('POST', '/v1/rota/build', { siteId: 'mar', weekStart: '2026-10-26' });
+    await first('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: '2026-10-26' });
+    await first('POST', '/v1/coach/moves', { siteId: 'mar', weekStart: '2026-10-26' });
+    await first('PUT', '/v1/programmes/mar', { startWeek: '2026-10-05' }, 'ws');
+    await first('PUT', '/v1/settings/benchmarking', { benchmarking: true });
+
+    const second = await boot2();
+    expect((await second('GET', '/v1/coach/history?siteId=mar')).body.length).toBeGreaterThan(0);
+    expect((await second('GET', '/v1/programmes')).body[0].programme.startWeek).toBe('2026-10-05');
+    expect((await second('GET', '/v1/benchmarks')).body.optedIn).toBe(true);
+    const card = (await second('GET', '/v1/scorecard?siteId=mar&weeks=1')).body;
+    expect(card.weeks).toHaveLength(1);
+
+    // A row saved before these fields existed loads with empty defaults.
+    const rows = await query('select data from preshift.orgs where org_id = $1', ['demo']);
+    const data = typeof rows[0].data === 'string' ? JSON.parse(rows[0].data as string) : (rows[0].data as Record<string, unknown>);
+    delete data.moves;
+    delete data.publications;
+    delete data.programmes;
+    delete data.settings;
+    await query('update preshift.orgs set data = $2 where org_id = $1', ['demo', JSON.stringify(data)]);
+    const third = await boot2();
+    expect((await third('GET', '/v1/programmes')).body).toEqual([]);
+    expect((await third('GET', '/v1/benchmarks')).body.optedIn).toBe(false);
+  });
+});

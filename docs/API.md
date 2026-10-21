@@ -31,7 +31,10 @@ People in the web app authenticate with the session cookie from signing in; acco
 in the app under Settings (see the README). A signed-in person works across their own organisation,
 and only admins can manage people (`/v1/users`) and settings (`/v1/settings`); integration keys never
 can. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
+`time:write`, `time:approve`, `payroll:write`, `programme:lead`, or `*`. `programme:lead` is
+never implied by `*`: it is held by Williams, Stanley & Co. alone, because programme sign-offs,
+baselines, verifications and the gain share set the fee an operator pays. A key with it can also
+name a signed-in person as the WS lead (`PUT /v1/programme-leads/:email`). A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -43,7 +46,11 @@ confined to its key's organisation.
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
-| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
+| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=` |
+| Till actuals | `GET/PUT /v1/actuals` (hourly sales and covers as traded: what the model learns from and accuracy is measured against) |
+| Coach | `POST /v1/coach/moves` (works out and records this week's moves), `POST /v1/coach/apply` (takes a move exactly as offered; refuses a stale one or one that now breaks a rule), `POST /v1/coach/dismiss` (with the reason), `GET /v1/coach/history` (with the saving each taken move actually realised), `GET /v1/scorecard?siteId=&weeks=` |
+| Programme | `GET /v1/programmes`, `PUT /v1/programmes/:siteId`, `PUT /v1/programmes/:siteId/baseline`, `POST /v1/programmes/:siteId/signoffs`, `DELETE /v1/programmes/:siteId/signoffs/:milestoneId`, `POST /v1/programmes/:siteId/verifications` (all writes need `programme:lead`) |
+| Benchmarks | `PUT /v1/settings/benchmarking` (the operator's admin opts in), `GET /v1/benchmarks` (quartiles from other opted-in operators only) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve`, `GET /compare` |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. Card taps are not location checked, as the reader is fixed on site. |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |

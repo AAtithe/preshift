@@ -88,7 +88,7 @@ export function signInRoutes(app: FastifyInstance, store: Store) {
   app.get('/auth/me', hidden, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
-    return { email: user.email, orgId: user.orgId, role: user.role };
+    return { email: user.email, orgId: user.orgId, role: user.role, lead: user.lead === true };
   });
 
   // Anyone signed in can change their own password; every other session of theirs ends.
