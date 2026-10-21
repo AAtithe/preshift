@@ -1,5 +1,6 @@
 import { DUMMY_HASH, hashPassword, newPasswordProblem, verifyPassword } from './password.js';
 import { readCookie } from './session.js';
+import { appUrl } from './urls.js';
 
 describe('password hashing', () => {
   it('verifies the right password and rejects the wrong one', async () => {
@@ -37,5 +38,24 @@ describe('newPasswordProblem', () => {
     expect(newPasswordProblem('aaaaaaaaaaaaaaaa', email)).toMatch(/mix/);
     expect(newPasswordProblem('t.stanley-2026!!', email)).toMatch(/email/);
     expect(newPasswordProblem('MyPreshiftLogin1', email)).toMatch(/firm/);
+  });
+});
+
+describe('appUrl', () => {
+  const original = process.env.APP_URL;
+  afterEach(() => {
+    if (original === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = original;
+  });
+
+  it('uses APP_URL whatever host the request claims', () => {
+    process.env.APP_URL = 'https://rota.example.co.uk/';
+    expect(appUrl(new Request('https://evil.test/api/auth/forgot'), '/app/reset')).toBe('https://rota.example.co.uk/app/reset');
+  });
+
+  it('falls back to the request only on localhost', () => {
+    delete process.env.APP_URL;
+    expect(appUrl(new Request('http://localhost:5173/api/auth/forgot'), '/app/reset')).toBe('http://localhost:5173/app/reset');
+    expect(appUrl(new Request('https://evil.test/api/auth/forgot'), '/app/reset')).toBeNull();
   });
 });

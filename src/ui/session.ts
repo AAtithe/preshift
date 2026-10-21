@@ -40,6 +40,10 @@ export async function getMe(): Promise<User | null> {
 export const login = (email: string, password: string) => call<{ ok: true }>('POST', 'auth/login', { email, password });
 export const changePassword = (currentPassword: string, newPassword: string) =>
   call<{ ok: true }>('POST', 'auth/password', { currentPassword, newPassword });
+export const requestReset = (email: string) => call<{ ok: true; message: string }>('POST', 'auth/forgot', { email });
+export const checkReset = (token: string) => call<{ ok: true; email: string }>('POST', 'auth/reset', { token });
+export const resetPassword = (token: string, newPassword: string) =>
+  call<{ ok: true }>('POST', 'auth/reset', { token, newPassword });
 export const logout = () => call<{ ok: true }>('POST', 'auth/logout');
 export const loadRota = () => call<{ state: RotaState | null; version: number }>('GET', 'state');
 export const saveRota = (state: RotaState, version: number) => call<{ version: number }>('PUT', 'state', { state, version });

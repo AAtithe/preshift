@@ -54,6 +54,13 @@ the session cookie. The login screen in the browser is a convenience, not the se
    ```
 
    The password is prompted for, minimum 12 characters. Users on the same account share one rota.
+4. For password reset emails, set `APP_URL`, `RESEND_API_KEY` and `MAIL_FROM` (see `.env.example`).
+   Until then, or if an email does not arrive, an admin can issue a single-use link valid for 24
+   hours and hand it over by phone or in person:
+
+   ```bash
+   npm run user:reset-link -- --email jane@site.co.uk
+   ```
 
 ### How the login works
 
@@ -66,6 +73,10 @@ the session cookie. The login screen in the browser is a convenience, not the se
   current passwords on the change password screen count towards the same limit.
 - Passwords set with `user:create` are flagged, and the user must choose their own on first
   sign-in. The API refuses rota data until they do.
+- "Forgot password?" on the sign-in screen emails a single-use link that expires in 30 minutes.
+  The reply is the same whether or not the email has an account, at most three emails go to one
+  account an hour, and the token travels in the URL fragment so it never reaches server logs or a
+  Referer header. Using the link signs out every device, clears any lockout and signs the user in.
 - "Password" in the top bar changes it at any time. New passwords need 12 or more characters and
   cannot contain the email name or words tied to the app or the firm. Changing a password signs
   out every other device.

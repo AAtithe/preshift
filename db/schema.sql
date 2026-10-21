@@ -38,6 +38,16 @@ create table if not exists preshift.sessions (
 );
 create index if not exists sessions_user_idx on preshift.sessions(user_id);
 
+-- Single-use reset links. As with sessions, only the SHA-256 of the token is stored.
+create table if not exists preshift.password_resets (
+  id          text primary key,
+  user_id     uuid not null references preshift.users(id) on delete cascade,
+  expires_at  timestamptz not null,
+  used_at     timestamptz,
+  created_at  timestamptz not null default now()
+);
+create index if not exists password_resets_user_idx on preshift.password_resets(user_id, created_at);
+
 -- Failed attempts drive the lockout in api/auth/login.ts.
 create table if not exists preshift.login_attempts (
   email   text not null,

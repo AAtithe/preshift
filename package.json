@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "build:vercel": "tsc -p tsconfig.json && vite build --base=/app/ --outDir dist/app && cp -r site/index.html site/styles.css site/main.js site/img dist/",
     "db:migrate": "node scripts/db.mjs migrate",
-    "user:create": "node scripts/db.mjs create-user"
+    "user:create": "node scripts/db.mjs create-user",
+    "user:reset-link": "node scripts/db.mjs reset-link"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

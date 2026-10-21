@@ -4,6 +4,7 @@ import type { RotaState } from '../engine/types';
 import { App, type SaveStatus } from './App';
 import { ChangePassword } from './ChangePassword';
 import { Login } from './Login';
+import { ResetPassword } from './ResetPassword';
 import { Setup } from './Setup';
 import { ApiError, getMe, loadRota, logout, saveRota, type User } from './session';
 
@@ -17,9 +18,23 @@ type Phase =
 
 const SAVE_DELAY_MS = 800;
 
+// A reset link carries its token in the fragment. Read it once, then drop it from the address bar
+// so it does not sit in history or get copied into a screenshot.
+function takeResetToken(): string | null {
+  if (!window.location.pathname.endsWith('/reset')) return null;
+  const token = new URLSearchParams(window.location.hash.slice(1)).get('token');
+  history.replaceState(null, '', window.location.pathname);
+  return token;
+}
+
+// Module scope, not a state initialiser: React may run initialisers twice, and the first run
+// has already cleared the fragment.
+const initialResetToken = takeResetToken();
+
 // The signed-in product. Every read and write goes through the API, which checks the session
 // cookie, so the client-side gate here is for the user's benefit, not the security boundary.
 export function LiveApp() {
+  const [resetToken, setResetToken] = useState(initialResetToken);
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
 
   const start = useCallback(async () => {
@@ -35,7 +50,21 @@ export function LiveApp() {
     }
   }, []);
 
-  useEffect(() => void start(), [start]);
+  useEffect(() => {
+    if (!resetToken) void start();
+  }, [start, resetToken]);
+
+  if (resetToken || window.location.pathname.endsWith('/reset')) {
+    return (
+      <ResetPassword
+        token={resetToken ?? ''}
+        onDone={() => {
+          history.replaceState(null, '', window.location.pathname.replace(/reset$/, ''));
+          setResetToken(null);
+        }}
+      />
+    );
+  }
 
   if (phase.kind === 'loading') return <div className="login"><p className="muted">Loading</p></div>;
   if (phase.kind === 'signedOut') return <Login onSignedIn={start} />;

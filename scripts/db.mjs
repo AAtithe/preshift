@@ -2,6 +2,7 @@
 //
 //   npm run db:migrate
 //   npm run user:create -- --email jane@site.co.uk --name "Jane Smith" --account "Marylebone Group" [--admin]
+//   npm run user:reset-link -- --email jane@site.co.uk
 //
 // There is no public sign-up: accounts are provisioned here, deliberately, while we onboard
 // founding sites by hand. The password is prompted for, never passed on the command line, and the
@@ -11,6 +12,7 @@ import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { neon } from '@neondatabase/serverless';
 import { hashPassword, MIN_PASSWORD_LENGTH, newPasswordProblem } from '../api/_lib/password.ts';
+import { createHash, randomBytes } from 'node:crypto';
 
 if (!process.env.DATABASE_URL && existsSync('.env.local')) process.loadEnvFile('.env.local');
 if (!process.env.DATABASE_URL) {
@@ -54,7 +56,25 @@ if (command === 'migrate') {
     insert into preshift.users (account_id, email, name, password_hash, role, must_change_password)
     values (${accountId}, ${email}, ${values.name}, ${await hashPassword(password)}, ${role}, true)`;
   console.log(`Created ${role} ${email} on account "${values.account}".`);
+} else if (command === 'reset-link') {
+  // For when someone is locked out and email is not set up, or the email has not arrived. Hand the
+  // link over by phone or in person, not by an unencrypted channel: it is as good as the password.
+  const { values } = parseArgs({ args: rest, options: { email: { type: 'string' }, base: { type: 'string' } } });
+  const base = (values.base ?? process.env.APP_URL ?? '').replace(/\/+$/, '');
+  if (!values.email || !base) {
+    console.error('Usage: npm run user:reset-link -- --email <email> [--base https://your-domain] (or set APP_URL)');
+    process.exit(1);
+  }
+  const [user] = await sql`select id from preshift.users where email = ${values.email.trim().toLowerCase()}`;
+  if (!user) {
+    console.error(`No user with email ${values.email}.`);
+    process.exit(1);
+  }
+  const token = randomBytes(32).toString('base64url');
+  const id = createHash('sha256').update(token).digest('hex');
+  await sql`insert into preshift.password_resets (id, user_id, expires_at) values (${id}, ${user.id}, now() + interval '24 hours')`;
+  console.log(`Single-use reset link, valid for 24 hours:\n${base}/app/reset#token=${token}`);
 } else {
-  console.error('Commands: migrate, create-user');
+  console.error('Commands: migrate, create-user, reset-link');
   process.exit(1);
 }

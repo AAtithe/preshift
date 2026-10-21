@@ -3,6 +3,21 @@ import { changePassword, type User } from './session';
 
 const MIN = 12;
 
+export const passwordReady = (next: string, confirm: string, current?: string) =>
+  next.length >= MIN && next === confirm && (current === undefined || next !== current);
+
+export function PasswordRules({ next, confirm, current }: { next: string; confirm: string; current?: string }) {
+  return (
+    <ul className="pw-rules">
+      <li className={next.length >= MIN ? 'ok' : ''}>At least {MIN} characters. Three or four unrelated words is easiest to remember.</li>
+      <li className={next.length > 0 && next === confirm ? 'ok' : ''}>Both new password boxes match</li>
+      {current !== undefined && (
+        <li className={next.length > 0 && next !== current ? 'ok' : ''}>Different from the current password</li>
+      )}
+    </ul>
+  );
+}
+
 interface Props {
   user: User;
   /** True when an admin set the password and the user must replace it before going on. */
@@ -20,13 +35,11 @@ export function ChangePassword({ user, forced, onDone, onCancel }: Props) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
-  const longEnough = next.length >= MIN;
-  const matches = next.length > 0 && next === confirm;
-  const different = next.length > 0 && next !== current;
+  const ready = passwordReady(next, confirm, current);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!longEnough || !matches || !different) return;
+    if (!ready) return;
     setBusy(true);
     setError(null);
     try {
@@ -71,14 +84,10 @@ export function ChangePassword({ user, forced, onDone, onCancel }: Props) {
       <label className="check">
         <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Show passwords
       </label>
-      <ul className="pw-rules">
-        <li className={longEnough ? 'ok' : ''}>At least {MIN} characters. Three or four unrelated words is easiest to remember.</li>
-        <li className={matches ? 'ok' : ''}>Both new password boxes match</li>
-        <li className={different ? 'ok' : ''}>Different from the current password</li>
-      </ul>
+      <PasswordRules next={next} confirm={confirm} current={current} />
       {error && <p className="login-error" role="alert">{error}</p>}
       <div className="row-actions">
-        <button type="submit" className="primary" disabled={busy || !longEnough || !matches || !different}>
+        <button type="submit" className="primary" disabled={busy || !ready}>
           {busy ? 'Saving' : 'Change password'}
         </button>
         {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}

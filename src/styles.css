@@ -259,3 +259,6 @@ button.link.danger { color: var(--bad); }
 .pw-rules li.ok { color: var(--good); }
 .pw-rules li.ok::before { content: '\25CF'; }
 .modal-backdrop .login-card { max-width: 400px; }
+.label-row { display: flex; justify-content: space-between; align-items: baseline; }
+.label-row .link { font-size: 12px; padding: 0; }
+.button-link { display: inline-block; text-align: center; padding: 9px 12px; border-radius: 6px; background: var(--accent); color: var(--accent-text); text-decoration: none; }
