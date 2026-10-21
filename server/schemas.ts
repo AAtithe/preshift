@@ -94,6 +94,34 @@ export const employeeBody = {
   },
 } as const;
 
+export const salesBody = {
+  type: 'object',
+  required: ['rows'],
+  properties: {
+    rows: {
+      type: 'array',
+      maxItems: 5000,
+      items: {
+        type: 'object',
+        required: ['siteId', 'date', 'netSales'],
+        properties: {
+          siteId: { type: 'string' },
+          date: isoDate,
+          netSales: { type: 'number', minimum: 0 },
+          covers: { type: 'number', minimum: 0 },
+          source: { type: 'string', enum: ['till', 'manual', 'import'] },
+        },
+      },
+    },
+  },
+} as const;
+
+export const siteDateQuery = {
+  type: 'object',
+  required: ['siteId', 'date'],
+  properties: { siteId: { type: 'string' }, date: isoDate },
+} as const;
+
 export const forecastBody = {
   type: 'object',
   required: ['rows'],

@@ -28,7 +28,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | GMs | Redesigned rota in WS colours: a service timeline drawn over each day's sales curve, drag to move or resize shifts, draw a shift on empty space, borrow cover from sister sites, and a rota P&L beside every screen. | Every edit shows its cost and legality as it is made, so the GM sees labour % move before they commit, not after. |
 | People | HR file per person, holiday entitlement balances per leave year, and a break check on finished shifts. | The records an employment tribunal or HMRC would ask for are kept where the rota is made. |
 | Admin | GDPR request log for staff data, an Integrations page showing every connection's health, and a public demo with a private sandbox per visitor. | Compliance and prospects are handled in the product, not in spreadsheets and screen shares. |
-| Everyone | CI typechecks and runs the full suite (218 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (235 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -52,6 +52,7 @@ accrual. If any step needs an explanation, that is the next thing to fix.
 | Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
 | Payroll per PAYE scheme | Each company has its own TeamPay employer. Starters, leavers and approved hours go to the scheme of the company that employs the person, wherever they worked; hours go as one batch per company, and each pay run comes back to its company and is reconciled against that company's accrual only. Nothing is sent until every company with hours has an employer, and moving a synced person between schemes is refused because it is a leaver and a starter. | `server/payrollEmployers.ts`, `server/routes/payroll.ts`, `server/outbox.ts` |
 | Employment Allowance | One claim per connected group, set on the claiming entity with what the last payroll left unused. Used against that entity's employer NI week by week until it runs out, as payroll applies it, and posted to its books only (Cr employer NI, Dr wages accrual) split across its sites. Resets each tax year. Site labour % stays before the allowance. | `src/engine/allowance.ts`, `src/engine/journal.ts` |
+| Reports | Labour trend over 4, 8 or 13 weeks on actual takings, with the target flexed to what each week took, labour from clocked time where a site clocks and the rota where it does not, and weeks over target counted by site. Cost by role: loaded labour by department and role with every on-cost, tying to the KPI bar and each wages nominal in the journal. Rota vs actual: the planned week against the latest estimate (clocked time for days worked, the rota for days left), per person hours and cost variance, shifts not clocked and unrostered clocking. Takings: net sales by site and day from a till feed (`PUT /v1/sales`), keyed in, or imported from the till's CSV export. Payroll accuracy: every pay run's accrual against what payroll cost, runs inside 1%, average miss, reruns replacing earlier runs, and people who miss the same way run after run. Every report exports to CSV and works for a site, an entity or the group. | `src/engine/reports.ts`, `src/ui/ReportsView.tsx`, `src/ui/TakingsEntry.tsx`, `src/ui/PayrollAccuracy.tsx` |
 | Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
@@ -174,14 +175,14 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 218 tests across 21 files (engine, travel, HR, GDPR, UI rules, assistant, API, access, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
+| Quality | 235 tests across 22 files (engine, travel, reports, HR, GDPR, UI rules, assistant, API, access, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (218 across 21 files)
+npm test         # engine, UI rules and API tests (235 across 22 files)
 npm run build    # typecheck and production build
 ```
 
