@@ -10,6 +10,7 @@ export interface SessionUser {
   name: string;
   accountId: string;
   accountName: string;
+  role: 'admin' | 'manager';
 }
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -46,12 +47,12 @@ export async function currentUser(request: Request): Promise<SessionUser | null>
   const token = readCookie(request, COOKIE);
   if (!token) return null;
   const rows = (await sql()`
-    select u.id, u.email, u.name, a.id as account_id, a.name as account_name
+    select u.id, u.email, u.name, u.role, a.id as account_id, a.name as account_name
     from preshift.sessions s
     join preshift.users u on u.id = s.user_id
     join preshift.accounts a on a.id = u.account_id
     where s.id = ${hashToken(token)} and s.expires_at > now()`) as Record<string, string>[];
   const row = rows[0];
   if (!row) return null;
-  return { id: row.id, email: row.email, name: row.name, accountId: row.account_id, accountName: row.account_name };
+  return { id: row.id, email: row.email, name: row.name, accountId: row.account_id, accountName: row.account_name, role: row.role as SessionUser['role'] };
 }

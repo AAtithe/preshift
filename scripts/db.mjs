@@ -1,7 +1,7 @@
 // Database admin for Preshift Rota. Reads DATABASE_URL from the environment or .env.local.
 //
 //   npm run db:migrate
-//   npm run user:create -- --email jane@site.co.uk --name "Jane Smith" --account "Marylebone Group"
+//   npm run user:create -- --email jane@site.co.uk --name "Jane Smith" --account "Marylebone Group" [--admin]
 //
 // There is no public sign-up: accounts are provisioned here, deliberately, while we onboard
 // founding sites by hand. The password is prompted for, never passed on the command line.
@@ -31,10 +31,10 @@ if (command === 'migrate') {
 } else if (command === 'create-user') {
   const { values } = parseArgs({
     args: rest,
-    options: { email: { type: 'string' }, name: { type: 'string' }, account: { type: 'string' } },
+    options: { email: { type: 'string' }, name: { type: 'string' }, account: { type: 'string' }, admin: { type: 'boolean' } },
   });
   if (!values.email || !values.name || !values.account) {
-    console.error('Usage: npm run user:create -- --email <email> --name <name> --account <account name>');
+    console.error('Usage: npm run user:create -- --email <email> --name <name> --account <account name> [--admin]');
     process.exit(1);
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -47,10 +47,11 @@ if (command === 'migrate') {
   const email = values.email.trim().toLowerCase();
   const existing = await sql`select id from preshift.accounts where name = ${values.account}`;
   const accountId = existing[0]?.id ?? (await sql`insert into preshift.accounts (name) values (${values.account}) returning id`)[0].id;
+  const role = values.admin ? 'admin' : 'manager';
   await sql`
-    insert into preshift.users (account_id, email, name, password_hash)
-    values (${accountId}, ${email}, ${values.name}, ${await hashPassword(password)})`;
-  console.log(`Created ${email} on account "${values.account}".`);
+    insert into preshift.users (account_id, email, name, password_hash, role)
+    values (${accountId}, ${email}, ${values.name}, ${await hashPassword(password)}, ${role})`;
+  console.log(`Created ${role} ${email} on account "${values.account}".`);
 } else {
   console.error('Commands: migrate, create-user');
   process.exit(1);

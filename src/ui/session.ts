@@ -6,6 +6,7 @@ export interface User {
   name: string;
   accountId: string;
   accountName: string;
+  role: 'admin' | 'manager';
 }
 
 export class ApiError extends Error {

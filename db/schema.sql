@@ -21,6 +21,11 @@ create table if not exists preshift.users (
   last_login_at  timestamptz
 );
 
+-- admin is recorded now so admin-only screens (user management, set-up for other accounts) can
+-- be gated on it when they are built. Today it grants nothing extra.
+alter table preshift.users add column if not exists role text not null default 'manager'
+  check (role in ('admin', 'manager'));
+
 -- Only a SHA-256 of the session token is stored, so a database leak does not leak live sessions.
 create table if not exists preshift.sessions (
   id          text primary key,
