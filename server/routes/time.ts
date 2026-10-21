@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { rosterVsActual } from '../../src/engine/timesheet';
 import { weekDates } from '../../src/engine/time';
+import { breakShortfalls } from '../../src/engine/breaks';
 import { checkFence } from '../../src/engine/clocking';
 import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -249,18 +250,42 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
       const now = new Date().toISOString();
-      let approved = 0;
+      const done: TimeEntry[] = [];
       for (const t of org.timeEntries) {
         if (t.status === 'submitted' && match(t)) {
           t.status = 'approved';
           t.approvedBy = req.principal.name;
           t.approvedAt = now;
-          approved++;
+          done.push(t);
         }
       }
       const stillOpen = org.timeEntries.filter((t) => t.status === 'open' && match(t)).length;
-      audit(org, req.principal.name, 'time.approved', { approved });
-      return { approved, stillOpen };
+      // Approving is never blocked: the hours were worked and are owed. The shortfall is recorded with the approval.
+      const short = breakShortfalls(done, org.state.employees);
+      audit(org, req.principal.name, 'time.approved', {
+        approved: done.length,
+        ...(short.length ? { belowBreakMinimum: short.map((b) => b.entryId) } : {}),
+      });
+      return { approved: done.length, stillOpen, belowBreakMinimum: short.length };
+    },
+  );
+
+  app.get<{ Querystring: Range }>(
+    '/v1/time-entries/break-check',
+    {
+      ...read,
+      schema: {
+        tags: ['Time'],
+        description:
+          'Finished shifts with less rest break than the Working Time Regulations give: 20 minutes in one block when working time ' +
+          'is over 6 hours, 30 minutes over 4.5 hours for under 18s. "short" is too little in total; "split" is enough in total ' +
+          'but no single break long enough.',
+        querystring: rangeQuery,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      return breakShortfalls(org.timeEntries.filter(inRange(req.query)), org.state.employees);
     },
   );
 
