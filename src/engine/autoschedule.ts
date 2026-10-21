@@ -1,9 +1,10 @@
 import type { RotaState, Shift } from './types';
-import { checkEmployeeWeek, requiredBreakMinutes } from './compliance';
+import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from './compliance';
 import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
 import { isEmployedOn } from './employees';
 import { addDays, ageOn, weekDates, weekStart } from './time';
+import { travelIssues } from './travel';
 
 export interface AutoScheduleOptions {
   minShiftHours: number;
@@ -225,15 +226,15 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     // Checked without overrides: a manager's reason covers a breach they chose, never one the build makes.
-    // Short rest is flagged on the later shift, so a new shift placed before an existing one
-    // shows up against the existing one: compare with the rest issues already there.
-    const restBefore = new Set(
-      checkEmployeeWeek(e, ws, context).filter((i) => i.code === 'daily-rest').map((i) => i.shiftId),
-    );
-    const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter(
+    const check = (shifts: Shift[]) => [...checkEmployeeWeek(e, ws, shifts), ...travelIssues(e, shifts, state.sites)];
+    // Short rest is flagged on the later shift, so a new shift placed before an existing one shows up
+    // against the existing one: anything new on their other shifts rules them out too.
+    const key = (i: Issue) => `${i.code}|${i.shiftId}`;
+    const before = new Set(check(context).filter((i) => i.shiftId).map(key));
+    const issues = check([...context, shift]).filter(
       (i) =>
         i.shiftId === shift.id ||
-        (i.code === 'daily-rest' && !restBefore.has(i.shiftId)) ||
+        (i.shiftId !== undefined && !before.has(key(i))) ||
         i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
     );
     // Auto-build never creates a breach: anything flagged on the new shift rules the person out,

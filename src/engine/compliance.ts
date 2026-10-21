@@ -3,6 +3,7 @@ import { shiftPaidMinutes } from './cost';
 import { isEmployedOn } from './employees';
 import { isAbsentOn } from './hr';
 import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { travelIssues } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
 export type Severity = 'block' | 'warn';
@@ -212,7 +213,7 @@ export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: str
   const scope = siteIds === undefined ? null : new Set(typeof siteIds === 'string' ? [siteIds] : siteIds);
   return state.employees
     .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
-    .flatMap((e) => checkEmployeeWeek(e, weekStartDate, context, state.restOverrides));
+    .flatMap((e) => [...checkEmployeeWeek(e, weekStartDate, context, state.restOverrides), ...travelIssues(e, context, state.sites)]);
 }
 
 /** The site an issue belongs to: where its shift is worked, or the person's home site for a week-level issue. */
