@@ -9,6 +9,8 @@ export interface ApiKey {
   orgId: string;
   name: string;
   scopes: Scope[];
+  /** Confines the caller to these sites (see scope.ts). Absent means the whole organisation. */
+  siteIds?: string[];
   /** Set when the caller is a signed-in person rather than an integration key. */
   user?: { email: string; role: UserRecord['role'] };
 }
@@ -59,16 +61,20 @@ export function authenticate(keys: ApiKey[], users: UserStore) {
     }
     const user = await sessionUser(req.headers.cookie, users);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Sign in, or send a valid API key' });
-    // Everyone signed in works across their own organisation; managing access is for admins only.
+    // Admins and members work across their own organisation; managing access is for admins only.
+    // A manager works on their own sites: rota, time, people and HR, but not payroll or the books.
     req.principal = {
       key: `session:${user.email}`,
       orgId: user.orgId,
       name: user.email,
-      scopes: ['*'],
+      scopes: user.role === 'manager' ? MANAGER_SCOPES : ['*'],
+      ...(user.role === 'manager' ? { siteIds: user.siteIds ?? [] } : {}),
       user: { email: user.email, role: user.role },
     };
   };
 }
+
+export const MANAGER_SCOPES: Scope[] = ['rota:read', 'rota:write', 'time:write', 'time:approve', 'hr:read', 'hr:write'];
 
 /** For managing people and settings: a signed-in admin only, never an integration key. */
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {

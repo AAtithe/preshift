@@ -50,7 +50,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (202 across 19 files)
+npm test         # engine, UI rules and API tests (211 across 20 files)
 npm run build    # typecheck and production build
 ```
 
@@ -66,8 +66,13 @@ environment variables.
   Whoever completes it first becomes the owner (an admin), so do it straight after the first deploy.
   It can only ever happen once, enforced in the database.
 - Who can sign in. Separate from the People tab, which holds staff records. Admins add accounts with a first password and a role, reset passwords, change roles and
-  remove people. Members use the app but cannot manage access. Every organisation keeps at least
-  one admin, and nobody can remove themselves.
+  remove people. Members use the app across every site but cannot manage access. Site managers run only
+  the sites an admin ticks for them: rota, demand, clocking, people, holiday and HR files for their own staff, and
+  rostering of people from other sites who have agreed to cover theirs (seen without contact details or file).
+  Payroll, the close, integrations, GDPR, company settings and disciplinary cases are closed to them. The server
+  enforces it three ways: an allowlist of site-level routes (anything not listed, including routes added later, is
+  refused), reads cut down to their sites, and a site check on every write (`server/scope.ts`). A change of role or
+  sites applies on the person's next request. Every organisation keeps at least one admin, and nobody can remove themselves.
 - Rota assistant. An admin saves the organisation's Claude API key. It is kept on the server, shown
   afterwards only by its last four characters, and used only for the assistant's own requests (one
   model, capped output). Set a monthly spend limit on it in the Claude Console all the same.
@@ -82,7 +87,7 @@ forget their password use "Forgot your password?" on the sign-in page: a single-
 minutes, is emailed through Resend once an admin saves a Resend key, a from address and the app's address
 under Settings. The reply never says whether an account exists, one account gets at most three emails an
 hour, and the link's token sits after `#` so it never reaches a server log. Until email is set up, an admin
-makes a 24 hour link with "Reset link" and hands it over. Known limit: two roles only.
+makes a 24 hour link with "Reset link" and hands it over.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.

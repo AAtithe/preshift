@@ -785,3 +785,7 @@ button.link.danger { color: var(--bad); }
   .form { grid-template-columns: 1fr; }
 }
 .table tr.clickable { cursor: pointer; }
+
+/* Site manager access */
+.site-ticks { display: flex; flex-wrap: wrap; gap: 4px 12px; border: none; padding: 0; margin: 0; }
+.site-ticks legend { padding: 0; margin-bottom: 4px; color: var(--muted); }

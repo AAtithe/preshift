@@ -23,6 +23,7 @@ import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
+import { SCOPED_ROUTES, scopedOrg, siteScope } from './scope';
 
 export interface BuildOptions {
   apiKeys?: ApiKey[];
@@ -180,10 +181,20 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url)) return;
       return auth(req, reply);
     });
+    // A site-scoped caller reaches site-level routes only. Checked before the body is even validated.
+    api.addHook('preValidation', async (req) => {
+      if (isWebhook(req.url) || !siteScope(req)) return;
+      if (!SCOPED_ROUTES.has(`${req.method} ${req.routeOptions.url}`)) {
+        throw new HttpError(403, 'forbidden', 'Site managers cannot use this. Ask an admin.');
+      }
+    });
     // Load the organisation once per request; webhooks name it in the path, everything else by API key.
     api.addHook('preHandler', async (req) => {
       const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
       req.org = await store.load(orgId);
+      // Reads by a site-scoped caller see their sites only.
+      const scope = isWebhook(req.url) ? null : siteScope(req);
+      if (scope && req.method === 'GET') req.org = scopedOrg(req.org, scope);
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {

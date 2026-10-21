@@ -7,6 +7,7 @@ import { enqueue } from '../outbox';
 import { employeeBody, idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { employeeView } from './hr';
+import { assertHomeSite, assertSites, scopedEmployee } from '../scope';
 
 // Fields payroll holds a copy of; changing any of them is synced to TeamPay.
 const PAYROLL_FIELDS: (keyof Employee)[] = [
@@ -57,6 +58,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const home = org.state.sites.find((s) => s.id === req.body.siteId);
       if (!home) throw notFound(`Site ${req.body.siteId}`);
+      assertSites(req, [home.id]);
+      if (req.principal.siteIds && req.body.entityId && req.body.entityId !== home.entityId) {
+        throw new HttpError(403, 'outside_scope', 'Employing someone through another company is for an admin.');
+      }
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
         entityId: home.entityId,
         coverSiteIds: [],
@@ -93,7 +98,13 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const i = org.state.employees.findIndex((x) => x.id === req.params.id);
       if (i < 0) throw notFound(`Employee ${req.params.id}`);
       const before = org.state.employees[i];
+      assertHomeSite(req, before);
       const after: Employee = { ...before, ...req.body, id: before.id };
+      // A site manager keeps people at their own sites and leaves the employing company to an admin.
+      assertSites(req, [after.siteId]);
+      if (after.entityId !== before.entityId && req.principal.siteIds) {
+        throw new HttpError(403, 'outside_scope', 'Changing the employing company is for an admin.');
+      }
       validateEmployment(org, after);
       if (before.payrollId && after.entityId !== before.entityId) {
         throw new HttpError(
@@ -127,8 +138,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      const e = org.state.employees.find((x) => x.id === req.params.id);
-      if (!e) throw notFound(`Employee ${req.params.id}`);
+      const e = scopedEmployee(req, req.params.id);
       if (e.status === 'leaver') throw new HttpError(409, 'conflict', `${e.name} is already a leaver`);
       e.status = 'leaver';
       e.leaveDate = req.body.leaveDate;

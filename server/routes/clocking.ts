@@ -6,6 +6,7 @@ import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../con
 import { geofenceBody, geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { employeeView } from './hr';
+import { assertSites, scopedEmployee } from '../scope';
 import { clockIn, clockOut, endBreak, onBreak } from './time';
 
 const REPEAT_TAP_MINUTES = 2;
@@ -42,6 +43,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const geofence = { lat: req.body.lat, lng: req.body.lng, radiusMetres: req.body.radiusMetres };
+      assertSites(req, [req.params.id]);
       const site = replaceSite(org, req.params.id, (s) => ({ ...s, geofence }));
       audit(org, req.principal.name, 'site.geofence_set', { siteId: site.id, ...geofence });
       return site;
@@ -53,6 +55,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
     { ...setup, schema: { tags: ['Clocking'], description: 'Turns the location check off for a site.', params: idParam } },
     async (req) => {
       const org = orgOf(req);
+      assertSites(req, [req.params.id]);
       const site = replaceSite(org, req.params.id, ({ geofence: _g, ...s }) => s);
       audit(org, req.principal.name, 'site.geofence_removed', { siteId: site.id });
       return site;
@@ -72,8 +75,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      const employee = org.state.employees.find((e) => e.id === req.params.id);
-      if (!employee) throw notFound(`Employee ${req.params.id}`);
+      const employee = scopedEmployee(req, req.params.id);
       const badgeId = normaliseBadge(req.body.badgeId);
       if (badgeId.length < 4) throw new HttpError(422, 'invalid_badge', 'That card reading is too short. Tap the card again.');
       const holder = org.state.employees.find((e) => e.badgeId === badgeId && e.id !== employee.id);
@@ -89,8 +91,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
     { ...setup, schema: { tags: ['Clocking'], description: 'Removes a lost or returned card.', params: idParam } },
     async (req) => {
       const org = orgOf(req);
-      const employee = org.state.employees.find((e) => e.id === req.params.id);
-      if (!employee) throw notFound(`Employee ${req.params.id}`);
+      const employee = scopedEmployee(req, req.params.id);
       delete employee.badgeId;
       audit(org, req.principal.name, 'employee.badge_removed', { id: employee.id });
       return employeeView(req, employee);
@@ -115,6 +116,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
+      assertSites(req, [req.body.siteId]);
       const badgeId = normaliseBadge(req.body.badgeId);
       const employee = badgeId ? org.state.employees.find((e) => e.badgeId === badgeId) : undefined;
       if (!employee) throw new HttpError(404, 'unknown_card', 'This card is not enrolled. Ask a manager to add it to your profile.');

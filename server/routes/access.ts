@@ -23,7 +23,7 @@ export const now = () => Math.floor(Date.now() / 1000);
 export const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
 
 /** What an admin sees about a person: never the hash. */
-const view = (u: UserRecord) => ({ email: u.email, role: u.role, createdAt: u.createdAt, locked: u.lockedUntil > now() });
+const view = (u: UserRecord) => ({ email: u.email, role: u.role, ...(u.role === 'manager' ? { siteIds: u.siteIds ?? [] } : {}), createdAt: u.createdAt, locked: u.lockedUntil > now() });
 
 async function newUser(email: string, orgId: string, role: UserRole, password: string): Promise<UserRecord> {
   return {
@@ -107,7 +107,7 @@ export function signInRoutes(app: FastifyInstance, store: Store, options: { demo
   app.get('/auth/me', hidden, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
-    return { email: user.email, orgId: user.orgId, role: user.role, ...demo };
+    return { email: user.email, orgId: user.orgId, role: user.role, ...(user.role === 'manager' ? { siteIds: user.siteIds ?? [] } : {}), ...demo };
   });
 
   // Anyone signed in can change their own password; every other session of theirs ends.
@@ -186,6 +186,19 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
     return user;
   }
 
+  const ROLES: UserRole[] = ['admin', 'member', 'manager'];
+  const roleOf = (role: unknown): UserRole => (ROLES.includes(role as UserRole) ? (role as UserRole) : 'member');
+
+  /** A manager runs at least one of the organisation's own sites. */
+  function managedSites(req: FastifyRequest, siteIds: unknown): string[] {
+    const known = new Set(req.org!.state.sites.map((s) => s.id));
+    const ids = Array.isArray(siteIds) ? [...new Set(siteIds.filter((x): x is string => typeof x === 'string'))] : [];
+    if (ids.length === 0) throw new HttpError(400, 'sites_required', 'Choose the sites this manager runs.');
+    const unknown = ids.filter((id) => !known.has(id));
+    if (unknown.length) throw notFound(`Site ${unknown.join(', ')}`);
+    return ids;
+  }
+
   async function keepAnAdmin(req: FastifyRequest, leaving: UserRecord) {
     if (leaving.role !== 'admin') return;
     const admins = (await store.listUsers(orgId(req))).filter((u) => u.role === 'admin');
@@ -194,26 +207,35 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
 
   app.get('/v1/users', admin, async (req) => (await store.listUsers(orgId(req))).map(view));
 
-  app.post<{ Body: { email?: string; password?: string; role?: UserRole } }>('/v1/users', admin, async (req, reply) => {
+  app.post<{ Body: { email?: string; password?: string; role?: UserRole; siteIds?: string[] } }>('/v1/users', admin, async (req, reply) => {
     const email = normalise(req.body?.email);
     if (!EMAIL.test(email)) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
     const problem = passwordProblem(req.body?.password);
     if (problem) throw new HttpError(400, 'weak_password', problem);
-    const role: UserRole = req.body?.role === 'admin' ? 'admin' : 'member';
-    if (!(await store.createUser(await newUser(email, orgId(req), role, req.body.password!)))) {
+    const role = roleOf(req.body?.role);
+    const siteIds = role === 'manager' ? managedSites(req, req.body?.siteIds) : undefined;
+    const user = { ...(await newUser(email, orgId(req), role, req.body.password!)), ...(siteIds ? { siteIds } : {}) };
+    if (!(await store.createUser(user))) {
       throw new HttpError(409, 'email_taken', 'That email already has an account.');
     }
-    audit(req.org!, actor(req), 'access.user_added', { email, role });
+    audit(req.org!, actor(req), 'access.user_added', { email, role, ...(siteIds ? { siteIds } : {}) });
     return reply.code(201).send(view((await store.getUser(email))!));
   });
 
-  app.patch<{ Params: { email: string }; Body: { role?: UserRole; password?: string } }>('/v1/users/:email', admin, async (req) => {
+  app.patch<{ Params: { email: string }; Body: { role?: UserRole; siteIds?: string[]; password?: string } }>('/v1/users/:email', admin, async (req) => {
     const user = await mine(req, req.params.email);
     const patch: Partial<UserRecord> = {};
     if (req.body?.role && req.body.role !== user.role) {
       if (req.body.role !== 'admin') await keepAnAdmin(req, user);
-      patch.role = req.body.role === 'admin' ? 'admin' : 'member';
+      patch.role = roleOf(req.body.role);
     }
+    const role = patch.role ?? user.role;
+    if (role === 'manager' && (req.body?.siteIds !== undefined || user.role !== 'manager')) {
+      patch.siteIds = managedSites(req, req.body?.siteIds);
+    }
+    if (role !== 'manager' && user.siteIds) patch.siteIds = undefined;
+    // A change of role or sites takes effect on the person's next request: sessions are checked against
+    // the database every time, and the principal is built from the stored record.
     if (req.body?.password !== undefined) {
       const problem = passwordProblem(req.body.password);
       if (problem) throw new HttpError(400, 'weak_password', problem);
@@ -221,7 +243,7 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
       Object.assign(patch, await hashPassword(req.body.password), { sessionsValidFrom: Date.now(), failedAttempts: 0, lockedUntil: 0, resetTokenHash: undefined, resetExpires: undefined });
     }
     await store.updateUser(user.email, patch);
-    audit(req.org!, actor(req), 'access.user_changed', { email: user.email, role: patch.role, passwordReset: req.body?.password !== undefined });
+    audit(req.org!, actor(req), 'access.user_changed', { email: user.email, role: patch.role, siteIds: patch.siteIds, passwordReset: req.body?.password !== undefined });
     return view((await store.getUser(user.email))!);
   });
 

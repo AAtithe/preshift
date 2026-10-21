@@ -6,6 +6,7 @@ import type { Absence, Employee, HrProfile, HrRecord } from '../../src/engine/ty
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf } from '../context';
 import { idParam, isoDate } from '../schemas';
+import { assertHomeSite, scopedEmployee, siteScope } from '../scope';
 import { audit, type OrgData } from '../store';
 
 const hrProfileBody = {
@@ -131,8 +132,8 @@ function clashes(org: OrgData, e: Employee, a: Absence) {
   return org.state.shifts.filter((s) => s.employeeId === e.id && s.date >= a.from && (!a.to || s.date <= a.to)).map((s) => s.id);
 }
 
-function validateRecord(org: OrgData, r: RecordInput) {
-  findEmployee(org, r.employeeId);
+function validateRecord(req: FastifyRequest, org: OrgData, r: RecordInput) {
+  assertHomeSite(req, findEmployee(org, r.employeeId));
   if (r.kind === 'training' && r.expiresOn && r.expiresOn < r.date) {
     throw new HttpError(422, 'invalid_dates', 'The certificate expires before the course date');
   }
@@ -158,7 +159,9 @@ export function hrRoutes(app: FastifyInstance) {
     async (req) => {
       const org = orgOf(req);
       const today = new Date().toISOString().slice(0, 10);
-      const people = org.state.employees.filter((e) => !req.query.siteId || e.siteId === req.query.siteId);
+      // A site manager's view also holds other sites' cover staff; their files are not theirs to act on.
+      const scope = siteScope(req);
+      const people = org.state.employees.filter((e) => (!req.query.siteId || e.siteId === req.query.siteId) && (!scope || scope.has(e.siteId)));
       return {
         summary: hrSummary(people, today),
         checks: people
@@ -199,7 +202,7 @@ export function hrRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const org = orgOf(req);
       if (req.body.kind === 'case' && !seesCases(req)) throw new HttpError(403, 'forbidden', 'Only an admin can record a case');
-      validateRecord(org, req.body);
+      validateRecord(req, org, req.body);
       const record: HrRecord = {
         ...req.body,
         ...(req.body.kind === 'case' ? { caseStatus: req.body.caseStatus ?? 'open' } : {}),
@@ -221,9 +224,10 @@ export function hrRoutes(app: FastifyInstance) {
       const i = org.hrRecords.findIndex((r) => r.id === req.params.id);
       const before = org.hrRecords[i];
       if (!before || (before.kind === 'case' && !seesCases(req))) throw notFound(`Record ${req.params.id}`);
+      assertHomeSite(req, findEmployee(org, before.employeeId));
       if (req.body.kind && req.body.kind !== before.kind) throw new HttpError(422, 'kind_fixed', 'A record cannot change kind; add a new one');
       const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt };
-      validateRecord(org, after);
+      validateRecord(req, org, after);
       org.hrRecords[i] = after;
       audit(org, req.principal.name, 'hr.record.updated', { id: after.id, employeeId: after.employeeId, fields: Object.keys(req.body) });
       return after;
@@ -237,6 +241,7 @@ export function hrRoutes(app: FastifyInstance) {
       const org = orgOf(req);
       const record = org.hrRecords.find((r) => r.id === req.params.id);
       if (!record || (record.kind === 'case' && !seesCases(req))) throw notFound(`Record ${req.params.id}`);
+      assertHomeSite(req, findEmployee(org, record.employeeId));
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
       audit(org, req.principal.name, 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(204).send();
@@ -248,7 +253,7 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, description: 'Replaces the personnel file details: contract, probation, NI number, emergency contact, line manager.', params: idParam, body: hrProfileBody } },
     async (req) => {
       const org = orgOf(req);
-      const e = findEmployee(org, req.params.id);
+      const e = scopedEmployee(req, req.params.id);
       const hr = { ...req.body, ...(req.body.niNumber ? { niNumber: req.body.niNumber.replace(/\s/g, '').toUpperCase() } : {}) };
       validateProfile(org, e, hr);
       e.hr = hr;
@@ -270,7 +275,7 @@ export function hrRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      const e = findEmployee(org, req.params.id);
+      const e = scopedEmployee(req, req.params.id);
       const absence: Absence = { ...req.body, id: `abs_${randomUUID().slice(0, 12)}` };
       validateAbsence(absence);
       e.absences = [...(e.absences ?? []), absence].sort((a, b) => a.from.localeCompare(b.from));
@@ -284,7 +289,7 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, params: absenceParams, body: { ...absenceBody, required: [] } } },
     async (req) => {
       const org = orgOf(req);
-      const e = findEmployee(org, req.params.id);
+      const e = scopedEmployee(req, req.params.id);
       const before = e.absences?.find((a) => a.id === req.params.absenceId);
       if (!before) throw notFound(`Absence ${req.params.absenceId}`);
       const after: Absence = { ...before, ...req.body, id: before.id };
@@ -300,7 +305,7 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, params: absenceParams } },
     async (req) => {
       const org = orgOf(req);
-      const e = findEmployee(org, req.params.id);
+      const e = scopedEmployee(req, req.params.id);
       if (!e.absences?.some((a) => a.id === req.params.absenceId)) throw notFound(`Absence ${req.params.absenceId}`);
       e.absences = e.absences.filter((a) => a.id !== req.params.absenceId);
       audit(org, req.principal.name, 'hr.absence.deleted', { id: e.id, absenceId: req.params.absenceId });

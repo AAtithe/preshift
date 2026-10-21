@@ -8,6 +8,7 @@ import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engin
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { geoFixBody, idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
+import { assertSites } from '../scope';
 import { audit, type OrgData } from '../store';
 import { inRange } from './rota';
 
@@ -161,6 +162,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
+      assertSites(req, [req.body.siteId]);
       const entry = clockIn(org, employee, req.body.siteId, { method: 'device', ...req.body });
       return reply.code(201).send(entry);
     },
@@ -184,6 +186,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      assertSites(req, [entry.siteId]);
       return clockOut(org, entry, { method: 'device', ...req.body });
     },
   );
@@ -194,6 +197,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       if (!org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
+      assertSites(req, [req.body.siteId]);
       if ((req.body.clockOut ?? 0) <= req.body.clockIn) throw new HttpError(422, 'invalid_time', 'Clock out must be after clock in');
       const entry: TimeEntry = { ...req.body, id: `te_${randomUUID().slice(0, 12)}`, status: 'submitted', source: 'manual' };
       org.timeEntries.push(entry);
@@ -220,6 +224,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      assertSites(req, [entry.siteId]);
       assertEditable(org, entry);
       Object.assign(entry, req.body, { status: entry.status === 'open' ? 'open' : 'submitted', approvedBy: undefined, approvedAt: undefined });
       audit(org, req.principal.name, 'time.edited', { id: entry.id, fields: Object.keys(req.body) });
@@ -248,6 +253,9 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
+      // A site manager approves their own sites' time: named entries there, or one site's range.
+      if (body.ids) assertSites(req, org.timeEntries.filter((t) => body.ids!.includes(t.id)).map((t) => t.siteId));
+      else if (req.principal.siteIds) assertSites(req, [body.siteId]);
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
       const now = new Date().toISOString();
       const done: TimeEntry[] = [];

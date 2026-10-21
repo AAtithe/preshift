@@ -59,13 +59,16 @@ export interface OrgData {
   version?: number;
 }
 
-export type UserRole = 'admin' | 'member';
+/** Admins run the organisation; members work across every site; managers work on their own sites only. */
+export type UserRole = 'admin' | 'member' | 'manager';
 
 /** A person who signs in to the web app. Passwords are held only as scrypt salt and hash. */
 export interface UserRecord {
   email: string;
   orgId: string;
   role: UserRole;
+  /** The sites a manager runs. Set for managers only. */
+  siteIds?: string[];
   salt: string;
   hash: string;
   createdAt: string;

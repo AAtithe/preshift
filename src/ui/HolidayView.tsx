@@ -11,7 +11,8 @@ interface Props {
   siteIds: string[];
   today: string;
   onEdit: (employee: Employee) => void;
-  onSetLeaveYear: (entityId: string, leaveYearStart: string) => Promise<unknown>;
+  /** Absent for site managers: the leave year is set per company, by an admin or member. */
+  onSetLeaveYear?: (entityId: string, leaveYearStart: string) => Promise<unknown>;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -100,6 +101,7 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
             return (
               <label key={ent.id} className="muted small">
                 {ent.name} leave year starts{' '}
+                {onSetLeaveYear ? (
                 <select
                   value={`${mm}-${dd}`}
                   onChange={(e) => void onSetLeaveYear(ent.id, e.target.value)}
@@ -110,7 +112,10 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
                     return <option key={v} value={v}>1 {m}</option>;
                   })}
                   {dd !== '01' && <option value={`${mm}-${dd}`}>{dd} {MONTHS[Number(mm) - 1]}</option>}
-                </select>{' '}
+                </select>
+                ) : (
+                  <span>{Number(dd)} {MONTHS[Number(mm) - 1]}</span>
+                )}{' '}
                 ({y.start} to {y.end})
               </label>
             );

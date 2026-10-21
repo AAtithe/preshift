@@ -36,7 +36,10 @@ and only admins can manage people (`/v1/users`) and settings (`/v1/settings`); i
 can. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
 `time:write`, `time:approve`, `payroll:write`, `hr:read`, `hr:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
-confined to its key's organisation.
+confined to its key's organisation. A key can also carry `siteIds` (for example a site's clocking tablet), which
+confines it as a site manager is confined: site-level routes only, reads limited to those sites, and writes refused
+with `403 outside_scope` for any other site. Admins add site managers with `POST /v1/users` and
+`{"role":"manager","siteIds":[...]}`; `PATCH /v1/users/:email` changes the sites.
 
 ## Endpoints
 

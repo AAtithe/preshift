@@ -4,14 +4,21 @@ import { api, ApiError } from './api';
 export interface Me {
   email: string;
   orgId: string;
-  role: 'admin' | 'member';
+  role: Role;
+  /** The sites a manager runs. */
+  siteIds?: string[];
   /** Set in the public demo, where each visitor has a sandbox of their own. */
   demo?: boolean;
 }
 
+export type Role = 'admin' | 'member' | 'manager';
+
+const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', member: 'Member, all sites', manager: 'Site manager' };
+
 interface Person {
   email: string;
-  role: 'admin' | 'member';
+  role: Role;
+  siteIds?: string[];
   createdAt: string;
   locked: boolean;
 }
@@ -59,12 +66,15 @@ export function SettingsView({ me }: { me: Me }) {
 function People({ me }: { me: Me }) {
   const [people, setPeople] = useState<Person[]>([]);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
-  const [form, setForm] = useState({ email: '', password: '', role: 'member' as Person['role'] });
+  const [form, setForm] = useState({ email: '', password: '', role: 'member' as Role, siteIds: [] as string[] });
+  const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [link, setLink] = useState<{ email: string; url: string; hours: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setPeople(await api.get<Person[]>('/v1/users'));
+      const [users, siteList] = await Promise.all([api.get<Person[]>('/v1/users'), api.get<{ id: string; name: string }[]>('/v1/sites')]);
+      setPeople(users);
+      setSites(siteList);
     } catch (e) {
       setMessage({ text: problem(e), bad: true });
     }
@@ -83,10 +93,27 @@ function People({ me }: { me: Me }) {
 
   async function add(e: FormEvent) {
     e.preventDefault();
+    const { siteIds, ...rest } = form;
     await act(`Added ${form.email}. Give them the password yourself; they can change it under Settings.`, () =>
-      api.post('/v1/users', form),
+      api.post('/v1/users', form.role === 'manager' ? { ...rest, siteIds } : rest),
     );
-    setForm({ email: '', password: '', role: 'member' });
+    setForm({ email: '', password: '', role: 'member', siteIds: [] });
+  }
+
+  const toggled = (ids: string[], id: string) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  const siteNames = (ids: string[]) => ids.map((id) => sites.find((x) => x.id === id)?.name ?? id).join(', ');
+
+  function setRole(p: Person, role: Role) {
+    // A new manager starts on one site; tick the others in their row.
+    const body = role === 'manager' ? { role, siteIds: p.siteIds?.length ? p.siteIds : sites.slice(0, 1).map((x) => x.id) } : { role };
+    const label = role === 'manager' ? `a site manager for ${siteNames(body.siteIds ?? [])}. Tick any other sites they run` : ROLE_LABEL[role].toLowerCase();
+    void act(`${p.email} is now ${role === 'admin' ? 'an admin' : role === 'member' ? 'a member' : label}.`, () =>
+      api.patch(`/v1/users/${encodeURIComponent(p.email)}`, body));
+  }
+
+  function setSitesFor(p: Person, siteIds: string[]) {
+    void act(`${p.email} now runs ${siteNames(siteIds) || 'no sites'}.`, () =>
+      api.patch(`/v1/users/${encodeURIComponent(p.email)}`, { siteIds }));
   }
 
   function reset(p: Person) {
@@ -111,11 +138,12 @@ function People({ me }: { me: Me }) {
       <h2>Who can sign in</h2>
       <p className="muted small">
         Accounts for signing in to Preshift. This is separate from the People tab, which holds your staff records. Admins can
-        also add and remove accounts and change these settings.
+        also add and remove accounts and change these settings. Members work across every site. Site managers see and run
+        only their own sites: rota, clocking, people, holiday and HR files, but not payroll, the close, GDPR or disciplinary cases.
       </p>
       <table className="table">
         <thead>
-          <tr><th>Email</th><th>Role</th><th>Added</th><th /></tr>
+          <tr><th>Email</th><th>Role</th><th>Sites</th><th>Added</th><th /></tr>
         </thead>
         <tbody>
           {people.map((p) => (
@@ -130,12 +158,28 @@ function People({ me }: { me: Me }) {
                   value={p.role}
                   disabled={p.email === me.email}
                   aria-label={`Role for ${p.email}`}
-                  onChange={(e) => void act(`${p.email} is now ${e.target.value === 'admin' ? 'an admin' : 'a member'}.`, () =>
-                    api.patch(`/v1/users/${encodeURIComponent(p.email)}`, { role: e.target.value }))}
+                  onChange={(e) => setRole(p, e.target.value as Role)}
                 >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
+                  {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
                 </select>
+              </td>
+              <td>
+                {p.role === 'manager' ? (
+                  <div className="site-ticks">
+                    {sites.map((x) => (
+                      <label key={x.id} className="check-inline small">
+                        <input
+                          type="checkbox"
+                          checked={(p.siteIds ?? []).includes(x.id)}
+                          onChange={() => setSitesFor(p, toggled(p.siteIds ?? [], x.id))}
+                        />
+                        {x.name}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="muted small">All</span>
+                )}
               </td>
               <td className="muted small">{new Date(p.createdAt).toLocaleDateString('en-GB')}</td>
               <td className="num">
@@ -162,12 +206,22 @@ function People({ me }: { me: Me }) {
         </label>
         <label>
           Role
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Person['role'] })}>
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+            {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
           </select>
         </label>
-        <button className="primary" type="submit">Add account</button>
+        {form.role === 'manager' && (
+          <fieldset className="site-ticks">
+            <legend className="small">Sites they run</legend>
+            {sites.map((x) => (
+              <label key={x.id} className="check-inline small">
+                <input type="checkbox" checked={form.siteIds.includes(x.id)} onChange={() => setForm({ ...form, siteIds: toggled(form.siteIds, x.id) })} />
+                {x.name}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <button className="primary" type="submit" disabled={form.role === 'manager' && form.siteIds.length === 0}>Add account</button>
       </form>
       {link && (
         <div className="small">

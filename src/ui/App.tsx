@@ -38,7 +38,8 @@ type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday'
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
-type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean };
+// groupLevel sections cover the whole organisation (payroll, the books, GDPR), so site managers do not get them.
+type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean; groupLevel?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
   { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', groupOnly: true }] },
   {
@@ -70,15 +71,15 @@ const NAV: { heading: string; items: NavItem[] }[] = [
   {
     heading: 'Finance',
     items: [
-      { id: 'payroll', label: 'Payroll', siteOnly: true },
-      { id: 'close', label: 'Close' },
+      { id: 'payroll', label: 'Payroll', siteOnly: true, groupLevel: true },
+      { id: 'close', label: 'Close', groupLevel: true },
     ],
   },
   {
     heading: 'Admin',
     items: [
-      { id: 'integrations', label: 'Integrations' },
-      { id: 'privacy', label: 'GDPR' },
+      { id: 'integrations', label: 'Integrations', groupLevel: true },
+      { id: 'privacy', label: 'GDPR', groupLevel: true },
       { id: 'settings', label: 'Settings' },
     ],
   },
@@ -134,6 +135,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   const [hrPerson, setHrPerson] = useState<{ id: string; section?: HrSection } | null>(null);
   const hr = useHrRecords(setError);
   const isAdmin = me?.role === 'admin';
+  const isManager = me?.role === 'manager';
   const openHr = (e: Employee, section?: HrSection) => setHrPerson({ id: e.id, section });
 
   useEffect(() => {
@@ -142,6 +144,15 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
       .then((body: Me | null) => setMe(body))
       .catch(() => setMe(null));
   }, []);
+
+  // A manager of one site starts on it: the group view would only repeat it.
+  const onlySite = isManager && state.sites.length === 1 ? state.sites[0].id : null;
+  useEffect(() => {
+    if (onlySite) {
+      setSiteId(onlySite);
+      setTab((t) => (t === 'sites' ? 'rota' : t));
+    }
+  }, [onlySite]);
 
   // While a shift is being dragged, or a name is hovered in the picker, every figure on the
   // page is worked from the previewed rota. A shift not yet in the rota previews as an addition.
@@ -159,7 +170,8 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
-  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly) && (!t.adminOnly || isAdmin);
+  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly) && (!t.adminOnly || isAdmin) && !(t.groupLevel && isManager);
+  const nav = NAV.map((g) => ({ ...g, items: g.items.filter((t) => !(t.groupLevel && isManager)) })).filter((g) => g.items.length > 0);
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t)) ? tab : single ? 'rota' : 'sites';
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
@@ -258,7 +270,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
         <nav className="side-nav" aria-label="Management">
-          {NAV.map((group) => (
+          {nav.map((group) => (
             <div key={group.heading} className="nav-group">
               <div className="nav-heading">{group.heading}</div>
               {group.items.map((t) => (
@@ -454,7 +466,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   siteIds={siteIds}
                   today={today}
                   onEdit={setEditingPerson}
-                  onSetLeaveYear={actions.setLeaveYearStart}
+                  onSetLeaveYear={isManager ? undefined : actions.setLeaveYearStart}
                 />
               )}
               {activeTab === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
