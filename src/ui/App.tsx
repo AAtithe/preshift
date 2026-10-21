@@ -3,7 +3,7 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
-import { addDays, formatMinute, toISODate, weekDates, weekStart } from '../engine/time';
+import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
@@ -27,6 +27,8 @@ import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
+import type { ProposalDeps } from './proposals';
+import type { AgentView } from './useAppAgent';
 import { ShiftEditor } from './ShiftEditor';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -35,6 +37,8 @@ import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
+const Shifty = lazy(() => import('./Shifty').then((m) => ({ default: m.Shifty })));
+const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.CommandBar })));
 
 type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings' | 'howto';
 
@@ -128,6 +132,8 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // A request handed over from Shifty or the command bar, to start the rota assistant with.
+  const [assistantInstruction, setAssistantInstruction] = useState('');
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const [preview, setPreview] = useState<Shift | null>(null);
   const [lastChange, setLastChange] = useState<{ before: Shift | null; after: Shift } | null>(null);
@@ -255,6 +261,22 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
     : [];
   const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
   const range = `${new Date(`${week}T00:00:00Z`).getUTCDate()} to ${new Date(`${dates[6]}T00:00:00Z`).getUTCDate()} ${MONTH(dates[6])}`;
+
+  // Shifty and the command bar read what the manager is looking at, and act only through these.
+  const agentDeps: ProposalDeps = {
+    actions,
+    goTo: (screen) => setTab(screen as Tab),
+    openAssistant: (instruction) => {
+      setAssistantInstruction(instruction);
+      setAssistantOpen(true);
+    },
+    reviewStarter: (employee) => setEditingPerson(employee),
+  };
+  const scopeLabel = single ? single.name : siteIds.length === state.sites.length ? 'all sites' : `${siteIds.length} sites`;
+  const agentView = (): AgentView => ({
+    ctx: { state, siteIds, week, now: londonParts(new Date()) },
+    where: { screen: activeTab, scope: scopeLabel, user: me ? `${me.email} (${me.role})` : 'The manager' },
+  });
 
   return (
     <div className="workspace">
@@ -523,6 +545,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
           <AssistantPanel
             state={state}
             siteIds={siteIds}
+            initialInstruction={assistantInstruction}
             week={week}
             onApply={async (shifts, baselines, instructions) => {
               // Close only once saved; a refused save (someone else edited the week) stays open to redraft.
@@ -530,10 +553,11 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               if (!problem) {
                 setUnfilled(null);
                 setAssistantOpen(false);
+                setAssistantInstruction('');
               }
               return problem;
             }}
-            onClose={() => setAssistantOpen(false)}
+            onClose={() => { setAssistantOpen(false); setAssistantInstruction(''); }}
           />
         </Suspense>
       )}
@@ -571,6 +595,11 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
           onClose={() => setEditingPerson(null)}
         />
       )}
+
+      <Suspense fallback={null}>
+        <CommandBar view={agentView} deps={agentDeps} />
+        <Shifty view={agentView} deps={agentDeps} />
+      </Suspense>
 
       {editing && (
         <ShiftEditor

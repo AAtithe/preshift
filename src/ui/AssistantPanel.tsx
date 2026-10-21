@@ -15,6 +15,8 @@ interface Props {
   /** The sites in view: the assistant plans them together. */
   siteIds: string[];
   week: string;
+  /** A request handed over from Shifty or the command bar, ready to draft. */
+  initialInstruction?: string;
   /** Saves the draft; resolves to a problem to show, or null once saved. */
   onApply: (shifts: Shift[], baselines: Record<string, string>, instructions: string[]) => Promise<string | null>;
   onClose: () => void;
@@ -38,8 +40,8 @@ const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD',
 const fingerprints = (state: RotaState, siteIds: string[], week: string) =>
   Object.fromEntries(siteIds.map((id) => [id, weekFingerprint(state.shifts, id, week)]));
 
-export function AssistantPanel({ state, siteIds, week, onApply, onClose }: Props) {
-  const [instruction, setInstruction] = useState('');
+export function AssistantPanel({ state, siteIds, week, initialInstruction = '', onApply, onClose }: Props) {
+  const [instruction, setInstruction] = useState(initialInstruction);
   const [followUp, setFollowUp] = useState('');
   const [steps, setSteps] = useState<string[]>([]);
   const [running, setRunning] = useState(false);

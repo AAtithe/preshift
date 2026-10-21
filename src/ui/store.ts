@@ -68,6 +68,7 @@ export function useRotaStore() {
       guard(async () => {
         await api.del(`/v1/shifts/${id}`);
         setState((s) => s && { ...s, shifts: s.shifts.filter((x) => x.id !== id) });
+        return true;
       }),
     build: (siteIds: string[], weekStart: string) =>
       guard(async () => {
@@ -84,6 +85,7 @@ export function useRotaStore() {
       guard(async () => {
         await api.post('/v1/rota/publish', { siteIds, weekStart });
         await refreshShifts();
+        return true;
       }),
     /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
     saveEmployee: (employee: Employee, isNew: boolean) =>
