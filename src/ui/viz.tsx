@@ -34,24 +34,6 @@ export function Avatar({ name, dept, small }: { name: string; dept: Department; 
   );
 }
 
-/** Line sparkline with a soft area wash and an end dot on the latest point. */
-export function Sparkline({ values, height = 32, highlight }: { values: number[]; height?: number; highlight?: number }) {
-  const w = 160;
-  const max = Math.max(1, ...values);
-  const step = values.length > 1 ? w / (values.length - 1) : w;
-  const pts = values.map((v, i) => [i * step, height - 3 - (v / max) * (height - 8)] as const);
-  const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
-  const area = `${line}L${w},${height}L0,${height}Z`;
-  const end = pts[highlight ?? pts.length - 1];
-  return (
-    <svg className="chart-svg spark" viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" aria-hidden>
-      <path d={area} className="area" />
-      <path d={line} className="line" vectorEffect="non-scaling-stroke" />
-      {end && <circle cx={end[0]} cy={end[1]} r={4} className="dot" />}
-    </svg>
-  );
-}
-
 /** Bullet gauge: fill to the actual, a tick at the target, on a fixed scale. */
 export function Bullet({ value, target, max, mini }: { value: number; target: number; max: number; mini?: boolean }) {
   const over = value > target;

@@ -30,7 +30,7 @@ export function DemandView({ state, siteId, dates }: { state: RotaState; siteId:
           ))}
         </div>
         <div className="legend">
-          <span><i className="sw" style={{ background: 'var(--accent)' }} />Rostered, on plan</span>
+          <span><i className="sw" style={{ background: 'var(--faint)' }} />Rostered, on plan</span>
           <span><i className="sw" style={{ background: 'var(--bad)' }} />Short: service at risk</span>
           <span><i className="sw" style={{ background: 'var(--warn)' }} />Over: margin at risk</span>
           <span><i className="ln" />Needed</span>
@@ -78,7 +78,7 @@ function SalesChart({ hours, date }: { hours: HourDemand[]; date: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const open = hours.filter((h) => h.sales > 0);
   if (open.length === 0) return null;
-  const W = 1360;
+  const W = 1040;
   const H = 160;
   const top = 18;
   const base = 130;

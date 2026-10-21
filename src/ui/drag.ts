@@ -1,5 +1,5 @@
 import { isAvailable } from '../engine/compliance';
-import { formatMinute, weekday } from '../engine/time';
+import { addDays, formatMinute, weekday } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 
 /** Shifts snap to quarter hours. */
@@ -71,4 +71,29 @@ export function dropBlocker(employee: Employee, shift: Shift): string | null {
   if (windows.length === 0) return `${first} is not available on ${DAY_NAMES[day]}.`;
   const times = windows.map((a) => `${formatMinute(a.fromMinute)}-${formatMinute(a.toMinute)}`).join(', ');
   return `${first} is only available ${times} on ${DAY_NAMES[day]}.`;
+}
+
+export interface KeyPress {
+  key: string;
+  altKey: boolean;
+  shiftKey: boolean;
+}
+
+/**
+ * Keyboard equivalent of dragging: Alt+Left/Right moves a day within the week, Alt+Up/Down
+ * moves 15 minutes, Alt+Shift+Up/Down changes the finish. Returns null for other keys.
+ */
+export function keyChange(press: KeyPress, shift: Shift, dates: string[], person: Employee | undefined) {
+  if (!press.altKey) return null;
+  let next: Shift | null = null;
+  if (press.key === 'ArrowLeft' || press.key === 'ArrowRight') {
+    const date = addDays(shift.date, press.key === 'ArrowLeft' ? -1 : 1);
+    if (dates.includes(date)) next = { ...shift, date };
+  } else if (press.key === 'ArrowUp' || press.key === 'ArrowDown') {
+    const step = press.key === 'ArrowUp' ? -SNAP_MINUTES : SNAP_MINUTES;
+    next = press.shiftKey ? resizeShift(shift, 'end', step) : nudgeShift(shift, step);
+  }
+  if (!next || sameShift(next, shift)) return null;
+  const reason = person && !dropBlocker(person, shift) ? dropBlocker(person, next) : null;
+  return { next, reason };
 }

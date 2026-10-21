@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Employee, Shift } from '../engine/types';
-import { dropBlocker, LATEST_END, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
+import { dropBlocker, keyChange, LATEST_END, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
 
 const base: Shift = {
   id: 's1',
@@ -73,5 +73,17 @@ describe('drag maths', () => {
     expect(dropBlocker(jamie, { ...thu, endMinute: 22 * 60 })).toBe('Jamie is only available 11:00-21:00 on Thursdays.');
     expect(dropBlocker(jamie, { ...base, date: '2026-10-24' })).toBe('Jamie is on approved leave that day.');
     expect(dropBlocker({ ...jamie, availability: [], leave: [] }, base)).toBeNull();
+  });
+
+  it('maps Alt and arrow keys to the same moves, inside the week and availability', () => {
+    const week = ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25'];
+    const press = (key: string, shiftKey = false) => ({ key, altKey: true, shiftKey });
+    expect(keyChange({ key: 'ArrowRight', altKey: false, shiftKey: false }, base, week, undefined)).toBeNull();
+    expect(keyChange(press('ArrowRight'), base, week, undefined)?.next.date).toBe('2026-10-22');
+    expect(keyChange(press('ArrowLeft'), { ...base, date: '2026-10-19' }, week, undefined)).toBeNull();
+    expect(keyChange(press('ArrowDown'), base, week, undefined)?.next.startMinute).toBe(11 * 60 + 15);
+    expect(keyChange(press('ArrowDown', true), base, week, undefined)?.next).toMatchObject({ startMinute: 11 * 60, endMinute: 15 * 60 + 15 });
+    const offWeds = { id: 'e1', name: 'Sam Lee', leave: [], availability: [{ weekday: 1, fromMinute: 0, toMinute: 1440 }] } as unknown as Employee;
+    expect(keyChange(press('ArrowRight'), { ...base, date: '2026-10-20' }, week, offWeds)?.reason).toBe('Sam is not available on Wednesdays.');
   });
 });
