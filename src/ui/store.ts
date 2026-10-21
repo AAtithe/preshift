@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { Employee, Entity, GeoFence, RotaState, Shift, Site } from '../engine/types';
+import type { Absence, Employee, Entity, GeoFence, HrProfile, HrRecord, RotaState, Shift, Site } from '../engine/types';
 import { api } from './api';
 
 /**
@@ -88,7 +88,7 @@ export function useRotaStore() {
     saveEmployee: (employee: Employee, isNew: boolean) =>
       guard(async () => {
         // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
-        const { id, payrollId: _p, status: _s, leaveDate: _l, ...body } = employee;
+        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _a, ...body } = employee;
         const saved = isNew
           ? await api.post<Employee>('/v1/employees', body)
           : await api.patch<Employee>(`/v1/employees/${id}`, body);
@@ -127,6 +127,29 @@ export function useRotaStore() {
         setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
         return entity;
       }),
+    /** Replaces a person's personnel file details. */
+    saveHrProfile: (employeeId: string, profile: HrProfile) =>
+      guard(async () => {
+        const employee = await api.put<Employee>(`/v1/employees/${employeeId}/hr`, profile);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+        return employee;
+      }),
+    /** Records or corrects an absence. Returns the rostered shifts it now clashes with. */
+    saveAbsence: (employeeId: string, absence: Absence, isNew: boolean) =>
+      guard(async () => {
+        const { id, ...body } = absence;
+        const res = isNew
+          ? await api.post<{ employee: Employee; clashes: string[] }>(`/v1/employees/${employeeId}/absences`, body)
+          : await api.patch<{ employee: Employee; clashes: string[] }>(`/v1/employees/${employeeId}/absences/${id}`, body);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? res.employee : x)) });
+        return res;
+      }),
+    deleteAbsence: (employeeId: string, absenceId: string) =>
+      guard(async () => {
+        const employee = await api.del<Employee>(`/v1/employees/${employeeId}/absences/${absenceId}`);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+        return employee;
+      }),
     /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
     applyDraft: (current: Shift[], draft: Shift[]) =>
       guard(async () => {
@@ -152,3 +175,45 @@ export function useRotaStore() {
 
   return { state, error, setError, actions };
 }
+
+type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>;
+
+/** Personnel file entries, loaded once for the HR screens. Cases arrive only for admins. */
+export function useHrRecords(setError: (message: string | null) => void) {
+  const [records, setRecords] = useState<HrRecord[] | null>(null);
+
+  useEffect(() => {
+    api.get<HrRecord[]>('/v1/hr/records').then(setRecords).catch((e) => { setRecords([]); setError((e as Error).message); });
+  }, [setError]);
+
+  const run = async <T,>(fn: () => Promise<T>) => {
+    try {
+      setError(null);
+      return await fn();
+    } catch (e) {
+      setError((e as Error).message);
+      return undefined;
+    }
+  };
+
+  return {
+    records,
+    save: (record: HrRecord, isNew: boolean) =>
+      run(async () => {
+        const { id, createdBy: _b, createdAt: _a, ...body } = record;
+        const saved = isNew
+          ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
+          : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);
+        setRecords((list) => (isNew ? [...(list ?? []), saved] : (list ?? []).map((r) => (r.id === id ? saved : r))));
+        return saved;
+      }),
+    remove: (id: string) =>
+      run(async () => {
+        await api.del(`/v1/hr/records/${id}`);
+        setRecords((list) => (list ?? []).filter((r) => r.id !== id));
+        return true;
+      }),
+  };
+}
+
+export type HrRecords = ReturnType<typeof useHrRecords>;
