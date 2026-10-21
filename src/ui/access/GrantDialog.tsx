@@ -4,7 +4,7 @@ import {
 } from '../../engine/access';
 import type { RotaState } from '../../engine/types';
 import { api, ApiError } from '../api';
-import { actorOf, today, type Me } from './model';
+import { actorOf, today, type Delivery, type Me } from './model';
 
 interface Props {
   state: RotaState;
@@ -12,7 +12,7 @@ interface Props {
   users: User[];
   /** Grant to this person; without one, the dialog invites somebody new. */
   target?: User;
-  onDone: (result: { user: User; inviteUrl?: string; expiresAt?: string }) => void;
+  onDone: (result: { user: User; expiresAt?: string } & Delivery) => void;
   onClose: () => void;
 }
 
@@ -64,7 +64,7 @@ export function GrantDialog({ state, me, users, target, onDone, onClose }: Props
         await api.post(`/v1/users/${target.id}/grants`, grant);
         onDone({ user: await api.get<User>(`/v1/users/${target.id}`) });
       } else {
-        const res = await api.post<{ user: User; inviteUrl: string; expiresAt: string }>('/v1/users', {
+        const res = await api.post<{ user: User; expiresAt: string } & Delivery>('/v1/users', {
           email: email.trim(), name: name.trim(), jobTitle: jobTitle.trim() || undefined, audience, employeeId: employeeId || undefined, ...grant,
         });
         onDone(res);

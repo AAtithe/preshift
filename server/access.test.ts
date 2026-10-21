@@ -111,7 +111,7 @@ describe('signing in', () => {
     expect(listed.account).toMatchObject({ exists: true, locked: true });
     const reset = await k.call('POST', `/v1/users/${gm.id}/reset-password`, boss);
     expect(reset.status).toBe(200);
-    await k.form('/auth/accept', { token: tokenOf(reset.body.inviteUrl), password: 'a brand new password', confirm: 'a brand new password' });
+    expect((await k.call('POST', '/auth/reset', null, { token: tokenOf(reset.body.inviteUrl), password: 'a brand new password' })).status).toBe(200);
     expect((await signIn(k, 'gm@ws.example', 'a brand new password')).location).toBe('/app/');
   });
 
@@ -151,9 +151,9 @@ describe('invitation and reset links', () => {
     const k = await fresh();
     const boss = await owner(k);
     const sent = await k.call('POST', '/v1/users', boss, { email: 'ama@ws.example', name: 'Ama Boateng', audience: 'operator', roleId: 'viewer' });
-    expect(sent.body.inviteUrl).toMatch(/^\/login\?link=/);
+    expect(sent.body.inviteUrl).toMatch(/^\/login#invite=/);
     const token = tokenOf(sent.body.inviteUrl);
-    expect((await k.call('GET', `/auth/link?token=${encodeURIComponent(token)}`, null)).body).toEqual({ name: 'Ama Boateng', email: 'ama@ws.example', kind: 'invite' });
+    expect((await k.call('POST', '/auth/link', null, { token })).body).toEqual({ name: 'Ama Boateng', email: 'ama@ws.example', kind: 'invite' });
     expect((await k.form('/auth/accept', { token, password: 'short', confirm: 'short' })).location).toMatch(/error=weak/);
     expect((await k.form('/auth/accept', { token, password: 'long enough password', confirm: 'something else' })).location).toMatch(/error=mismatch/);
     const ok = await k.form('/auth/accept', { token, password: 'long enough password', confirm: 'long enough password' });
@@ -170,7 +170,9 @@ describe('invitation and reset links', () => {
     const reset = await k.call('POST', `/v1/users/${gm.id}/reset-password`, boss);
     expect((await k.call('GET', '/v1/sites', gm.cookie)).status).toBe(401);
     expect((await signIn(k, 'gm@ws.example', 'gm password long')).location).toMatch(/error=invalid/);
-    expect((await k.call('GET', `/auth/link?token=${encodeURIComponent(tokenOf(reset.body.inviteUrl))}`, null)).body.kind).toBe('reset');
+    // The account's own reset link: checked by /auth/reset, the same as one from "Forgot your password?".
+    expect(reset.body.inviteUrl).toMatch(/^\/login#reset=/);
+    expect((await k.call('POST', '/auth/reset', null, { token: tokenOf(reset.body.inviteUrl) })).body).toEqual({ ok: true, email: 'gm@ws.example' });
   });
 
   it('refuses expired, forged and other-organisation links, without creating anything', async () => {

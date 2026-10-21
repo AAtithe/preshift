@@ -2,13 +2,15 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   accessHealth, ALL_PERMISSIONS, can, canOrgWide, checkAuthority, checkGrant, CONFLICTS, holders, INVITE_DAYS, live,
-  ORG_DUTIES, PERMISSIONS, ROLES, SITE_DUTIES, sitesWith, STRONG, type Actor, type Audience, type Membership, type User,
+  ORG_DUTIES, PERMISSIONS, roleOf, ROLES, SITE_DUTIES, sitesWith, STRONG, type Actor, type Audience, type Membership, type User,
 } from '../../src/engine/access';
 import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
 import { actorOf, withoutRecord } from '../guard';
 import { authenticatorState } from './authenticator';
+import { accessResetEmail, emailSetting, inviteEmail, linkFor, parseEmailSettings, sendMail, type Mail } from '../mail';
 import { hashPassword } from '../passwords';
+import { ADMIN_RESET_HOURS, issueReset } from './access';
 import type { Store } from '../store';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
@@ -38,7 +40,6 @@ interface InviteBody extends GrantBody { email: string; name: string; jobTitle?:
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const hash = hashToken;
-const RESET_DAYS = 1;
 
 const nameOf = (a: Actor) => (a.kind === 'system' ? a.name : a.user.name);
 
@@ -71,21 +72,47 @@ function refuse(message: string | null) {
 }
 
 /**
- * A single-use link for the person to set their own password: an invitation lasts seven days,
- * a reset one. Only its hash is kept, and a new link replaces any earlier one.
+ * A single-use link for the person to set their own password: an invitation, valid seven days, or
+ * for someone active with no account to reset, a day. Only its hash is kept, and a new link
+ * replaces any earlier one. Accounts are reset with the account's own link (issueReset).
  */
-function issueLink(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
+function issueInvite(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
   for (const [k, v] of Object.entries(org.inviteTokens)) if (v.userId === user.id) delete org.inviteTokens[k];
   const token = `${org.orgId}.${randomBytes(24).toString('base64url')}`;
-  const expiresAt = addDays(now.toISOString().slice(0, 10), kind === 'invite' ? INVITE_DAYS : RESET_DAYS);
+  const expiresAt = addDays(now.toISOString().slice(0, 10), kind === 'invite' ? INVITE_DAYS : 1);
   org.inviteTokens[hash(token)] = { userId: user.id, expiresAt, kind };
   if (kind === 'invite') user.inviteExpiresAt = expiresAt;
   const sends = (org.inviteSends[user.id] ?? []).filter((t) => now.getTime() - Date.parse(t) < 3_600_000);
   org.inviteSends[user.id] = [...sends, now.toISOString()];
-  // There is no mailer yet: the link goes back once to whoever made it, to pass on.
-  return { inviteUrl: `/login?link=${encodeURIComponent(token)}`, expiresAt };
+  // The token goes after #, which browsers never send to a server or in a Referer header.
+  return { path: `/login#invite=${encodeURIComponent(token)}`, expiresAt };
 }
-const issueInvite = (org: OrgData, user: User, now: Date) => issueLink(org, user, now, 'invite');
+
+/** A link on its way to a person: emailed, or handed back to whoever made it to pass on. */
+export interface Delivery {
+  emailed: boolean;
+  /** Only when it was not emailed. An emailed link stays between the person and their inbox. */
+  inviteUrl?: string;
+  /** Why email was set up and still did not go. */
+  emailProblem?: string;
+}
+
+/** Emails the link once email is set up under Settings; otherwise, or if Resend refuses, returns it. */
+async function deliver(store: Store, orgId: string, path: string, mail: (link: string) => Mail): Promise<Delivery> {
+  const settings = parseEmailSettings(await store.getSetting(emailSetting(orgId)));
+  const link = linkFor(settings, path);
+  if (settings && (await sendMail(settings, mail(link)))) return { emailed: true };
+  return settings
+    ? { emailed: false, inviteUrl: link, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' }
+    : { emailed: false, inviteUrl: link };
+}
+
+/** Sends an invitation link to the person invited, naming who invited them and the role they start with. */
+async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }) {
+  const role = roleOf(user.memberships.find((m) => m.active)?.roleId ?? '')?.name ?? 'a member of the team';
+  const sent = await deliver(store, org.orgId, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS));
+  return { expiresAt: link.expiresAt, ...sent };
+}
 
 /** Ends every session the person has, on the next request each makes. */
 async function signOutEverywhere(store: Store, email: string) {
@@ -126,7 +153,7 @@ function grant(org: OrgData, actor: Actor, target: User, body: GrantBody, today:
 type AccountAction = 'suspend' | 'reactivate' | 'reset-authenticator' | 'resend-invite';
 
 /** The account actions, shared by the single routes and the bulk route so both apply the same rules. */
-function accountAction(org: OrgData, actor: Actor, target: User, action: AccountAction, today: string) {
+async function accountAction(store: Store, org: OrgData, actor: Actor, target: User, action: AccountAction, today: string) {
   const now = new Date();
   switch (action) {
     case 'suspend': {
@@ -143,7 +170,7 @@ function accountAction(org: OrgData, actor: Actor, target: User, action: Account
       // Someone who never accepted goes back to invited and needs a fresh link.
       target.status = target.activatedAt ? 'active' : 'invited';
       audit(org, nameOf(actor), 'user.reactivated', { userId: target.id });
-      return target.status === 'invited' ? { user: target, ...issueInvite(org, target, now) } : { user: target };
+      return target.status === 'invited' ? { user: target, ...(await sendInvite(store, org, actor, target, issueInvite(org, target, now))) } : { user: target };
     }
     case 'reset-authenticator': {
       if (!target.mfaEnrolled) throw new HttpError(409, 'conflict', `${target.name} has no authenticator set up`);
@@ -159,9 +186,9 @@ function accountAction(org: OrgData, actor: Actor, target: User, action: Account
       refuse(checkAuthority(actor, target, org.users, today));
       const recent = (org.inviteSends[target.id] ?? []).filter((t) => now.getTime() - Date.parse(t) < 3_600_000);
       if (recent.length >= RESENDS_PER_HOUR) throw new HttpError(429, 'too_many', `Already sent ${RESENDS_PER_HOUR} times in the last hour. Check the email address instead.`);
-      const link = issueInvite(org, target, now);
-      audit(org, nameOf(actor), 'invite.resent', { userId: target.id, expiresAt: link.expiresAt });
-      return { user: target, ...link };
+      const sent = await sendInvite(store, org, actor, target, issueInvite(org, target, now));
+      audit(org, nameOf(actor), 'invite.resent', { userId: target.id, expiresAt: sent.expiresAt, emailed: sent.emailed });
+      return { user: target, ...sent };
     }
   }
 }
@@ -268,9 +295,9 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       // Checked before anything is written, so a refused grant leaves no half-made account.
       grant(org, actor, user, req.body, today());
       org.users.push(user);
-      const link = issueInvite(org, user, now);
-      audit(org, nameOf(actor), 'user.invited', { userId: user.id, email, audience: user.audience });
-      return reply.code(201).send({ user, ...link });
+      const sent = await sendInvite(ctx.store, org, actor, user, issueInvite(org, user, now));
+      audit(org, nameOf(actor), 'user.invited', { userId: user.id, email, audience: user.audience, emailed: sent.emailed });
+      return reply.code(201).send({ user, ...sent });
     },
   );
 
@@ -373,7 +400,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     app.post<{ Params: { id: string } }>(`/v1/users/:id/${action}`, { ...manage, schema: { tags, params: idParam } }, async (req) => {
       const org = orgOf(req);
       const target = findUser(org, req.params.id);
-      const out = accountAction(org, actorOf(req, org, today()), target, action, today());
+      const out = await accountAction(ctx.store, org, actorOf(req, org, today()), target, action, today());
       // A suspended person's sessions end now, not when they next try something.
       if (action === 'suspend') await signOutEverywhere(ctx.store, target.email);
       return out;
@@ -387,8 +414,9 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags,
         description:
-          'Ends the password and every session, and returns a single-use link (valid a day) for the person to set a new one. ' +
-          'Nobody else learns the new password. Confirm who they are by phone or in person before passing the link on.',
+          'Ends the password and every session, and emails a single-use link (valid a day) for the person to choose a new one. ' +
+          'Until email is set up under Settings the link comes back instead: confirm who they are by phone or in person before passing it on. ' +
+          'Nobody else learns the new password.',
         params: idParam,
       },
     },
@@ -398,13 +426,24 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       const target = findUser(org, req.params.id);
       if (target.status !== 'active') throw new HttpError(409, 'conflict', `${target.name} is ${target.status}. ${target.status === 'invited' ? 'Resend their invitation instead.' : 'Reactivate them first.'}`);
       refuse(checkAuthority(actor, target, org.users, today()));
-      if (await ctx.store.getUser(target.email)) {
-        // The old password stops working at once: it may be what was compromised.
-        await ctx.store.updateUser(target.email, { ...(await hashPassword(randomBytes(32).toString('hex'))), sessionsValidFrom: Date.now(), failedAttempts: 0, lockedUntil: 0 });
+      const account = await ctx.store.getUser(target.email);
+      let path: string;
+      if (account) {
+        // The old password stops working at once, and every session ends: either may be what was compromised.
+        const token = await issueReset(ctx.store, account, ADMIN_RESET_HOURS * 3600, {
+          ...(await hashPassword(randomBytes(32).toString('hex'))),
+          sessionsValidFrom: Date.now(),
+          failedAttempts: 0,
+          lockedUntil: 0,
+        });
+        path = `/login#reset=${token}`;
+      } else {
+        // Active with no account to reset (made before accounts lived here): the link makes one.
+        path = issueInvite(org, target, new Date(), 'reset').path;
       }
-      const link = issueLink(org, target, new Date(), 'reset');
-      audit(org, nameOf(actor), 'user.password_reset', { userId: target.id });
-      return { user: target, ...link };
+      const sent = await deliver(ctx.store, org.orgId, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS));
+      audit(org, nameOf(actor), 'user.password_reset', { userId: target.id, emailed: sent.emailed });
+      return { user: target, expiresInHours: ADMIN_RESET_HOURS, ...sent };
     },
   );
 
@@ -445,13 +484,13 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const actor = actorOf(req, org, today());
-      const results: { userId: string; ok: boolean; inviteUrl?: string; error?: string }[] = [];
+      const results: { userId: string; ok: boolean; emailed?: boolean; inviteUrl?: string; error?: string }[] = [];
       for (const id of req.body.userIds) {
         try {
           const target = findUser(org, id);
-          const out = accountAction(org, actor, target, req.body.action, today());
+          const out: { user: User } & Partial<Delivery> = await accountAction(ctx.store, org, actor, target, req.body.action, today());
           if (req.body.action === 'suspend') await signOutEverywhere(ctx.store, target.email);
-          results.push({ userId: id, ok: true, inviteUrl: (out as { inviteUrl?: string }).inviteUrl });
+          results.push({ userId: id, ok: true, emailed: out.emailed, inviteUrl: out.inviteUrl });
         } catch (e) {
           results.push({ userId: id, ok: false, error: (e as Error).message });
         }

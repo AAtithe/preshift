@@ -79,5 +79,5 @@ export async function enrol(k: Kit, cookie: string) {
   return { cookie: confirm.cookie!, secret: start.body.secret as string, recoveryCodes: confirm.body.recoveryCodes as string[] };
 }
 
-/** The token in a link the API returned, as the login page would read it. */
-export const tokenOf = (inviteUrl: string) => decodeURIComponent(inviteUrl.split('link=')[1]);
+/** The token in a link the API returned, as the login page reads it from after the #. */
+export const tokenOf = (inviteUrl: string) => decodeURIComponent(inviteUrl.split(/#(?:invite|reset)=/)[1]);

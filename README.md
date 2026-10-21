@@ -67,8 +67,8 @@ session. On Vercel the app's files are served by the API function only to signed
 
 An account is how a person signs in; what they may do is their access record on the Access tab,
 found by the same email. People are invited there, and set their own password from the invitation
-link (seven days, single use) on the sign-in page; a password reset is the same kind of link, valid a
-day, and ends the old password and every session at once. Nobody ever chooses or learns another
+link (seven days, single use) on the sign-in page. "Reset password" on the Access tab ends the old
+password and every session at once, and sends a link, valid a day, to choose a new one. Nobody ever chooses or learns another
 person's password. One email signs in to one organisation. Someone who signs in with an account but
 no access record keeps full access, as every account had before roles, and the Access overview lists
 them as Fix now until they have one.
@@ -82,8 +82,14 @@ with a key kept in the database, or, stronger, with `PRESHIFT_SECRET_KEY` (64 he
 people have enrolled. The demo's enrolled people share the published secret
 `JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP` locally, never in production.
 
-Known limits: no self-service "forgot password" (whoever manages access sends a reset link), and no
-invitation emails yet (the link is shown once, to whoever sends it).
+Email goes through Resend once someone with settings rights saves a Resend key, a from address on a
+verified domain and the app's address under Settings. Invitations and resets are then emailed to the
+person and the link is never shown to whoever sent it, so nobody else can set their password; until
+then the link is shown once, to hand over in person. People who forget their password use "Forgot your
+password?" on the sign-in page: a single-use link, valid for 30 minutes, emailed only once email is set
+up. Its reply never says whether an account exists, and one account gets at most three emails an hour;
+invitations are capped at three sends an hour too. Every link's token sits after `#`, so it never
+reaches a server log, and only its hash is kept.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.

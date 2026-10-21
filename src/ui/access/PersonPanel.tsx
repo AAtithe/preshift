@@ -5,7 +5,8 @@ import {
 import type { RotaState } from '../../engine/types';
 import { api, ApiError } from '../api';
 import {
-  actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today, type AuditRow, type Me,
+  actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today,
+  deliveryText, type AuditRow, type Delivery, type Me,
 } from './model';
 
 interface Props {
@@ -42,8 +43,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
     if (confirmText && !window.confirm(confirmText)) return;
     setError(null);
     try {
-      const res = (await fn()) as { inviteUrl?: string } | undefined;
-      await onChanged(res?.inviteUrl ? `${label}. Send them this link, which works once: ${location.origin}${res.inviteUrl}` : label);
+      await onChanged(deliveryText(label, user.email, (await fn()) as Delivery | undefined));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : `${label} failed`);
     }
@@ -152,7 +152,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
             )}
             {user.status === 'active' && (
               <button
-                onClick={() => void act('Password reset. Their old password and every session have stopped', () => api.post(`/v1/users/${user.id}/reset-password`), `Reset ${user.name}'s password? Their current password stops working now and they are signed out everywhere. You get a link, valid for a day, for them to set a new one themselves. Confirm who they are by phone or in person before you pass it on.`)}
+                onClick={() => void act('Password reset. Their old password and every session have stopped', () => api.post(`/v1/users/${user.id}/reset-password`), `Reset ${user.name}'s password? Their current password stops working now and they are signed out everywhere. A link, valid for a day, goes to their email for them to set a new one themselves. If email is not set up you get the link instead: confirm who they are by phone or in person before you pass it on.`)}
               >
                 Reset password
               </button>

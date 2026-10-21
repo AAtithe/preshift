@@ -101,6 +101,12 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
+  /** SHA-256 of the one outstanding reset link; a new link replaces it. Never the token itself. */
+  resetTokenHash?: string;
+  /** Epoch seconds the reset link stops working. */
+  resetExpires?: number;
+  /** Epoch seconds of recent reset emails, to cap how many one account can be sent. */
+  resetRequests?: number[];
 }
 
 /**
@@ -117,6 +123,13 @@ export interface UserStore {
   createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
   updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
   deleteUser(email: string): Promise<void>;
+  /** The person whose reset link this is, while it is unused and in date. */
+  findUserByResetToken(tokenHash: string, nowSeconds: number): Promise<UserRecord | null>;
+  /**
+   * Uses up the reset link and applies the patch in one step, so a link used twice at once
+   * changes the password only once. Null when the link is used, expired or unknown.
+   */
+  claimPasswordReset(tokenHash: string, nowSeconds: number, patch: Partial<UserRecord>): Promise<UserRecord | null>;
   /** Secrets and settings kept apart from organisation data, so no data endpoint can return them. */
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string | null): Promise<void>;
@@ -245,6 +258,19 @@ export class MemoryStore implements Store {
 
   async deleteUser(email: string) {
     this.users.delete(email);
+  }
+
+  async findUserByResetToken(tokenHash: string, nowSeconds: number) {
+    const user = [...this.users.values()].find((u) => u.resetTokenHash === tokenHash && (u.resetExpires ?? 0) > nowSeconds);
+    return user ? { ...user } : null;
+  }
+
+  async claimPasswordReset(tokenHash: string, nowSeconds: number, patch: Partial<UserRecord>) {
+    const user = await this.findUserByResetToken(tokenHash, nowSeconds);
+    if (!user) return null;
+    const next = { ...user, ...patch, email: user.email, resetTokenHash: undefined, resetExpires: undefined };
+    this.users.set(user.email, next);
+    return { ...next };
   }
 
   private readonly settings = new Map<string, string>();
@@ -425,6 +451,28 @@ export class PgStore implements Store {
   async deleteUser(email: string) {
     await this.init();
     await this.query('delete from preshift.users where email = $1', [email]);
+  }
+
+  async findUserByResetToken(tokenHash: string, nowSeconds: number) {
+    await this.init();
+    const rows = await this.query(
+      `select data from preshift.users where data->>'resetTokenHash' = $1 and (data->>'resetExpires')::bigint > $2`,
+      [tokenHash, nowSeconds],
+    );
+    return rows.length ? userFrom(rows[0].data) : null;
+  }
+
+  async claimPasswordReset(tokenHash: string, nowSeconds: number, patch: Partial<UserRecord>) {
+    await this.init();
+    // One statement matches the unused link and clears it, so of two requests racing on the same
+    // link only one finds it.
+    const rows = await this.query(
+      `update preshift.users set data = (data || $3::jsonb) - 'resetTokenHash' - 'resetExpires'
+       where data->>'resetTokenHash' = $1 and (data->>'resetExpires')::bigint > $2
+       returning data`,
+      [tokenHash, nowSeconds, JSON.stringify(patch)],
+    );
+    return rows.length ? userFrom(rows[0].data) : null;
   }
 
   async getSetting(key: string) {

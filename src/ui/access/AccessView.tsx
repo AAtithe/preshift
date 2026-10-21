@@ -9,7 +9,7 @@ import { download } from '../format';
 import { GrantDialog } from './GrantDialog';
 import {
   byArea, csvOfAccess, describeEvent, endingSoon, healthOf, lastSeen, reach, shortDate, signInState, signInText, STATUS_LABEL, today,
-  type AuditRow, type Me,
+  deliveryText, fullLink, type AuditRow, type Delivery, type Me,
 } from './model';
 import { PersonPanel } from './PersonPanel';
 
@@ -141,9 +141,17 @@ export function AccessView({ state }: Props) {
     const ids = [...selected];
     if (action !== 'resend-invite' && !window.confirm(`${verb} ${ids.length} ${ids.length === 1 ? 'person' : 'people'}? Each is checked on its own.`)) return;
     try {
-      const res = await api.post<{ done: number; failed: number; results: { userId: string; ok: boolean; error?: string }[] }>('/v1/users/bulk', { action, userIds: ids });
-      const why = res.results.filter((r) => !r.ok).map((r) => `${users.find((u) => u.id === r.userId)?.name}: ${r.error}`);
-      setMessage(`${verb}: ${res.done} done${res.failed ? `, ${res.failed} refused. ${why.join(' ')}` : '.'}`);
+      const res = await api.post<{ done: number; failed: number; results: ({ userId: string; ok: boolean; error?: string } & Delivery)[] }>('/v1/users/bulk', { action, userIds: ids });
+      const nameOf = (id: string) => users.find((u) => u.id === id)?.name;
+      const why = res.results.filter((r) => !r.ok).map((r) => `${nameOf(r.userId)}: ${r.error}`);
+      const emailed = res.results.filter((r) => r.emailed).length;
+      // Links that could not be emailed are shown this once, to hand over.
+      const toHand = res.results.filter((r) => r.inviteUrl).map((r) => `${nameOf(r.userId)}: ${fullLink(r.inviteUrl!)}`);
+      setMessage(
+        `${verb}: ${res.done} done${res.failed ? `, ${res.failed} refused. ${why.join(' ')}` : '.'}` +
+          (emailed ? ` ${emailed} emailed.` : '') +
+          (toHand.length ? ` Send these links yourself; each works once and is not shown again. ${toHand.join(' ')}` : ''),
+      );
       setSelected(new Set());
       await refresh();
     } catch (e) {
@@ -545,8 +553,8 @@ export function AccessView({ state }: Props) {
           onDone={async (res) => {
             setGranting(null);
             setMessage(
-              res.inviteUrl
-                ? `${res.user.name} invited. Send them this link; it works once and lasts until ${shortDate(res.expiresAt!)}: ${location.origin}${res.inviteUrl}`
+              res.expiresAt
+                ? deliveryText(`${res.user.name} invited, until ${shortDate(res.expiresAt)}`, res.user.email, res)
                 : `Role granted to ${res.user.name}.`,
             );
             await refresh();

@@ -77,6 +77,17 @@ describe('sessions and access records', () => {
     expect(trail[0]).toBe('invite.accepted');
   });
 
+  it('resets someone active with no account by a link that makes one', async () => {
+    const k = await kit({ keys: [OWNER_KEY], accounts: false });
+    const reset = await k.call('POST', '/v1/users/usr_gm_mar/reset-password', { key: OWNER_KEY.key });
+    expect(reset.body).toMatchObject({ emailed: false });
+    expect(reset.body.inviteUrl).toMatch(/^\/login#invite=/);
+    const token = tokenOf(reset.body.inviteUrl);
+    expect((await k.call('POST', '/auth/link', null, { token })).body).toMatchObject({ email: 'priya@marylebonegroup.example', kind: 'reset' });
+    expect((await k.form('/auth/accept', { token, password: 'long enough password', confirm: 'long enough password' })).location).toBe('/app/');
+    expect(await k.store.getUser('priya@marylebonegroup.example')).toMatchObject({ orgId: 'demo' });
+  });
+
   it('records when a person was last seen, even if they only read', async () => {
     const k = await boot(new PgStore(pg(), ['demo'], TODAY));
     await k.call('GET', '/v1/shifts', 'daniel@marylebonegroup.example');

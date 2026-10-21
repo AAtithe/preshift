@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { User } from '../../src/engine/access';
 import { signedIn } from '../auth';
@@ -7,12 +7,21 @@ import { guard } from '../guard';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { createSession, safeNext, sessionCookie } from '../session';
 import { audit, type OrgData, type Store, type UserRecord } from '../store';
+import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { hashToken } from './users';
 
 const MAX_FAILURES = 5;
 const LOCK_SECONDS = 15 * 60;
 const FIRST_ORG = 'demo';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const RESET_MINUTES = 30;
+/** Links an admin hands over themselves last a working day. */
+export const ADMIN_RESET_HOURS = 24;
+/** Reset emails one account can be sent in an hour, so the form cannot be used to flood someone's inbox. */
+const MAX_RESETS_PER_HOUR = 3;
+/** The forgot form always takes at least this long, so its timing does not show whether an account exists. */
+const FORGOT_MIN_MS = 1200;
 
 const now = () => Math.floor(Date.now() / 1000);
 const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
@@ -35,6 +44,13 @@ export async function newAccount(email: string, orgId: string, password: string)
   };
 }
 
+/** A new reset link for the person, replacing any earlier one. Only its hash is kept. */
+export async function issueReset(store: Store, user: UserRecord, seconds: number, patch: Partial<UserRecord> = {}) {
+  const token = randomBytes(32).toString('base64url');
+  await store.updateUser(user.email, { ...patch, resetTokenHash: hashToken(token), resetExpires: now() + seconds });
+  return token;
+}
+
 function secure(req: FastifyRequest) {
   return req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 }
@@ -44,8 +60,9 @@ async function signIn(req: FastifyRequest, reply: FastifyReply, store: Store, us
   return reply.code(303).header('set-cookie', sessionCookie(token, secure(req))).header('location', next).send();
 }
 
-const backToLogin = (reply: FastifyReply, params: Record<string, string>) =>
-  reply.code(303).header('location', `/login?${new URLSearchParams(params)}`).send();
+/** Back to the sign-in page. A link's token rides after #, so it never reaches a server log. */
+const backToLogin = (reply: FastifyReply, params: Record<string, string>, fragment = '') =>
+  reply.code(303).header('location', `/login?${new URLSearchParams(params)}${fragment}`).send();
 
 const recordFor = (org: OrgData, email: string) => org.users.find((u) => u.email === email);
 
@@ -123,7 +140,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
   // A person sets their own password from an invitation or a reset link. Nobody else ever knows it.
   app.post<{ Body: Record<string, string> }>('/auth/accept', hidden, async (req, reply) => {
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
-    const back = (error: string) => backToLogin(reply, { link: token, error });
+    const back = (error: string) => backToLogin(reply, { error }, `#invite=${encodeURIComponent(token)}`);
     const target = token ? await linkTarget(store, token) : null;
     if (!target) return backToLogin(reply, { error: 'badlink' });
     const { org, entry, user } = target;
@@ -155,9 +172,11 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     return signIn(req, reply, store, account, '/app/');
   });
 
-  // Who a link is for, so the page can greet them. Says nothing about anyone else.
-  app.get<{ Querystring: { token?: string } }>('/auth/link', hidden, async (req, reply) => {
-    const target = req.query.token ? await linkTarget(store, req.query.token) : null;
+  // Who a link is for, so the page can greet them. Says nothing about anyone else. The token comes
+  // in the body, never the address, so it stays out of logs.
+  app.post<{ Body: { token?: string } }>('/auth/link', hidden, async (req, reply) => {
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    const target = token ? await linkTarget(store, token) : null;
     if (!target || target.entry.expiresAt < store.todayISO()) return reply.code(404).send({ error: 'badlink' });
     return { name: target.user.name, email: target.user.email, kind: target.entry.kind ?? 'invite' };
   });
@@ -185,9 +204,56 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     if (problem) throw new HttpError(400, 'weak_password', problem);
     const hashed = await hashPassword(req.body.newPassword!);
     const issued = Date.now();
-    await store.updateUser(user.email, { ...hashed, sessionsValidFrom: issued });
+    await store.updateUser(user.email, { ...hashed, sessionsValidFrom: issued, resetTokenHash: undefined, resetExpires: undefined });
     // This session carries on, still proved by its authenticator code if it was.
     const token = await createSession(user, await store.sessionSecret(), issued, claims.mfa);
+    return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
+  });
+
+  // The reply is the same whether or not the email has an account, so the form cannot be used
+  // to find out who has one.
+  app.post<{ Body: Record<string, string> }>('/auth/forgot', hidden, async (req, reply) => {
+    const started = Date.now();
+    const email = normalise(req.body?.email);
+    const user = EMAIL.test(email) ? await store.getUser(email) : null;
+    if (user) {
+      const recent = (user.resetRequests ?? []).filter((t) => t > now() - 3600);
+      const settings = parseEmailSettings(await store.getSetting(emailSetting(user.orgId)));
+      if (!settings) console.error(`Reset email not sent to ${email}: email is not set up under Settings`);
+      else if (recent.length < MAX_RESETS_PER_HOUR) {
+        const token = await issueReset(store, user, RESET_MINUTES * 60, { resetRequests: [...recent, now()] });
+        // The token goes in the fragment, which browsers never send to a server or in a Referer header.
+        await sendMail(settings, resetEmail(email, `${settings.appUrl}/login#reset=${token}`, RESET_MINUTES));
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, FORGOT_MIN_MS - (Date.now() - started))));
+    return backToLogin(reply, { sent: '1' });
+  });
+
+  // With only the token, says whether the link still works so the page can say so before any typing.
+  // With a new password too, sets it, signs out every other device and signs this one in.
+  app.post<{ Body: { token?: string; password?: string } }>('/auth/reset', hidden, async (req, reply) => {
+    const expired = () => reply.code(410).send({ error: 'expired', message: 'This reset link has expired or has already been used. Ask for a new one.' });
+    const tokenHash = hashToken(typeof req.body?.token === 'string' ? req.body.token : '');
+    const user = await store.findUserByResetToken(tokenHash, now());
+    if (!user) return expired();
+    if (req.body?.password === undefined) return { ok: true, email: user.email };
+
+    const problem = passwordProblem(req.body.password);
+    if (problem) throw new HttpError(400, 'weak_password', problem);
+    const issued = Date.now();
+    // Proving control of the inbox also clears any lockout from earlier wrong guesses.
+    const claimed = await store.claimPasswordReset(tokenHash, now(), {
+      ...(await hashPassword(req.body.password)),
+      sessionsValidFrom: issued,
+      failedAttempts: 0,
+      lockedUntil: 0,
+    });
+    if (!claimed) return expired();
+    const org = await store.load(claimed.orgId);
+    audit(org, claimed.email, 'access.password_reset_by_link');
+    await store.save(org);
+    const token = await createSession(claimed, await store.sessionSecret(), issued);
     return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
   });
 }
@@ -206,11 +272,50 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     return g.actor.kind === 'user' ? g.actor.user.name : req.principal.name;
   }
 
+  const emailView = async (req: FastifyRequest) => {
+    const email = parseEmailSettings(await store.getSetting(emailSetting(orgId(req))));
+    return email ? { set: true, from: email.from, appUrl: email.appUrl, keyEndsWith: email.resendApiKey.slice(-4) } : { set: false };
+  };
+
   app.get('/v1/settings', hidden, async (req) => {
     settingsPerson(req);
     const key = await store.getSetting(claudeKeySetting(orgId(req)));
-    return { claudeApiKey: key ? { set: true, endsWith: key.slice(-4) } : { set: false } };
+    return { claudeApiKey: key ? { set: true, endsWith: key.slice(-4) } : { set: false }, email: await emailView(req) };
   });
+
+  // Saving without a key keeps the one already saved, so the address can change without re-entering it.
+  app.put<{ Body: { resendApiKey?: string; from?: string; appUrl?: string } }>('/v1/settings/email', hidden, async (req) => {
+    const who = settingsPerson(req);
+    const setting = emailSetting(orgId(req));
+    const resendApiKey = req.body?.resendApiKey?.trim() || parseEmailSettings(await store.getSetting(setting))?.resendApiKey;
+    if (!resendApiKey || !/^re_[A-Za-z0-9_]{10,}$/.test(resendApiKey)) {
+      throw new HttpError(400, 'invalid_key', 'That does not look like a Resend API key. It starts with re_.');
+    }
+    const from = req.body?.from?.trim() ?? '';
+    if (!/^([^<>]+<)?[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>?$/.test(from)) {
+      throw new HttpError(400, 'invalid_from', 'Enter the address emails come from, on a domain verified in Resend.');
+    }
+    let appUrl: string;
+    try {
+      const url = new URL(req.body?.appUrl?.trim() ?? '');
+      if (url.protocol !== 'https:' && url.hostname !== 'localhost') throw new Error('not https');
+      appUrl = url.origin;
+    } catch {
+      throw new HttpError(400, 'invalid_app_url', 'Enter the address people open Preshift at, starting https://.');
+    }
+    await store.setSetting(setting, JSON.stringify({ resendApiKey, from, appUrl }));
+    audit(req.org!, who, 'settings.email_set', { from, appUrl });
+    return { email: await emailView(req) };
+  });
+
+  app.delete('/v1/settings/email', hidden, async (req) => {
+    const who = settingsPerson(req);
+    await store.setSetting(emailSetting(orgId(req)), null);
+    audit(req.org!, who, 'settings.email_removed');
+    return { email: { set: false } };
+  });
+
+
 
   app.put<{ Body: { claudeApiKey?: string | null } }>('/v1/settings/claude-api-key', hidden, async (req) => {
     const who = settingsPerson(req);

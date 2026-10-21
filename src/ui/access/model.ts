@@ -140,3 +140,20 @@ export function csvOfAccess(users: User[], state: RotaState): string {
   }
   return rows.map((r) => r.map(esc).join(',')).join('\n');
 }
+
+/** How a link went out: by email, or back to whoever made it, to hand over. */
+export interface Delivery {
+  emailed?: boolean;
+  inviteUrl?: string;
+  emailProblem?: string;
+}
+
+/** Links come back relative until the app's address is saved under Settings. */
+export const fullLink = (url: string) => (/^https?:\/\//.test(url) ? url : `${location.origin}${url}`);
+
+/** What to tell whoever sent a link: that it was emailed, or the link itself, shown this once. */
+export function deliveryText(done: string, email: string, d: Delivery | undefined): string {
+  if (d?.emailed) return `${done}. The link is on its way to ${email}.`;
+  if (!d?.inviteUrl) return done;
+  return `${done}. ${d.emailProblem ? `${d.emailProblem} ` : ''}Send them this link yourself; it works once and is not shown again: ${fullLink(d.inviteUrl)}`;
+}
