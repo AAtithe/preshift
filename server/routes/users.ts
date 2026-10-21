@@ -7,13 +7,13 @@ import {
 import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
 import { actorOf, withoutRecord } from '../guard';
-import { authenticatorState } from './authenticator';
+import { authenticatorOf, authenticatorState } from './authenticator';
 import { accessResetEmail, emailSetting, inviteEmail, linkFor, parseEmailSettings, sendMail, type Mail } from '../mail';
 import { hashPassword } from '../passwords';
 import { ADMIN_RESET_HOURS, issueReset } from './access';
 import { mailAttention } from '../../src/engine/mail';
 import { addEvent, askResend, latestByUser, recordSent, view } from '../maillog';
-import type { MailKind, Store } from '../store';
+import { sharedAccount, type MailKind, type Store, type UserRecord } from '../store';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -107,13 +107,17 @@ export interface Delivery {
  * lands against the person. Otherwise, if Resend refuses, or when asked to hand it over (an
  * address that bounced), returns it.
  */
-async function deliver(store: Store, org: OrgData, path: string, mail: (link: string) => Mail, log: { kind: MailKind; userId: string; by: string }, handOver = false): Promise<Delivery> {
+async function deliver(store: Store, org: OrgData, path: string, mail: (link: string) => Mail, log: { kind: MailKind; userId: string; by: string }, handOver = false, emailOnly = false): Promise<Delivery> {
   const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
   const link = linkFor(settings, path);
   if (!settings || handOver) return { emailed: false, inviteUrl: link };
   const message = mail(link);
   const id = await sendMail(settings, message);
-  if (id === null) return { emailed: false, inviteUrl: link, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' };
+  if (id === null) {
+    return emailOnly
+      ? { emailed: false, emailProblem: 'The email did not go. Check the email settings; they can also use "Forgot your password?" on the sign-in page.' }
+      : { emailed: false, inviteUrl: link, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' };
+  }
   if (id) recordSent(org, id, { to: message.to, ...log });
   return { emailed: true };
 }
@@ -121,13 +125,36 @@ async function deliver(store: Store, org: OrgData, path: string, mail: (link: st
 /** Sends an invitation link to the person invited, naming who invited them and the role they start with. */
 async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false) {
   const role = roleOf(user.memberships.find((m) => m.active)?.roleId ?? '')?.name ?? 'a member of the team';
-  const sent = await deliver(store, org, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS), { kind: 'invite', userId: user.id, by: nameOf(actor) }, handOver);
+  // Someone who already signs in to Preshift accepts with their own password, not a new one.
+  const existing = !!(await store.getUser(user.email));
+  const sent = await deliver(store, org, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS, existing), { kind: 'invite', userId: user.id, by: nameOf(actor) }, handOver);
   return { expiresAt: link.expiresAt, ...sent };
 }
 
-/** Ends every session the person has, on the next request each makes. */
+/**
+ * Ends every session the person has, on the next request each makes. Not for an account that
+ * works elsewhere too: suspending it here must not sign it out of another organisation, and the
+ * guard already refuses a suspended person here on every request.
+ */
 async function signOutEverywhere(store: Store, email: string) {
-  if (await store.getUser(email)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
+  const account = await store.getUser(email);
+  if (account && !sharedAccount(account)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
+}
+
+/**
+ * The password and the authenticator are the account's, and the account belongs to its home
+ * organisation. Anywhere else a reset would let one organisation take over a person's access to
+ * another, so it is refused there: the organisation controls the person's access to itself.
+ */
+function refuseElsewhere(account: UserRecord | null, org: OrgData, target: User) {
+  if (account && account.orgId !== org.orgId) {
+    throw new HttpError(
+      409,
+      'managed_elsewhere',
+      `${target.name} signs in with an account another organisation manages, so their password and authenticator are reset there. ` +
+        'Here you control their access: suspend it if it must stop now.',
+    );
+  }
 }
 
 /** What the Access screen needs to know about each person's sign-in. Never the hash. */
@@ -139,7 +166,12 @@ async function withAccounts(store: Store, org: OrgData, users: User[]) {
     const a = accounts.get(u.email);
     return {
       ...u,
-      account: a ? { exists: true, locked: a.lockedUntil > nowSecs, since: a.createdAt } : { exists: false, locked: false },
+      // The authenticator is the account's: set up in another organisation, it counts here too.
+      mfaEnrolled: a ? !!a.authenticator?.secret || (u.mfaEnrolled && !!org.authenticators[u.id]?.secret) : u.mfaEnrolled,
+      // Whether the password and authenticator are reset here. Never which other organisations the account is in.
+      account: a
+        ? { exists: true, locked: a.lockedUntil > nowSecs, since: a.createdAt, managedHere: a.orgId === org.orgId }
+        : { exists: false, locked: false, managedHere: true },
       // The last email sent to them and what Resend reported, so a link that never arrived shows.
       lastEmail: mail.get(u.id),
     };
@@ -190,10 +222,15 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
       return target.status === 'invited' ? { user: target, ...(await sendInvite(store, org, actor, target, issueInvite(org, target, now))) } : { user: target };
     }
     case 'reset-authenticator': {
-      if (!target.mfaEnrolled) throw new HttpError(409, 'conflict', `${target.name} has no authenticator set up`);
+      const account = await store.getUser(target.email);
+      if (!target.mfaEnrolled && !account?.authenticator?.secret && !org.authenticators[target.id]?.secret) {
+        throw new HttpError(409, 'conflict', `${target.name} has no authenticator set up`);
+      }
+      refuseElsewhere(account, org, target);
       refuse(checkAuthority(actor, target, org.users, today, { removesAccess: true }));
       target.mfaEnrolled = false;
       // The record goes with it: its id is what verified sessions name, so every one of them ends here.
+      if (account?.authenticator) await store.updateUser(account.email, { authenticator: undefined });
       delete org.authenticators[target.id];
       audit(org, nameOf(actor), 'user.authenticator_reset', { userId: target.id });
       return { user: target };
@@ -226,6 +263,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = orgOf(req);
     const actor = actorOf(req, org, today());
     const user = actor.kind === 'user' ? actor.user : undefined;
+    const stored = user && org.users.find((u) => u.id === user.id);
     return {
       key: req.principal.name,
       scopes: req.principal.scopes,
@@ -233,7 +271,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       // Payroll runs against the TeamPay simulator: the screens offer its demo controls.
       simulator: !!ctx.simulator,
       user,
-      authenticator: user ? authenticatorState(req, org, org.users.find((u) => u.id === user.id)!, today()) : undefined,
+      authenticator: stored ? authenticatorState(req, org, stored, today(), await authenticatorOf(ctx, req, org, stored)) : undefined,
       permissions: user ? ALL_PERMISSIONS.filter((p) => can(user, p, today())) : ALL_PERMISSIONS,
     };
   });
@@ -290,10 +328,6 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!EMAIL.test(email)) throw new HttpError(400, 'invalid_request', 'That is not an email address');
       const existing = org.users.find((u) => u.email === email);
       if (existing) throw new HttpError(409, 'exists', `There is already an account for ${email}. Grant ${existing.name} a role instead.`, { userId: existing.id });
-      const account = await ctx.store.getUser(email);
-      if (account && account.orgId !== org.orgId) {
-        throw new HttpError(409, 'elsewhere', `${email} already signs in to another organisation. One email signs in to one organisation for now.`);
-      }
       if (req.body.employeeId && !org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
       const now = new Date();
       const user: User = {
@@ -444,6 +478,18 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       if (target.status !== 'active') throw new HttpError(409, 'conflict', `${target.name} is ${target.status}. ${target.status === 'invited' ? 'Resend their invitation instead.' : 'Reactivate them first.'}`);
       refuse(checkAuthority(actor, target, org.users, today()));
       const account = await ctx.store.getUser(target.email);
+      refuseElsewhere(account, org, target);
+      const handOver = handOverAsked(req.body);
+      // An account that opens other organisations too is never handed over: whoever held the link
+      // would hold the person's access everywhere. Its reset goes only to the person's inbox.
+      if (account && sharedAccount(account) && (handOver || !parseEmailSettings(await ctx.store.getSetting(emailSetting(org.orgId))))) {
+        throw new HttpError(
+          409,
+          'email_only',
+          `${target.name} signs in to other organisations with this account, so a reset link only ever goes to their email. ` +
+            (handOver ? 'It cannot be handed over.' : 'Set up email under Settings first, or they can use "Forgot your password?" on the sign-in page.'),
+        );
+      }
       let path: string;
       if (account) {
         // The old password stops working at once, and every session ends: either may be what was compromised.
@@ -458,8 +504,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         // Active with no account to reset (made before accounts lived here): the link makes one.
         path = issueInvite(org, target, new Date(), 'reset').path;
       }
-      const handOver = handOverAsked(req.body);
-      const sent = await deliver(ctx.store, org, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS), { kind: 'reset', userId: target.id, by: nameOf(actor) }, handOver);
+      const sent = await deliver(ctx.store, org, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS), { kind: 'reset', userId: target.id, by: nameOf(actor) }, handOver, !!account && sharedAccount(account));
       audit(org, nameOf(actor), 'user.password_reset', { userId: target.id, emailed: sent.emailed, ...(handOver ? { handedOver: true } : {}) });
       return { user: target, expiresInHours: ADMIN_RESET_HOURS, ...sent };
     },
@@ -519,7 +564,9 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/access/health', { ...manage, schema: { tags, description: 'What needs attention, and who covers each duty at each site.' } }, async (req) => {
     const org = orgOf(req);
-    const users = readable(actorOf(req, org, today()), org, today());
+    // Enrolment is read from the accounts, as an authenticator set up elsewhere counts here.
+    const accounts = await ctx.store.listUsers(org.orgId);
+    const users = (await withAccounts(ctx.store, org, readable(actorOf(req, org, today()), org, today()))) as User[];
     const t = today();
     const ids = (us: User[]) => us.map((u) => u.id);
     const rank = { block: 0, warn: 1, info: 2 };
@@ -532,8 +579,9 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         sites: Object.fromEntries(org.state.sites.map((s) => [s.id, Object.fromEntries(SITE_DUTIES.map((p) => [p, ids(holders(users, p, t, s.id))]))])),
       },
       // Accounts that can sign in to this organisation but have no access record: full access, no roles.
-      signInsWithoutRecord: (await ctx.store.listUsers(org.orgId))
-        .filter((a) => !org.users.some((x) => x.email === a.email))
+      // Only accounts at home here: an account from elsewhere without a record here has no access here.
+      signInsWithoutRecord: accounts
+        .filter((a) => a.orgId === org.orgId && !org.users.some((x) => x.email === a.email))
         .map((a) => a.email),
       counts: {
         people: users.length,

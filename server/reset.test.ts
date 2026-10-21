@@ -242,7 +242,7 @@ describe('invitation emails', () => {
     const t = await boot();
     await t.invite({ email: 'ama@ws.example', name: 'Ama Boateng' }, t.owner);
     const token = decodeURIComponent(/#invite=([^\s"<]+)/.exec(sent[0].text)![1]);
-    expect((await t.call('POST', '/auth/link', undefined, { token })).json()).toEqual({ name: 'Ama Boateng', email: 'ama@ws.example', kind: 'invite' });
+    expect((await t.call('POST', '/auth/link', undefined, { token })).json()).toEqual({ name: 'Ama Boateng', email: 'ama@ws.example', kind: 'invite', existing: false });
     expect((await t.call('GET', `/auth/link?token=${encodeURIComponent(token)}`)).statusCode).toBe(404);
     // A mistake on the form goes back to the page with the token after #, out of the address the server sees.
     const weak = await t.form('/auth/accept', { token, password: 'short', confirm: 'short' });

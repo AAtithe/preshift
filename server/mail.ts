@@ -93,16 +93,26 @@ ${notes.map((t) => p(t, true)).join('\n')}
 </body></html>`;
 }
 
-/** An invitation: the person sets their own password from the link; nobody else ever knows it. */
-export function inviteEmail(to: string, name: string, invitedBy: string, role: string, link: string, days: number): Mail {
-  const opening = `${invitedBy} has invited you to Preshift as ${role}.`;
-  const setUp = 'Use this link to choose your password and sign in. Choose one only you know: nobody else, not even whoever invited you, will see it.';
+/**
+ * An invitation: the person sets their own password from the link; nobody else ever knows it.
+ * Someone who already signs in to Preshift elsewhere accepts with the password they have.
+ */
+export function inviteEmail(to: string, name: string, invitedBy: string, role: string, link: string, days: number, existing = false): Mail {
+  const opening = `${invitedBy} has invited you to their organisation on Preshift as ${role}.`;
+  const setUp = existing
+    ? 'You already sign in to Preshift with this email. Use this link and sign in with your usual password to accept; nothing about your other access changes.'
+    : 'Use this link to choose your password and sign in. Choose one only you know: nobody else, not even whoever invited you, will see it.';
   const notes = [
     `The link works once and expires in ${days} days.`,
     'If you were not expecting this, ignore it: nothing happens unless the link is used.',
   ];
   const text = [`Hello ${name},`, '', opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
-  return { to, subject: `${oneLine(invitedBy)} invited you to Preshift`, text, html: letter([`Hello ${name},`, opening, setUp], { label: 'Choose your password', link }, notes) };
+  return {
+    to,
+    subject: `${oneLine(invitedBy)} invited you to Preshift`,
+    text,
+    html: letter([`Hello ${name},`, opening, setUp], { label: existing ? 'Accept the invitation' : 'Choose your password', link }, notes),
+  };
 }
 
 /** A reset made by someone who manages access, rather than asked for by the person. */

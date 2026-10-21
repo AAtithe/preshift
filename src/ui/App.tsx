@@ -156,6 +156,7 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
         </div>
         <div className="controls">
           <DemoSwitch me={me} />
+          <OrgSwitch account={account} />
           <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
             <option value={ALL}>All entities</option>
             {state.entities.map((e) => (
@@ -330,6 +331,33 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
 interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
 
 /** Demo only: sign in as any seeded person to see what their roles allow. Absent outside the demo. */
+/**
+ * For someone who works in more than one organisation: moves the session to another, then
+ * starts the app again there, as everything on screen belongs to the one it came from.
+ */
+function OrgSwitch({ account }: { account: Account | null }) {
+  const [error, setError] = useState<string | null>(null);
+  const orgs = account?.organisations ?? [];
+  if (orgs.length < 2 || actingAsDemo) return null;
+  async function choose(orgId: string) {
+    setError(null);
+    const res = await fetch('/auth/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) }).catch(() => null);
+    if (res?.ok) return location.reload();
+    setError((await res?.json().catch(() => null))?.message ?? 'Could not switch. Check your connection and try again.');
+  }
+  return (
+    <label className="demo-switch">
+      <span className="muted small">Organisation</span>
+      <select value={account!.orgId} onChange={(e) => void choose(e.target.value)} aria-label="Organisation">
+        {orgs.map((o) => (
+          <option key={o.orgId} value={o.orgId}>{o.name}</option>
+        ))}
+      </select>
+      {error && <span className="small bad-text" role="alert">{error}</span>}
+    </label>
+  );
+}
+
 function DemoSwitch({ me }: { me: Me | null }) {
   const [people, setPeople] = useState<DemoPerson[] | null>(null);
   useEffect(() => {

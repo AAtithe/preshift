@@ -6,7 +6,7 @@ import { HttpError, orgOf, type AppContext } from '../context';
 import { guard } from '../guard';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { createSession, safeNext, sessionCookie } from '../session';
-import { audit, type OrgData, type Store, type UserRecord } from '../store';
+import { audit, orgsOfAccount, type OrgData, type Store, type UserRecord } from '../store';
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { addEvent, fromWebhook, recordSent, verifyWebhook, webhookPath } from '../maillog';
 import { hashToken } from './users';
@@ -56,9 +56,36 @@ function secure(req: FastifyRequest) {
   return req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 }
 
-async function signIn(req: FastifyRequest, reply: FastifyReply, store: Store, user: UserRecord, next: string) {
-  const token = await createSession(user, await store.sessionSecret());
+async function signIn(req: FastifyRequest, reply: FastifyReply, store: Store, user: UserRecord, next: string, orgId = user.orgId) {
+  const token = await createSession({ email: user.email, orgId }, await store.sessionSecret());
+  if (user.lastOrgId !== orgId) await store.updateUser(user.email, { lastOrgId: orgId });
   return reply.code(303).header('set-cookie', sessionCookie(token, secure(req))).header('location', next).send();
+}
+
+/** An organisation's name for the switcher: its companies, as there is no other. */
+export const orgName = (org: OrgData) => org.state.entities.map((e) => e.name).join(', ') || org.orgId;
+
+/**
+ * Where a person lands on signing in: where they last worked, else home, else the first other
+ * organisation that still lets them in. Null when every one has suspended them. An organisation
+ * with no record of them opens only at home, where an account from before roles keeps its access.
+ */
+async function landingOrg(store: Store, user: UserRecord): Promise<string | null> {
+  const order = [...new Set([...(user.lastOrgId ? [user.lastOrgId] : []), ...orgsOfAccount(user)])];
+  for (const orgId of order) {
+    if (!orgsOfAccount(user).includes(orgId) || !(await store.has(orgId))) continue;
+    const record = recordFor(await store.load(orgId), user.email);
+    if (record ? record.status === 'active' || record.status === 'invited' : orgId === user.orgId) return orgId;
+  }
+  return null;
+}
+
+/** A wrong password counts towards the lockout, wherever it was typed. */
+async function wrongPassword(store: Store, user: UserRecord) {
+  const failedAttempts = user.failedAttempts + 1;
+  const lock = failedAttempts >= MAX_FAILURES;
+  await store.updateUser(user.email, { failedAttempts: lock ? 0 : failedAttempts, lockedUntil: lock ? now() + LOCK_SECONDS : 0 });
+  await new Promise((resolve) => setTimeout(resolve, 400));
 }
 
 /** Back to the sign-in page. A link's token rides after #, so it never reaches a server log. */
@@ -123,19 +150,15 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     if (user && user.lockedUntil > now()) return backToLogin(reply, { next, error: 'locked' });
 
     if (!(await verifyPassword(user, password)) || !user) {
-      if (user) {
-        const failedAttempts = user.failedAttempts + 1;
-        const lock = failedAttempts >= MAX_FAILURES;
-        await store.updateUser(user.email, { failedAttempts: lock ? 0 : failedAttempts, lockedUntil: lock ? now() + LOCK_SECONDS : 0 });
-      }
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      if (user) await wrongPassword(store, user);
+      else await new Promise((resolve) => setTimeout(resolve, 400));
       return backToLogin(reply, { next, error: 'invalid' });
     }
     // The right password does not open a suspended account. Said only once the password is right.
-    const record = recordFor(await store.load(user.orgId), user.email);
-    if (record?.status === 'suspended') return backToLogin(reply, { next, error: 'suspended' });
+    const orgId = await landingOrg(store, user);
+    if (!orgId) return backToLogin(reply, { next, error: 'suspended' });
     if (user.failedAttempts || user.lockedUntil) await store.updateUser(user.email, { failedAttempts: 0, lockedUntil: 0 });
-    return signIn(req, reply, store, user, next);
+    return signIn(req, reply, store, user, next, orgId);
   });
 
   // A person sets their own password from an invitation or a reset link. Nobody else ever knows it.
@@ -147,30 +170,35 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const { org, entry, user } = target;
     if (entry.expiresAt < store.todayISO()) return backToLogin(reply, { error: 'expired' });
     if (user.status === 'suspended') return backToLogin(reply, { error: 'suspended' });
-    const problem = passwordProblem(req.body?.password);
-    if (problem) return back('weak');
-    if (req.body.password !== req.body?.confirm) return back('mismatch');
-
     const existing = await store.getUser(user.email);
-    if (existing && existing.orgId !== org.orgId) return backToLogin(reply, { error: 'elsewhere' });
     let account: UserRecord;
     if (existing) {
-      // Every session signed in before this ends, and any lockout clears.
-      await store.updateUser(user.email, { ...(await hashPassword(req.body.password)), sessionsValidFrom: Date.now(), failedAttempts: 0, lockedUntil: 0 });
+      // Already signs in to Preshift: they prove it is them with the password they have. A link
+      // that set a new one would hand the account, and every organisation it opens, to whoever
+      // held the link, and an inviter holds it whenever email is not set up.
+      if (existing.lockedUntil > now()) return back('locked');
+      if (!(await verifyPassword(existing, req.body?.password ?? ''))) {
+        await wrongPassword(store, existing);
+        return back('invalid');
+      }
+      await store.updateUser(user.email, { orgs: [...new Set([...orgsOfAccount(existing), org.orgId])], failedAttempts: 0, lockedUntil: 0 });
       account = (await store.getUser(user.email))!;
     } else {
+      if (passwordProblem(req.body?.password)) return back('weak');
+      if (req.body.password !== req.body?.confirm) return back('mismatch');
       account = await newAccount(user.email, org.orgId, req.body.password);
-      if (!(await store.createUser(account))) return backToLogin(reply, { error: 'elsewhere' });
+      // Made meanwhile by another link: the person opens this one again and signs in with that password.
+      if (!(await store.createUser(account))) return back('elsewhere');
     }
     delete org.inviteTokens[hashToken(token)];
     if (user.status === 'invited') {
       Object.assign(user, { status: 'active', activatedAt: new Date().toISOString(), inviteExpiresAt: undefined } satisfies Partial<User>);
-      audit(org, user.name, 'invite.accepted', { userId: user.id, by: 'password' });
-    } else {
+      audit(org, user.name, 'invite.accepted', { userId: user.id, by: existing ? 'existing_account' : 'password' });
+    } else if (!existing) {
       audit(org, user.name, 'user.password_set', { userId: user.id, by: entry.kind ?? 'invite' });
     }
     await store.save(org);
-    return signIn(req, reply, store, account, '/app/');
+    return signIn(req, reply, store, account, '/app/', org.orgId);
   });
 
   // Who a link is for, so the page can greet them. Says nothing about anyone else. The token comes
@@ -179,7 +207,8 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
     const target = token ? await linkTarget(store, token) : null;
     if (!target || target.entry.expiresAt < store.todayISO()) return reply.code(404).send({ error: 'badlink' });
-    return { name: target.user.name, email: target.user.email, kind: target.entry.kind ?? 'invite' };
+    // Whether they already sign in, so the page asks for their password rather than a new one.
+    return { name: target.user.name, email: target.user.email, kind: target.entry.kind ?? 'invite', existing: !!(await store.getUser(target.user.email)) };
   });
 
   app.get('/auth/logout', hidden, async (req, reply) =>
@@ -190,7 +219,33 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const session = await signedIn(req.headers.cookie, store);
     if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
     // What the person may do is their access record (/v1/me), not anything on the account.
-    return { email: session.user.email, orgId: session.user.orgId };
+    return { email: session.user.email, orgId: session.claims.orgId, organisations: await organisationsOf(session.user, session.claims.orgId) };
+  });
+
+  /** The organisations a person can switch to: their own list, never anyone else's. */
+  async function organisationsOf(user: UserRecord, current: string) {
+    const out: { orgId: string; name: string; current: boolean; home: boolean }[] = [];
+    for (const orgId of orgsOfAccount(user)) {
+      if (!(await store.has(orgId))) continue;
+      const org = await store.load(orgId);
+      const record = recordFor(org, user.email);
+      const open = record ? record.status === 'active' : orgId === user.orgId;
+      if (open || orgId === current) out.push({ orgId, name: orgName(org), current: orgId === current, home: orgId === user.orgId });
+    }
+    return out;
+  }
+
+  // Moves the session to another organisation the person works in. The authenticator code
+  // entered this session still counts: it is the same person and the same authenticator.
+  app.post<{ Body: { orgId?: string } }>('/auth/switch', hidden, async (req, reply) => {
+    const session = await signedIn(req.headers.cookie, store);
+    if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
+    const orgId = typeof req.body?.orgId === 'string' ? req.body.orgId : '';
+    const target = (await organisationsOf(session.user, session.claims.orgId)).find((o) => o.orgId === orgId);
+    if (!target) return reply.code(403).send({ error: 'forbidden', message: 'You have no access to that organisation.' });
+    const token = await createSession({ email: session.user.email, orgId }, await store.sessionSecret(), Date.now(), session.claims.mfa);
+    await store.updateUser(session.user.email, { lastOrgId: orgId });
+    return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true, orgId, name: target.name });
   });
 
   // Anyone signed in can change their own password; every other session of theirs ends.
@@ -207,7 +262,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const issued = Date.now();
     await store.updateUser(user.email, { ...hashed, sessionsValidFrom: issued, resetTokenHash: undefined, resetExpires: undefined });
     // This session carries on, still proved by its authenticator code if it was.
-    const token = await createSession(user, await store.sessionSecret(), issued, claims.mfa);
+    const token = await createSession({ email: user.email, orgId: claims.orgId }, await store.sessionSecret(), issued, claims.mfa);
     return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
   });
 
@@ -260,7 +315,8 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = await store.load(claimed.orgId);
     audit(org, claimed.email, 'access.password_reset_by_link');
     await store.save(org);
-    const token = await createSession(claimed, await store.sessionSecret(), issued);
+    const landing = (await landingOrg(store, claimed)) ?? claimed.orgId;
+    const token = await createSession({ email: claimed.email, orgId: landing }, await store.sessionSecret(), issued);
     return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
   });
 

@@ -4,7 +4,10 @@ import { api, ApiError } from './api';
 /** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
 export interface Account {
   email: string;
+  /** The organisation this session works in. */
   orgId: string;
+  /** Every organisation the person may switch to, this one included. */
+  organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
 }
 
 interface EmailStatus {

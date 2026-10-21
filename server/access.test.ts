@@ -47,7 +47,7 @@ describe('first-run owner setup', () => {
     const res = await setup(k);
     expect(res.status).toBe(303);
     expect(res.location).toBe('/app/');
-    expect((await k.call('GET', '/auth/me', res.cookie!)).body).toEqual({ email: OWNER.email, orgId: 'demo' });
+    expect((await k.call('GET', '/auth/me', res.cookie!)).body).toMatchObject({ email: OWNER.email, orgId: 'demo', organisations: [{ orgId: 'demo', current: true, home: true }] });
     const me = (await k.call('GET', '/v1/me', res.cookie!)).body;
     expect(me.user.memberships.map((m: { roleId: string }) => m.roleId)).toEqual(['owner']);
     // The owner manages access, which needs an authenticator: set up before anyone is invited.
@@ -153,7 +153,7 @@ describe('invitation and reset links', () => {
     const sent = await k.call('POST', '/v1/users', boss, { email: 'ama@ws.example', name: 'Ama Boateng', audience: 'operator', roleId: 'viewer' });
     expect(sent.body.inviteUrl).toMatch(/^\/login#invite=/);
     const token = tokenOf(sent.body.inviteUrl);
-    expect((await k.call('POST', '/auth/link', null, { token })).body).toEqual({ name: 'Ama Boateng', email: 'ama@ws.example', kind: 'invite' });
+    expect((await k.call('POST', '/auth/link', null, { token })).body).toEqual({ name: 'Ama Boateng', email: 'ama@ws.example', kind: 'invite', existing: false });
     expect((await k.form('/auth/accept', { token, password: 'short', confirm: 'short' })).location).toMatch(/error=weak/);
     expect((await k.form('/auth/accept', { token, password: 'long enough password', confirm: 'something else' })).location).toMatch(/error=mismatch/);
     const ok = await k.form('/auth/accept', { token, password: 'long enough password', confirm: 'long enough password' });
@@ -185,9 +185,9 @@ describe('invitation and reset links', () => {
     const org = await store.load('demo');
     for (const v of Object.values(org.inviteTokens)) v.expiresAt = '2020-01-01';
     expect((await k.form('/auth/accept', { token: tokenOf(sent.body.inviteUrl), password: 'long enough password', confirm: 'long enough password' })).location).toMatch(/error=expired/);
-    // One email signs in to one organisation: an invitation elsewhere cannot take it over.
+    // An account from another organisation can be invited: it accepts with its own password (server/orgs.test.ts).
     await store.createUser(account('taken@acme.example', 'acme'));
-    expect((await k.call('POST', '/v1/users', boss, { email: 'taken@acme.example', name: 'Taken', audience: 'operator', roleId: 'viewer' })).body.error).toBe('elsewhere');
+    expect((await k.call('POST', '/v1/users', boss, { email: 'taken@acme.example', name: 'Taken', audience: 'operator', roleId: 'viewer' })).status).toBe(201);
   });
 });
 

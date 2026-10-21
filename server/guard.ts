@@ -22,6 +22,11 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
       : undefined;
   if (!user) {
     if (userId) throw new HttpError(403, 'forbidden', 'This key belongs to a person who no longer has an account');
+    // Legacy full access is the home organisation's alone: an account that has joined another
+    // organisation is nobody there without a record of its own.
+    if (email && req.principal.homeOrgId && req.principal.homeOrgId !== org.orgId) {
+      throw new HttpError(403, 'forbidden', 'You have no access to this organisation.');
+    }
     return { kind: 'system', name: req.principal.name };
   }
   // Signing in proves the email, so it accepts a waiting invitation.
@@ -42,7 +47,7 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
     req.orgTouched = true;
   }
   // The rules read mfaEnrolled; for this request it means enrolled and proved in this session.
-  return { kind: 'user', user: { ...user, mfaEnrolled: user.mfaEnrolled && verified(req, org, user) } };
+  return { kind: 'user', user: { ...user, mfaEnrolled: enrolled(req, org, user) && verified(req, org, user) } };
 }
 
 /**
@@ -53,14 +58,30 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
 export function verified(req: FastifyRequest, org: OrgData, user: User): boolean {
   const { userId, sessionMfa, mfa } = req.principal;
   if (userId) return mfa === true;
-  const record = org.authenticators[user.id];
-  return !!sessionMfa && !!record?.secret && sessionMfa === record.id;
+  const id = enrolmentId(req, org, user);
+  return !!sessionMfa && !!id && sessionMfa === id;
+}
+
+/**
+ * The person's authenticator enrolment: the account's own, else one kept in this organisation
+ * from before authenticators moved to the account, which moves across when next used.
+ */
+function enrolmentId(req: FastifyRequest, org: OrgData, user: User): string | undefined {
+  if (req.principal.accountMfaId) return req.principal.accountMfaId;
+  const legacy = org.authenticators[user.id];
+  return legacy?.secret ? legacy.id : undefined;
+}
+
+/** Whether the person has an authenticator, wherever they set it up. */
+export function enrolled(req: FastifyRequest, org: OrgData, user: User): boolean {
+  if (req.principal.userId) return user.mfaEnrolled;
+  return !!enrolmentId(req, org, user);
 }
 
 /** A signed-in person with no access record: still organisation-wide, and a finding until they have one. */
 export function withoutRecord(req: FastifyRequest, org: OrgData): boolean {
-  const { userId, email } = req.principal;
-  return !userId && !!email && !org.users.some((u) => u.email === email.toLowerCase());
+  const { userId, email, homeOrgId } = req.principal;
+  return !userId && !!email && (!homeOrgId || homeOrgId === org.orgId) && !org.users.some((u) => u.email === email.toLowerCase());
 }
 
 export interface Guard {

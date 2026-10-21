@@ -61,7 +61,7 @@
       <p class="msg bad" id="suspended" role="alert" hidden>This account is suspended. Ask whoever manages access in your organisation.</p>
       <p class="msg bad" id="badlink" role="alert" hidden>This link is not valid, or has been used. Ask for a new one.</p>
       <p class="msg bad" id="expired" role="alert" hidden>This link has expired. Ask for a new one.</p>
-      <p class="msg bad" id="elsewhere" role="alert" hidden>That email already signs in to another organisation. Ask whoever sent the link.</p>
+      <p class="msg bad" id="elsewhere" role="alert" hidden>That email already has a Preshift account. Open the link again and sign in with its password.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
       <p class="msg ok" id="sent" role="status" hidden>If that email has an account, a reset link is on its way. It works once and expires in 30 minutes. Nothing after a few minutes? Check spam, or ask whoever manages access in your organisation to reset it.</p>
 
@@ -82,9 +82,9 @@
         <p class="foot intro" id="setpassword-who">Choose a password only you know. Nobody else, not even whoever invited you, will see it.</p>
         <form method="post" action="/auth/accept">
           <input type="hidden" name="token" />
-          <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
-          <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
-          <button type="submit">Set password and sign in</button>
+          <label><span id="setpassword-label">Password, at least 12 characters</span> <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label id="setpassword-again">Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit" id="setpassword-button">Set password and sign in</button>
         </form>
       </section>
 
@@ -185,7 +185,22 @@
         fetch('/auth/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: inviteToken }) })
           .then((r) => (r.ok ? r.json() : Promise.reject()))
           .then((who) => {
-            document.getElementById('setpassword-title').textContent = who.kind === 'reset' ? 'Choose a new password' : 'Welcome, ' + who.name;
+            document.getElementById('setpassword-title').textContent = who.kind === 'reset' && !who.existing ? 'Choose a new password' : 'Welcome, ' + who.name;
+            if (who.existing) {
+              // Already signs in to Preshift: accepting takes the password they have, never a new one.
+              const password = document.querySelector('#setpassword input[name=password]');
+              const again = document.querySelector('#setpassword input[name=confirm]');
+              password.autocomplete = 'current-password';
+              password.removeAttribute('minlength');
+              again.required = false;
+              again.disabled = true;
+              document.getElementById('setpassword-again').hidden = true;
+              document.getElementById('setpassword-label').textContent = 'Your Preshift password';
+              document.getElementById('setpassword-button').textContent = 'Sign in and accept';
+              document.getElementById('setpassword-who').textContent =
+                'For ' + who.email + ', which already signs in to Preshift. Sign in with your usual password to accept. Your password and your other access stay as they are.';
+              return;
+            }
             document.getElementById('setpassword-who').textContent =
               'For ' + who.email + '. Choose a password only you know. Nobody else, not even whoever sent this link, will see it.';
           })

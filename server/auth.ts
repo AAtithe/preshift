@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
-import type { UserRecord, UserStore } from './store';
+import { orgsOfAccount, type UserRecord, type UserStore } from './store';
 
 export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'users:manage' | '*';
 
@@ -21,6 +21,10 @@ export interface ApiKey {
   email?: string;
   /** A session's verified authenticator enrolment id, from the cookie. */
   sessionMfa?: string;
+  /** The id of the account's own authenticator, read each request, so a reset ends the proof at once. */
+  accountMfaId?: string;
+  /** The account's home organisation. A person with no access record has legacy access only there. */
+  homeOrgId?: string;
   /**
    * A personal key counts as having passed the authenticator only when its issuer says so.
    * Keys are long-lived secrets, not people at a keyboard, so the default is no.
@@ -66,7 +70,8 @@ export async function signedIn(cookieHeader: string | undefined, users: UserStor
   const claims = await readSession(token, await users.sessionSecret());
   if (!claims) return null;
   const user = await users.getUser(claims.email);
-  if (!user || user.orgId !== claims.orgId || claims.issuedAt < user.sessionsValidFrom) return null;
+  // A session works in one organisation at a time, which must be one the account has joined.
+  if (!user || !orgsOfAccount(user).includes(claims.orgId) || claims.issuedAt < user.sessionsValidFrom) return null;
   return { user, claims };
 }
 
@@ -90,12 +95,14 @@ export function authenticate(keys: ApiKey[], users: UserStore) {
     // The scopes let a session reach every route; the person's access record then decides (server/guard.ts).
     req.principal = {
       key: `session:${user.email}`,
-      orgId: user.orgId,
+      orgId: claims.orgId,
       name: user.email,
       scopes: ['*'],
       user: { email: user.email, role: user.role },
       email: user.email,
       sessionMfa: claims.mfa,
+      accountMfaId: user.authenticator?.secret ? user.authenticator.id : undefined,
+      homeOrgId: user.orgId,
     };
   };
 }

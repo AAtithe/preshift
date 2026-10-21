@@ -69,9 +69,24 @@ An account is how a person signs in; what they may do is their access record on 
 found by the same email. People are invited there, and set their own password from the invitation
 link (seven days, single use) on the sign-in page. "Reset password" on the Access tab ends the old
 password and every session at once, and sends a link, valid a day, to choose a new one. Nobody ever chooses or learns another
-person's password. One email signs in to one organisation. Someone who signs in with an account but
-no access record keeps full access, as every account had before roles, and the Access overview lists
+person's password. Someone who signs in with an account but no access record keeps full access in
+the account's own organisation, as every account had before roles, and the Access overview lists
 them as Fix now until they have one.
+
+One person can work in several organisations, as a Williams, Stanley & Co. manager does across
+clients: one account, one password, one authenticator, and an access record in each organisation.
+Each organisation controls only its own record of them.
+- Someone who already signs in to Preshift accepts another organisation's invitation by signing in
+  with the password they have. The link never sets a new one, since whoever holds it, including an
+  inviter when email is not set up, would then hold every organisation the account opens.
+- The header switches between their organisations. The authenticator code entered once a session
+  counts in all of them, and sign-in returns them to where they last worked.
+- The account belongs to its home organisation, the one where it was made. Only there can its
+  password or authenticator be reset, and a reset of an account that opens other organisations is
+  only ever emailed, never handed over.
+- Anywhere else the organisation suspends or removes the person's access to itself, which leaves
+  their other organisations, and their sessions there, as they were.
+- No organisation learns which others a person works in.
 
 Roles that touch pay, payroll, the journal, settings or access need an authenticator app. After
 signing in, the app asks for its 6-digit code before switching those rights on for the session, and
@@ -100,6 +115,10 @@ a failure goes on the Access overview with the receiving server's reason until i
 (the invitation is accepted or withdrawn, or the person signs in after the reset), and the person's
 panel offers to hand a new link over instead of emailing it again. Preshift keeps who each email went
 to and its reports for 180 days, never its content or link, and does not track opens or clicks.
+
+Known limit: a reset link is built on the home organisation's saved app address and sent through its
+Resend account, so the home organisation's admins are trusted with the account; a person who works
+for several clients is best made at home in the organisation they belong to.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.

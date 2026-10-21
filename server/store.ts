@@ -105,10 +105,23 @@ export interface OrgData {
 
 export type UserRole = 'admin' | 'member';
 
-/** A person who signs in to the web app. Passwords are held only as scrypt salt and hash. */
+/**
+ * A person who signs in to the web app. Passwords are held only as scrypt salt and hash. One
+ * account can hold access records in several organisations; it belongs to one, its home.
+ */
 export interface UserRecord {
   email: string;
+  /**
+   * The home organisation: where the account was made. Only its admins reset the password or the
+   * authenticator, so no other organisation can take the account over.
+   */
   orgId: string;
+  /** Every organisation the account has joined, home included. Missing on older rows: just the home. */
+  orgs?: string[];
+  /** Where the person last worked, so sign-in returns them there. */
+  lastOrgId?: string;
+  /** The person's authenticator: one for every organisation, as the password is. */
+  authenticator?: AuthenticatorRecord;
   role: UserRole;
   salt: string;
   hash: string;
@@ -125,6 +138,12 @@ export interface UserRecord {
   /** Epoch seconds of recent reset emails, to cap how many one account can be sent. */
   resetRequests?: number[];
 }
+
+/** The organisations an account may sign in to, home first. */
+export const orgsOfAccount = (a: Pick<UserRecord, 'orgId' | 'orgs'>) => [a.orgId, ...(a.orgs ?? []).filter((o) => o !== a.orgId)];
+
+/** Whether the account holds access anywhere but here: then only its home may reset it. */
+export const sharedAccount = (a: Pick<UserRecord, 'orgId' | 'orgs'>) => orgsOfAccount(a).length > 1;
 
 /**
  * People and deployment settings, kept in the same database as the organisations so that
@@ -178,7 +197,8 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   const people = seeded && !deployed ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
   return {
     orgId,
-    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    // A copy each: the seed's objects are shared, and one organisation's change must not show in another's.
+    state: seeded ? structuredClone(seedState(today)) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -256,7 +276,7 @@ export class MemoryStore implements Store {
   }
 
   async listUsers(orgId: string) {
-    return [...this.users.values()].filter((u) => u.orgId === orgId).map((u) => ({ ...u }));
+    return [...this.users.values()].filter((u) => orgsOfAccount(u).includes(orgId)).map((u) => ({ ...u }));
   }
 
   async hasUsers() {
@@ -438,7 +458,11 @@ export class PgStore implements Store {
 
   async listUsers(orgId: string) {
     await this.init();
-    const rows = await this.query('select data from preshift.users where org_id = $1 order by created_at', [orgId]);
+    // Accounts at home here, and accounts from elsewhere that have joined.
+    const rows = await this.query(
+      `select data from preshift.users where org_id = $1 or coalesce(data->'orgs', '[]'::jsonb) @> jsonb_build_array($1::text) order by created_at`,
+      [orgId],
+    );
     return rows.map((r) => userFrom(r.data));
   }
 
