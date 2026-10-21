@@ -153,4 +153,29 @@ describe('staff logins', () => {
     expect(clash.body.error).toBe('email_taken');
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: PASSWORD })).status).toBe(200);
   }, 60_000);
+
+  it('records breaks on the phone without a location, and says what the shift is owed', async () => {
+    const t = await boot();
+    const me = (await t.join('mar-1', 'priya@example.com')).cookie;
+    await t.manager('PUT', '/v1/sites/mar/geofence', { ...SITE, radiusMetres: 100 });
+    expect((await t.call('POST', '/v1/staff/break-start', undefined, me)).body.error).toBe('not_clocked_in');
+
+    const { body: before } = await t.call('GET', '/v1/staff/me', undefined, me);
+    await t.manager('POST', '/v1/shifts', { employeeId: 'mar-1', roleId: 'bar', siteId: 'mar', date: before.today, startMinute: 0, endMinute: 420, breakMinutes: 30 });
+    await t.manager('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: weekStart(before.today) });
+
+    await t.call('POST', '/v1/staff/clock-in', { location: AT_SITE }, me);
+    const onBreak = await t.call('POST', '/v1/staff/break-start', undefined, me);
+    expect(onBreak.status).toBe(200);
+    expect(onBreak.body.open).toMatchObject({ onBreak: true, breaks: [{ start: expect.any(Number) }] });
+    expect(onBreak.body.breakEntitlement).toEqual({ minutes: 20, planned: 30, under18: false });
+    expect((await t.call('POST', '/v1/staff/break-start', undefined, me)).body.error).toBe('already_on_break');
+
+    const back = await t.call('POST', '/v1/staff/break-end', undefined, me);
+    expect(back.body.open.onBreak).toBe(false);
+    expect(back.body.open.breaks[0].end).toEqual(expect.any(Number));
+
+    const out = await t.call('POST', '/v1/staff/clock-out', { location: AT_SITE }, me);
+    expect(out.body.recent[0].breaks).toHaveLength(1);
+  });
 });
