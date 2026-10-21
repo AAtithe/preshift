@@ -142,7 +142,10 @@ export interface Store extends UserStore {
 const newSecret = () => randomBytes(32).toString('hex');
 
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
-  const people = seeded ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
+  // The demo's fictional people never go into a deployment: there they would sit on the real Access tab
+  // and count as administrators, so the last real one could be removed. Local and test only.
+  const deployed = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const people = seeded && !deployed ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
   return {
     orgId,
     state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },

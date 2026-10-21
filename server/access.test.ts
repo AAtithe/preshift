@@ -74,6 +74,22 @@ describe('first-run owner setup', () => {
   });
 });
 
+describe('a deployment', () => {
+  it('has no fictional demo people on record, so the real owner is the only one who manages access', async () => {
+    process.env.VERCEL = '1';
+    try {
+      const k = await kit({ store: new MemoryStore(['demo'], TODAY), accounts: false, keys: INTEGRATION });
+      const res = await setup(k);
+      const me = (await k.call('GET', '/v1/me', res.cookie!)).body;
+      const people = (await k.call('GET', '/v1/access/health', res.cookie!)).body.counts.people;
+      expect(me.user.memberships[0].roleId).toBe('owner');
+      expect(people).toBe(1);
+    } finally {
+      delete process.env.VERCEL;
+    }
+  });
+});
+
 describe('signing in', () => {
   it('signs in case-insensitively, refuses wrong details, and only redirects on-site', async () => {
     const k = await fresh();
