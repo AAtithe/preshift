@@ -5,6 +5,7 @@ import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import { newEmployee } from '../engine/employees';
 import type { Employee, Shift } from '../engine/types';
+import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
@@ -20,10 +21,11 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
+type Tab = 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
+  { id: 'clock', label: 'Clock in' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
   { id: 'people', label: 'People' },
@@ -156,6 +158,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             metrics={metrics}
             issues={issues}
             onEdit={setEditing}
+          />
+        )}
+        {tab === 'clock' && (
+          <ClockView
+            state={state}
+            siteId={siteId}
+            today={today}
+            onSetGeofence={actions.setGeofence}
+            onSetBadge={actions.setBadge}
           />
         )}
         {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}

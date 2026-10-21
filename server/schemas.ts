@@ -107,3 +107,26 @@ export const timeEntryBody = {
     breakMinutes: { type: 'integer', minimum: 0, default: 0 },
   },
 } as const;
+
+/** A browser Geolocation fix. */
+export const geoFixBody = {
+  type: 'object',
+  required: ['lat', 'lng', 'accuracyMetres'],
+  additionalProperties: false,
+  properties: {
+    lat: { type: 'number', minimum: -90, maximum: 90 },
+    lng: { type: 'number', minimum: -180, maximum: 180 },
+    accuracyMetres: { type: 'number', minimum: 0 },
+  },
+} as const;
+
+export const geofenceBody = {
+  type: 'object',
+  required: ['lat', 'lng', 'radiusMetres'],
+  additionalProperties: false,
+  properties: {
+    lat: { type: 'number', minimum: -90, maximum: 90 },
+    lng: { type: 'number', minimum: -180, maximum: 180 },
+    radiusMetres: { type: 'integer', minimum: 25, maximum: 2000 },
+  },
+} as const;

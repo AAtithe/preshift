@@ -2,7 +2,7 @@
 //   /         marketing site (site/)
 //   /login    sign-in page (site/login.html)
 //   /app/     rota web app (Vite build), served only to signed-in users by the app gate function
-//   /api/auth/login, /api/auth/logout, /api/auth/me   sign-in functions (api/auth/*.js)
+//   /api/auth/login, /api/auth/logout, /api/auth/me   sign-in, one function (server/signin.ts)
 //   /v1, /docs, /health   Preshift API as one bundled Node function
 //   /internal/dispatch    daily cron retry of undelivered payroll changes
 //   /api/anthropic/v1/messages   rota assistant proxy (api/anthropic/v1/messages.js)
@@ -63,9 +63,19 @@ const webFunction = (dir, imports, exportExpr, extra) =>
     extra,
   );
 
-for (const name of ['login', 'logout', 'me']) {
-  await webFunction(`${out}/functions/api/auth/${name}.func`, `import * as mod from './api/auth/${name}.js';`, 'mod');
-}
+// Outside functions/api/ and reached by its own route, so nothing Vercel builds from the
+// repository's api/ folder can sit on these paths.
+await webFunction(
+  `${out}/functions/auth.func`,
+  "import { handleAuth } from './server/signin';\n" +
+    'const handle = (request) => {\n' +
+    '  const url = new URL(request.url);\n' +
+    "  const original = url.searchParams.get('__p');\n" +
+    "  if (original) { url.searchParams.delete('__p'); url.pathname = original; }\n" +
+    '  return handleAuth(new Request(url, request));\n' +
+    '};',
+  '{ GET: handle, POST: handle }',
+);
 
 // Routes send /app/* here with the original path in __p; restore it before the session check.
 await webFunction(
@@ -104,6 +114,7 @@ await writeFile(
       version: 3,
       routes: [
         { src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch)$', dest: '/api?__p=/$1' },
+        { src: '^/api/auth/(login|logout|me)$', dest: '/auth?__p=/api/auth/$1' },
         { src: '^/login$', dest: '/login.html' },
         { src: '^/app(/.*)?$', dest: '/app-gate?__p=/app$1' },
         { handle: 'filesystem' },

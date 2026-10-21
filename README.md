@@ -24,6 +24,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
+| Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 
 ## Running it
 
@@ -84,7 +85,7 @@ Postgres; see `docs/API.md`, which also covers the Vercel deployment.
 | `/` | Marketing site, from `site/` |
 | `/login` | Sign-in page, from `site/login.html` |
 | `/app/` | Web app, served only to signed-in users by the gate function (`server/appGate.ts`) |
-| `/api/auth/login`, `/logout`, `/me` | Sign-in functions, from `api/auth/*.js` (need `APP_USERS` and `SESSION_SECRET`) |
+| `/api/auth/login`, `/logout`, `/me` | Sign-in, one function from `server/signin.ts`, reached by its own route (needs `APP_USERS` and `SESSION_SECRET`) |
 | `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
 | `/api/anthropic/v1/messages` | Rota assistant proxy, from `api/anthropic/v1/messages.js` (needs `ANTHROPIC_API_KEY`) |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |

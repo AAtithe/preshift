@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { Employee, RotaState, Shift } from '../engine/types';
+import type { Employee, GeoFence, RotaState, Shift, Site } from '../engine/types';
 import { api } from './api';
 
 /**
@@ -103,6 +103,22 @@ export function useRotaStore() {
         await refreshShifts();
         return res;
       }),
+    /** Sets or clears the area staff must be inside to clock in on a device. Errors are left to the caller to show. */
+    setGeofence: async (siteId: string, fence: GeoFence | null) => {
+      const site = fence
+        ? await api.put<Site>(`/v1/sites/${siteId}/geofence`, fence)
+        : await api.del<Site>(`/v1/sites/${siteId}/geofence`);
+      setState((s) => s && { ...s, sites: s.sites.map((x) => (x.id === siteId ? site : x)) });
+      return site;
+    },
+    /** Enrols or removes a person's RFID card. Errors are left to the caller to show. */
+    setBadge: async (employeeId: string, badgeId: string | null) => {
+      const employee = badgeId
+        ? await api.put<Employee>(`/v1/employees/${employeeId}/badge`, { badgeId })
+        : await api.del<Employee>(`/v1/employees/${employeeId}/badge`);
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+      return employee;
+    },
     /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
     applyDraft: (current: Shift[], draft: Shift[]) =>
       guard(async () => {

@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { rosterVsActual } from '../../src/engine/timesheet';
 import { weekDates } from '../../src/engine/time';
-import type { TimeEntry } from '../../src/engine/types';
+import { checkFence } from '../../src/engine/clocking';
+import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
-import { idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
+import { geoFixBody, idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { inRange } from './rota';
 
@@ -21,6 +22,81 @@ function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>)
   }
 }
 
+interface ClockOptions {
+  method: 'card' | 'device';
+  at?: string;
+  roleId?: string;
+  breakMinutes?: number;
+  location?: GeoFix;
+}
+
+/**
+ * Where the clock happened, checked against the site's geofence. A card tap is made on a reader
+ * fixed at the site, so the card proves who and the reader proves where; any location sent with
+ * it is kept but not enforced. A device clock needs a location inside the fence.
+ */
+function locate(org: OrgData, siteId: string, opts: ClockOptions): ClockLocation | undefined {
+  const site = org.state.sites.find((s) => s.id === siteId);
+  if (!site) throw notFound(`Site ${siteId}`);
+  const fix = opts.location;
+  if (!site.geofence) return fix && { ...fix };
+  if (!fix) {
+    if (opts.method === 'card') return undefined;
+    throw new HttpError(422, 'location_required', `${site.name} checks location when clocking. Allow location on this device and try again.`);
+  }
+  const check = checkFence(site.geofence, fix);
+  if (!check.ok && opts.method === 'device') {
+    throw new HttpError(
+      422,
+      check.reason,
+      check.reason === 'too_imprecise'
+        ? `This device can only place itself within ${Math.round(fix.accuracyMetres)} m. Move nearer a window or turn on precise location, then try again.`
+        : `This device is ${check.distanceMetres} m from ${site.name}, outside its ${site.geofence.radiusMetres} m clocking area.`,
+      { distanceMetres: check.distanceMetres, radiusMetres: site.geofence.radiusMetres },
+    );
+  }
+  return { ...fix, distanceMetres: check.distanceMetres };
+}
+
+export function clockIn(org: OrgData, employee: Employee, siteId: string, opts: ClockOptions): TimeEntry {
+  if (employee.status === 'leaver') throw new HttpError(409, 'leaver', `${employee.name} has left and cannot clock in`);
+  if (org.timeEntries.some((t) => t.employeeId === employee.id && t.status === 'open')) {
+    throw new HttpError(409, 'already_clocked_in', `${employee.name} is already clocked in`);
+  }
+  const location = locate(org, siteId, opts);
+  const { date, minute } = londonParts(opts.at ? new Date(opts.at) : new Date());
+  const shift = org.state.shifts.find((s) => s.employeeId === employee.id && s.date === date && s.siteId === siteId);
+  const entry: TimeEntry = {
+    id: `te_${randomUUID().slice(0, 12)}`,
+    employeeId: employee.id,
+    siteId,
+    roleId: opts.roleId ?? shift?.roleId ?? employee.roleIds[0],
+    shiftId: shift?.id,
+    date,
+    clockIn: minute,
+    breakMinutes: 0,
+    status: 'open',
+    source: 'clock',
+    method: opts.method,
+    ...(location ? { clockInLocation: location } : {}),
+  };
+  org.timeEntries.push(entry);
+  return entry;
+}
+
+export function clockOut(org: OrgData, entry: TimeEntry, opts: ClockOptions): TimeEntry {
+  if (entry.status !== 'open') throw new HttpError(409, 'not_open', 'Already clocked out');
+  const location = locate(org, entry.siteId, opts);
+  const { date, minute } = londonParts(opts.at ? new Date(opts.at) : new Date());
+  // Past midnight the clock-out minute is carried on from the shift's start date.
+  const dayOffset = Math.round((Date.parse(date) - Date.parse(entry.date)) / 86_400_000);
+  entry.clockOut = minute + dayOffset * 1440;
+  entry.breakMinutes = opts.breakMinutes ?? entry.breakMinutes;
+  entry.status = 'submitted';
+  if (location) entry.clockOutLocation = location;
+  return entry;
+}
+
 export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('time:write') };
@@ -30,17 +106,25 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     orgOf(req).timeEntries.filter(inRange(req.query)),
   );
 
-  app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string } }>(
+  app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string; location?: GeoFix } }>(
     '/v1/time-entries/clock-in',
     {
       ...write,
       schema: {
         tags: ['Time'],
-        description: 'Clock in from the staff app or a site terminal. Matches today\'s rostered shift where there is one.',
+        description:
+          "Clock in on a phone or tablet. Matches today's rostered shift where there is one. When the site has a " +
+          'geofence, the device location is required and must be inside it.',
         body: {
           type: 'object',
           required: ['employeeId', 'siteId'],
-          properties: { employeeId: { type: 'string' }, siteId: { type: 'string' }, roleId: { type: 'string' }, at: { type: 'string', format: 'date-time' } },
+          properties: {
+            employeeId: { type: 'string' },
+            siteId: { type: 'string' },
+            roleId: { type: 'string' },
+            at: { type: 'string', format: 'date-time' },
+            location: geoFixBody,
+          },
         },
       },
     },
@@ -48,50 +132,30 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
-      if (org.timeEntries.some((t) => t.employeeId === employee.id && t.status === 'open')) {
-        throw new HttpError(409, 'already_clocked_in', `${employee.name} is already clocked in`);
-      }
-      const { date, minute } = londonParts(req.body.at ? new Date(req.body.at) : new Date());
-      const shift = org.state.shifts.find((s) => s.employeeId === employee.id && s.date === date && s.siteId === req.body.siteId);
-      const entry: TimeEntry = {
-        id: `te_${randomUUID().slice(0, 12)}`,
-        employeeId: employee.id,
-        siteId: req.body.siteId,
-        roleId: req.body.roleId ?? shift?.roleId ?? employee.roleIds[0],
-        shiftId: shift?.id,
-        date,
-        clockIn: minute,
-        breakMinutes: 0,
-        status: 'open',
-        source: 'clock',
-      };
-      org.timeEntries.push(entry);
+      const entry = clockIn(org, employee, req.body.siteId, { method: 'device', ...req.body });
       return reply.code(201).send(entry);
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { at?: string; breakMinutes?: number } }>(
+  app.post<{ Params: { id: string }; Body: { at?: string; breakMinutes?: number; location?: GeoFix } }>(
     '/v1/time-entries/:id/clock-out',
     {
       ...write,
       schema: {
         tags: ['Time'],
+        description: 'Clock out on a phone or tablet. The geofence applies as it does to clocking in.',
         params: idParam,
-        body: { type: 'object', properties: { at: { type: 'string', format: 'date-time' }, breakMinutes: { type: 'integer', minimum: 0 } } },
+        body: {
+          type: 'object',
+          properties: { at: { type: 'string', format: 'date-time' }, breakMinutes: { type: 'integer', minimum: 0 }, location: geoFixBody },
+        },
       },
     },
     async (req) => {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
-      if (entry.status !== 'open') throw new HttpError(409, 'not_open', 'Already clocked out');
-      const { date, minute } = londonParts(req.body.at ? new Date(req.body.at) : new Date());
-      // Past midnight the clock-out minute is carried on from the shift's start date.
-      const dayOffset = Math.round((Date.parse(date) - Date.parse(entry.date)) / 86_400_000);
-      entry.clockOut = minute + dayOffset * 1440;
-      entry.breakMinutes = req.body.breakMinutes ?? entry.breakMinutes;
-      entry.status = 'submitted';
-      return entry;
+      return clockOut(org, entry, { method: 'device', ...req.body });
     },
   );
 

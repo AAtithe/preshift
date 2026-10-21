@@ -3,12 +3,8 @@
 
 import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { POST as login } from '../api/auth/login.js';
-import { GET as logout } from '../api/auth/logout.js';
-import { GET as me } from '../api/auth/me.js';
+import { handleAuth } from './signin';
 import { requireSession } from './session';
-
-const ROUTES = { 'POST /api/auth/login': login, 'GET /api/auth/logout': logout, 'GET /api/auth/me': me };
 
 async function toRequest(req, { withBody = true } = {}) {
   const chunks = [];
@@ -50,8 +46,7 @@ export function devAuth(env) {
         res.setHeader('content-type', 'text/html; charset=utf-8');
         return res.end(readFileSync(new URL('../site/login.html', import.meta.url)));
       }
-      const handler = ROUTES[`${req.method} ${path}`];
-      if (handler) return send(res, await handler(await toRequest(req)));
+      if (path.startsWith('/api/auth/')) return send(res, await handleAuth(await toRequest(req)));
       if (guarded(req)) {
         const denied = await requireSession(await toRequest(req, { withBody: false }));
         if (denied) return send(res, denied);
