@@ -4,6 +4,7 @@ import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Shift } from '../engine/types';
+import { AccessView } from './access/AccessView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { dayLabel } from './format';
@@ -14,7 +15,7 @@ import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close' | 'access';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
@@ -22,6 +23,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'team', label: 'Team' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
+  { id: 'access', label: 'Access' },
 ];
 
 export function App() {
@@ -142,6 +144,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
         {tab === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} onChanged={actions.refreshShifts} />}
         {tab === 'close' && <CloseView week={week} />}
+        {tab === 'access' && <AccessView state={state} />}
       </main>
 
       <footer className="foot">

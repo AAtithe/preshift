@@ -21,14 +21,49 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_BASE_URL` | Defaults to `https://api.team-pay.co.uk/v1` |
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
-| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`; a `dev-key` exists only outside production |
+| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`; a `dev-key` (acting as the demo owner) exists only outside production |
 
 ## Authentication and tenancy
 
 Bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
+`time:write`, `time:approve`, `payroll:write`, `users:manage`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
+
+A key with a `userId` is a personal key: on the user and access routes it acts as that person,
+so their roles decide what they may see and change. A key without one is a system key with
+organisation-wide authority. The web app uses a personal key.
+
+## Users and access
+
+The model follows Signal. A user record grants nothing. Access comes from memberships: a role,
+for the whole organisation or named sites, live between a start and an optional end date. The
+rules live in `src/engine/access.ts`, which the API enforces and the browser runs for live feedback.
+
+| Rule | Effect |
+| --- | --- |
+| No granting beyond your own | You can only grant permissions you hold where you grant them. The Owner and the WS client partner may appoint to their side without holding each duty, so the Owner can appoint a payroll manager without sending pay. |
+| Site managers | A GM or area manager grants site roles at their own sites only, and sees only the people at those sites. |
+| Sides | Operator roles are granted by the operator, WS roles by the WS client partner, outside roles always carry an end date. |
+| Paired duties | Checked across every role a person holds. Pay rates with sending payroll is refused. Starters with payroll, approving hours with pay rates, and access management with payroll need an accepted reason, which is kept on the grant. |
+| Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until one is set up. |
+| Yourself | Nobody changes their own access. |
+| Last administrator | Nothing removes, suspends or resets the last person who can manage access for the organisation. |
+| Invitations | Single-use token, stored hashed, valid seven days, at most three sends an hour. |
+| Self-approval | A person linked to a rota record who can approve hours at their own site is flagged. |
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/me` | The key, the person it acts as, and their live permissions |
+| `GET /v1/access/catalogue` | Roles, permissions, paired-duty rules |
+| `GET/POST /v1/users`, `GET/PATCH /v1/users/:id` | Directory, invite with first role, edit name, title and rota link |
+| `POST /v1/users/:id/grants`, `PATCH/DELETE /v1/users/:id/grants/:mid` | Grant (422 refused, 409 `needs_confirmation`), change end date, revoke (kept, marked revoked) |
+| `POST /v1/users/:id/suspend`, `/reactivate`, `/reset-authenticator`, `/resend-invite`, `DELETE /v1/users/:id/invite` | Account actions |
+| `POST /v1/users/bulk` | One account action for many people, each checked in turn |
+| `GET /v1/access/health` | What needs attention, and who covers each duty at each site |
+| `GET/POST /v1/access/reviews` | Quarterly access reviews |
+| `GET /v1/access/audit` | Every access change, newest first |
+| `POST /v1/invites/accept` | Public; the token is the proof |
 
 ## Endpoints
 
@@ -90,3 +125,7 @@ Because WS runs TeamPay, these can be settled in one working session. Change tha
 - Run the outbox dispatcher as a worker rather than a timer in the API process.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
+- Sign-in for people: passwords or SSO, TOTP enrolment that sets `mfaEnrolled`, sessions ended on
+  suspend, revoke and authenticator reset, and invitation emails instead of returning the link.
+- Apply `can()` to the rota, time and payroll routes for personal keys, so a GM's key reaches only
+  their sites. Today those routes check key scopes only.

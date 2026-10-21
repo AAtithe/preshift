@@ -12,6 +12,7 @@ import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
+import { userRoutes } from './routes/users';
 import { MemoryStore } from './store';
 
 export interface BuildOptions {
@@ -75,7 +76,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         description:
           'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
           'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
-          'to reconcile against the labour accrual.',
+          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.',
       },
       components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } },
       security: [{ bearer: [] }],
@@ -99,13 +100,14 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   const auth = authenticate(keys);
   await app.register(async (api) => {
     api.addHook('onRequest', async (req, reply) => {
-      if (req.url.startsWith('/v1/integrations/teampay/webhook/')) return;
+      if (req.url.startsWith('/v1/integrations/teampay/webhook/') || req.url === '/v1/invites/accept') return;
       return auth(req, reply);
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
     timeRoutes(api, ctx);
     payrollRoutes(api, ctx);
+    userRoutes(api, ctx);
     devRoutes(api, ctx);
   });
 

@@ -1,7 +1,10 @@
+import type { AccessReview, User } from '../src/engine/access';
 import { seedState } from '../src/engine/seed';
+import { toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { RotaState, TimeEntry } from '../src/engine/types';
 import type { OutboxItem } from './outbox';
+import { seedUsers } from './seedUsers';
 
 export interface PayrollSubmission {
   id: string;
@@ -42,6 +45,12 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  users: User[];
+  accessReviews: AccessReview[];
+  /** Invitation tokens are stored hashed; the plain token is shown once, to whoever sent it. */
+  inviteTokens: Map<string, { userId: string; expiresAt: string }>;
+  /** When each person's invitation was last sent, to stop resend floods. */
+  inviteSends: Map<string, string[]>;
 }
 
 /**
@@ -57,19 +66,30 @@ export class MemoryStore {
   org(orgId: string): OrgData {
     let data = this.orgs.get(orgId);
     if (!data) {
+      const seeded = this.seedOrgIds.includes(orgId);
+      const people = seeded ? seedUsers(this.today ?? toISODate(new Date())) : { users: [], reviews: [] };
       data = {
         orgId,
-        state: this.seedOrgIds.includes(orgId) ? seedState(this.today) : emptyState(),
+        state: seeded ? seedState(this.today) : emptyState(),
         timeEntries: [],
         submissions: [],
         payRuns: [],
         outbox: [],
         processedWebhookIds: new Set(),
         audit: [],
+        users: people.users,
+        accessReviews: people.reviews,
+        inviteTokens: new Map(),
+        inviteSends: new Map(),
       };
       this.orgs.set(orgId, data);
     }
     return data;
+  }
+
+  /** Today in this store's world: fixed in tests, real otherwise. */
+  todayISO(): string {
+    return this.today ?? toISODate(new Date());
   }
 
   all(): OrgData[] {

@@ -1,12 +1,18 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | '*';
+export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'users:manage' | '*';
 
 export interface ApiKey {
   key: string;
   orgId: string;
   name: string;
   scopes: Scope[];
+  /**
+   * A personal key acts as that person: user management then follows their roles,
+   * not the key's scopes alone. Keys without a user are system keys with
+   * organisation-wide authority.
+   */
+  userId?: string;
 }
 
 declare module 'fastify' {
@@ -16,13 +22,14 @@ declare module 'fastify' {
 }
 
 /**
- * Keys come from PRESHIFT_API_KEYS as JSON: [{"key":"...","orgId":"...","name":"...","scopes":["*"]}].
+ * Keys come from PRESHIFT_API_KEYS as JSON: [{"key":"...","orgId":"...","name":"...","scopes":["*"],"userId":"optional"}].
  * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
   if (env.PRESHIFT_API_KEYS) return JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
   if (env.NODE_ENV === 'production') return [];
-  return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'] }];
+  // The demo signs in as the seeded owner, so access rules apply to the web app as they would to a person.
+  return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: 'usr_owner' }];
 }
 
 export function authenticate(keys: ApiKey[]) {
