@@ -55,6 +55,26 @@ export interface Site {
   closeMinute: number;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Where the site is, for journeys between sites. Set from its postcode. */
+  location?: SiteLocation;
+  /** Journey times from this site to others, by destination site id. */
+  travel?: Record<string, SiteTravel>;
+}
+
+export interface SiteLocation {
+  lat: number;
+  lng: number;
+  postcode?: string;
+}
+
+/** A journey time between two sites, and where it came from. */
+export interface SiteTravel {
+  minutes: number;
+  /** TfL's journey planner, a straight-line estimate, or set by hand (which a refresh keeps). */
+  source: 'tfl' | 'estimate' | 'manual';
+  /** The modes the journey uses, as TfL names them. */
+  mode?: string;
+  checkedAt: string;
 }
 
 /** A circle round the site's front door. */

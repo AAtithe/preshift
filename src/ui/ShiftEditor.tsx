@@ -6,6 +6,7 @@ import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/t
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
+import { travelIssues } from '../engine/travel';
 
 interface Props {
   state: RotaState;
@@ -47,7 +48,9 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
           pension: Math.max(0, withShift.pension - without.pension),
         },
       },
-      issues: checkEmployeeWeek(employee, ws, [...context, draft]).filter((i) => i.shiftId === draft.id || !i.shiftId),
+      issues: [...checkEmployeeWeek(employee, ws, [...context, draft]), ...travelIssues(employee, [...context, draft], state.sites)].filter(
+        (i) => i.shiftId === draft.id || !i.shiftId,
+      ),
     };
   }, [draft, employee, others, ws]);
 
