@@ -18,6 +18,8 @@ export const DEFAULT_ACCOUNTS: JournalAccounts = {
 };
 
 export interface JournalLine {
+  /** The ledger this line posts to. Each entity is its own set of books. */
+  entityId: string;
   date: string;
   narration: string;
   description: string;
@@ -29,12 +31,20 @@ export interface JournalLine {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Cost of one site's labour supplied by one employing entity, by account. */
+type Bucket = Map<string, { description: string; amount: number }>;
+
 /**
- * Turns a week's rota into a labour cost accrual journal, so the P&L carries
- * true labour for the week before payroll has run. Wages post by role to each
- * role's nominal code, on-costs to their own codes, all tagged to the site's
- * tracking category, balanced against the wages accrual control account.
- * Reverse it when payroll posts the actuals.
+ * Turns a week's rota into labour cost accrual journals, one per entity, so the
+ * P&L carries true labour for the week before payroll has run.
+ *
+ * Cost lands in the entity whose site the work was done at, by role nominal and
+ * site tracking category. The wages accrual sits with the employing entity,
+ * because that is whose PAYE scheme will pay it. When the two differ (a central
+ * employing company, or someone covering a sister company's site) the cost is
+ * recharged: the site's entity owes the employer, the employer is owed by the
+ * site's entity, and both sides post to each other's intercompany code so the
+ * group eliminates cleanly on consolidation. Reverse it when payroll posts.
  */
 export function rotaJournal(
   state: RotaState,
@@ -44,66 +54,119 @@ export function rotaJournal(
   const date = addDays(weekStartDate, 6);
   const narration = `Preshift labour accrual w/e ${date}`;
   const lines: JournalLine[] = [];
+  const entityOf = (id: string) => state.entities.find((e) => e.id === id);
 
   for (const site of state.sites) {
     const cost = weekCost(state, weekStartDate, site.id);
-    const byAccount = new Map<string, { description: string; amount: number }>();
-    const add = (code: string, description: string, amount: number) => {
-      const cur = byAccount.get(code) ?? { description, amount: 0 };
+    // Keyed by employing entity, so each employer's share can be recharged on its own.
+    const byEmployer = new Map<string, Bucket>();
+    const add = (employerId: string, code: string, description: string, amount: number) => {
+      const bucket = byEmployer.get(employerId) ?? new Map();
+      const cur = bucket.get(code) ?? { description, amount: 0 };
       cur.amount += amount;
-      byAccount.set(code, cur);
+      bucket.set(code, cur);
+      byEmployer.set(employerId, bucket);
+    };
+    const post = (employerId: string, roleId: string, c: { gross: number; holiday: number; employerNi: number; pension: number }) => {
+      const role = state.roles.find((r) => r.id === roleId);
+      if (!role) return;
+      add(employerId, role.nominalCode, `Wages - ${role.name}`, c.gross);
+      add(employerId, accounts.holiday, 'Holiday pay accrual', c.holiday);
+      add(employerId, accounts.employerNi, "Employer's NI", c.employerNi);
+      add(employerId, accounts.pension, 'Employer pension', c.pension);
     };
 
     for (const shift of state.shifts) {
       const sc = cost.shifts.get(shift.id);
-      if (!sc) continue;
-      const role = state.roles.find((r) => r.id === shift.roleId);
-      if (!role) continue;
-      add(role.nominalCode, `Wages - ${role.name}`, sc.gross);
-      add(accounts.holiday, 'Holiday pay accrual', sc.holiday);
-      add(accounts.employerNi, "Employer's NI", sc.employerNi);
-      add(accounts.pension, 'Employer pension', sc.pension);
+      const employee = state.employees.find((e) => e.id === shift.employeeId);
+      if (sc && employee) post(employee.entityId, shift.roleId, sc);
     }
-    // Paid but not rostered: post to their primary role.
+    // Paid but not rostered: post to their primary role at their home site.
     for (const employee of state.employees) {
       const ec = cost.employees.get(employee.id);
       if (!ec || state.shifts.some((s) => s.employeeId === employee.id && cost.shifts.has(s.id))) continue;
-      const role = state.roles.find((r) => r.id === employee.roleIds[0]);
-      if (!role) continue;
-      add(role.nominalCode, `Wages - ${role.name}`, ec.gross);
-      add(accounts.holiday, 'Holiday pay accrual', ec.holiday);
-      add(accounts.employerNi, "Employer's NI", ec.employerNi);
-      add(accounts.pension, 'Employer pension', ec.pension);
+      post(employee.entityId, employee.roleIds[0], ec);
     }
 
-    let siteTotal = 0;
-    for (const [code, { description, amount }] of byAccount) {
-      const value = round2(amount);
-      if (value === 0) continue;
-      siteTotal += value;
-      lines.push({
+    // Round per employer first, so each recharge equals exactly what the site's books carry for it.
+    const debits = new Map<string, { description: string; amount: number }>();
+    const credits: JournalLine[] = [];
+    const tag = { trackingName: 'Site', trackingOption: site.trackingCode };
+    for (const [employerId, bucket] of byEmployer) {
+      let total = 0;
+      for (const [code, { description, amount }] of bucket) {
+        const value = round2(amount);
+        if (value === 0) continue;
+        total = round2(total + value);
+        const cur = debits.get(code) ?? { description, amount: 0 };
+        cur.amount = round2(cur.amount + value);
+        debits.set(code, cur);
+      }
+      if (total === 0) continue;
+      if (employerId === site.entityId) {
+        credits.push({ entityId: site.entityId, date, narration, description: 'Wages accrual', accountCode: accounts.wagesAccrual, amount: -total, ...tag });
+        continue;
+      }
+      const employer = entityOf(employerId);
+      const siteEntity = entityOf(site.entityId);
+      if (!employer || !siteEntity) continue;
+      credits.push({
+        entityId: site.entityId,
         date,
         narration,
-        description,
-        accountCode: code,
-        amount: value,
-        trackingName: 'Site',
-        trackingOption: site.trackingCode,
+        description: `Labour recharge due to ${employer.name}`,
+        accountCode: employer.intercompanyCode,
+        amount: -total,
+        ...tag,
       });
+      // The employer's books do not carry the other company's site categories, so the site goes in the description.
+      const untracked = { trackingName: '', trackingOption: '' };
+      lines.push(
+        { entityId: employerId, date, narration, description: `Labour recharge due from ${siteEntity.name} (${site.name})`, accountCode: siteEntity.intercompanyCode, amount: total, ...untracked },
+        { entityId: employerId, date, narration, description: `Wages accrual (${site.name})`, accountCode: accounts.wagesAccrual, amount: -total, ...untracked },
+      );
     }
-    if (siteTotal !== 0) {
-      lines.push({
-        date,
-        narration,
-        description: 'Wages accrual',
-        accountCode: accounts.wagesAccrual,
-        amount: -round2(siteTotal),
-        trackingName: 'Site',
-        trackingOption: site.trackingCode,
-      });
+    for (const [code, { description, amount }] of debits) {
+      if (amount !== 0) lines.push({ entityId: site.entityId, date, narration, description, accountCode: code, amount, ...tag });
     }
+    lines.push(...credits);
   }
-  return lines;
+  // Keep each entity's journal together, in the order the entities are listed.
+  const order = new Map(state.entities.map((e, i) => [e.id, i]));
+  return lines
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => (order.get(a.l.entityId) ?? 0) - (order.get(b.l.entityId) ?? 0) || a.i - b.i)
+    .map(({ l }) => l);
+}
+
+export interface IntercompanyBalance {
+  entityId: string;
+  counterpartyId: string;
+  /** Net balance in the entity's books with the counterparty; positive means it is owed. */
+  inOwnBooks: number;
+  /** The same balance as the counterparty books it, sign flipped. Matches when the journal is sound. */
+  inCounterpartyBooks: number;
+}
+
+/** Both sides of every intercompany balance the journal creates, so the group can see they agree before posting. */
+export function intercompanyBalances(state: RotaState, lines: JournalLine[]): IntercompanyBalance[] {
+  const balance = (entityId: string, code: string) =>
+    round2(lines.filter((l) => l.entityId === entityId && l.accountCode === code).reduce((s, l) => s + l.amount, 0));
+  const out: IntercompanyBalance[] = [];
+  state.entities.forEach((a, i) => {
+    for (const b of state.entities.slice(i + 1)) {
+      const inOwnBooks = balance(a.id, b.intercompanyCode);
+      const inCounterpartyBooks = -balance(b.id, a.intercompanyCode);
+      if (inOwnBooks === 0 && inCounterpartyBooks === 0) continue;
+      // Report from the side that is owed, which is how people read an intercompany schedule.
+      out.push(
+        inOwnBooks >= 0
+          ? { entityId: a.id, counterpartyId: b.id, inOwnBooks, inCounterpartyBooks }
+          : { entityId: b.id, counterpartyId: a.id, inOwnBooks: -inOwnBooks, inCounterpartyBooks: -inCounterpartyBooks },
+      );
+    }
+  });
+  return out;
 }
 
 const csvCell = (v: string | number) => {

@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
+import { autoScheduleSites, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
-import { weekMetrics } from '../engine/metrics';
+import { scopeMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
+import { GroupView } from './GroupView';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { RotaGrid } from './RotaGrid';
@@ -13,33 +14,65 @@ import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'close';
+type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'close';
 
-const TABS: { id: Tab; label: string }[] = [
+// One site gets the rota and demand detail; several get the side-by-side view.
+const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
   { id: 'close', label: 'Close' },
 ];
+const GROUP_TABS: { id: Tab; label: string }[] = [
+  { id: 'sites', label: 'Sites' },
+  { id: 'team', label: 'Team' },
+  { id: 'close', label: 'Close' },
+];
+const ALL = '';
 
 export function App() {
   const [state, dispatch] = useRotaStore();
-  const [siteId, setSiteId] = useState(state.sites[0].id);
+  // Scope: an entity (or the whole group), then one site or all of that entity's sites.
+  const [entityId, setEntityId] = useState(ALL);
+  const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
-  const [tab, setTab] = useState<Tab>('rota');
+  const [tab, setTab] = useState<Tab>('sites');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
 
-  const site = state.sites.find((s) => s.id === siteId)!;
-  const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
-  const issues = useMemo(() => checkWeek(state, week, siteId), [state, siteId, week]);
+  const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
+  const site = state.sites.find((s) => s.id === siteId);
+  const siteIds = useMemo(
+    () => (siteId ? [siteId] : state.sites.filter((s) => !entityId || s.entityId === entityId).map((s) => s.id)),
+    [state.sites, entityId, siteId],
+  );
+  const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
+  const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
+  const tabs = single ? SITE_TABS : GROUP_TABS;
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
+
+  const metrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
+  const issues = useMemo(() => checkWeek(state, week, siteIds), [state, siteIds, week]);
   const dates = weekDates(week);
   const blocks = issues.filter((i) => i.severity === 'block').length;
-  const weekShifts = state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
+  const weekShifts = state.shifts.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date));
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
+  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name;
+
+  function chooseEntity(id: string) {
+    setEntityId(id);
+    if (site && id && site.entityId !== id) setSiteId(ALL);
+    setUnfilled(null);
+  }
+
+  function chooseSite(id: string) {
+    setSiteId(id);
+    setUnfilled(null);
+    if (id) setTab('rota');
+  }
 
   function runAutoBuild() {
-    const result = autoSchedule(state, siteId, week);
+    const result = autoScheduleSites(state, siteIds, week);
     dispatch({ type: 'setShifts', shifts: result.shifts });
     setUnfilled(result.unfilled);
   }
@@ -55,8 +88,15 @@ export function App() {
           </div>
         </div>
         <div className="controls">
-          <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Site">
-            {state.sites.map((s) => (
+          <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
+            <option value={ALL}>All entities</option>
+            {state.entities.map((e) => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+          <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
+            <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
+            {scopeSites.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
@@ -71,20 +111,22 @@ export function App() {
       <KpiBar metrics={metrics} issues={issues} />
 
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+        {tabs.map((t) => (
+          <button key={t.id} className={activeTab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">Build from forecast</button>
-          <button onClick={() => { dispatch({ type: 'clearWeek', siteId, weekStart: week }); setUnfilled(null); }}>Clear week</button>
+          <button onClick={runAutoBuild} className="primary">
+            {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
+          </button>
+          <button onClick={() => { dispatch({ type: 'clearWeek', siteIds, weekStart: week }); setUnfilled(null); }}>Clear week</button>
           <button
             disabled={blocks > 0 || weekShifts.length === 0 || published}
             title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
-            onClick={() => dispatch({ type: 'publishWeek', siteId, weekStart: week })}
+            onClick={() => dispatch({ type: 'publishWeek', siteIds, weekStart: week })}
           >
-            {published ? 'Published' : 'Publish'}
+            {published ? 'Published' : single ? 'Publish' : 'Publish all'}
           </button>
         </div>
       </nav>
@@ -96,6 +138,7 @@ export function App() {
           <ul>
             {unfilled.slice(0, 6).map((g, i) => (
               <li key={i}>
+                {single ? '' : `${siteName(g.siteId)}: `}
                 {dayLabel(g.date).short} {state.roles.find((r) => r.id === g.roleId)?.name}{' '}
                 {String(g.fromHour).padStart(2, '0')}:00 to {String(g.toHour % 24).padStart(2, '0')}:00
               </li>
@@ -107,19 +150,22 @@ export function App() {
       )}
 
       <main>
-        {tab === 'rota' && (
+        {activeTab === 'sites' && (
+          <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
+        )}
+        {activeTab === 'rota' && single && (
           <RotaGrid
             state={state}
-            site={site}
+            site={single}
             dates={dates}
             metrics={metrics}
             issues={issues}
             onEdit={setEditing}
           />
         )}
-        {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
-        {tab === 'close' && <CloseView state={state} week={week} />}
+        {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
+        {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} />}
+        {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
       </main>
 
       <footer className="foot">

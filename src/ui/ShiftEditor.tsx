@@ -18,6 +18,8 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
   const isNew = !state.shifts.some((s) => s.id === shift.id);
   const employee = state.employees.find((e) => e.id === draft.employeeId)!;
   const ws = weekStart(draft.date);
+  const draftSite = state.sites.find((s) => s.id === draft.siteId);
+  const entityName = (id: string) => state.entities.find((e) => e.id === id)?.name ?? id;
 
   const others = state.shifts.filter((s) => s.id !== draft.id);
   const length = draft.endMinute - draft.startMinute;
@@ -63,7 +65,15 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
           <label>
             Site
             <select value={draft.siteId} onChange={(e) => setDraft({ ...draft, siteId: e.target.value })}>
-              {state.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {state.entities.map((entity) => (
+                <optgroup key={entity.id} label={entity.name}>
+                  {state.sites.filter((s) => s.entityId === entity.id).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.entityId === employee.entityId ? '' : ' (recharge)'}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </label>
           <label>
@@ -105,6 +115,13 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
                 : `Includes ${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
           </div>
         </div>
+
+        {draftSite && draftSite.entityId !== employee.entityId && (
+          <p className="muted small">
+            {employee.name} is employed by {entityName(employee.entityId)} and {draftSite.name} trades in{' '}
+            {entityName(draftSite.entityId)}. The close will recharge this shift between the two companies.
+          </p>
+        )}
 
         {issues.length > 0 && (
           <ul className="issues">

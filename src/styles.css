@@ -198,3 +198,16 @@ td:hover .add, .add:focus { opacity: 1; }
   .notice ul { columns: 1; }
   .tab-actions { margin-left: 0; width: 100%; }
 }
+
+.good-text { color: var(--good); }
+.tag.bad { background: var(--bad-bg); color: var(--bad); }
+.table tr.entity-head th { background: var(--surface-2); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 6px 8px; }
+.table tr.subtotal td { font-weight: 600; border-bottom-width: 2px; }
+button.link.site-link { padding: 0; color: var(--text); font-weight: 600; }
+.cover-summary { margin-top: 16px; max-width: 900px; }
+.cover-summary h3 { margin: 0 0 4px; font-size: 15px; }
+.cover-list { margin: 6px 0 0; padding-left: 18px; columns: 2; font-size: 13px; }
+.entity-journal { margin-bottom: 16px; }
+.entity-journal h3 { margin: 0; font-size: 15px; }
+.entity-journal-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 8px; }
+@media (max-width: 720px) { .cover-list { columns: 1; } }

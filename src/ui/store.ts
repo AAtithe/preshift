@@ -7,11 +7,12 @@ export type Action =
   | { type: 'upsertShift'; shift: Shift }
   | { type: 'deleteShift'; id: string }
   | { type: 'setShifts'; shifts: Shift[] }
-  | { type: 'clearWeek'; siteId: string; weekStart: string }
-  | { type: 'publishWeek'; siteId: string; weekStart: string }
+  | { type: 'clearWeek'; siteIds: string[]; weekStart: string }
+  | { type: 'publishWeek'; siteIds: string[]; weekStart: string }
   | { type: 'reset' };
 
-const KEY = 'preshift.rota.v1';
+// v2 added entities; older saved data has no entity links, so it is left behind for the demo.
+const KEY = 'preshift.rota.v2';
 
 function load(): RotaState {
   try {
@@ -23,8 +24,8 @@ function load(): RotaState {
   return seedState();
 }
 
-function inWeek(shift: Shift, siteId: string, weekStart: string) {
-  return shift.siteId === siteId && weekDates(weekStart).includes(shift.date);
+function inWeek(shift: Shift, siteIds: string[], weekStart: string) {
+  return siteIds.includes(shift.siteId) && weekDates(weekStart).includes(shift.date);
 }
 
 function reducer(state: RotaState, action: Action): RotaState {
@@ -42,11 +43,11 @@ function reducer(state: RotaState, action: Action): RotaState {
     case 'setShifts':
       return { ...state, shifts: action.shifts };
     case 'clearWeek':
-      return { ...state, shifts: state.shifts.filter((s) => !inWeek(s, action.siteId, action.weekStart)) };
+      return { ...state, shifts: state.shifts.filter((s) => !inWeek(s, action.siteIds, action.weekStart)) };
     case 'publishWeek':
       return {
         ...state,
-        shifts: state.shifts.map((s) => (inWeek(s, action.siteId, action.weekStart) ? { ...s, published: true } : s)),
+        shifts: state.shifts.map((s) => (inWeek(s, action.siteIds, action.weekStart) ? { ...s, published: true } : s)),
       };
     case 'reset':
       return seedState();

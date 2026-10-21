@@ -70,3 +70,52 @@ export function weekMetrics(state: RotaState, siteId: string, start: string): We
     cost,
   };
 }
+
+export interface SiteWeekMetrics extends WeekMetrics {
+  siteId: string;
+}
+
+export interface ScopeMetrics extends WeekMetrics {
+  sites: SiteWeekMetrics[];
+}
+
+/**
+ * Consolidates any set of sites: an entity, the whole group, or one site. Each
+ * site is costed on its own (so a person who works two sites is split by hours)
+ * and the totals are summed, which means the scope reconciles to its sites. The
+ * consolidated target is the sum of each site's target spend, not an average
+ * of percentages, so a big site weighs more than a small one.
+ */
+export function scopeMetrics(state: RotaState, siteIds: string[], start: string): ScopeMetrics {
+  const sites = siteIds.map((siteId) => ({ siteId, ...weekMetrics(state, siteId, start) }));
+  const days = weekDates(start).map((date, i) => {
+    const forecastSales = sites.reduce((s, m) => s + m.days[i].forecastSales, 0);
+    const labourCost = sites.reduce((s, m) => s + m.days[i].labourCost, 0);
+    const paidHours = sites.reduce((s, m) => s + m.days[i].paidHours, 0);
+    return { date, forecastSales, labourCost, paidHours, labourPct: pct(labourCost, forecastSales), splh: pct(forecastSales, paidHours) };
+  });
+  const cost: WeekCost = { employees: new Map(), shifts: new Map(), total: 0, unallocated: 0 };
+  for (const m of sites) {
+    m.cost.employees.forEach((v, k) => cost.employees.set(k, v));
+    m.cost.shifts.forEach((v, k) => cost.shifts.set(k, v));
+    cost.total += m.cost.total;
+    cost.unallocated += m.cost.unallocated;
+  }
+  const forecastSales = sites.reduce((s, m) => s + m.forecastSales, 0);
+  const labourCost = sites.reduce((s, m) => s + m.labourCost, 0);
+  const paidHours = sites.reduce((s, m) => s + m.paidHours, 0);
+  const targetCost = sites.reduce((s, m) => s + m.targetCost, 0);
+  return {
+    sites,
+    days,
+    forecastSales,
+    labourCost,
+    paidHours,
+    labourPct: pct(labourCost, forecastSales),
+    splh: pct(forecastSales, paidHours),
+    targetPct: pct(targetCost, forecastSales),
+    targetCost,
+    varianceToTarget: labourCost - targetCost,
+    cost,
+  };
+}

@@ -18,7 +18,9 @@ accrual so the P&L carries true labour before payroll has even run.
 | Marginal cost | The shift editor shows what a shift adds to the week, not a naive rate x hours. Someone on guaranteed hours costs nothing extra; someone already over the NI threshold costs 15% more than the headline rate. | `src/ui/ShiftEditor.tsx` |
 | UK compliance | Working Time Regulations breaks, 11 hour daily rest (across week boundaries), weekly rest, 48 hour average without opt-out, young worker limits (8h/day, 40h/week, 30 minute break, 12h rest, night work), minimum wage by age, double booking, leave, availability, training. Blocking issues stop publication. | `src/engine/compliance.ts` |
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
-| Close | Rota to labour accrual journal by role nominal and site tracking category, exported in Xero manual journal format, plus an hours file for payroll. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
+| Close | Rota to labour accrual journal by role nominal and site tracking category, one journal per entity, exported in Xero manual journal format, plus an hours file for payroll grouped by PAYE scheme. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
+| Multi-site | Group and entity views put every site side by side with entity subtotals and a sales-weighted group target. One press builds every site in scope: each site's own team first, then cover from people who have agreed to work other sites. Cross-site cover is reported each week. | `src/engine/metrics.ts`, `src/engine/autoschedule.ts`, `src/ui/GroupView.tsx` |
+| Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
 
 ## Running it
 
@@ -29,8 +31,11 @@ npm test         # engine tests
 npm run build    # typecheck and production build
 ```
 
-The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
-forecasts. Press "Build from forecast" to generate the week. Data is held in the browser only.
+The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
+Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts. A few people cover sister
+sites, and one Shoreditch bartender covers Marylebone, which is a cross-company recharge. Choose
+an entity and site in the top bar, or leave both on "All" for the group view, and press "Build"
+to generate the week. Data is held in the browser only.
 
 ## Structure
 
