@@ -182,6 +182,24 @@ export interface HourForecast {
   covers: number;
 }
 
+/**
+ * What one site actually took in one hour, from the till. Keyed exactly like HourForecast
+ * (calendar date and clock hour, UK time) so actual and forecast compare like for like.
+ */
+export interface HourSales {
+  siteId: string;
+  date: string;
+  hour: number; // 0-23
+  /** Net sales: after VAT, discounts and refunds; tips and service charge excluded (they go to tronc). */
+  sales: number;
+  /** Guests, when the till records them. Absent for tills that only count orders. */
+  covers?: number;
+  /** Closed orders or bills in the hour. */
+  transactions: number;
+  /** Where the figures came from: 'square', 'demo', 'csv' or the name an API push gave. */
+  source: string;
+}
+
 /** How a role's demand is driven by the forecast. */
 export interface DemandRule {
   roleId: string;

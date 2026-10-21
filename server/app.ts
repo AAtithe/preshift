@@ -13,6 +13,7 @@ import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
+import { salesRoutes, syncAllTills } from './routes/sales';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
@@ -37,6 +38,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** Stands in for Square in tests. */
+  eposFetch?: typeof fetch;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -84,6 +87,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
+    epos: { demoAllowed: !!payroll.simulator, fetchImpl: options.eposFetch },
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -144,7 +148,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
-    return { ok: true };
+    const tills = await syncAllTills(ctx);
+    return { ok: true, tills };
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
@@ -181,6 +186,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     payrollRoutes(api, ctx);
+    salesRoutes(api, ctx);
     devRoutes(api, ctx);
     accessRoutes(api, store);
     staffAdminRoutes(api, store);

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
+import { EposPanel, eposHealth, type EposStatus } from './EposPanel';
 import type { Me } from './SettingsView';
 
 // One page that answers "what is Preshift connected to, and is each connection healthy".
@@ -54,11 +55,13 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
   const [payrollError, setPayrollError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [logins, setLogins] = useState<StaffLogin[] | null>(null);
+  const [epos, setEpos] = useState<EposStatus | null>(null);
   const admin = me?.role === 'admin';
 
   useEffect(() => {
     api.get<PayrollStatus>('/v1/integrations/payroll').then(setPayroll).catch((e) => setPayrollError(e instanceof Error ? e.message : String(e)));
     api.get<StaffLogin[]>('/v1/staff-logins').then(setLogins).catch(() => setLogins(null));
+    api.get<EposStatus>('/v1/integrations/epos').then(setEpos).catch(() => setEpos(null));
   }, []);
   // Keys are admin only; members see that a connection exists but not its details.
   useEffect(() => {
@@ -100,7 +103,8 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
   const rtwExpiring = active.filter((e) => e.rightToWork?.checked && e.rightToWork.expiry && e.rightToWork.expiry <= soon).length;
   const starters = active.filter((e) => e.startDate && e.startDate > today).length;
 
-  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth].filter((h): h is Health => h !== null);
+  const tillHealth = eposHealth(epos);
+  const known = [tillHealth, payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth].filter((h): h is Health => h !== null);
   const connected = known.filter((h) => h === 'live').length;
   const attention = known.filter((h) => h === 'attention').length;
 
@@ -114,25 +118,26 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
         <span><strong>{connected}</strong> connected</span>
         <span className={attention ? 'bad-text' : 'muted'}><strong>{attention}</strong> need attention</span>
         <span className="muted"><strong>{known.length - connected - attention}</strong> not set up or simulated</span>
-        <span className="muted"><strong>4</strong> not connected yet</span>
+        <span className="muted"><strong>3</strong> not connected yet</span>
       </div>
 
       <h2 className="integrations-group">Sales</h2>
       <div className="integrations-grid">
         <Card
           name="EPOS"
-          kind="Lightspeed, Square, Tevalis, Zonal and others"
-          health="planned"
-          purpose="Hourly net sales and covers from the till, both as history to forecast from and as actuals. Actual sales are what turn forecast labour % into true labour %, and what tells a GM mid-week that they are overstaffed for the trade they are really doing."
-          action={<a className="button" href={REQUEST('EPOS')}>Ask for your EPOS</a>}
+          kind="Square, or any till by export or API"
+          health={tillHealth}
+          purpose="Hourly net sales from the till, pulled with Sync now and every morning at 06:00, when yesterday is read again in full to catch bills closed late. History builds the forecast on Demand; actuals sit beside the forecast, so labour % can be read against what the site really took, mid-week rather than at month end."
+          action={null}
         >
+          {epos ? (
+            <EposPanel status={epos} admin={admin} sites={state.sites} today={today} onChange={setEpos} />
+          ) : (
+            <p className="small muted">...</p>
+          )}
           <dl className="facts">
-            <dt>Today</dt>
-            <dd>Forecasts are pushed through the API, for example from Preshift Reports</dd>
             <dt>Sites with a forecast ahead</dt>
             <dd className={forecastSites < state.sites.length ? 'bad-text' : undefined}>{forecastSites} of {state.sites.length}</dd>
-            <dt>What it removes</dt>
-            <dd>Keying or uploading sales by hand, and labour % that only goes true at month end</dd>
           </dl>
         </Card>
       </div>

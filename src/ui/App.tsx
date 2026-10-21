@@ -402,7 +402,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
                   onSetBadge={actions.setBadge}
                 />
               )}
-              {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
+              {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} onForecastChanged={actions.refreshForecast} />}
               {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} />}
               {activeTab === 'people' && single && (
                 <PeopleView

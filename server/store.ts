@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { seedState } from '../src/engine/seed';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { RotaState, TimeEntry } from '../src/engine/types';
+import type { HourSales, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
 
@@ -50,8 +50,22 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  /** Hourly takings from the till (or pushed by another system), bounded to recent weeks. */
+  salesActuals: HourSales[];
+  /** The till this organisation is connected to. The access token is kept apart, in settings. */
+  epos?: EposConfig;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
+}
+
+export interface EposConfig {
+  provider: 'square' | 'demo';
+  environment?: 'production' | 'sandbox';
+  /** Site id to till location id. A site with no location here is not synced. */
+  locations: Record<string, string>;
+  lastSync?: { at: string; from: string; to: string; bills: number; hours: number };
+  /** The last sync's failure, cleared by the next one that succeeds. */
+  lastError?: { at: string; message: string };
 }
 
 export type UserRole = 'admin' | 'member';
@@ -162,6 +176,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     outbox: [],
     processedWebhookIds: new Set(),
     audit: [],
+    salesActuals: [],
   };
 }
 
@@ -550,7 +565,7 @@ function serialise(org: OrgData): string {
 
 function deserialise(data: unknown, version: number): OrgData {
   const raw = (typeof data === 'string' ? JSON.parse(data) : data) as Omit<OrgData, 'processedWebhookIds'> & { processedWebhookIds: string[] };
-  return { ...raw, state: upgradeState(raw.state), processedWebhookIds: new Set(raw.processedWebhookIds), version };
+  return { ...raw, salesActuals: raw.salesActuals ?? [], state: upgradeState(raw.state), processedWebhookIds: new Set(raw.processedWebhookIds), version };
 }
 
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {

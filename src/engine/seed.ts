@@ -1,5 +1,5 @@
 import type { DemandRule, Employee, Entity, HourForecast, Role, RotaState, Site } from './types';
-import { addDays, toISODate, weekDates, weekStart } from './time';
+import { addDays, toISODate, weekday, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
   { id: 'server', name: 'Server', department: 'FOH', nominalCode: '7000' },
@@ -134,6 +134,16 @@ const CURVE: Record<number, number> = {
   18: 0.11, 19: 0.15, 20: 0.15, 21: 0.1, 22: 0.06, 23: 0.03,
 };
 const AVERAGE_SPEND = 42;
+
+/** The demo group's typical net sales for one site and clock hour on a date; the demo till trades around it. */
+export function typicalHourSales(siteId: string, date: string, hour: number): number {
+  const site = sites.find((s) => s.id === siteId);
+  const daily = DAILY[siteId as keyof typeof DAILY];
+  if (!site || !daily || hour * 60 < site.openMinute || hour * 60 >= site.closeMinute) return 0;
+  return daily[weekday(date)] * (CURVE[hour] ?? 0);
+}
+
+export const DEMO_AVERAGE_SPEND = AVERAGE_SPEND;
 
 function forecast(start: string): HourForecast[] {
   const rows: HourForecast[] = [];

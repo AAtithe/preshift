@@ -31,7 +31,7 @@ People in the web app authenticate with the session cookie from signing in; acco
 in the app under Settings (see the README). A signed-in person works across their own organisation,
 and only admins can manage people (`/v1/users`) and settings (`/v1/settings`); integration keys never
 can. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
+`time:write`, `time:approve`, `payroll:write`, `sales:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -48,6 +48,7 @@ confined to its key's organisation.
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. Card taps are not location checked, as the reader is fixed on site. |
 | Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (returns a one-time link, valid 7 days), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `GET /v1/staff/invite`, `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |
+| Sales | `GET /v1/integrations/epos` (till, site to location matches, history held), `PUT`/`DELETE /v1/integrations/epos` (admin: connect Square with an access token, or the demo till on a demo system; disconnecting keeps imported sales), `GET /v1/integrations/epos/locations`, `PUT /v1/integrations/epos/sites/:siteId` (admin), `POST /v1/integrations/epos/sync` (whole UK days, at most 31 a call, replaces what is held for them), `GET`/`PUT /v1/sales/actuals` (any other till or system pushes hourly net sales here), `POST /v1/forecast/from-history` (each day from the same weekday in up to 8 earlier weeks, weighted to the most recent) |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |
 
@@ -115,6 +116,29 @@ assumptions until checked against the API reference:
 Because WS runs TeamPay, these can be settled in one working session. Change that file, run
 `npm test`, and the rest of the system is unaffected.
 
+## Till sales (EPOS)
+
+Square is the native till. Its client (`server/integrations/epos/square.ts`) is the only file that
+knows Square's paths and fields, the same rule as TeamPay. Other tills reach Preshift by pushing
+hourly rows to `PUT /v1/sales/actuals`, or by a CSV import on the Integrations page, until a native
+client is written against `server/integrations/epos/provider.ts`.
+
+- Sales are read from `COMPLETED` orders by `closed_at`, using `net_amounts` so refunds against an
+  order come off it. Net sales are total less VAT, tips and service charge: tips and discretionary
+  service charge belong to staff through the tronc, and counting them would flatter labour %.
+- Bills are bucketed into UK clock hours on the calendar date, exactly as the forecast is keyed, so
+  a bill closed at 00:40 lands in the next day's 00:00 hour. Days run from London midnight, GMT or BST.
+- Square orders carry no guest count. When the till gives no covers, a forecast built from its
+  history derives covers from the site's own spend per head, so kitchen headcount keeps working.
+- A sync is the truth for the days it reads and replaces them. Seventy days are kept, enough for a
+  six week forecast and the weeks being compared against it.
+- The access token is kept in the settings table, never in the organisation document, and is
+  never returned. It needs `ORDERS_READ` and `MERCHANT_PROFILE_READ`.
+
+To confirm against a live Square account: the pinned `Square-Version`, whether a group's sites
+sit under one Square account (one token) or several, and how discounts recorded as separate
+line items show in `net_amounts`.
+
 ## Storage
 
 Each request loads one organisation, works on it, and saves it once, only if the request
@@ -135,7 +159,7 @@ Neon's HTTPS driver (works from serverless functions). Tests run the same code o
 | `/` | Marketing site (`site/`) |
 | `/app` | Rota web app |
 | `/v1/*`, `/docs`, `/health` | The API, as one Node function |
-| `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
+| `/internal/dispatch` | Daily Vercel Cron at 06:00 UTC: retries undelivered payroll changes, and reads every connected till for yesterday and today (needs `CRON_SECRET`) |
 
 Payroll changes are also delivered inside the request that makes them, so the cron is a safety
 net, not the main path.

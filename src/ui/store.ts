@@ -40,6 +40,11 @@ export function useRotaStore() {
     setState((s) => (s ? { ...s, shifts } : s));
   }, []);
 
+  const refreshForecast = useCallback(async () => {
+    const forecast = await api.get<RotaState['forecast']>('/v1/forecast');
+    setState((s) => (s ? { ...s, forecast } : s));
+  }, []);
+
   const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
     try {
       setError(null);
@@ -53,6 +58,7 @@ export function useRotaStore() {
   const actions = {
     reload: load,
     refreshShifts,
+    refreshForecast,
     saveShift: (shift: Shift, isNew: boolean) =>
       guard(async () => {
         const { id, employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = shift;

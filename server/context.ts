@@ -15,6 +15,12 @@ export interface AppContext {
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
+  epos: {
+    /** The demo till is offered only where payroll is simulated too: a demo, never a live system. */
+    demoAllowed: boolean;
+    /** Tests supply this to stand in for Square. */
+    fetchImpl?: typeof fetch;
+  };
 }
 
 declare module 'fastify' {

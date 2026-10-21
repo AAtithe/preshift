@@ -749,3 +749,8 @@ button.link.danger { color: var(--bad); }
   .cover-list, .notice ul { columns: 1; }
   .preview-kpis { grid-template-columns: 1fr; }
 }
+
+.till-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.till-mark { stroke: var(--good); stroke-width: 3; stroke-linecap: round; }
+.legend .ln.till { border-top-color: var(--good); border-top-width: 3px; }
+.day-pills button small + small { font-size: 9px; }

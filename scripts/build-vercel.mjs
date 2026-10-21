@@ -5,7 +5,7 @@
 //   /app/                 the rota web app (Vite build), only to signed-in people
 //   /staff/               the staff app for clocking on their own phones (public page, own sign-in)
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
-//   /internal/dispatch    daily cron retry of undelivered payroll changes
+//   /internal/dispatch    daily cron: retry undelivered payroll changes, re-read every till
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -72,7 +72,7 @@ await writeFile(
         },
         { handle: 'filesystem' },
       ],
-      // Safety net for payroll changes TeamPay has not yet confirmed (needs CRON_SECRET).
+      // Safety net for payroll changes TeamPay has not yet confirmed, and the overnight till read (needs CRON_SECRET).
       crons: [{ path: '/internal/dispatch', schedule: '0 6 * * *' }],
     },
     null,
