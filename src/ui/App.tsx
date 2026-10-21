@@ -15,6 +15,7 @@ import { HolidayView } from './HolidayView';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
+import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
@@ -24,9 +25,9 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'reports' | 'settings';
 
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
+// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
 type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
@@ -54,6 +55,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'close', label: 'Close' },
     ],
   },
+  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports' }] },
   { heading: 'Admin', items: [{ id: 'settings', label: 'Settings' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
@@ -286,6 +288,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           )}
           {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
           {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+          {activeTab === 'reports' && (
+            <ReportsView
+              state={state}
+              siteIds={siteIds}
+              week={week}
+              today={today}
+              scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
+            />
+          )}
           {activeTab === 'settings' && me && <SettingsView me={me} />}
         </main>
 
