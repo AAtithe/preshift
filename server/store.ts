@@ -193,7 +193,7 @@ const newSecret = () => randomBytes(32).toString('hex');
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
-    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -221,7 +221,7 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees };
+  return { ...state, entities, sites, employees, sales: state.sales ?? [] };
 }
 
 export class MemoryStore implements Store {
