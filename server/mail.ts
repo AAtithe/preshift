@@ -1,5 +1,6 @@
-// Password reset email through Resend's HTTP API. The key, the from address and the app's address
+// Email through Resend's HTTP API. For password resets the key, the from address and the app's address
 // are saved by an admin under Settings, per organisation, so nothing is configured outside the app.
+// New support tickets go to the Preshift desk on the deployment's own key (supportDeskFromEnv).
 
 export interface EmailSettings {
   resendApiKey: string;
@@ -36,10 +37,10 @@ export async function sendMail(settings: EmailSettings, mail: Mail): Promise<boo
       headers: { authorization: `Bearer ${settings.resendApiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({ from: settings.from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
     });
-    if (!res.ok) console.error(`Reset email not sent: Resend returned ${res.status} ${await res.text()}`);
+    if (!res.ok) console.error(`Email not sent: Resend returned ${res.status} ${await res.text()}`);
     return res.ok;
   } catch (err) {
-    console.error('Reset email not sent:', err);
+    console.error('Email not sent:', err);
     return false;
   }
 }

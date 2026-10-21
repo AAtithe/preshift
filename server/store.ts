@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
+import type { SupportTicket } from '../src/engine/support';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
@@ -53,6 +54,8 @@ export interface OrgData {
   audit: AuditEvent[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  /** Questions, bug reports and feature ideas raised with Preshift support, and questions the help library answered. */
+  support?: { tickets: SupportTicket[]; answeredByHelp: number };
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }

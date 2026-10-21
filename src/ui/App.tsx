@@ -22,6 +22,7 @@ import { PrivacyView } from './PrivacyView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
+import { SupportView } from './SupportView';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
@@ -29,7 +30,7 @@ import { Timeline } from './Timeline';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings' | 'support';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
@@ -67,6 +68,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'settings', label: 'Settings' },
     ],
   },
+  { heading: 'Help', items: [{ id: 'support', label: 'Support' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
@@ -105,6 +107,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('sites');
+  // The screen someone was on before opening Support, sent with a bug report so it can be reproduced.
+  const [cameFrom, setCameFrom] = useState<Tab>('sites');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -249,7 +253,10 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
                   aria-current={activeTab === t.id ? 'page' : undefined}
                   disabled={!available(t)}
                   title={available(t) ? undefined : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => {
+                    if (t.id === 'support' && activeTab !== 'support') setCameFrom(activeTab);
+                    setTab(t.id);
+                  }}
                 >
                   {t.label}
                 </button>
@@ -445,6 +452,13 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'support' && (
+                <SupportView
+                  me={me}
+                  context={{ tab: cameFrom, ...(single ? { siteId: single.id } : {}), week }}
+                  onOpen={(target) => NAV_ITEMS.some((t) => t.id === target) && setTab(target as Tab)}
+                />
+              )}
             </main>
 
             <footer className="foot">

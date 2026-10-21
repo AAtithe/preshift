@@ -3,6 +3,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
 import { HttpError, type AppContext } from './context';
+import { sendMail } from './mail';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
@@ -18,6 +19,7 @@ import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { supportRoutes, type SupportDesk } from './routes/support';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -41,6 +43,18 @@ export interface BuildOptions {
   staffDir?: string;
   /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
+  /** Where new support tickets are sent (tests). Defaults to the PRESHIFT_SUPPORT_* variables; see supportDeskFromEnv. */
+  supportDesk?: SupportDesk;
+}
+
+/**
+ * The Preshift support desk's inbox. It belongs to the deployment, not to any customer, so it is set
+ * in the environment and sent with Preshift's own Resend key, never a customer's.
+ */
+export function supportDeskFromEnv(env: NodeJS.ProcessEnv): SupportDesk | undefined {
+  const { PRESHIFT_SUPPORT_EMAIL: to, PRESHIFT_SUPPORT_RESEND_KEY: resendApiKey, PRESHIFT_SUPPORT_FROM: from } = env;
+  if (!to || !resendApiKey || !from) return undefined;
+  return { to, send: (mail) => sendMail({ resendApiKey, from, appUrl: '' }, mail) };
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv, demo: boolean): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -202,6 +216,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     clockingRoutes(api, ctx);
     payrollRoutes(api, ctx);
     privacyRoutes(api, ctx);
+    supportRoutes(api, { desk: options.supportDesk ?? supportDeskFromEnv(env), demo });
     devRoutes(api, ctx);
     accessRoutes(api, store);
     staffAdminRoutes(api, store);

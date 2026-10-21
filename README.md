@@ -39,6 +39,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Borrow across sites | The picker also offers people from the group's other sites who are set up to cover this one, under their own heading, with the reason anyone cannot take it. Cost is shown twice: what the shift adds to the group, and what it puts on the host site's labour, because cost follows the work. It says when borrowing is cheaper for the group or the only option, flags a same-day shift at another site with under an hour to get across, and rest and hours rules count the person's whole week at every site. Borrowed people are tagged on the timeline and grid. Borrowing follows each person's cover sites from their People record, and anyone employed by another company is marked as an intercompany recharge. Close lists cross-site labour by pair of sites, with a CSV, beside the intercompany recharges the journal books. | `src/ui/assign.ts`, `src/ui/AssignPanel.tsx`, `src/ui/CloseView.tsx` |
 | Rota P&L | Beside every screen: forecast sales, wages, holiday, employer NI and pension in brackets, labour cost tied to the journal, contribution after labour, labour % against target, day by day, compliance, and sign-off to publish. | `src/ui/PnlRail.tsx` |
 | GDPR | UK GDPR for staff data under Admin. A request log for access, erasure, rectification, restriction, portability and objection, with the one calendar month deadline (three when extended) and overdue flags. One-click subject access export of everything held on a person, with how it is used and their rights. Erasure for leavers only, keeping what the law requires (Article 17(3)). A retention schedule that strips clocking locations after 3 months, contact details, card and staff login 3 months after leaving, right to work detail 2 years after leaving, and anonymises the person 6 years after the tax year they left, keeping shifts and pay for the accounts; statutory floors cannot be undercut. An Article 30 record of processing built from what is held, with lawful basis, retention and processors (TeamPay, Anthropic, Resend, hosting), exportable as CSV. Acting on personal data is admin only and audited by id. | `src/engine/gdpr.ts`, `server/routes/privacy.ts`, `src/ui/PrivacyView.tsx` |
+| Support | Front line support under Help, for everyone signed in. A help library of the questions operators ask most, each saying where in the app it is fixed, appears as someone types, so most questions are answered before a ticket exists; those are counted. Bug reports say what the problem stops (payroll, publishing, clocking, sign-in, a workaround, cosmetic), which sets severity, and carry the screen, site, week and browser so they can be reproduced. First response targets: blocking 4 hours any day, major and questions 1 working day, minor 3, feature ideas 5. Feature ideas take one vote per person and an hours-a-week estimate, and are ranked by both. Everyone in the organisation sees its tickets, so problems are reported once. Admins and the support desk move status; the desk's first reply stops the response clock. | `src/engine/support.ts`, `server/routes/support.ts`, `src/ui/SupportView.tsx` |
 
 ## Design
 
@@ -49,7 +50,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (182 across 17 files)
+npm test         # engine, UI rules and API tests (194 across 19 files)
 npm run build    # typecheck and production build
 ```
 
@@ -117,6 +118,17 @@ against the TeamPay simulator, the Close journals and the API docs.
   `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
 
 Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
+
+## Support desk
+
+New tickets are emailed to the Preshift support desk when `PRESHIFT_SUPPORT_EMAIL`,
+`PRESHIFT_SUPPORT_RESEND_KEY` and `PRESHIFT_SUPPORT_FROM` are set on the deployment. That is
+Preshift's own Resend key, never a customer's. Blocking bugs carry `[BLOCKING]` in the subject and
+tickets from demo sandboxes carry `[demo]`. Without these variables tickets stay in the organisation's
+log and nothing is lost. The desk replies and moves tickets on through the API with a key for that
+organisation scoped `["rota:read", "support:write"]`: `POST /v1/support/tickets/{id}/comments` and
+`PATCH /v1/support/tickets/{id}`. A customer's own key with every scope is not treated as the desk.
+One organisation can raise at most 30 tickets a day.
 
 ## Deployment (Vercel)
 
