@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { cookieFrom, readSession } from './session';
 import type { UserRecord, UserStore } from './store';
 
-export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'sales:write' | '*';
+export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'hr:read' | 'hr:write' | 'sales:write' | '*';
 
 export interface ApiKey {
   key: string;

@@ -7,6 +7,8 @@ import { dayLabel, money } from './format';
 import { columnPath, DEPT_COLOR, niceMax, Tip } from './viz';
 
 const hh = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
+// Day-to-day noise runs a few percent either way; past this, the rota should be looked at.
+const BELOW_PLAN = 0.05;
 const weeksText = (w: number[]) => (Math.min(...w) === Math.max(...w) ? `${w[0]} weeks` : `${Math.min(...w)} to ${Math.max(...w)} weeks`);
 
 interface Props {
@@ -104,7 +106,7 @@ export function DemandView({ state, siteId, dates, onForecastChanged }: Props) {
           {traded.length
             ? <>Till against forecast for the {traded.length} days traded{traded.some((d) => d.throughHour !== undefined) ? `, today to ${hh(now.hour)}` : ''}: <b className={weekVariance < 0 ? 'bad-text' : 'good-text'}>{weekVariance < 0 ? '-' : '+'}{money(Math.abs(weekVariance))}</b>
                 {weekForecastTraded > 0 && <span className="muted"> ({((weekVariance / weekForecastTraded) * 100).toFixed(1)}%)</span>}.
-                {weekVariance < 0 ? ' Trade is below plan: check the rota against it before the next shifts start.' : ''}</>
+                {weekForecastTraded > 0 && weekVariance / weekForecastTraded < -BELOW_PLAN ? ' Trade is more than 5% below plan: check the rota against it before the next shifts start.' : ''}</>
             : <span className="muted">No till takings for this week yet.</span>}
         </span>
         <button disabled={busy} onClick={() => void fromHistory()}>Forecast from till history</button>

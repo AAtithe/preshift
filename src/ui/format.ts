@@ -23,6 +23,11 @@ export function download(filename: string, content: string, type = 'text/csv') {
   URL.revokeObjectURL(url);
 }
 
+/** One CSV row, quoting cells that hold a comma, quote or line break. */
+export function csvLine(cells: (string | number)[]) {
+  return cells.map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v))).join(',');
+}
+
 /** Accounting style: costs in brackets, as they would sit in a management P&L. */
 export const ledger = (n: number) => (n < 0 ? `(${gbp0.format(-n).replace('£', '')})` : gbp0.format(n).replace('£', ''));
 

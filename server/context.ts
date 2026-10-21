@@ -21,6 +21,10 @@ export interface AppContext {
     /** Tests supply this to stand in for Square. */
     fetchImpl?: typeof fetch;
   };
+  /** Outbound HTTP for postcode lookups and TfL journey times. Replaced in tests. */
+  fetch: typeof fetch;
+  /** Optional TfL app key; the journey planner works without one at low volume. */
+  tflAppKey?: string;
 }
 
 declare module 'fastify' {

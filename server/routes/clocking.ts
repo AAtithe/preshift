@@ -5,6 +5,7 @@ import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { geofenceBody, geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { employeeView } from './hr';
 import { clockIn, clockOut, endBreak, onBreak } from './time';
 
 const REPEAT_TAP_MINUTES = 2;
@@ -15,7 +16,7 @@ const latest = (t: TimeEntry) =>
   minutesSince(t.date, Math.max(t.clockIn, t.clockOut ?? 0, ...(t.breaks ?? []).flatMap((b) => [b.start, b.end ?? 0])));
 
 /** Sites are replaced, not edited in place: the demo seed shares its site records between organisations. */
-function replaceSite(org: OrgData, id: string, change: (site: Site) => Site): Site {
+export function replaceSite(org: OrgData, id: string, change: (site: Site) => Site): Site {
   const i = org.state.sites.findIndex((s) => s.id === id);
   if (i < 0) throw notFound(`Site ${id}`);
   org.state.sites = org.state.sites.map((s, j) => (j === i ? change(s) : s));
@@ -79,7 +80,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
       if (holder) throw new HttpError(409, 'badge_in_use', `That card is already enrolled for ${holder.name}. Remove it from them first.`);
       employee.badgeId = badgeId;
       audit(org, req.principal.name, 'employee.badge_enrolled', { id: employee.id });
-      return employee;
+      return employeeView(req, employee);
     },
   );
 
@@ -92,7 +93,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
       if (!employee) throw notFound(`Employee ${req.params.id}`);
       delete employee.badgeId;
       audit(org, req.principal.name, 'employee.badge_removed', { id: employee.id });
-      return employee;
+      return employeeView(req, employee);
     },
   );
 
