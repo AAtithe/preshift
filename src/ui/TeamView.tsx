@@ -7,18 +7,24 @@ import { hours, money } from './format';
 
 interface Props {
   state: RotaState;
-  siteId: string;
+  siteIds: string[];
   metrics: WeekMetrics;
   issues: Issue[];
   dates: string[];
-  /** Pay and labour cost columns, for those who may see pay. */
+  /** Pay and labour cost columns, for those who may see pay across the scope. */
   showCost: boolean;
 }
 
-export function TeamView({ state, siteId, metrics, issues, dates, showCost }: Props) {
-  const people = state.employees.filter(
-    (e) => e.siteId === siteId && (dates.some((d) => isEmployedOn(e, d)) || metrics.cost.employees.has(e.id)),
-  );
+export function TeamView({ state, siteIds, metrics, issues, dates, showCost }: Props) {
+  // Everyone based in scope and on the books this week, then anyone borrowed in from outside it.
+  const people = [
+    ...state.employees.filter(
+      (e) => siteIds.includes(e.siteId) && (dates.some((d) => isEmployedOn(e, d)) || metrics.cost.employees.has(e.id)),
+    ),
+    ...state.employees.filter((e) => !siteIds.includes(e.siteId) && metrics.cost.employees.has(e.id)),
+  ];
+  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
+  const entityName = (id: string) => state.entities.find((x) => x.id === id)?.name ?? id;
   const totals = { gross: 0, holiday: 0, ni: 0, pension: 0, total: 0 };
   return (
     <div className="grid-wrap">
@@ -27,9 +33,9 @@ export function TeamView({ state, siteId, metrics, issues, dates, showCost }: Pr
           <tr>
             <th>Name</th>
             <th>Roles</th>
-            {showCost && (<>
-            <th className="num">Pay</th>
-            </>)}
+            <th>Base</th>
+            <th>Employer</th>
+            {showCost && <th className="num">Pay</th>}
             <th className="num">Contract</th>
             <th className="num">Rostered</th>
             {showCost && (<>
@@ -61,6 +67,13 @@ export function TeamView({ state, siteId, metrics, issues, dates, showCost }: Pr
                   {age < 18 && <span className="tag">Under 18</span>}
                 </td>
                 <td className="muted">{e.roleIds.map((r) => state.roles.find((x) => x.id === r)?.name).join(', ')}</td>
+                <td>
+                  {siteName(e.siteId)}
+                  {e.coverSiteIds.length > 0 && (
+                    <div className="muted small">Covers {e.coverSiteIds.map(siteName).join(', ')}</div>
+                  )}
+                </td>
+                <td className="muted">{entityName(e.entityId)}</td>
                 {showCost && <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>}
                 <td className="num">{e.contractedHours ? hours(e.contractedHours) : 'Flexible'}</td>
                 <td className="num">{hours(c?.paidHours ?? 0)}</td>
@@ -87,7 +100,7 @@ export function TeamView({ state, siteId, metrics, issues, dates, showCost }: Pr
         </tbody>
         {showCost && <tfoot>
           <tr>
-            <th colSpan={5}>Site total</th>
+            <th colSpan={7}>{siteIds.length === 1 ? 'Site total' : 'Total'}</th>
             <td className="num">{money(totals.gross)}</td>
             <td className="num">{money(totals.holiday)}</td>
             <td className="num">{money(totals.ni)}</td>

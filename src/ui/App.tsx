@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
-import { weekMetrics } from '../engine/metrics';
+import { scopeMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import { newEmployee } from '../engine/employees';
 import type { Employee, Shift } from '../engine/types';
@@ -10,6 +10,7 @@ import { DemandView } from './DemandView';
 import { AccessView } from './access/AccessView';
 import type { Me } from './access/model';
 import { api, signInAsDemo } from './api';
+import { GroupView } from './GroupView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
@@ -24,18 +25,32 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access';
+type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access';
 
-// A tab is offered only where the person can use it at this site; the screen still asks the server.
-const TABS: { id: Tab; label: string; offered: (allow: Allow, siteId: string) => boolean }[] = [
+/** Holds the permission at every site in scope: what an action over the scope needs. */
+type AtAll = Allow;
+type Offered = (atAll: AtAll, allow: Allow) => boolean;
+
+// A tab is offered only where the person can use it across the scope; the screen still asks the server.
+const ACCESS: Offered = (all, a) => a('users.manage') || all('users.sites') || a('audit.view');
+// One site gets the rota and demand detail; several get the side-by-side view.
+const SITE_TABS: { id: Tab; label: string; offered: Offered }[] = [
   { id: 'rota', label: 'Rota', offered: () => true },
   { id: 'demand', label: 'Demand', offered: () => true },
   { id: 'team', label: 'Team', offered: () => true },
-  { id: 'people', label: 'People', offered: (a, s) => a('team.manage', s) || a('costs.view', s) },
-  { id: 'payroll', label: 'Payroll', offered: (a, s) => a('time.record', s) || a('time.approve', s) || a('payroll.view') },
-  { id: 'close', label: 'Close', offered: (a) => a('close.export') },
-  { id: 'access', label: 'Access', offered: (a, s) => a('users.manage') || a('users.sites', s) || a('audit.view') },
+  { id: 'people', label: 'People', offered: (all) => all('team.manage') || all('costs.view') },
+  { id: 'payroll', label: 'Payroll', offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
+  { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
+  { id: 'access', label: 'Access', offered: ACCESS },
 ];
+const GROUP_TABS: { id: Tab; label: string; offered: Offered }[] = [
+  // Side by side labour cost by site: for those who see cost everywhere in scope.
+  { id: 'sites', label: 'Sites', offered: (all) => all('costs.view') },
+  { id: 'team', label: 'Team', offered: () => true },
+  { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
+  { id: 'access', label: 'Access', offered: ACCESS },
+];
+const ALL = '';
 
 export function App() {
   const { state, me, error, setError, actions } = useRotaStore();
@@ -61,9 +76,11 @@ export function App() {
 type Store = ReturnType<typeof useRotaStore>;
 
 function Workspace({ state, me, error, clearError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; clearError: () => void; actions: Store['actions'] }) {
-  const [siteId, setSiteId] = useState(state.sites[0]?.id ?? '');
+  // Scope: an entity (or the whole group), then one site or all of that entity's sites.
+  const [entityId, setEntityId] = useState(ALL);
+  const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
-  const [tab, setTab] = useState<Tab>('rota');
+  const [tab, setTab] = useState<Tab>('sites');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -79,22 +96,44 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
       .catch(() => setUser(null));
   }, []);
 
-  const site = state.sites.find((s) => s.id === siteId)!;
+  const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
+  const site = state.sites.find((s) => s.id === siteId);
+  const siteIds = useMemo(
+    () => (siteId ? [siteId] : state.sites.filter((s) => !entityId || s.entityId === entityId).map((s) => s.id)),
+    [state.sites, entityId, siteId],
+  );
+  const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
+  const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
   const allow = useMemo(() => allowFor(me), [me]);
-  const showCost = allow('costs.view', siteId);
-  const canEdit = allow('rota.edit', siteId);
-  const canTeam = allow('team.manage', siteId);
-  const tabs = TABS.filter((t) => t.offered(allow, siteId));
-  const current = tabs.some((t) => t.id === tab) ? tab : 'rota';
-  const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
-  const issues = useMemo(() => checkWeek(state, week, siteId), [state, siteId, week]);
+  const atAll: AtAll = (p) => siteIds.every((s) => allow(p, s));
+  const showCost = atAll('costs.view');
+  const canEdit = atAll('rota.edit');
+  const canPublish = atAll('rota.publish');
+  const tabs = (single ? SITE_TABS : GROUP_TABS).filter((t) => t.offered(atAll, allow));
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
+
+  const metrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
+  const issues = useMemo(() => checkWeek(state, week, siteIds), [state, siteIds, week]);
   const dates = weekDates(week);
   const blocks = issues.filter((i) => i.severity === 'block').length;
-  const weekShifts = state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
+  const weekShifts = state.shifts.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date));
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
+  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name;
+
+  function chooseEntity(id: string) {
+    setEntityId(id);
+    if (site && id && site.entityId !== id) setSiteId(ALL);
+    setUnfilled(null);
+  }
+
+  function chooseSite(id: string) {
+    setSiteId(id);
+    setUnfilled(null);
+    if (id) setTab('rota');
+  }
 
   async function runAutoBuild() {
-    const gaps = await actions.build(siteId, week);
+    const gaps = await actions.build(siteIds, week);
     if (gaps) setUnfilled(gaps);
   }
 
@@ -110,8 +149,15 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
         </div>
         <div className="controls">
           <DemoSwitch me={me} />
-          <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Site">
-            {state.sites.map((s) => (
+          <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
+            <option value={ALL}>All entities</option>
+            {state.entities.map((e) => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+          <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
+            <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
+            {scopeSites.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
@@ -127,20 +173,23 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
 
       <nav className="tabs">
         {tabs.map((t) => (
-          <button key={t.id} className={current === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+          <button key={t.id} className={activeTab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={() => setAssistantOpen(true)} className="primary" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>
-          <button onClick={runAutoBuild} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Build from forecast</button>
-          <button disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>Clear week</button>
+          {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
+          {single && <button onClick={() => setAssistantOpen(true)} className="primary" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
+          <button onClick={runAutoBuild} className={single ? '' : 'primary'} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>
+            {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
+          </button>
+          <button disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>Clear week</button>
           <button
-            disabled={blocks > 0 || weekShifts.length === 0 || published || !allow('rota.publish', siteId)}
-            title={!allow('rota.publish', siteId) ? NOT_YOURS : blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
-            onClick={() => void actions.publish(siteId, week)}
+            disabled={blocks > 0 || weekShifts.length === 0 || published || !canPublish}
+            title={!canPublish ? NOT_YOURS : blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
+            onClick={() => void actions.publish(siteIds, week)}
           >
-            {published ? 'Published' : 'Publish'}
+            {published ? 'Published' : single ? 'Publish' : 'Publish all'}
           </button>
         </div>
       </nav>
@@ -158,6 +207,7 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
           <ul>
             {unfilled.slice(0, 6).map((g, i) => (
               <li key={i}>
+                {single ? '' : `${siteName(g.siteId)}: `}
                 {dayLabel(g.date).short} {state.roles.find((r) => r.id === g.roleId)?.name}{' '}
                 {String(g.fromHour).padStart(2, '0')}:00 to {String(g.toHour % 24).padStart(2, '0')}:00
               </li>
@@ -169,10 +219,13 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
       )}
 
       <main>
-        {current === 'rota' && (
+        {activeTab === 'sites' && (
+          <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
+        )}
+        {activeTab === 'rota' && single && (
           <RotaGrid
             state={state}
-            site={site}
+            site={single}
             dates={dates}
             metrics={metrics}
             issues={issues}
@@ -180,20 +233,20 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
             onEdit={canEdit ? setEditing : undefined}
           />
         )}
-        {current === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {current === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
-        {current === 'people' && (
+        {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
+        {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
+        {activeTab === 'people' && single && (
           <PeopleView
             state={state}
-            siteId={siteId}
+            siteId={single.id}
             today={today}
             onEdit={setEditingPerson}
-            onAdd={canTeam ? () => setEditingPerson(newEmployee(siteId, state.roles[0].id, today)) : undefined}
+            onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
           />
         )}
-        {current === 'payroll' && <PayrollView state={state} siteId={siteId} week={week} allow={allow} onChanged={actions.refreshShifts} />}
-        {current === 'close' && <CloseView week={week} />}
-        {current === 'access' && <AccessView state={state} />}
+        {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} onChanged={actions.refreshShifts} />}
+        {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+        {activeTab === 'access' && <AccessView state={state} />}
       </main>
 
       <footer className="foot">
@@ -209,11 +262,11 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
         </span>
       </footer>
 
-      {assistantOpen && (
+      {assistantOpen && single && (
         <Suspense fallback={null}>
           <AssistantPanel
             state={state}
-            siteId={siteId}
+            siteId={single.id}
             week={week}
             onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
             onClose={() => setAssistantOpen(false)}

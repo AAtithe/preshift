@@ -11,9 +11,35 @@ export interface Role {
   nominalCode: string;
 }
 
+/**
+ * A legal entity: one company, one PAYE scheme, one ledger. Sites trade in an
+ * entity and people are employed by one, which need not be the entity whose
+ * site they work at. Groups often run a central employing company.
+ */
+export interface Entity {
+  id: string;
+  name: string;
+  companyNumber: string;
+  /** Employer PAYE reference. On-costs are worked per employment, so per scheme. */
+  payeReference: string;
+  /**
+   * Balance sheet code every ledger in the group uses for balances with this
+   * entity, so both sides of an intercompany recharge reconcile code for code.
+   */
+  intercompanyCode: string;
+  /**
+   * Set on the one company in a connected group that claims Employment
+   * Allowance. `remaining` is what the last payroll left unused, and `asAt` is
+   * the last day that payroll covered (the end of a pay week).
+   */
+  employmentAllowance?: { remaining: number; asAt: string };
+}
+
 export interface Site {
   id: string;
   name: string;
+  /** The entity whose books this site trades in. */
+  entityId: string;
   /** Labour cost as a share of net sales the site is held to, e.g. 0.28. */
   labourTargetPct: number;
   /** Tracking category used in the accounting journal. */
@@ -45,7 +71,12 @@ export interface RightToWork {
 export interface Employee {
   id: string;
   name: string;
+  /** Home site: where the person is normally rostered and where unrostered pay is charged. */
   siteId: string;
+  /** The employing entity, whose PAYE scheme pays them. */
+  entityId: string;
+  /** Other sites the person is willing and trained to cover. */
+  coverSiteIds: string[];
   /** Roles this person is trained for; the first is their primary role. */
   roleIds: string[];
   payBasis: PayBasis;
@@ -132,6 +163,7 @@ export interface TimeEntry {
 }
 
 export interface RotaState {
+  entities: Entity[];
   sites: Site[];
   roles: Role[];
   employees: Employee[];

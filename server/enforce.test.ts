@@ -51,6 +51,34 @@ describe('access on the rota', () => {
     expect((await call('GET', `/v1/rota/week?siteId=shd&weekStart=${WEEK}`, undefined, 'priya')).status).toBe(403);
   });
 
+  it('refuses a group action unless every site in it is theirs, all or nothing', async () => {
+    const call = await setup();
+    const group = await call('POST', '/v1/rota/build', { siteIds: ['mar', 'shd'], weekStart: WEEK }, 'priya');
+    expect(group.status).toBe(403);
+    expect(group.body.message).toMatch(/at Shoreditch/);
+    // Nothing was built at Marylebone either: the refusal comes before any change.
+    expect((await call('GET', `/v1/shifts?siteId=mar&from=${WEEK}`, undefined, 'priya')).body).toEqual([]);
+    expect((await call('POST', '/v1/rota/publish', { siteIds: ['mar', 'fitz'], weekStart: WEEK }, 'priya')).status).toBe(403);
+    expect((await call('POST', '/v1/rota/build', { siteIds: ['mar'], weekStart: WEEK }, 'priya')).status).toBe(200);
+  });
+
+  it('shows a GM the people from other sites who cover theirs, with pay, and not the rest', async () => {
+    const call = await setup();
+    const staff = (await call('GET', '/v1/employees', undefined, 'priya')).body as { id: string; hourlyRate: number; payHidden?: boolean }[];
+    const ids = staff.map((e) => e.id);
+    expect(ids).toContain('shd-12'); // Shoreditch, covers Marylebone
+    expect(ids).toContain('fitz-3'); // Fitzrovia, covers Marylebone
+    expect(ids).not.toContain('shd-2');
+    expect(staff.find((e) => e.id === 'shd-12')!.payHidden).toBeUndefined();
+  });
+
+  it('treats a change of employing company as a pay change', async () => {
+    const call = await setup();
+    const res = await call('PATCH', '/v1/employees/mar-8', { entityId: 'eck' }, 'priya');
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/pay rates/);
+  });
+
   it('lets a supervisor see the rota but not change it, cost it, or see pay', async () => {
     const call = await setup();
     expect((await call('POST', '/v1/shifts', shift('mar', 'mar-8'), 'grace')).status).toBe(403);

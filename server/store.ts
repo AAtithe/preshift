@@ -75,7 +75,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   const people = seeded ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
   return {
     orgId,
-    state: seeded ? seedState(today) : { sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -87,6 +87,26 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     inviteTokens: {},
     inviteSends: {},
   };
+}
+
+/**
+ * Organisations saved before entities existed have none. They get one company
+ * that holds every site and employs everyone, which is how they were costed
+ * before, so their journals do not change on upgrade.
+ */
+export function upgradeState(state: RotaState): RotaState {
+  const entities = [...(state.entities ?? [])];
+  if (entities.length === 0 && (state.sites.length > 0 || state.employees.length > 0)) {
+    entities.push({ id: 'main', name: 'Main company', companyNumber: '', payeReference: '', intercompanyCode: '1350' });
+  }
+  const fallback = entities[0]?.id ?? '';
+  const sites = state.sites.map((s) => (s.entityId ? s : { ...s, entityId: fallback }));
+  const employees = state.employees.map((e) => ({
+    ...e,
+    entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
+    coverSiteIds: e.coverSiteIds ?? [],
+  }));
+  return { ...state, entities, sites, employees };
 }
 
 export class MemoryStore implements Store {
@@ -230,6 +250,7 @@ function deserialise(data: unknown, version: number): OrgData {
   // Organisations saved before access management load with nobody on record, not a failure.
   return {
     ...raw,
+    state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],
     inviteTokens: raw.inviteTokens ?? {},

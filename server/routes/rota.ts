@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { autoSchedule } from '../../src/engine/autoschedule';
+import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { addDays, weekDates, weekStart } from '../../src/engine/time';
@@ -8,10 +8,11 @@ import type { HourForecast, Shift } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
-import { forecastBody, idParam, rangeQuery, shiftBody, siteWeekQuery } from '../schemas';
+import { forecastBody, idParam, rangeQuery, shiftBody, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
+type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
 type Range = { siteId?: string; from?: string; to?: string };
 
 export function serialiseMetrics(m: WeekMetrics) {
@@ -34,6 +35,18 @@ function requireSite(org: OrgData, siteId: string) {
   if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
 }
 
+/**
+ * The sites a group call covers: `siteIds` if given, otherwise the single
+ * `siteId`. Building needs real sites; clearing or publishing an unknown one
+ * just touches nothing, as it always has.
+ */
+function sitesOf(org: OrgData, body: SitesWeek, mustExist: boolean): string[] {
+  const ids = body.siteIds ?? (body.siteId ? [body.siteId] : []);
+  if (ids.length === 0) throw new HttpError(400, 'invalid_request', 'Give siteId or siteIds');
+  if (mustExist) for (const id of ids) requireSite(org, id);
+  return [...new Set(ids)];
+}
+
 function validateShift(org: OrgData, shift: Shift) {
   requireSite(org, shift.siteId);
   if (!org.state.employees.some((e) => e.id === shift.employeeId)) throw notFound(`Employee ${shift.employeeId}`);
@@ -53,6 +66,11 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
 
+  app.get('/v1/entities', { ...read, schema: { tags: ['Reference'], description: 'Companies in the group: each is its own PAYE scheme and ledger.' } }, async (req) => {
+    const org = orgOf(req);
+    guard(ctx, req, org).allow('rota.view');
+    return org.state.entities;
+  });
   // A personal key sees only the sites its person can see the rota for.
   app.get('/v1/sites', { ...read, schema: { tags: ['Reference'] } }, async (req) => {
     const org = orgOf(req);
@@ -133,16 +151,28 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     };
   });
 
-  app.post<{ Body: SiteWeek }>('/v1/rota/build', { ...write, schema: { tags: ['Rota'], body: siteWeekQuery } }, async (req) => {
-    const org = orgOf(req);
-    requireSite(org, req.body.siteId);
-    const g = guard(ctx, req, org);
-    g.allow('rota.edit', req.body.siteId);
-    const result = autoSchedule(org.state, req.body.siteId, req.body.weekStart);
-    org.state.shifts = result.shifts;
-    audit(org, actorName(g), 'rota.built', { ...req.body, added: result.added.length, unfilled: result.unfilled.length });
-    return { added: result.added, unfilled: result.unfilled };
-  });
+  app.post<{ Body: SitesWeek }>(
+    '/v1/rota/build',
+    {
+      ...write,
+      schema: {
+        tags: ['Rota'],
+        description: "Builds one site or several from the forecast. Each site's own team goes first, then agreed cover from other sites.",
+        body: sitesWeekBody,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const siteIds = sitesOf(org, req.body, true);
+      const g = guard(ctx, req, org);
+      // A group build needs the right at every site in it: all or nothing.
+      for (const id of siteIds) g.allow('rota.edit', id);
+      const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
+      org.state.shifts = result.shifts;
+      audit(org, actorName(g), 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
+      return { added: result.added, unfilled: result.unfilled };
+    },
+  );
 
   // Replaces a site's week in one go: how an accepted rota assistant draft is saved.
   app.put<{ Body: SiteWeek & { shifts: Shift[] } }>(
@@ -180,34 +210,37 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.post<{ Body: SiteWeek }>('/v1/rota/clear', { ...write, schema: { tags: ['Rota'], body: siteWeekQuery } }, async (req) => {
+  app.post<{ Body: SitesWeek }>('/v1/rota/clear', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
+    const siteIds = sitesOf(org, req.body, false);
     const g = guard(ctx, req, org);
-    g.allow('rota.edit', req.body.siteId);
+    for (const id of siteIds) g.allow('rota.edit', id);
     const dates = weekDates(req.body.weekStart);
-    const keep = org.state.shifts.filter((s) => !(s.siteId === req.body.siteId && dates.includes(s.date)));
+    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)));
     const removed = org.state.shifts.length - keep.length;
     org.state.shifts = keep;
-    audit(org, actorName(g), 'rota.cleared', { ...req.body, removed });
+    audit(org, actorName(g), 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed });
     return { removed };
   });
 
-  app.post<{ Body: SiteWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: siteWeekQuery } }, async (req) => {
+  app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
-    const { siteId, weekStart: ws } = req.body;
+    const siteIds = sitesOf(org, req.body, false);
     const g = guard(ctx, req, org);
-    g.allow('rota.publish', siteId);
-    const blocks = checkWeek(org.state, ws, siteId).filter((i) => i.severity === 'block');
+    for (const id of siteIds) g.allow('rota.publish', id);
+    const ws = req.body.weekStart;
+    // All or nothing: a group publish is refused if any site in it has a blocking issue.
+    const blocks = checkWeek(org.state, ws, siteIds).filter((i) => i.severity === 'block');
     if (blocks.length) throw new HttpError(409, 'compliance_block', 'Resolve blocking issues before publishing', blocks);
     const dates = weekDates(ws);
     let published = 0;
     for (const s of org.state.shifts) {
-      if (s.siteId === siteId && dates.includes(s.date)) {
+      if (siteIds.includes(s.siteId) && dates.includes(s.date)) {
         s.published = true;
         published++;
       }
     }
-    audit(org, actorName(g), 'rota.published', { siteId, weekStart: ws, published });
+    audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published });
     return { published };
   });
 

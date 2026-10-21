@@ -18,7 +18,7 @@ export function seedUsers(today: string): { users: User[]; reviews: AccessReview
     ['usr_ops', 'James Whitfield', 'james@marylebonegroup.example', 'Operations Director', 'operator', [['ops_director', null]], { mfaEnrolled: true, lastSeenAt: at(-1) }],
     ['usr_fd', 'Nadia Rahman', 'nadia@marylebonegroup.example', 'Finance Director', 'operator', [['finance_director', null]], { mfaEnrolled: false, lastSeenAt: at(-3) }],
     ['usr_people', 'Kate Morgan', 'kate@marylebonegroup.example', 'People Manager', 'operator', [['people_manager', null], ['assistant_manager', ['mar']]], { mfaEnrolled: true, lastSeenAt: at(-2) }],
-    ['usr_area', 'Daniel Price', 'daniel@marylebonegroup.example', 'Area Manager, London', 'operator', [['area_manager', ['mar', 'shd']]], { mfaEnrolled: true, lastSeenAt: at(-118) }],
+    ['usr_area', 'Daniel Price', 'daniel@marylebonegroup.example', 'Area Manager, London', 'operator', [['area_manager', ['mar', 'fitz', 'shd']]], { mfaEnrolled: true, lastSeenAt: at(-118) }],
     ['usr_gm_mar', 'Priya Shah', 'priya@marylebonegroup.example', 'General Manager', 'operator', [['general_manager', ['mar']]], { employeeId: 'mar-1', lastSeenAt: at(0) }],
     ['usr_gm_shd', 'Hannah Lee', 'hannah@marylebonegroup.example', 'General Manager', 'operator', [['general_manager', ['shd']]], { employeeId: 'shd-1', lastSeenAt: at(-1) }],
     ['usr_chef', 'Marco Bianchi', 'marco@marylebonegroup.example', 'Head Chef', 'operator', [['head_chef', ['mar']]], { employeeId: 'mar-2', lastSeenAt: at(-4) }],

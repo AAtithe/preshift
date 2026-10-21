@@ -15,11 +15,21 @@ const PAYROLL_FIELDS: (keyof Employee)[] = [
 ];
 
 // Fields that are pay: changing them is pay.edit, which stays apart from sending payroll.
-const PAY_FIELDS: (keyof Employee)[] = ['hourlyRate', 'annualSalary', 'payBasis'];
+// The employing company is one: moving someone to another entity moves them to another PAYE scheme.
+const PAY_FIELDS: (keyof Employee)[] = ['hourlyRate', 'annualSalary', 'payBasis', 'entityId'];
 
-/** What a reader receives: pay withheld where they cannot see labour cost or set pay. */
+/** Home site and every site they cover: their hours can land in any of them. */
+const sitesOfPerson = (e: Employee) => [e.siteId, ...(e.coverSiteIds ?? [])];
+
+/** Seen by those who see the rota or manage the team at any site the person works. */
+function visible(g: Guard, e: Employee) {
+  const at = g.at('rota.view', 'team.manage');
+  return sitesOfPerson(e).some((siteId) => at({ siteId }));
+}
+
+/** What a reader receives: pay withheld unless they see labour cost or set pay where the person works. */
 function forReader(g: Guard, e: Employee): Employee {
-  if (g.can('costs.view', e.siteId) || g.can('pay.edit', e.siteId)) return e;
+  if (sitesOfPerson(e).some((s) => g.can('costs.view', s) || g.can('pay.edit', s))) return e;
   return { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
 }
 
@@ -42,6 +52,14 @@ function queueUpsert(org: OrgData, e: Employee) {
   });
 }
 
+/** The employer must exist, and the home and cover sites must be real sites. */
+function validateEmployment(org: OrgData, e: Employee) {
+  if (!org.state.sites.some((s) => s.id === e.siteId)) throw notFound(`Site ${e.siteId}`);
+  if (!org.state.entities.some((x) => x.id === e.entityId)) throw notFound(`Entity ${e.entityId}`);
+  const unknown = e.coverSiteIds.filter((id) => !org.state.sites.some((s) => s.id === id));
+  if (unknown.length) throw notFound(`Site ${unknown.join(', ')}`);
+}
+
 export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
@@ -49,14 +67,14 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => {
     const org = orgOf(req);
     const g = guard(ctx, req, org);
-    return org.state.employees.filter(g.at('rota.view', 'team.manage')).map((e) => forReader(g, e));
+    return org.state.employees.filter((e) => visible(g, e)).map((e) => forReader(g, e));
   });
 
   app.get<{ Params: { id: string } }>('/v1/employees/:id', { ...read, schema: { tags: ['Employees'], params: idParam } }, async (req) => {
     const org = orgOf(req);
     const g = guard(ctx, req, org);
     const e = org.state.employees.find((x) => x.id === req.params.id);
-    if (!e || !g.at('rota.view', 'team.manage')(e)) throw notFound(`Employee ${req.params.id}`);
+    if (!e || !visible(g, e)) throw notFound(`Employee ${req.params.id}`);
     return forReader(g, e);
   });
 
@@ -72,12 +90,15 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      if (!org.state.sites.some((s) => s.id === req.body.siteId)) throw notFound(`Site ${req.body.siteId}`);
+      const home = org.state.sites.find((s) => s.id === req.body.siteId);
+      if (!home) throw notFound(`Site ${req.body.siteId}`);
       const g = guard(ctx, req, org);
-      g.allow('team.manage', req.body.siteId!);
+      g.allow('team.manage', home.id);
       // A starter's rate is pay like any other: without pay.edit they start at nought for someone who sets pay to fix.
-      if (req.body.hourlyRate || req.body.annualSalary) g.allow('pay.edit', req.body.siteId!);
+      if (req.body.hourlyRate || req.body.annualSalary) g.allow('pay.edit', home.id);
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
+        entityId: home.entityId,
+        coverSiteIds: [],
         hourlyRate: 0,
         annualSalary: 0,
         contractedHours: 0,
@@ -94,6 +115,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         id: `emp_${randomUUID().slice(0, 12)}`,
         status: 'active',
       };
+      validateEmployment(org, e);
       org.state.employees.push(e);
       queueUpsert(org, e);
       audit(org, actorName(g), 'employee.created', { id: e.id });
@@ -117,6 +139,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         if (after.siteId !== before.siteId) g.allow('team.manage', after.siteId);
       }
       if (payChanged(before, req.body)) allowPay(g, before);
+      validateEmployment(org, after);
       org.state.employees[i] = after;
       if (after.startDate && after.startDate !== before.startDate) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));

@@ -81,6 +81,9 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                         {e.roleIds.map((r) => roleOf(r)?.name).join(', ')}
                         {e.payBasis === 'salaried' ? ' · salaried' : showCost && !e.payHidden ? ` · £${e.hourlyRate.toFixed(2)}` : ''}
                       </div>
+                      {e.siteId !== site.id && (
+                        <div className="muted small">Cover from {state.sites.find((x) => x.id === e.siteId)?.name}</div>
+                      )}
                     </th>
                     {dates.map((date) => {
                       const shifts = state.shifts.filter((s) => s.employeeId === e.id && s.date === date);

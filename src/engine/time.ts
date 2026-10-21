@@ -57,3 +57,14 @@ export function ageOn(dateOfBirth: string, on: string): number {
   if (beforeBirthday) age -= 1;
   return age;
 }
+
+/** UK tax year a date falls in, e.g. '2026/27'. The year runs 6 April to 5 April. */
+export function taxYearOf(iso: string): string {
+  const year = Number(iso.slice(0, 4));
+  const start = iso >= `${year}-04-06` ? year : year - 1;
+  return `${start}/${String((start + 1) % 100).padStart(2, '0')}`;
+}
+
+export function taxYearStartDate(taxYear: string): string {
+  return `${taxYear.slice(0, 4)}-04-06`;
+}

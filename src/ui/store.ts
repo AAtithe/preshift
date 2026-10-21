@@ -18,7 +18,8 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       setMe(await api.get<Me>('/v1/me'));
-      const [sites, roles, demandRules, employees, shifts, forecast] = await Promise.all([
+      const [entities, sites, roles, demandRules, employees, shifts, forecast] = await Promise.all([
+        api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
         api.get<RotaState['demandRules']>('/v1/demand-rules'),
@@ -26,7 +27,7 @@ export function useRotaStore() {
         api.get<Shift[]>('/v1/shifts'),
         api.get<RotaState['forecast']>('/v1/forecast'),
       ]);
-      setState({ sites, roles, demandRules, employees, shifts, forecast });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -70,20 +71,20 @@ export function useRotaStore() {
         await api.del(`/v1/shifts/${id}`);
         setState((s) => s && { ...s, shifts: s.shifts.filter((x) => x.id !== id) });
       }),
-    build: (siteId: string, weekStart: string) =>
+    build: (siteIds: string[], weekStart: string) =>
       guard(async () => {
-        const res = await api.post<{ unfilled: UnfilledGap[] }>('/v1/rota/build', { siteId, weekStart });
+        const res = await api.post<{ unfilled: UnfilledGap[] }>('/v1/rota/build', { siteIds, weekStart });
         await refreshShifts();
         return res.unfilled;
       }),
-    clear: (siteId: string, weekStart: string) =>
+    clear: (siteIds: string[], weekStart: string) =>
       guard(async () => {
-        await api.post('/v1/rota/clear', { siteId, weekStart });
+        await api.post('/v1/rota/clear', { siteIds, weekStart });
         await refreshShifts();
       }),
-    publish: (siteId: string, weekStart: string) =>
+    publish: (siteIds: string[], weekStart: string) =>
       guard(async () => {
-        await api.post('/v1/rota/publish', { siteId, weekStart });
+        await api.post('/v1/rota/publish', { siteIds, weekStart });
         await refreshShifts();
       }),
     /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
@@ -91,9 +92,8 @@ export function useRotaStore() {
       guard(async () => {
         // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
         const { id, payrollId: _p, status: _s, leaveDate: _l, payHidden, ...fields } = employee;
-        // Pay this reader never received is left out, never sent back as nought.
+        // Pay this reader never received is left out, never sent back as nought; without pay rights it is not sent at all.
         const { hourlyRate: _r, annualSalary: _a, ...unpaid } = fields;
-        // Without pay rights, pay is not sent at all: a starter begins at nought for whoever sets pay.
         const body = payHidden || !withPay ? unpaid : fields;
         const saved = isNew
           ? await api.post<Employee>('/v1/employees', body)

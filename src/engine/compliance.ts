@@ -171,11 +171,17 @@ export function checkEmployeeWeek(
   return issues;
 }
 
-export function checkWeek(state: RotaState, weekStartDate: string, siteId?: string): Issue[] {
+/**
+ * Checks everyone based at, or rostered into, the given sites (all sites if none
+ * given). A person's whole week is checked across every site and entity they
+ * work for: rest, hours and double booking are about the worker, not the site.
+ */
+export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: string | string[]): Issue[] {
   const from = addDays(weekStartDate, -1);
   const to = addDays(weekStartDate, 7);
   const context = state.shifts.filter((s) => s.date >= from && s.date <= to);
+  const scope = siteIds === undefined ? null : new Set(typeof siteIds === 'string' ? [siteIds] : siteIds);
   return state.employees
-    .filter((e) => !siteId || e.siteId === siteId || context.some((s) => s.employeeId === e.id && s.siteId === siteId))
+    .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
     .flatMap((e) => checkEmployeeWeek(e, weekStartDate, context));
 }

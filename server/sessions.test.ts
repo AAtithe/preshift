@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
+import { seedState } from '../src/engine/seed';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { COOKIE, createSession } from './session';
@@ -46,7 +47,8 @@ describe('sessions and access records', () => {
     const me = await call('GET', '/v1/me', 'founder@example.com');
     expect(me.body.withoutRecord).toBe(true);
     expect(me.body.user).toBeUndefined();
-    expect((await call('GET', '/v1/sites', 'founder@example.com')).body).toHaveLength(2);
+    // Every site in the organisation, as every session had before roles.
+    expect((await call('GET', '/v1/sites', 'founder@example.com')).body).toHaveLength(seedState('2026-10-21').sites.length);
     const health = await call('GET', '/v1/access/health', 'system');
     expect(health.body.signInsWithoutRecord).toEqual(['founder@example.com']);
   });

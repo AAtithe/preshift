@@ -34,10 +34,22 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
   const guaranteed = useMemo(() => employeeWeekCost(draft, []), [draft]);
   const shifts = state.shifts.filter((s) => s.employeeId === draft.id);
   const dropped = shifts.filter((s) => !isEmployedOn(draft, s.date)).length;
+  const homeEntity = state.sites.find((x) => x.id === draft.siteId)?.entityId;
+  const siteName = (id: string) => state.sites.find((x) => x.id === id)?.name ?? id;
 
   function toggleRole(roleId: string) {
     const has = draft.roleIds.includes(roleId);
     set('roleIds', has ? draft.roleIds.filter((r) => r !== roleId) : [...draft.roleIds, roleId]);
+  }
+
+  function toggleCover(siteId: string) {
+    const has = draft.coverSiteIds.includes(siteId);
+    set('coverSiteIds', has ? draft.coverSiteIds.filter((x) => x !== siteId) : [...draft.coverSiteIds, siteId]);
+  }
+
+  // Changing home site should not leave them "covering" the site they are now based at.
+  function setHome(siteId: string) {
+    setDraft((d) => ({ ...d, siteId, coverSiteIds: d.coverSiteIds.filter((x) => x !== siteId) }));
   }
 
   function makePrimary(roleId: string) {
@@ -89,11 +101,16 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
           </label>
           <label>
             Home site
-            <select value={draft.siteId} onChange={(e) => set('siteId', e.target.value)}>
+            <select value={draft.siteId} onChange={(e) => setHome(e.target.value)}>
               {state.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <div />
+          <label>
+            Employer
+            <select value={draft.entityId} onChange={(e) => set('entityId', e.target.value)}>
+              {state.entities.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </label>
           <label>
             Start date
             <input type="date" value={draft.startDate ?? ''} onChange={(e) => set('startDate', e.target.value || undefined)} />
@@ -103,6 +120,27 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
             <input type="date" value={draft.leaveDate ?? ''} disabled title="Set through Mark as leaver, which tells payroll" />
           </label>
         </div>
+        {homeEntity && homeEntity !== draft.entityId && (
+          <p className="hint muted">
+            Employed by a different company from the one {siteName(draft.siteId)} trades in. Their cost at that site is
+            recharged between the two companies at close.
+          </p>
+        )}
+        {state.sites.length > 1 && (
+          <>
+            <p className="muted small">Other sites they will cover. Auto-build only borrows people who have agreed.</p>
+            <div className="role-list">
+              {state.sites.filter((x) => x.id !== draft.siteId).map((x) => (
+                <div key={x.id} className={`role-pill${draft.coverSiteIds.includes(x.id) ? ' on' : ''}`}>
+                  <label>
+                    <input type="checkbox" checked={draft.coverSiteIds.includes(x.id)} onChange={() => toggleCover(x.id)} /> {x.name}
+                    {x.entityId !== draft.entityId && <span className="muted small"> (recharge)</span>}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         {dropped > 0 && (
           <p className="hint warn-text">
             {dropped} rostered shift{dropped === 1 ? '' : 's'} outside these dates will be removed on save.
