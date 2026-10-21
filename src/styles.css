@@ -714,6 +714,7 @@ button.link.danger { color: var(--bad); }
 .leave-years { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .check-inline { display: inline-flex; gap: 6px; align-items: center; }
 .holiday-box { margin-top: 8px; }
+.settings.privacy { max-width: none; }
 
 .integrations { display: grid; gap: 12px; max-width: 1100px; }
 .integrations-lede { margin: 0; max-width: 720px; }
@@ -769,3 +770,33 @@ button.link.danger { color: var(--bad); }
 .travel-source.tfl { color: var(--good); }
 .travel-source.manual { color: var(--ink); }
 .travel-source.none { color: var(--warn); }
+/* HR */
+.section-title { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.people-bar .section-title { margin: 0; }
+.hr-actions li.clickable { cursor: pointer; }
+.hr-actions li.clickable:hover { outline: 1px solid currentColor; }
+.hr-split { grid-template-columns: 3fr 2fr; align-items: start; }
+.hr-file { width: min(900px, 100%); }
+.hr-sections { margin-top: 12px; }
+.kpi-value.small-value { font-size: 16px; }
+.form .wide-field { grid-column: 1 / -1; }
+.form textarea { padding: 6px 8px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); resize: vertical; }
+.hr-form { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.hr-form .form { margin-top: 0; }
+.section-inline { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.hr-records { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.hr-records > li { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.hr-record-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hr-notes { margin: 6px 0 0; white-space: pre-wrap; font-size: 13px; }
+.status-bad { background: var(--bad-bg); color: var(--bad); }
+.training-matrix td, .training-matrix th { text-align: center; font-size: 12px; }
+.training-matrix td:first-child, .training-matrix th:first-child { text-align: left; }
+.training-matrix .course-head { min-width: 84px; white-space: normal; vertical-align: bottom; }
+.cell-good { color: var(--good); }
+.cell-warn { background: var(--warn-bg); color: var(--warn); }
+.cell-bad { background: var(--bad-bg); color: var(--bad); }
+@media (max-width: 760px) {
+  .hr-split { grid-template-columns: 1fr; }
+  .form { grid-template-columns: 1fr; }
+}
+.table tr.clickable { cursor: pointer; }

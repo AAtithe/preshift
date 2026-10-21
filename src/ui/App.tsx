@@ -14,14 +14,20 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { AbsenceView } from './AbsenceView';
+import { HrFile, type HrSection } from './HrFile';
+import { HrOverview } from './HrOverview';
+import { CasesView, ReviewsView } from './ReviewsView';
+import { TrainingView } from './TrainingView';
 import { IntegrationsView } from './IntegrationsView';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
+import { PrivacyView } from './PrivacyView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
-import { useRotaStore } from './store';
+import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
 import { TravelPanel } from './TravelPanel';
@@ -29,11 +35,11 @@ import { TravelPanel } from './TravelPanel';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
-type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean };
+type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
   { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', groupOnly: true }] },
   {
@@ -53,6 +59,16 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     ],
   },
   {
+    heading: 'HR',
+    items: [
+      { id: 'hr', label: 'HR overview' },
+      { id: 'absence', label: 'Absence' },
+      { id: 'training', label: 'Training' },
+      { id: 'reviews', label: 'Probation and reviews' },
+      { id: 'cases', label: 'Cases', adminOnly: true },
+    ],
+  },
+  {
     heading: 'Finance',
     items: [
       { id: 'payroll', label: 'Payroll', siteOnly: true },
@@ -63,6 +79,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     heading: 'Admin',
     items: [
       { id: 'integrations', label: 'Integrations' },
+      { id: 'privacy', label: 'GDPR' },
       { id: 'settings', label: 'Settings' },
     ],
   },
@@ -93,12 +110,12 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} />;
+  return <Workspace state={state} error={error} setError={setError} actions={actions} />;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, error, clearError, actions }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions'] }) {
+function Workspace({ state, error, setError, actions }: { state: NonNullable<Store['state']>; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [entityId, setEntityId] = useState(ALL);
   const [siteId, setSiteId] = useState(ALL);
@@ -115,6 +132,10 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
   const today = toISODate(new Date());
   const [me, setMe] = useState<Me | null>(null);
+  const [hrPerson, setHrPerson] = useState<{ id: string; section?: HrSection } | null>(null);
+  const hr = useHrRecords(setError);
+  const isAdmin = me?.role === 'admin';
+  const openHr = (e: Employee, section?: HrSection) => setHrPerson({ id: e.id, section });
 
   useEffect(() => {
     fetch('/auth/me')
@@ -139,7 +160,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
-  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly);
+  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly) && (!t.adminOnly || isAdmin);
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t)) ? tab : single ? 'rota' : 'sites';
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
@@ -247,7 +268,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
                   className={activeTab === t.id ? 'active' : ''}
                   aria-current={activeTab === t.id ? 'page' : undefined}
                   disabled={!available(t)}
-                  title={available(t) ? undefined : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
+                  title={available(t) ? undefined : t.adminOnly && !isAdmin ? 'Admins only' : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
                   onClick={() => setTab(t.id)}
                 >
                   {t.label}
@@ -330,7 +351,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
 
             {error && (
               <div className="notice error">
-                {error} <button className="link" onClick={clearError}>Dismiss</button>
+                {error} <button className="link" onClick={() => setError(null)}>Dismiss</button>
               </div>
             )}
 
@@ -445,11 +466,19 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
                   onSetLeaveYear={actions.setLeaveYearStart}
                 />
               )}
+              {activeTab === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'absence' && (
+                <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
+              )}
+              {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
+              {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
             </main>
 
@@ -497,6 +526,22 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
 
       {opening && (
         <AssignPanel state={state} opening={opening} onPreview={setPreview} onAdd={(s) => void addShift(s)} onClose={() => setOpening(null)} />
+      )}
+
+      {hrPerson && state.employees.some((e) => e.id === hrPerson.id) && (
+        <HrFile
+          key={hrPerson.id}
+          state={state}
+          employee={state.employees.find((e) => e.id === hrPerson.id)!}
+          hr={hr}
+          today={today}
+          isAdmin={isAdmin}
+          initialSection={hrPerson.section}
+          onSaveProfile={actions.saveHrProfile}
+          onSaveAbsence={actions.saveAbsence}
+          onDeleteAbsence={actions.deleteAbsence}
+          onClose={() => setHrPerson(null)}
+        />
       )}
 
       {editingPerson && (
