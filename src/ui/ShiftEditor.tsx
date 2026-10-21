@@ -5,6 +5,7 @@ import { employedShare } from '../engine/employees';
 import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/time';
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
+import { Avatar, COMPONENTS, CostStack } from './viz';
 
 interface Props {
   state: RotaState;
@@ -24,6 +25,7 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
 
   const others = state.shifts.filter((s) => s.id !== draft.id);
   const length = draft.endMinute - draft.startMinute;
+  const site = state.sites.find((x) => x.id === draft.siteId)!;
   const neededBreak = requiredBreakMinutes(length, ageOn(employee.dateOfBirth, draft.date));
 
   const { marginal, issues } = useMemo(() => {
@@ -33,7 +35,16 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
     const withShift = employeeWeekCost(employee, [...week, draft], undefined, share);
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
-      marginal: { ...withShift, total: withShift.total - without.total, ni: withShift.employerNi - without.employerNi },
+      marginal: {
+        total: withShift.total - without.total,
+        ni: withShift.employerNi - without.employerNi,
+        parts: {
+          gross: Math.max(0, withShift.gross - without.gross),
+          holiday: Math.max(0, withShift.holiday - without.holiday),
+          employerNi: Math.max(0, withShift.employerNi - without.employerNi),
+          pension: Math.max(0, withShift.pension - without.pension),
+        },
+      },
       issues: checkEmployeeWeek(employee, ws, [...context, draft]).filter((i) => i.shiftId === draft.id || !i.shiftId),
     };
   }, [draft, employee, others, ws]);
@@ -48,11 +59,17 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <h2>{isNew ? 'New shift' : 'Edit shift'}</h2>
-        <p className="muted">
-          {employee.name} · {dayLabel(draft.date).short} {dayLabel(draft.date).date}
-        </p>
+        <div className="modal-head">
+          <Avatar name={employee.name} dept={state.roles.find((r) => r.id === employee.roleIds[0])?.department ?? 'FOH'} />
+          <div>
+            <h2>{isNew ? 'New shift' : 'Edit shift'}</h2>
+            <p className="muted small">
+              {employee.name} · {dayLabel(draft.date).short} {dayLabel(draft.date).date}
+            </p>
+          </div>
+        </div>
 
+        <div className="modal-body">
         <div className="form">
           <label>
             Role
@@ -104,10 +121,17 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
           </div>
         </div>
 
+        <DayLine site={site} start={draft.startMinute} end={draft.endMinute} />
+
         <div className="cost-box">
           <div>
             <div className="muted small">What this shift adds to the week</div>
             <div className="big">{money2(marginal.total)}</div>
+            {marginal.total > 0 && (
+              <div title={COMPONENTS.map((c) => `${c.label} ${money2(marginal.parts[c.key])}`).join(', ')}>
+                <CostStack parts={marginal.parts} thin />
+              </div>
+            )}
           </div>
           <div className="muted small">
             {employee.payBasis === 'salaried'
@@ -133,12 +157,40 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
           </ul>
         )}
 
+        </div>
+
         <div className="modal-actions">
           {!isNew && <button className="danger" onClick={() => onDelete(draft.id)}>Delete</button>}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={length <= 0} onClick={() => onSave(draft)}>Save</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** The shift drawn on a 24 hour line, with the site's trading hours shaded. */
+function DayLine({ site, start, end }: { site: { openMinute: number; closeMinute: number }; start: number; end: number }) {
+  const from = Math.min(6 * 60, start);
+  const to = Math.max(26 * 60, end);
+  const at = (m: number) => `${((m - from) / (to - from)) * 100}%`;
+  const width = (a: number, b: number) => `${((b - a) / (to - from)) * 100}%`;
+  const marks = [from, from + (to - from) / 4, from + (to - from) / 2, from + ((to - from) * 3) / 4, to];
+  return (
+    <div className="day-line" aria-hidden>
+      <div className="day-line-track">
+        <div className="day-line-open" style={{ left: at(site.openMinute), width: width(site.openMinute, site.closeMinute) }} />
+        {end > start && (
+          <div className="day-line-shift" style={{ left: at(start), width: width(start, end) }}>
+            {((end - start) / 60).toFixed(1)}h
+          </div>
+        )}
+      </div>
+      <div className="day-line-scale">
+        {marks.map((m) => (
+          <span key={m}>{formatMinute(Math.round(m / 60) * 60)}</span>
+        ))}
       </div>
     </div>
   );
