@@ -7,12 +7,12 @@ const SECTIONS = [
   'Sites', 'Rota', 'Demand', 'Clock in',
   'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
   'Labour cost', 'Payroll', 'Close',
-  'Integrations', 'GDPR', 'Settings',
+  'Integrations', 'GDPR', 'Settings', 'How to',
 ];
 const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Staff', 'Payroll'];
 const PLANNING = ['Sites', 'Rota', 'Demand'];
 const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close'];
-const ORG = ['Integrations', 'GDPR', 'Settings'];
+const ORG = ['Integrations', 'GDPR', 'Settings', 'How to'];
 
 const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });
 const heading = (page: Page) => page.locator('.mast-title h1');
@@ -52,7 +52,7 @@ for (const scope of ['All sites', 'Marylebone'] as const) {
 
       const choosing = scope === 'All sites' && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
-      await expect(heading(page)).toHaveText(ORG.includes(label) ? 'Organisation' : scope);
+      await expect(heading(page)).toHaveText(label === 'How to' ? 'Help' : ORG.includes(label) ? 'Organisation' : scope);
       await expect(page.getByLabel('Site')).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);

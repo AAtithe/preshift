@@ -14,6 +14,7 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { HowToView } from './HowToView';
 import { AbsenceView } from './AbsenceView';
 import { HrFile, type HrSection } from './HrFile';
 import { HrOverview } from './HrOverview';
@@ -30,11 +31,12 @@ import { ShiftEditor } from './ShiftEditor';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
+import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings' | 'howto';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Every item is always clickable, so the map never changes. A site-only item opened across several
@@ -43,7 +45,8 @@ type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday'
 // week sections get the scope, the week and the P&L rail; people sections get the scope; organisation
 // sections get neither. Only the planning sections carry the build and clear actions.
 type Scope = 'week' | 'people' | 'org';
-type NavItem = { id: Tab; label: string; scope: Scope; siteOnly?: boolean; plans?: boolean; adminOnly?: boolean };
+// title heads an organisation section; it defaults to Organisation.
+type NavItem = { id: Tab; label: string; scope: Scope; title?: string; siteOnly?: boolean; plans?: boolean; adminOnly?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
   { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true }] },
   {
@@ -82,6 +85,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'settings', label: 'Settings', scope: 'org' },
     ],
   },
+  { heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
@@ -143,6 +147,8 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
   const [week, setWeek] = useState(initial.week);
   const [tab, setTab] = useState<Tab>(initial.tab);
+  const [guide, setGuide] = useState<string | null>(null);
+  const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -197,7 +203,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name;
   const scopeName =
-    section.scope === 'org' ? 'Organisation' : single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name : 'All sites';
+    section.scope === 'org' ? (section.title ?? 'Organisation') : single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name : 'All sites';
 
   // Section and scope changes are steps Back can undo; moving the week only updates the address.
   useEffect(() => {
@@ -455,6 +461,14 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               {activeTab === 'sites' && (
                 <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={(id) => { setSiteId(id); setUnfilled(null); setTab('rota'); }} />
               )}
+              {activeTab === 'sites' && scopeSites.length > 1 && (
+                <TravelPanel
+                  sites={scopeSites}
+                  onSetLocation={actions.setSiteLocation}
+                  onRefresh={actions.refreshTravel}
+                  onSetTravel={actions.setTravel}
+                />
+              )}
               {activeTab === 'rota' && single && (
                 <div className="view-bar">
                   <div className="toggle" role="tablist" aria-label="Rota view">
@@ -538,13 +552,14 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
             <footer className="foot">
