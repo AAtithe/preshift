@@ -59,12 +59,22 @@ export function autoSchedule(
     for (const rule of rules) {
       for (let guard = 0; guard < 50; guard++) {
         const demand = dayDemand({ ...state, shifts }, siteId, rule.roleId, date);
-        const first = demand.find((d) => d.gap > 0);
+        // Fill the peak first: the hour most short of people, then grow the shift either side of it.
+        const first = demand.reduce<(typeof demand)[number] | null>(
+          (best, d) => (d.gap > 0 && (!best || d.gap > best.gap) ? d : best),
+          null,
+        );
         if (!first) break;
 
-        let end = first.hour;
-        while (end < 24 && demand[end].gap > 0 && end - first.hour < opts.maxShiftHours) end++;
         let start = first.hour;
+        let end = first.hour + 1;
+        while (end - start < opts.maxShiftHours) {
+          const right = end < 24 && demand[end].gap > 0;
+          const left = start > 0 && demand[start - 1].gap > 0;
+          if (!right && !left) break;
+          if (right && (!left || demand[end].gap >= demand[start - 1].gap)) end++;
+          else start--;
+        }
         // Pad short blocks to a minimum shift: forward to close, then backward to open.
         while (end - start < opts.minShiftHours && end < closeHour) end++;
         while (end - start < opts.minShiftHours && start * 60 > site.openMinute) start--;
@@ -77,15 +87,15 @@ export function autoSchedule(
           endMinute: end * 60,
         });
         if (!candidate) {
-          unfilled.push({ date, roleId: rule.roleId, fromHour: first.hour, toHour: end });
+          unfilled.push({ date, roleId: rule.roleId, fromHour: start, toHour: end });
           // Mark these hours as handled so we move on to the next gap.
           const placeholder: Shift = {
-            id: `unfilled-${date}-${rule.roleId}-${first.hour}`,
+            id: `unfilled-${date}-${rule.roleId}-${start}`,
             employeeId: '__unfilled__',
             roleId: rule.roleId,
             siteId,
             date,
-            startMinute: first.hour * 60,
+            startMinute: start * 60,
             endMinute: end * 60,
             breakMinutes: 0,
           };
@@ -98,7 +108,35 @@ export function autoSchedule(
     }
   }
   shifts = shifts.filter((s) => s.employeeId !== '__unfilled__');
-  return { shifts, added, unfilled: mergeGaps(unfilled) };
+  shifts = trimOverstaffedEdges({ ...state, shifts }, new Set(added.map((s) => s.id)), opts.minShiftHours);
+  const addedIds = new Set(added.map((s) => s.id));
+  return { shifts, added: shifts.filter((s) => addedIds.has(s.id)), unfilled: mergeGaps(unfilled) };
+}
+
+/**
+ * Padding to a minimum shift length leaves people on at the quiet edges of a
+ * shift. Shave an hour off either end of the new shifts while that hour is
+ * overstaffed, so the rota pays for cover only where the forecast needs it.
+ */
+function trimOverstaffedEdges(state: RotaState, ids: Set<string>, minShiftHours: number): Shift[] {
+  let shifts = state.shifts;
+  for (const id of ids) {
+    for (let guard = 0; guard < 24; guard++) {
+      const shift = shifts.find((s) => s.id === id)!;
+      if (shift.endMinute - shift.startMinute <= minShiftHours * 60) break;
+      const demand = dayDemand({ ...state, shifts }, shift.siteId, shift.roleId, shift.date);
+      const firstHour = Math.floor(shift.startMinute / 60);
+      const lastHour = Math.floor((shift.endMinute - 1) / 60);
+      let next: Shift | null = null;
+      if (demand[firstHour]?.gap < 0) next = { ...shift, startMinute: shift.startMinute + 60 };
+      else if (lastHour < 24 && demand[lastHour]?.gap < 0) next = { ...shift, endMinute: shift.endMinute - 60 };
+      if (!next) break;
+      const employee = state.employees.find((e) => e.id === next!.employeeId)!;
+      next.breakMinutes = requiredBreakMinutes(next.endMinute - next.startMinute, ageOn(employee.dateOfBirth, next.date));
+      shifts = shifts.map((s) => (s.id === id ? next! : s));
+    }
+  }
+  return shifts;
 }
 
 interface Slot {
