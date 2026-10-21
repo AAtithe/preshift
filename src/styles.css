@@ -714,6 +714,7 @@ button.link.danger { color: var(--bad); }
 .leave-years { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .check-inline { display: inline-flex; gap: 6px; align-items: center; }
 .holiday-box { margin-top: 8px; }
+.settings.privacy { max-width: none; }
 
 .integrations { display: grid; gap: 12px; max-width: 1100px; }
 .integrations-lede { margin: 0; max-width: 720px; }

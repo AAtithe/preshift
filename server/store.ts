@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { seedHrRecords, seedState } from '../src/engine/seed';
+import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
@@ -52,6 +53,8 @@ export interface OrgData {
   audit: AuditEvent[];
   /** Personnel file entries: training, reviews, cases, documents and notes. Served only to HR scopes. */
   hrRecords: HrRecord[];
+  /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
+  privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }

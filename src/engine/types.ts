@@ -162,6 +162,8 @@ export interface Employee {
   hr?: HrProfile;
   /** Sickness and other absence. A shift on an absence day is blocked like leave. */
   absences?: Absence[];
+  /** Set when the retention period ended and the record was anonymised under UK GDPR. */
+  anonymisedOn?: string;
 }
 
 export type ContractType = 'permanent' | 'fixed-term' | 'casual' | 'apprentice';
