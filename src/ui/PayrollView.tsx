@@ -6,6 +6,8 @@ import type { PayrollVariance, RosterVsActual } from '../engine/timesheet';
 import type { RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
 import { BreakShortfalls } from './BreakShortfalls';
+import { BreakRule, BreakSteps } from './guides/breaks';
+import { HelpModal } from './HelpModal';
 import { hours, money, money2, pct } from './format';
 
 interface Employer {
@@ -31,9 +33,11 @@ interface Props {
   siteId: string;
   week: string;
   onChanged: () => Promise<void>;
+  onOpenGuide: (id: string) => void;
 }
 
-export function PayrollView({ state, siteId, week, onChanged }: Props) {
+export function PayrollView({ state, siteId, week, onChanged, onOpenGuide }: Props) {
+  const [confirmApprove, setConfirmApprove] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [compare, setCompare] = useState<RosterVsActual[]>([]);
@@ -100,8 +104,28 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
   const ranFor = employers.filter((e) => latestRunOf(e.entityId));
   const missingEmployer = employers.filter((e) => !e.employerId);
 
+  const approveAll = () => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }));
+
   return (
     <div className="payroll">
+      {confirmApprove && (
+        <HelpModal
+          title={`${shortWaiting} ${shortWaiting === 1 ? 'shift is' : 'shifts are'} below the legal break minimum`}
+          onClose={() => setConfirmApprove(false)}
+          actions={
+            <>
+              <button onClick={() => setConfirmApprove(false)}>Review them first</button>
+              <button className="primary" onClick={() => { setConfirmApprove(false); void approveAll(); }}>I have checked them, approve all</button>
+              <span className="spacer" />
+              <button className="link" onClick={() => { setConfirmApprove(false); onOpenGuide('breaks'); }}>Full guide</button>
+            </>
+          }
+        >
+          <BreakRule />
+          <p>Before you approve, check each flagged shift:</p>
+          <BreakSteps />
+        </HelpModal>
+      )}
       <section className="pipeline">
         <Step n={1} title="People in TeamPay" done={!!status && status.employees.synced === status.employees.total && missingEmployer.length === 0}>
           {employers.length > 1 ? (
@@ -128,7 +152,7 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
         <Step n={3} title="Manager approval" done={entries.length > 0 && unapproved === 0}>
           <div>{count('approved')} approved, {unapproved} waiting</div>
           {shortBreaks.length > 0 && <div className="warn-text">{shortBreaks.length} below the legal break minimum</div>}
-          <button disabled={busy || count('submitted') === 0} onClick={() => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }))}>
+          <button disabled={busy || count('submitted') === 0} onClick={() => (shortWaiting ? setConfirmApprove(true) : approveAll())}>
             {shortWaiting ? `Approve all (${shortWaiting} short of break)` : 'Approve all'}
           </button>
         </Step>
@@ -183,6 +207,7 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
         name={name}
         busy={busy}
         onCorrect={(id, breakMinutes) => void step('Correct break', () => api.patch(`/v1/time-entries/${id}`, { breakMinutes }))}
+        onOpenGuide={() => onOpenGuide('breaks')}
       />
       {missingEmployer.length > 0 && (
         <div className="notice error">
