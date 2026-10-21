@@ -2,6 +2,7 @@
 //   /         marketing site (site/)
 //   /v1, /docs, /health   Preshift API as one bundled Node function, which also serves:
 //   /login, /auth/*       sign-in, first-run owner setup and sign-out
+//   /demo                 the public demo's sandbox per visitor (PRESHIFT_DEMO=1), else a redirect
 //   /app/                 the rota web app (Vite build), only to signed-in people
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
 //   /internal/dispatch    daily cron retry of undelivered payroll changes
@@ -21,6 +22,7 @@ await rm(out, { recursive: true, force: true });
 await viteBuild({ base: '/app/', build: { outDir: `${fn}/app`, emptyOutDir: true }, logLevel: 'warn' });
 await mkdir(fn, { recursive: true });
 await cp('site/login.html', `${fn}/login.html`);
+await cp('site/demo.html', `${fn}/demo.html`);
 
 for (const f of ['index.html', 'styles.css', 'main.js', 'img']) {
   await cp(`site/${f}`, `${out}/static/${f}`, { recursive: true });
@@ -58,7 +60,7 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch|login|auth/.*|app(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch|login|demo|auth/.*|app(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },

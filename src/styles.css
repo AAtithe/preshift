@@ -214,6 +214,10 @@ button.link.site-link { padding: 0; color: var(--text); font-weight: 600; }
 @media (max-width: 720px) { .cover-list { columns: 1; } }
 .ea-note { padding: 0 8px 10px; }
 .notice.error { background: var(--bad-bg); color: var(--bad); }
+.demo-banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--good-bg); }
+.demo-actions { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+a.button { display: inline-block; text-decoration: none; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--border); font-weight: 600; }
+a.button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
 .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
 .step.done { border-color: var(--good); }

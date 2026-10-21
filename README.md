@@ -74,6 +74,30 @@ TeamPay, simulate clocking, approve, send hours, run payroll. Set the `TEAMPAY_*
 connect to real TeamPay and `PRESHIFT_DATABASE_URL` for Postgres; see `docs/API.md`, which also
 covers the Vercel deployment.
 
+## Public demo for prospects
+
+A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
+an account. The marketing site's "Try the live demo" button opens `/demo`, which gives the visitor
+their own private copy of the demo group and signs them in as its admin. Everything works as it
+does for a customer: build from forecast, edit shifts, compliance, people, clock in, payroll
+against the TeamPay simulator, the Close journals and the API docs.
+
+- Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
+  Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
+- Guard rails. Accounts, passwords, the Claude key and owner setup cannot be changed. Payroll
+  always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
+  are deleted after 24 hours (on the daily cron and as new visitors arrive).
+- Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
+  sandbox. Put a monthly spend limit on that key in the Claude Console.
+- Where it runs. A separate Vercel project from the same repository, with its own Neon database
+  (`PRESHIFT_DATABASE_URL`), never the database that holds customer data. Without a database the
+  demo still works on one instance but sandboxes do not survive a cold start. Set `CRON_SECRET` for
+  the daily clean-up.
+- Linking from the live system. Set `PRESHIFT_DEMO_URL` on the live deployment (for example
+  `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
+
+Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
+
 ## Deployment (Vercel)
 
 `npm run build:vercel` (set in `vercel.json`) writes `.vercel/output` with the Build Output API:
