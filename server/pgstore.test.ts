@@ -1,8 +1,8 @@
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { buildApp } from './app';
+import { buildApp, storeFromEnv } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
-import { PgStore, type Query } from './store';
+import { MemoryStore, PgStore, type Query } from './store';
 
 const WEEK = '2026-10-19';
 const KEYS = [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] }];
@@ -82,5 +82,22 @@ describe('Postgres store', () => {
     const store = new PgStore(flaky, ['demo'], '2026-10-21');
     await expect(store.load('demo')).rejects.toThrow('duplicate key');
     expect((await store.load('demo')).orgId).toBe('demo');
+  });
+
+  it('refuses a database that already holds another system\'s tables', async () => {
+    const db = new PGlite();
+    await db.query('create table public.aml_assessments (id int)');
+    const store = new PgStore(async (t, p) => (await db.query(t, p)).rows as Record<string, unknown>[], ['demo'], '2026-10-21');
+    await expect(store.load('demo')).rejects.toMatchObject({ statusCode: 503, code: 'database_not_dedicated' });
+    expect(await store.status()).toBe('database_not_dedicated');
+    const created = await db.query("select 1 from information_schema.schemata where schema_name = 'preshift'");
+    expect(created.rows).toHaveLength(0);
+  });
+
+  it('reads a generic DATABASE_URL only on Vercel', () => {
+    const url = 'postgres://u:p@ep-x.neon.tech/neondb';
+    expect(storeFromEnv({ DATABASE_URL: url })).toBeInstanceOf(MemoryStore);
+    expect(storeFromEnv({ DATABASE_URL: url, VERCEL: '1' })).toBeInstanceOf(PgStore);
+    expect(storeFromEnv({ PRESHIFT_DATABASE_URL: url })).toBeInstanceOf(PgStore);
   });
 });

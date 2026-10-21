@@ -44,11 +44,14 @@ function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; si
 }
 
 /**
- * Preshift's database is named explicitly. It never falls back to a generic
- * DATABASE_URL, so it cannot land in another system's database by accident.
+ * Which database Preshift uses. PRESHIFT_DATABASE_URL wins. On Vercel only, the
+ * DATABASE_URL that the project's Neon integration sets is used otherwise; a
+ * generic DATABASE_URL anywhere else (a laptop, a CI box, a coding container)
+ * is ignored. Either way PgStore refuses a database that holds another
+ * system's tables.
  */
-function storeFromEnv(env: NodeJS.ProcessEnv): Store {
-  const url = env.PRESHIFT_DATABASE_URL;
+export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
+  const url = env.PRESHIFT_DATABASE_URL ?? (env.VERCEL === '1' ? env.DATABASE_URL : undefined);
   if (!url) return new MemoryStore();
   const sql = neon(url);
   return new PgStore((text, params) => sql(text, params) as Promise<Record<string, unknown>[]>);
@@ -108,11 +111,16 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return reply.code(500).send({ error: 'internal', message: 'Something went wrong' });
   });
 
-  app.get('/health', { schema: { hide: true } }, async () => ({
-    ok: true,
-    payroll: payroll.provider.name,
-    storage: store instanceof PgStore ? 'postgres' : 'memory',
-  }));
+  app.get('/health', { schema: { hide: true } }, async (_req, reply) => {
+    const database = store instanceof PgStore ? await store.status() : 'not configured';
+    const ok = database === 'ok' || database === 'not configured';
+    return reply.code(ok ? 200 : 503).send({
+      ok,
+      payroll: payroll.provider.name,
+      storage: store instanceof PgStore ? 'postgres' : 'memory',
+      database,
+    });
+  });
 
   // Scheduled retry of anything payroll has not yet confirmed (Vercel Cron sends CRON_SECRET).
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
