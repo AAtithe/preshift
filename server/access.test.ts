@@ -242,3 +242,37 @@ describe('the hosted app', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe('the WS lead account', () => {
+  it('cannot be reset, demoted or removed by the operator’s admin, and is named only by a WS key', async () => {
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const { app } = await buildApp({
+      apiKeys: [
+        { key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] },
+        { key: 'ws', orgId: 'demo', name: 'WS', scopes: ['programme:lead'] },
+      ],
+      store,
+      provider: new TeamPaySimulator(),
+      autoDispatch: false,
+    });
+    const form = (url: string, fields: Record<string, string>) =>
+      app.inject({ method: 'POST', url, headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: new URLSearchParams(fields).toString() });
+    const owner = await form('/auth/setup', { email: OWNER.email, password: OWNER.password, confirm: OWNER.password, next: '/app/' });
+    const cookie = String(owner.headers['set-cookie'] ?? '').split(';')[0];
+    const asOwner = (method: string, url: string, body?: unknown) =>
+      app.inject({ method: method as 'GET', url, headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+    const withKey = (key: string, method: string, url: string, body?: unknown) =>
+      app.inject({ method: method as 'GET', url, headers: { authorization: `Bearer ${key}`, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+
+    expect((await asOwner('POST', '/v1/users', { email: 'lead@ws.example', password: 'another long password', role: 'member' })).statusCode).toBe(201);
+    // Neither the owner nor the operator's own full-access key can make someone the lead.
+    expect((await asOwner('PUT', '/v1/programme-leads/lead@ws.example', { lead: true })).statusCode).toBe(403);
+    expect((await withKey('integration', 'PUT', '/v1/programme-leads/lead@ws.example', { lead: true })).statusCode).toBe(403);
+    expect((await withKey('ws', 'PUT', '/v1/programme-leads/lead@ws.example', { lead: true })).statusCode).toBe(200);
+
+    expect((await asOwner('PATCH', '/v1/users/lead@ws.example', { password: 'owner chose this one' })).json().error).toBe('lead_account');
+    expect((await asOwner('PATCH', '/v1/users/lead@ws.example', { role: 'admin' })).json().error).toBe('lead_account');
+    expect((await asOwner('DELETE', '/v1/users/lead@ws.example')).json().error).toBe('lead_account');
+    expect((await store.getUser('lead@ws.example'))?.lead).toBe(true);
+  });
+});

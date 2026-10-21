@@ -37,7 +37,12 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
   const [adj, setAdj] = useState({ date: week, factor: '110', reason: 'event' as AdjustmentReason, note: '', fromHour: '', toHour: '' });
   const [hour, setHour] = useState({ date: week, hour: '19', sales: '', covers: '', reason: '' });
 
-  useEffect(() => setAccuracyWeek(addDays(week, -7)), [week]);
+  // Moving week resets the forms, so nothing is posted against a day from the week before.
+  useEffect(() => {
+    setAccuracyWeek(addDays(week, -7));
+    setAdj((a) => ({ ...a, date: week }));
+    setHour((h) => ({ ...h, date: week }));
+  }, [week]);
 
   const loadAccuracy = useCallback(async () => {
     try {
@@ -154,7 +159,7 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
             {adj.reason !== 'closure' && (
               <label>
                 Trade as % of normal
-                <input type="number" min={0} max={500} value={adj.factor} onChange={(e) => setAdj({ ...adj, factor: e.target.value })} />
+                <input type="number" required min={1} max={500} value={adj.factor} onChange={(e) => setAdj({ ...adj, factor: e.target.value })} />
               </label>
             )}
             <label>
@@ -234,7 +239,7 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
             <section className="kpis people-kpis">
               <Stat label="Hourly error" value={pct(accuracy.wape)} hint="What staffing feels" />
               <Stat label="Day error" value={pct(accuracy.dayWape)} hint="Whole-day totals" />
-              <Stat label="Bias" value={signed(accuracy.bias)} hint={accuracy.bias > 0 ? 'Forecast too high: rota too heavy' : 'Forecast too low: floor too light'} />
+              <Stat label="Bias" value={signed(accuracy.bias)} hint={Math.abs(accuracy.bias) < 0.005 ? 'Balanced' : accuracy.bias > 0 ? 'Forecast too high: rota too heavy' : 'Forecast too low: floor too light'} />
               <Stat
                 label="Model alone"
                 value={accuracy.modelWape === null ? 'Not known' : pct(accuracy.modelWape)}
@@ -242,6 +247,7 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
               />
             </section>
             <div className="split">
+              <div className="grid-wrap">
               <table className="table">
                 <thead>
                   <tr><th>Day</th><th className="num">Forecast</th><th className="num">Actual</th><th className="num">Error</th><th className="num">Bias</th></tr>
@@ -258,7 +264,8 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
                   ))}
                 </tbody>
               </table>
-              <div>
+              </div>
+              <div className="grid-wrap">
                 <table className="table">
                   <thead>
                     <tr><th>Daypart</th><th className="num">Forecast</th><th className="num">Actual</th><th className="num">Error</th><th className="num">Bias</th></tr>

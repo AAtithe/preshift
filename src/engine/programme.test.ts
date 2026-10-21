@@ -116,7 +116,7 @@ describe('labour programme', () => {
     const p: Programme = { ...newProgramme('mar', START), baseline };
     const t = programmeStatus(p, card([week(), week(), week(), week({ onTarget: false })]), state, addDays(START, 60)).targets;
     expect(t.map((x) => [x.label, x.met])).toEqual([
-      ['Rota-to-payroll gap', true],
+      ['Clocked time against the rota', true],
       ['Weeks within one point of target', false],
       ['Hours over demand, down on baseline', true],
     ]);

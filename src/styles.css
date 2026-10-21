@@ -299,7 +299,7 @@ button.link.danger { color: var(--bad); }
 .coach-total { text-align: right; }
 .moves { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; counter-reset: move; }
 .move { display: flex; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); flex-wrap: wrap; }
-.move-body { flex: 1; min-width: 260px; display: grid; gap: 4px; }
+.move-body { flex: 1 1 220px; min-width: 0; display: grid; gap: 4px; }
 .move-title { font-weight: 600; }
 .move-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .move-decline { margin-top: 6px; }

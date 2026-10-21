@@ -51,15 +51,16 @@ export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) 
   const lead = me?.lead === true;
   const single = siteIds.length === 1 ? siteIds[0] : null;
 
+  const [benchOpen, setBenchOpen] = useState(false);
   const load = useCallback(async () => {
     try {
-      const [p, b] = await Promise.all([api.get<Entry[]>('/v1/programmes'), api.get<Benchmarks>('/v1/benchmarks')]);
-      setEntries(p);
-      setBench(b);
+      setEntries(await api.get<Entry[]>('/v1/programmes'));
+      // Benchmarks scan every operator who shares, so they load only once asked for.
+      if (benchOpen) setBench(await api.get<Benchmarks>('/v1/benchmarks'));
     } catch (e) {
       setMessage({ text: problem(e), bad: true });
     }
-  }, []);
+  }, [benchOpen]);
   useEffect(() => void load(), [load]);
 
   async function act(done: string, fn: () => Promise<unknown>) {
@@ -110,7 +111,7 @@ export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) 
                   <th className="num">On time</th>
                   <th className="num">On target</th>
                   <th className="num">Moves taken</th>
-                  <th className="num">Payroll gap</th>
+                  <th className="num">Clock vs rota</th>
                   <th className="num">Labour: before, now</th>
                   <th className="num">Annual saving</th>
                 </tr>
@@ -142,15 +143,27 @@ export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) 
           </div>
         )}
         {lead && notOn.length > 0 && (
-          <StartForm sites={notOn.map((id) => ({ id, name: siteName(id) }))} today={today} busy={busy}
+          <StartForm key={notOn.join()} sites={notOn.map((id) => ({ id, name: siteName(id) }))} today={today} busy={busy}
             onStart={(siteId, startWeek, gainSharePct) => act(`${siteName(siteId)} is on the programme from w/c ${startWeek}.`, () => api.put(`/v1/programmes/${siteId}`, { startWeek, gainSharePct }))} />
         )}
         {!lead && notOn.length > 0 && <p className="muted small">The WS lead puts sites on the programme.</p>}
       </section>
 
-      {detail && <SiteDetail entry={detail} lead={lead} busy={busy} act={act} />}
+      {detail && <SiteDetail key={detail.programme.siteId} entry={detail} lead={lead} busy={busy} act={act} />}
 
-      {bench && <BenchmarkPanel bench={bench} siteIds={siteIds} siteName={siteName} admin={me?.role === 'admin'} busy={busy}
+      {!benchOpen && (
+        <section className="settings-card">
+          <div className="coach-head">
+            <div>
+              <h2>Benchmarks</h2>
+              <p className="muted small">How your sites compare with other operators WS works with, anonymised.</p>
+            </div>
+            <button onClick={() => setBenchOpen(true)}>Show benchmarks</button>
+          </div>
+        </section>
+      )}
+      {benchOpen && !bench && <p className="muted">Loading benchmarks</p>}
+      {benchOpen && bench && <BenchmarkPanel bench={bench} siteIds={siteIds} siteName={siteName} admin={me?.role === 'admin'} busy={busy}
         onToggle={(on) => act(on ? 'Sharing anonymised figures. You will see the cohort once it is large enough to stay anonymous.' : 'No longer sharing.', () => api.put('/v1/settings/benchmarking', { benchmarking: on }))} />}
     </div>
   );

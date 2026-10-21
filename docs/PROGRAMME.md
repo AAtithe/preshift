@@ -21,10 +21,10 @@ Lead with that. A scheduling vendor can say labour fell. We can show it in the a
 
 | Weeks | Phase | What the site must do | How it is proved |
 | --- | --- | --- | --- |
-| 1 to 2 | Baseline | Measure true labour: labour % by site and daypart, the gap between rota and payroll, hours rostered over demand. Load eight weeks of hourly till sales. Agree targets with the owner and GM. | Baseline recorded from the management accounts, or from till and approved time over whole weeks. Kick-off signed off by the lead. |
+| 1 to 2 | Baseline | Measure true labour: labour % by site and daypart, clocked time against the rota, hours rostered over demand. Load eight weeks of hourly till sales. Agree targets with the owner and GM. | Baseline recorded from the management accounts, or from till and approved time over whole weeks. Kick-off signed off by the lead. |
 | 3 to 6 | Control | Build every week from the forecast. Publish at least seven days ahead with nothing blocking. Review variance with the GM every week. | Ladder rung 1 held three weeks in four. Weekly review signed off. |
 | 7 to 10 | Optimise | Hit target within one point. Tighten shift edges by daypart. Take the weekly moves. Agree cross-site cover with the people willing to do it. | Rungs 2 and 3 held. Half or more of the moves taken. Cover agreement signed off. |
-| 11 to 12 | Embed | Own the forecast. Close labour by working day 3. Sign the saving off in the accounts. Hand over to business as usual. | Rung 4 held. Rota-to-payroll gap under 1%. Day-3 close signed off. Saving verified. |
+| 11 to 12 | Embed | Own the forecast. Close labour by working day 3. Sign the saving off in the accounts. Hand over to business as usual. | Rung 4 held. Clocked time within 1% of the rota. Day-3 close signed off. Saving verified. |
 
 ## The ladder
 
@@ -46,7 +46,7 @@ habit at a time, never the whole list.
 Thirty minutes, same day each week, the GM and the lead.
 
 1. Last week, from the scorecard. Notice given, labour against target, hours over demand,
-   rota-to-payroll gap, forecast error. One number at a time, and ask the GM to explain it
+   clocked time against the rota, forecast error. One number at a time, and ask the GM to explain it
    before you do.
 2. The moves. What was offered, what was taken, what it actually saved against the clock.
    Where a move was turned down, read the GM's reason together. "Function booked" is a

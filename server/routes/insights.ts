@@ -160,6 +160,10 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      // A zero factor closes the floor as well as the forecast, so only a closure may say zero.
+      if (req.body.factor === 0 && req.body.reason !== 'closure') {
+        throw new HttpError(422, 'invalid_factor', 'Only a closure can take trade to zero. Choose Closure, or give a percentage of normal trade.');
+      }
       const adjustment: ForecastAdjustment = { ...req.body, id: `adj_${randomUUID().slice(0, 12)}` };
       org.state.forecastAdjustments = [...(org.state.forecastAdjustments ?? []), adjustment];
       audit(org, req.principal.name, 'forecast.adjustment.added', { id: adjustment.id, siteId: adjustment.siteId, date: adjustment.date });
@@ -473,6 +477,10 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const p = programmeOf(org, req.params.siteId);
       if (req.body.to < req.body.from) throw new HttpError(422, 'invalid_period', 'The period ends before it starts');
+      // A period that overlaps the baseline or predates the programme would never count; refuse it rather than look accepted.
+      if (req.body.from < p.startWeek || (p.baseline && req.body.from <= p.baseline.to)) {
+        throw new HttpError(422, 'outside_programme', `A verified period must start on or after ${p.baseline && p.baseline.to >= p.startWeek ? `the day after the baseline ends (${p.baseline.to})` : `programme week 1 (${p.startWeek})`}.`);
+      }
       const v = { id: `ver_${randomUUID().slice(0, 12)}`, ...req.body, signedBy: req.principal.name, signedAt: ctx.now().toISOString() };
       p.verifications.push(v);
       audit(org, req.principal.name, 'programme.verified', { siteId: p.siteId, from: v.from, to: v.to });

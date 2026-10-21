@@ -23,7 +23,7 @@ export interface Phase {
 }
 
 export const PHASES: Phase[] = [
-  { id: 'baseline', label: 'Baseline', fromWeek: 1, toWeek: 2, purpose: 'Measure true labour from the ledger: labour % by site and daypart, rota-to-payroll gap, hours over demand.' },
+  { id: 'baseline', label: 'Baseline', fromWeek: 1, toWeek: 2, purpose: 'Measure true labour from the ledger: labour % by site and daypart, clocked time against the rota, hours over demand.' },
   { id: 'control', label: 'Control', fromWeek: 3, toWeek: 6, purpose: 'Build from the forecast, publish on time with nothing blocking, review variance with the GM every week.' },
   { id: 'optimise', label: 'Optimise', fromWeek: 7, toWeek: 10, purpose: 'Hit target, tighten shift edges by daypart, take the weekly moves, use cross-site cover.' },
   { id: 'embed', label: 'Embed', fromWeek: 11, toWeek: 12, purpose: 'Own the forecast, close labour by working day 3, sign the saving off in the accounts, hand over.' },
@@ -44,7 +44,7 @@ export const MILESTONES: MilestoneDef[] = [
   { id: 'kickoff', phase: 'baseline', label: 'Kick-off held with the owner and GM; targets agreed', proof: 'signoff' },
   { id: 'baseline-captured', phase: 'baseline', label: 'Baseline labour % recorded from the management accounts or till and payroll', proof: 'data' },
   { id: 'actuals-loaded', phase: 'baseline', label: 'Eight weeks of hourly till sales loaded for the forecast', proof: 'data' },
-  { id: 'variance-measured', phase: 'baseline', label: 'Rota-to-payroll gap measured on a worked week', proof: 'data' },
+  { id: 'variance-measured', phase: 'baseline', label: 'Clocked time measured against the rota on a worked week', proof: 'data' },
   { id: 'on-time', phase: 'control', label: 'Rota published on time and legal, three weeks in four', proof: 'data' },
   { id: 'weekly-review', phase: 'control', label: 'Weekly variance review held with the GM four weeks running', proof: 'signoff' },
   { id: 'on-target', phase: 'optimise', label: 'Labour within one point of target, three weeks in four', proof: 'data' },
@@ -52,7 +52,7 @@ export const MILESTONES: MilestoneDef[] = [
   { id: 'moves-habit', phase: 'optimise', label: 'Half or more of the weekly moves taken', proof: 'data' },
   { id: 'cover-agreed', phase: 'optimise', label: 'Cross-site cover agreed with the people willing to do it', proof: 'signoff' },
   { id: 'forecast-owned', phase: 'embed', label: 'Forecast error under target and overrides adding value', proof: 'data' },
-  { id: 'variance-under-1', phase: 'embed', label: 'Rota-to-payroll gap under one per cent', proof: 'data' },
+  { id: 'variance-under-1', phase: 'embed', label: 'Clocked time within one per cent of the rota', proof: 'data' },
   { id: 'day3-close', phase: 'embed', label: 'Labour closed by working day 3', proof: 'signoff' },
   { id: 'saving-verified', phase: 'embed', label: 'Saving signed off in the management accounts', proof: 'data' },
 ];
@@ -227,7 +227,7 @@ export function programmeStatus(programme: Programme, scorecard: Scorecard, stat
   const recentOver = rostered.length ? rostered.reduce((s, w) => s + w.overstaffedShare, 0) / rostered.length : null;
   const baseOver = programme.baseline?.overstaffedShare;
   const targets: Target[] = [
-    { label: 'Rota-to-payroll gap', value: avgVariance, target: 0.01, met: avgVariance === null ? null : avgVariance < 0.01, unit: 'pct' },
+    { label: 'Clocked time against the rota', value: avgVariance, target: 0.01, met: avgVariance === null ? null : avgVariance < 0.01, unit: 'pct' },
     { label: 'Weeks within one point of target', value: recent.length ? recent.filter((w) => w.onTarget).length / recent.length : null, target: 0.8, met: recent.length ? recent.filter((w) => w.onTarget).length / recent.length >= 0.8 : null, unit: 'share' },
     {
       label: 'Hours over demand, down on baseline',

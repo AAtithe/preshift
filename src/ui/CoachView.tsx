@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Move, MoveRecord } from '../engine/coach';
 import type { Scorecard } from '../engine/scorecard';
+import { addDays } from '../engine/time';
 import type { RotaState } from '../engine/types';
 import { api, ApiError } from './api';
 import { dayLabel, hours, money, pct } from './format';
@@ -54,7 +55,11 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
   }, [siteId, week]);
 
   // The moves follow the rota: offer again whenever the week's shifts change.
-  const weekShiftsKey = state.shifts.filter((s) => s.siteId === siteId && s.date >= week).map((s) => `${s.id}${s.startMinute}${s.endMinute}${s.employeeId}`).join();
+  const weekEnd = addDays(week, 6);
+  const weekShiftsKey = state.shifts
+    .filter((s) => s.siteId === siteId && s.date >= week && s.date <= weekEnd)
+    .map((s) => `${s.id}:${s.employeeId}:${s.startMinute}:${s.endMinute}:${s.breakMinutes}`)
+    .join();
   useEffect(() => void load(), [load, weekShiftsKey]);
 
   async function take(move: Move) {
@@ -161,7 +166,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
       {card && (
         <section className="settings-card">
           <h2>Scorecard</h2>
-          <p className="muted small">The last eight finished weeks. Actual labour and the payroll gap appear once every hour at the site is approved.</p>
+          <p className="muted small">The last eight finished weeks. Actual labour, and clocked time against the rota, appear once every hour at the site is approved.</p>
           <div className="grid-wrap">
             <table className="table">
               <thead>
@@ -172,7 +177,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
                   <th className="num">Labour actual</th>
                   <th className="num">Target</th>
                   <th className="num">Over demand</th>
-                  <th className="num">Payroll gap</th>
+                  <th className="num">Clock vs rota</th>
                   <th className="num">Forecast error</th>
                   <th className="num">Moves taken</th>
                   <th className="num">Saved</th>
@@ -190,7 +195,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
                     <td className="num">{w.rotaToPayrollVariance === null ? 'Pending' : pct(w.rotaToPayrollVariance, 2)}</td>
                     <td className="num">{w.forecastWape === null ? 'No till data' : pct(w.forecastWape)}</td>
                     <td className="num">{w.movesOffered ? `${w.movesTaken} of ${w.movesOffered}` : 'None offered'}</td>
-                    <td className="num">{w.movesTaken ? money(w.realisedSaving) : ''}</td>
+                    <td className="num">{!w.movesTaken ? '' : w.actualLabourPct === null ? 'Pending' : money(w.realisedSaving)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -208,7 +213,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
             {realised.length > 0 && (
               <p className="muted small">
                 Promised {money(realised.reduce((s, m) => s + m.expectedSaving, 0))} on the weeks already worked; the clock says{' '}
-                {money(realised.reduce((s, m) => s + (m.realisedSaving ?? 0), 0))}. The difference is people working past the new times.
+                {money(realised.reduce((s, m) => s + (m.realisedSaving ?? 0), 0))}. Most of any gap is people working past the new times; check those shifts in the clock record.
               </p>
             )}
             <div className="grid-wrap">

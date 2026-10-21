@@ -141,8 +141,15 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
     return reply.code(201).send(view((await store.getUser(email))!));
   });
 
+  // The WS lead signs off the saving the operator's fee is set on, so the operator's admin can neither
+  // reset their password (and sign in as them) nor change or remove them. Only a WS key manages that account.
+  const notLead = (user: UserRecord) => {
+    if (user.lead) throw new HttpError(403, 'lead_account', 'This is the Williams, Stanley & Co. lead. Only WS can change or remove it.');
+  };
+
   app.patch<{ Params: { email: string }; Body: { role?: UserRole; password?: string } }>('/v1/users/:email', admin, async (req) => {
     const user = await mine(req, req.params.email);
+    notLead(user);
     const patch: Partial<UserRecord> = {};
     if (req.body?.role && req.body.role !== user.role) {
       if (req.body.role !== 'admin') await keepAnAdmin(req, user);
@@ -162,6 +169,7 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
   app.delete<{ Params: { email: string } }>('/v1/users/:email', admin, async (req, reply) => {
     const user = await mine(req, req.params.email);
     if (user.email === req.principal.user?.email) throw new HttpError(409, 'self', 'You cannot remove yourself.');
+    notLead(user);
     await keepAnAdmin(req, user);
     await store.deleteUser(user.email);
     audit(req.org!, actor(req), 'access.user_removed', { email: user.email });

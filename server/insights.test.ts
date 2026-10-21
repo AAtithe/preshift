@@ -61,6 +61,22 @@ describe('forecast model and accuracy', () => {
     expect((await call('DELETE', `/v1/forecast/adjustments/${adj.body.id}`)).status).toBe(204);
   });
 
+  it('refuses a zero factor that is not a closure, so a blank field never closes the floor', async () => {
+    const { call } = await setup();
+    const res = await call('POST', '/v1/forecast/adjustments', { siteId: 'mar', date: NEXT, factor: 0, reason: 'event' });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe('invalid_factor');
+  });
+
+  it('keeps the model under a feed and marks a changed hour as an override', async () => {
+    const { call } = await setup();
+    await call('POST', '/v1/forecast/model', { siteId: 'mar', weekStart: NEXT });
+    const [row] = (await call('GET', `/v1/forecast?siteId=mar&from=${NEXT}&to=${NEXT}`)).body.filter((r: { hour: number }) => r.hour === 19);
+    await call('PUT', '/v1/forecast', { rows: [{ siteId: 'mar', date: NEXT, hour: 19, sales: row.sales + 300, covers: row.covers + 7 }] }, 'gm');
+    const [after] = (await call('GET', `/v1/forecast?siteId=mar&from=${NEXT}&to=${NEXT}`)).body.filter((r: { hour: number }) => r.hour === 19);
+    expect(after).toMatchObject({ sales: row.sales + 300, modelSales: row.modelSales, overriddenBy: 'GM' });
+  });
+
   it('takes till actuals in', async () => {
     const { call } = await setup();
     const put = await call('PUT', '/v1/actuals', { rows: [{ siteId: 'mar', date: TODAY, hour: 12, sales: 321, covers: 8 }] });
@@ -168,6 +184,8 @@ describe('scorecard and programme', () => {
     expect(entry.status.saving.gainShareFee).toBeNull();
 
     expect((await call('POST', '/v1/programmes/mar/verifications', { from: '2026-10-05', to: '2026-10-18', sales: 75_000, labourCost: 21_000 }, 'admin')).status).toBe(403);
+    // A period overlapping the baseline would never count, so it is refused rather than looking accepted.
+    expect((await call('POST', '/v1/programmes/mar/verifications', { from: '2026-09-01', to: '2026-10-18', sales: 75_000, labourCost: 21_000 }, 'ws')).body.error).toBe('outside_programme');
     await call('POST', '/v1/programmes/mar/verifications', { from: '2026-10-05', to: '2026-10-18', sales: 75_000, labourCost: 21_000 }, 'ws');
     const verified = (await call('GET', '/v1/programmes')).body[0].status.saving;
     expect(verified.verified).toBe(true);
