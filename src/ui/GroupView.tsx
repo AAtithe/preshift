@@ -25,8 +25,14 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
     .filter((g) => g.sites.length > 0);
 
   const weekShifts = state.shifts.filter((s) => dates.includes(s.date) && metrics.sites.some((m) => m.siteId === s.siteId));
-  const blocksAt = (siteId: string) =>
-    issues.filter((i) => i.severity === 'block' && (i.shiftId ? weekShifts.find((s) => s.id === i.shiftId)?.siteId === siteId : employeeSite(state, i.employeeId) === siteId)).length;
+  // A shift's issue belongs to the site it is worked at; a week-level one to the person's home site.
+  const at = (siteId: string, i: Issue) =>
+    i.shiftId ? weekShifts.find((s) => s.id === i.shiftId)?.siteId === siteId : employeeSite(state, i.employeeId) === siteId;
+  const blocksAt = (siteId: string) => issues.filter((i) => i.severity === 'block' && at(siteId, i)).length;
+  // Rest breaches a manager chose to publish through. One every week at a site is a staffing problem, not an exception.
+  const overridesAt = (siteId: string) => issues.filter((i) => i.overridden && at(siteId, i));
+  const overrideCount = (sites: SiteWeekMetrics[]) => sites.reduce((n, m) => n + overridesAt(m.siteId).length, 0);
+  const personName = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
 
   // Who worked away from their home site, and what crossed a company line.
   const cover = weekShifts
@@ -53,16 +59,18 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
               <th className="num">Vs target</th>
               <th className="num">SPLH</th>
               <th className="num">Paid hours</th>
+              <th className="num" title="Rest breaches published with a manager's reason this week">Overrides</th>
               <th>Rota</th>
             </tr>
           </thead>
           <tbody>
             {entities.map(({ entity, sites }) => (
-              <EntityRows key={entity.id} label={entity.name} sites={sites} total={sum(sites)}>
+              <EntityRows key={entity.id} label={entity.name} sites={sites} total={sum(sites)} overrides={overrideCount(sites)}>
                 {sites.map((m) => {
                   const site = siteOf(state, m.siteId)!;
                   const shifts = weekShifts.filter((s) => s.siteId === m.siteId);
                   const blocks = blocksAt(m.siteId);
+                  const overridden = overridesAt(m.siteId);
                   const status =
                     shifts.length === 0 ? 'Not built' : shifts.every((s) => s.published) ? 'Published' : 'Draft';
                   return (
@@ -71,6 +79,12 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
                         <button className="link site-link" onClick={() => onOpenSite(m.siteId)}>{site.name}</button>
                       </td>
                       <Figures m={m} />
+                      <td
+                        className={`num ${overridden.length ? 'warn-text' : 'muted'}`}
+                        title={overridden.map((i) => `${personName(i.employeeId)}: ${i.overridden!.reason} (${i.overridden!.by})`).join('\n') || undefined}
+                      >
+                        {overridden.length}
+                      </td>
                       <td>
                         {status}
                         {blocks > 0 && <span className="tag bad">{blocks} blocking</span>}
@@ -86,6 +100,7 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
               <tr>
                 <th>Group</th>
                 <Figures m={metrics} strong />
+                <td className="num strong">{overrideCount(metrics.sites)}</td>
                 <td />
               </tr>
             </tfoot>
@@ -122,17 +137,18 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
   );
 }
 
-function EntityRows({ label, sites, total, children }: { label: string; sites: SiteWeekMetrics[]; total: Totals; children: ReactNode }) {
+function EntityRows({ label, sites, total, overrides, children }: { label: string; sites: SiteWeekMetrics[]; total: Totals; overrides: number; children: ReactNode }) {
   return (
     <>
       <tr className="entity-head">
-        <th colSpan={9}>{label}</th>
+        <th colSpan={10}>{label}</th>
       </tr>
       {children}
       {sites.length > 1 && (
         <tr className="subtotal">
           <td>Total {label}</td>
           <Figures m={total} />
+          <td className="num">{overrides}</td>
           <td />
         </tr>
       )}

@@ -24,6 +24,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Admin | Accounts, roles, passwords and the Claude key are managed in Settings. Forgot password by email through Resend, or a 24 hour link an admin hands over. | No access settings live in Vercel. Removing someone takes effect on their next click. |
 | GMs | Short daily rest (under 11 hours, 12 for under 18s) and no clear day off in the week now block publication instead of warning. The auto-build and the assistant will not create either. | The rota cannot be published in breach of the Working Time Regulations rest rules, which is the promise we sell. |
 | GMs | Rest breaches can be overridden from the Rota tab with a written reason and the compensatory rest given. The breach then publishes as a warning with the manager's name on it; moving either shift voids the override. | Real exceptions (sickness cover, a swap the person asked for) do not stop the week going out, and every one is on record. |
+| Operators | The Sites view counts rest overrides per site for the week, with entity and group totals. Hover a site's count for who was overridden, why and by whom. | A site overriding every week has a staffing problem, not a run of exceptions. It now shows next to labour % where the operator already looks. |
 | Everyone | CI typechecks and runs the full suite (130 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
@@ -95,7 +96,9 @@ least 15 characters (why, and the compensatory rest the person gets). The breach
 warning carrying the manager's name and reason. An override covers that breach exactly as it stood:
 move either shift, or change the days worked, and it blocks again. API keys cannot override, the
 auto-build and the rota assistant never rely on one, and every override, withdrawal and publish
-through one is in the audit log. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
+through one is in the audit log. The Sites view counts each week's overrides per site, with entity and
+group totals: a daily rest override counts at the site of the shift worked short of rest, a weekly
+one at the person's home site. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
 
 ### Demand-led build (`src/engine/demand.ts`, `src/engine/autoschedule.ts`)
 
