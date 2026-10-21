@@ -26,6 +26,9 @@ create table if not exists preshift.users (
 alter table preshift.users add column if not exists role text not null default 'manager'
   check (role in ('admin', 'manager'));
 
+-- Set when an admin provisions the password, so the user picks their own on first sign-in.
+alter table preshift.users add column if not exists must_change_password boolean not null default false;
+
 -- Only a SHA-256 of the session token is stored, so a database leak does not leak live sessions.
 create table if not exists preshift.sessions (
   id          text primary key,

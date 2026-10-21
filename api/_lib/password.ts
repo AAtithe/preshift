@@ -34,3 +34,15 @@ export const DUMMY_HASH =
   'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$' + Buffer.alloc(KEYLEN).toString('base64');
 
 export const MIN_PASSWORD_LENGTH = 12;
+export const MAX_PASSWORD_LENGTH = 256;
+
+/** Why a new password is not acceptable, or null if it is. */
+export function newPasswordProblem(password: string, email: string): string | null {
+  if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (password.length > MAX_PASSWORD_LENGTH) return `Use no more than ${MAX_PASSWORD_LENGTH} characters.`;
+  if (new Set(password).size < 5) return 'Use a mix of characters, not one repeated.';
+  const local = email.split('@')[0].toLowerCase();
+  if (local.length >= 4 && password.toLowerCase().includes(local)) return 'Do not include your email address.';
+  if (/preshift|password|williams|stanley/i.test(password)) return 'Avoid words tied to this app or the firm.';
+  return null;
+}

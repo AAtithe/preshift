@@ -7,6 +7,7 @@ export interface User {
   accountId: string;
   accountName: string;
   role: 'admin' | 'manager';
+  mustChangePassword: boolean;
 }
 
 export class ApiError extends Error {
@@ -37,6 +38,8 @@ export async function getMe(): Promise<User | null> {
 }
 
 export const login = (email: string, password: string) => call<{ ok: true }>('POST', 'auth/login', { email, password });
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  call<{ ok: true }>('POST', 'auth/password', { currentPassword, newPassword });
 export const logout = () => call<{ ok: true }>('POST', 'auth/logout');
 export const loadRota = () => call<{ state: RotaState | null; version: number }>('GET', 'state');
 export const saveRota = (state: RotaState, version: number) => call<{ version: number }>('PUT', 'state', { state, version });

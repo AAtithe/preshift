@@ -212,6 +212,7 @@ td:hover .add, .add:focus { opacity: 1; }
 .login-card input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .login-card button.primary { padding: 9px 12px; }
 .login-error { color: var(--bad); background: var(--bad-bg); padding: 8px 10px; border-radius: 6px; margin: 0; font-size: 13px; }
+.login-card p { margin: 0; }
 .login-alt { font-size: 13px; color: var(--muted); margin: 0; }
 .login-alt a { color: var(--accent); }
 .muted { color: var(--muted); }
@@ -250,3 +251,11 @@ button.link.danger { color: var(--bad); }
 @media (max-width: 640px) {
   .setup-head { flex-direction: column; }
 }
+
+/* Change password */
+.login-card label.check { flex-direction: row; align-items: center; gap: 6px; }
+.pw-rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.pw-rules li::before { content: '\25CB'; margin-right: 6px; }
+.pw-rules li.ok { color: var(--good); }
+.pw-rules li.ok::before { content: '\25CF'; }
+.modal-backdrop .login-card { max-width: 400px; }

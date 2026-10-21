@@ -12,6 +12,7 @@ import { KpiBar } from './KpiBar';
 import { RotaGrid } from './RotaGrid';
 import type { User } from './session';
 import { Setup } from './Setup';
+import { ChangePassword } from './ChangePassword';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -47,6 +48,7 @@ export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Pro
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [settingUp, setSettingUp] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // Sites set up with a sales profile get their forecast generated for any week the user opens.
   useEffect(() => {
@@ -116,6 +118,7 @@ export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Pro
             <div className="account">
               <span title={user.email}>{user.name} &middot; {user.accountName}</span>
               <button className="link" onClick={() => setSettingUp(true)}>Set-up</button>
+              <button className="link" onClick={() => setChangingPassword(true)}>Password</button>
               <button className="link" onClick={onSignOut}>Sign out</button>
             </div>
           )}
@@ -195,6 +198,10 @@ export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Pro
           <span>UK rates 2026/27. {saveStatus?.kind === 'saving' ? 'Saving' : saveStatus?.kind === 'failed' ? 'Not saved' : 'All changes saved'}.</span>
         )}
       </footer>
+
+      {changingPassword && user && (
+        <ChangePassword user={user} onDone={() => setChangingPassword(false)} onCancel={() => setChangingPassword(false)} />
+      )}
 
       {editing && (
         <ShiftEditor

@@ -4,12 +4,13 @@
 //   npm run user:create -- --email jane@site.co.uk --name "Jane Smith" --account "Marylebone Group" [--admin]
 //
 // There is no public sign-up: accounts are provisioned here, deliberately, while we onboard
-// founding sites by hand. The password is prompted for, never passed on the command line.
+// founding sites by hand. The password is prompted for, never passed on the command line, and the
+// user is made to replace it on first sign-in.
 import { readFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { neon } from '@neondatabase/serverless';
-import { hashPassword, MIN_PASSWORD_LENGTH } from '../api/_lib/password.ts';
+import { hashPassword, MIN_PASSWORD_LENGTH, newPasswordProblem } from '../api/_lib/password.ts';
 
 if (!process.env.DATABASE_URL && existsSync('.env.local')) process.loadEnvFile('.env.local');
 if (!process.env.DATABASE_URL) {
@@ -40,17 +41,18 @@ if (command === 'migrate') {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const password = await rl.question(`Password (min ${MIN_PASSWORD_LENGTH} characters): `);
   rl.close();
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    console.error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  const email = values.email.trim().toLowerCase();
+  const problem = newPasswordProblem(password, email);
+  if (problem) {
+    console.error(`Password not accepted: ${problem}`);
     process.exit(1);
   }
-  const email = values.email.trim().toLowerCase();
   const existing = await sql`select id from preshift.accounts where name = ${values.account}`;
   const accountId = existing[0]?.id ?? (await sql`insert into preshift.accounts (name) values (${values.account}) returning id`)[0].id;
   const role = values.admin ? 'admin' : 'manager';
   await sql`
-    insert into preshift.users (account_id, email, name, password_hash, role)
-    values (${accountId}, ${email}, ${values.name}, ${await hashPassword(password)}, ${role})`;
+    insert into preshift.users (account_id, email, name, password_hash, role, must_change_password)
+    values (${accountId}, ${email}, ${values.name}, ${await hashPassword(password)}, ${role}, true)`;
   console.log(`Created ${role} ${email} on account "${values.account}".`);
 } else {
   console.error('Commands: migrate, create-user');

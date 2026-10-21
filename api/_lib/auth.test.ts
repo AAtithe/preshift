@@ -1,4 +1,4 @@
-import { DUMMY_HASH, hashPassword, verifyPassword } from './password.js';
+import { DUMMY_HASH, hashPassword, newPasswordProblem, verifyPassword } from './password.js';
 import { readCookie } from './session.js';
 
 describe('password hashing', () => {
@@ -24,5 +24,18 @@ describe('readCookie', () => {
     const req = new Request('https://x.test/', { headers: { cookie: 'a=1; ps_session=abc%3D; b=2' } });
     expect(readCookie(req, 'ps_session')).toBe('abc=');
     expect(readCookie(req, 'missing')).toBeNull();
+  });
+});
+
+describe('newPasswordProblem', () => {
+  const email = 't.stanley@williamsstanley.co';
+  it('accepts a long, unrelated passphrase', () => {
+    expect(newPasswordProblem('harbour copper linen 47', email)).toBeNull();
+  });
+  it('rejects short, repetitive or guessable passwords', () => {
+    expect(newPasswordProblem('short1', email)).toMatch(/12 characters/);
+    expect(newPasswordProblem('aaaaaaaaaaaaaaaa', email)).toMatch(/mix/);
+    expect(newPasswordProblem('t.stanley-2026!!', email)).toMatch(/email/);
+    expect(newPasswordProblem('MyPreshiftLogin1', email)).toMatch(/firm/);
   });
 });

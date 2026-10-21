@@ -62,7 +62,13 @@ the session cookie. The login screen in the browser is a convenience, not the se
 - A successful login sets an HttpOnly, SameSite=Lax, Secure cookie holding a random token. Only
   the SHA-256 of that token is stored, so a database leak does not hand over live sessions.
   Sessions last 30 days; signing out deletes the row.
-- Five failed attempts on an email in 15 minutes locks it for the rest of the window.
+- Five failed attempts on an email in 15 minutes locks it for the rest of the window. Wrong
+  current passwords on the change password screen count towards the same limit.
+- Passwords set with `user:create` are flagged, and the user must choose their own on first
+  sign-in. The API refuses rota data until they do.
+- "Password" in the top bar changes it at any time. New passwords need 12 or more characters and
+  cannot contain the email name or words tied to the app or the firm. Changing a password signs
+  out every other device.
 - State-changing endpoints only accept JSON, which blocks cross-site form posts.
 - Saves carry a version number. If a colleague saved in between, the save is refused with a
   "reload" prompt rather than silently overwriting their work.

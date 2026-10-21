@@ -1,13 +1,21 @@
 import { sql } from './_lib/db.js';
 import { json, readJson } from './_lib/http.js';
-import { currentUser } from './_lib/session.js';
+import { currentUser, type SessionUser } from './_lib/session.js';
 
 // The rota for the signed-in user's account. The engine still runs in the browser; this
 // endpoint is the system of record and the only way to read or write live data.
 
+// A user still on an admin-issued password gets no rota data until they replace it.
+function refuse(user: SessionUser | null): Response | null {
+  if (!user) return json({ error: 'Not signed in.' }, 401);
+  if (user.mustChangePassword) return json({ error: 'Change your password to continue.' }, 403);
+  return null;
+}
+
 export async function GET(request: Request): Promise<Response> {
   const user = await currentUser(request);
-  if (!user) return json({ error: 'Not signed in.' }, 401);
+  const refused = refuse(user);
+  if (refused || !user) return refused!;
   const rows = (await sql()`select state, version from preshift.rota_state where account_id = ${user.accountId}`) as {
     state: unknown;
     version: number;
@@ -19,7 +27,8 @@ const REQUIRED = ['sites', 'roles', 'employees', 'shifts', 'forecast', 'demandRu
 
 export async function PUT(request: Request): Promise<Response> {
   const user = await currentUser(request);
-  if (!user) return json({ error: 'Not signed in.' }, 401);
+  const refused = refuse(user);
+  if (refused || !user) return refused!;
   const body = await readJson<{ state?: Record<string, unknown>; version?: unknown }>(request);
   const state = body?.state;
   const version = body?.version;

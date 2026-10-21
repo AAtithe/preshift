@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { applySetup, emptyDraft } from '../engine/setup';
 import type { RotaState } from '../engine/types';
 import { App, type SaveStatus } from './App';
+import { ChangePassword } from './ChangePassword';
 import { Login } from './Login';
 import { Setup } from './Setup';
 import { ApiError, getMe, loadRota, logout, saveRota, type User } from './session';
@@ -9,6 +10,7 @@ import { ApiError, getMe, loadRota, logout, saveRota, type User } from './sessio
 type Phase =
   | { kind: 'loading' }
   | { kind: 'signedOut' }
+  | { kind: 'changePassword'; user: User }
   | { kind: 'setup'; user: User }
   | { kind: 'ready'; user: User; state: RotaState; version: number }
   | { kind: 'error'; message: string };
@@ -25,6 +27,7 @@ export function LiveApp() {
     try {
       const user = await getMe();
       if (!user) return setPhase({ kind: 'signedOut' });
+      if (user.mustChangePassword) return setPhase({ kind: 'changePassword', user });
       const { state, version } = await loadRota();
       setPhase(state ? { kind: 'ready', user, state, version } : { kind: 'setup', user });
     } catch (err) {
@@ -36,6 +39,9 @@ export function LiveApp() {
 
   if (phase.kind === 'loading') return <div className="login"><p className="muted">Loading</p></div>;
   if (phase.kind === 'signedOut') return <Login onSignedIn={start} />;
+  if (phase.kind === 'changePassword') {
+    return <ChangePassword user={phase.user} forced onDone={start} />;
+  }
   if (phase.kind === 'setup') {
     const { user } = phase;
     return (
