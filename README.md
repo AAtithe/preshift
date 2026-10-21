@@ -24,19 +24,58 @@ accrual so the P&L carries true labour before payroll has even run.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # engine tests
+npm run dev      # http://localhost:5173/demo/ for the demo, http://localhost:5173/ for the live app
+npm test         # engine and auth tests
 npm run build    # typecheck and production build
 ```
 
-The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
-forecasts. Press "Build from forecast" to generate the week. Data is held in the browser only.
+## Demo and live app
+
+One build serves two routes:
+
+| Route | Who | Data |
+| --- | --- | --- |
+| `/demo/` | Anyone, no login | Two sample London sites (Marylebone and Shoreditch), held in the visitor's browser only. Never touches the database. |
+| `/app/` | Signed-in users only | The account's own rota, stored in Neon and loaded and saved through the API. |
+
+The live app is gated where it matters: every read and write goes through `api/`, which checks
+the session cookie. The login screen in the browser is a convenience, not the security boundary.
+
+### Neon set-up
+
+1. Put the connection string in `DATABASE_URL`, in `.env.local` locally and in the Vercel
+   project's environment variables for production.
+2. `npm run db:migrate` creates the tables. They live in their own `preshift` schema because the
+   firm database already has unrelated `public.users` and `public.sessions` tables.
+3. Create users by hand (there is no public sign-up while founding sites are onboarded):
+
+   ```bash
+   npm run user:create -- --email jane@site.co.uk --name "Jane Smith" --account "Marylebone Group"
+   ```
+
+   The password is prompted for, minimum 12 characters. Users on the same account share one rota.
+
+### How the login works
+
+- Passwords are hashed with scrypt (`api/_lib/password.ts`); unknown emails still run a hash so
+  timing does not reveal which emails exist.
+- A successful login sets an HttpOnly, SameSite=Lax, Secure cookie holding a random token. Only
+  the SHA-256 of that token is stored, so a database leak does not hand over live sessions.
+  Sessions last 30 days; signing out deletes the row.
+- Five failed attempts on an email in 15 minutes locks it for the rest of the window.
+- State-changing endpoints only accept JSON, which blocks cross-site form posts.
+- Saves carry a version number. If a colleague saved in between, the save is refused with a
+  "reload" prompt rather than silently overwriting their work.
+- A new account starts from the sample sites until site set-up is built.
 
 ## Structure
 
 ```
 src/engine   Pure TypeScript domain logic. No UI, fully unit tested. This is the product.
 src/ui       React front end over the engine.
+api          Vercel functions: login, logout, session check, rota load and save.
+db           Neon schema.
+scripts      Database admin: migrate and create users.
 docs         Strategy and roadmap.
 ```
 

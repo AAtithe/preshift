@@ -3,12 +3,13 @@ import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
-import type { Shift } from '../engine/types';
+import type { RotaState, Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { RotaGrid } from './RotaGrid';
+import type { User } from './session';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -22,8 +23,22 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'close', label: 'Close' },
 ];
 
-export function App() {
-  const [state, dispatch] = useRotaStore();
+export type SaveStatus =
+  | { kind: 'saving' }
+  | { kind: 'saved' }
+  | { kind: 'failed'; message: string; conflict: boolean };
+
+interface Props {
+  mode: 'demo' | 'live';
+  initial: RotaState;
+  persist: (state: RotaState) => void;
+  user?: User;
+  saveStatus?: SaveStatus;
+  onSignOut?: () => void;
+}
+
+export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Props) {
+  const [state, dispatch] = useRotaStore(initial, persist);
   const [siteId, setSiteId] = useState(state.sites[0].id);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('rota');
@@ -65,6 +80,13 @@ export function App() {
             <span>w/c {dayLabel(week).date}</span>
             <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rsaquo;</button>
           </div>
+          {mode === 'demo' && <span className="mode-tag">Demo</span>}
+          {user && (
+            <div className="account">
+              <span title={user.email}>{user.name} &middot; {user.accountName}</span>
+              <button className="link" onClick={onSignOut}>Sign out</button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -122,11 +144,24 @@ export function App() {
         {tab === 'close' && <CloseView state={state} week={week} />}
       </main>
 
+      {saveStatus?.kind === 'failed' && (
+        <div className="notice notice-bad" role="alert">
+          <strong>Not saved.</strong> {saveStatus.message}{' '}
+          {saveStatus.conflict && <button className="link" onClick={() => window.location.reload()}>Reload</button>}
+        </div>
+      )}
+
       <footer className="foot">
-        <span>UK rates 2026/27. Demo data is held in this browser only.</span>
-        <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
-          Reset demo
-        </button>
+        {mode === 'demo' ? (
+          <>
+            <span>UK rates 2026/27. Demo data is held in this browser only. <a href="/app/">Sign in</a> for the live rota.</span>
+            <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
+              Reset demo
+            </button>
+          </>
+        ) : (
+          <span>UK rates 2026/27. {saveStatus?.kind === 'saving' ? 'Saving' : saveStatus?.kind === 'failed' ? 'Not saved' : 'All changes saved'}.</span>
+        )}
       </footer>
 
       {editing && (

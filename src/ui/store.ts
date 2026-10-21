@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import type { RotaState, Shift } from '../engine/types';
 import { seedState } from '../engine/seed';
 import { weekDates } from '../engine/time';
@@ -11,16 +11,25 @@ export type Action =
   | { type: 'publishWeek'; siteId: string; weekStart: string }
   | { type: 'reset' };
 
-const KEY = 'preshift.rota.v1';
+const DEMO_KEY = 'preshift.rota.v1';
 
-function load(): RotaState {
+// The public demo keeps its data in this browser only and never touches the database.
+export function loadDemoState(): RotaState {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(DEMO_KEY);
     if (raw) return JSON.parse(raw) as RotaState;
   } catch {
     // Storage blocked or corrupt: fall back to the demo data.
   }
   return seedState();
+}
+
+export function saveDemoState(state: RotaState) {
+  try {
+    localStorage.setItem(DEMO_KEY, JSON.stringify(state));
+  } catch {
+    // Non-fatal: the rota still works for this session.
+  }
 }
 
 function inWeek(shift: Shift, siteId: string, weekStart: string) {
@@ -53,14 +62,18 @@ function reducer(state: RotaState, action: Action): RotaState {
   }
 }
 
-export function useRotaStore() {
-  const [state, dispatch] = useReducer(reducer, undefined, load);
+// persist is called after every change except the initial load.
+export function useRotaStore(initial: RotaState, persist: (state: RotaState) => void) {
+  const [state, dispatch] = useReducer(reducer, initial);
+  const first = useRef(true);
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
   useEffect(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch {
-      // Non-fatal: the rota still works for this session.
+    if (first.current) {
+      first.current = false;
+      return;
     }
+    persistRef.current(state);
   }, [state]);
   return [state, dispatch] as const;
 }
