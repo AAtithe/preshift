@@ -4,7 +4,7 @@ import { autoSchedule, autoScheduleSites } from './autoschedule';
 import { checkEmployeeWeek, checkWeek, requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, weekCost } from './cost';
 import { holidayBalance, holidayHourlyRate, leaveYear, workedShifts } from './holiday';
-import { employedShare, employeeStatus, newEmployee, reviewEmployee, rightToWorkRetainUntil } from './employees';
+import { employedShare, employeeStatus, newEmployee, reviewEmployee } from './employees';
 import { dayDemand, headcountAt } from './demand';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from './journal';
 import { scopeMetrics, weekMetrics } from './metrics';
@@ -374,12 +374,9 @@ describe('employees', () => {
     expect(codes(person({ rightToWork: { checked: true, expiry: '2026-11-30' } }))).toContain('right-to-work-expiring');
   });
 
-  it('warns when a check has no copy or no date, and when a leaver\'s copies are kept too long', () => {
+  it('warns when a check has no copy or no date', () => {
     expect(codes(person({ rightToWork: { ...ok.rightToWork, documents: [] } }))).toContain('right-to-work-copy');
     expect(codes(person({ rightToWork: { ...ok.rightToWork, checkedOn: undefined } }))).toContain('right-to-work-date');
-    expect(codes(person({ ...ok, leaveDate: '2024-10-21' }))).not.toContain('right-to-work-retention');
-    expect(codes(person({ ...ok, leaveDate: '2024-10-20' }))).toContain('right-to-work-retention');
-    expect(rightToWorkRetainUntil(person({ leaveDate: '2025-03-31' }))).toBe('2027-03-31');
   });
 
   it('warns ahead of a birthday that moves the minimum wage band', () => {
@@ -519,5 +516,27 @@ describe('holiday', () => {
     const rota = [shift('2026-06-01', 10, 20), shift('2026-06-02', 10, 20)];
     const actual = [{ ...shift('2026-06-01', 10, 14), id: 'te:1' }];
     expect(workedShifts(rota, actual).map((s) => s.endMinute)).toEqual([14 * 60, 20 * 60]);
+  });
+});
+
+describe('cross-site cost', () => {
+  it('splits a person working at two sites by hours, and the parts tie to each site total', () => {
+    const state = seedState(WEEK);
+    const borrowed = state.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours === 0)!;
+    const at = (id: string, siteId: string, start: number) =>
+      ({ id, employeeId: borrowed.id, roleId: borrowed.roleIds[0], siteId, date: WEEK, startMinute: start * 60, endMinute: (start + 4) * 60, breakMinutes: 0 }) as Shift;
+    state.shifts = [at('home', 'shd', 12), at('away', 'mar', 18)];
+    const mar = weekCost(state, WEEK, 'mar');
+    const shd = weekCost(state, WEEK, 'shd');
+    const whole = employeeWeekCost(borrowed, state.shifts).total;
+    expect(mar.shifts.get('away')!.total + shd.shifts.get('home')!.total).toBeCloseTo(whole, 1);
+    for (const c of [mar, shd]) {
+      const sum = c.parts.gross + c.parts.holiday + c.parts.employerNi + c.parts.pension;
+      expect(sum).toBeCloseTo(c.total, 0);
+    }
+    // Marylebone carries half of the borrowed person's week, not all of it.
+    const p = mar.parts;
+    const marOwn = weekCost({ ...state, shifts: [] }, WEEK, 'mar').total;
+    expect(p.gross + p.holiday + p.employerNi + p.pension - marOwn).toBeCloseTo(whole / 2, 0);
   });
 });

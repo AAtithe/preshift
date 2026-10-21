@@ -5,6 +5,7 @@ import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { geofenceBody, geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { employeeView } from './hr';
 import { clockIn, clockOut, endBreak, onBreak } from './time';
 
 const REPEAT_TAP_MINUTES = 2;
@@ -79,7 +80,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
       if (holder) throw new HttpError(409, 'badge_in_use', `That card is already enrolled for ${holder.name}. Remove it from them first.`);
       employee.badgeId = badgeId;
       audit(org, req.principal.name, 'employee.badge_enrolled', { id: employee.id });
-      return employee;
+      return employeeView(req, employee);
     },
   );
 
@@ -92,7 +93,7 @@ export function clockingRoutes(app: FastifyInstance, _ctx: AppContext) {
       if (!employee) throw notFound(`Employee ${req.params.id}`);
       delete employee.badgeId;
       audit(org, req.principal.name, 'employee.badge_removed', { id: employee.id });
-      return employee;
+      return employeeView(req, employee);
     },
   );
 

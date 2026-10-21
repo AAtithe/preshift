@@ -104,15 +104,13 @@ export function reviewEmployee(
     push('right-to-work-expiring', 'warn', `Right to work expires on ${rtw.expiry}. Book the follow-up check now.`);
   }
   const copies = rtw?.documents?.length ?? 0;
-  if (rtw?.checked && copies === 0) {
+  // Once someone has left, retention may already have removed the copy and the date on purpose.
+  const left = Boolean(employee.leaveDate && employee.leaveDate < today);
+  if (rtw?.checked && copies === 0 && !left) {
     push('right-to-work-copy', 'warn', 'Checked, but no copy of the documents is held. Without a copy there is no statutory excuse.');
   }
-  if (rtw?.checked && !rtw.checkedOn) {
+  if (rtw?.checked && !rtw.checkedOn && !left) {
     push('right-to-work-date', 'warn', 'Record the date the right to work check was done. The statutory excuse needs it.');
-  }
-  const retainUntil = rightToWorkRetainUntil(employee);
-  if (copies > 0 && retainUntil && today > retainUntil) {
-    push('right-to-work-retention', 'warn', `Right to work copies were due for deletion on ${retainUntil}. Data protection law does not allow keeping them longer.`);
   }
 
   if (!employee.pensionEnrolled && age >= rates.pensionMinAge && age < rates.pensionMaxAge) {
@@ -123,15 +121,6 @@ export function reviewEmployee(
     }
   }
   return checks;
-}
-
-/** Right to work copies are kept for the employment and this many years after it ends, then deleted. */
-export const RTW_RETENTION_YEARS = 2;
-
-/** The last day a leaver's right to work copies may be kept. None while they are still employed. */
-export function rightToWorkRetainUntil(employee: Employee): string | undefined {
-  if (!employee.leaveDate) return undefined;
-  return `${Number(employee.leaveDate.slice(0, 4)) + RTW_RETENTION_YEARS}${employee.leaveDate.slice(4)}`;
 }
 
 /** A blank starter at a site, employed by that site's company unless changed. */

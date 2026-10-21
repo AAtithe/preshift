@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Employee, RightToWorkDocument } from '../../src/engine/types';
 import { requireAdmin, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
+import { readsHr } from './hr';
 import type { DocumentCipher } from '../documentCrypto';
 import { audit, type DocumentAccess, type OrgData } from '../store';
 
@@ -61,7 +62,44 @@ function accessEntry(req: FastifyRequest, documentId: string, employeeId: string
 
 // Files written or removed by a request, settled once the response shows whether the record was saved.
 const written = new WeakMap<FastifyRequest, string>();
-const removed = new WeakMap<FastifyRequest, string>();
+const removed = new WeakMap<FastifyRequest, DroppedCopy[]>();
+
+export interface DroppedCopy {
+  employeeId: string;
+  documentId: string;
+}
+
+/** Copies the records named before a change and no longer name after it, as when retention strips a leaver. */
+export function droppedCopies(before: Employee[], after: Employee[]): DroppedCopy[] {
+  const still = new Set(after.flatMap((e) => (e.rightToWork?.documents ?? []).map((d) => d.id)));
+  return before.flatMap((e) =>
+    (e.rightToWork?.documents ?? []).filter((d) => !still.has(d.id)).map((d) => ({ employeeId: e.id, documentId: d.id })),
+  );
+}
+
+/**
+ * Marks files for deletion once this request's change is saved. Pair with deleteCopiesOnSave as
+ * the route's onResponse, so a failed save never leaves a record naming a file that is gone.
+ */
+export function deleteCopiesAfterSave(req: FastifyRequest, copies: DroppedCopy[]) {
+  if (copies.length) removed.set(req, [...(removed.get(req) ?? []), ...copies]);
+}
+
+export function deleteCopiesOnSave(ctx: AppContext) {
+  return async (req: FastifyRequest, reply: { statusCode: number }) => {
+    const copies = removed.get(req);
+    if (!copies || reply.statusCode >= 400) return;
+    for (const c of copies) {
+      await ctx.store.deleteDocument(orgOf(req).orgId, c.documentId);
+      await ctx.store.logDocumentAccess(accessEntry(req, c.documentId, c.employeeId, 'deleted'));
+    }
+  };
+}
+
+/** Copies of identity documents are personnel file data: an integration needs an HR scope. */
+async function requireHrRead(req: FastifyRequest, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) {
+  if (!readsHr(req)) return reply.code(403).send({ error: 'forbidden', message: 'This key lacks the hr:read scope' });
+}
 
 export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
   const tags = ['Right to work'];
@@ -70,7 +108,7 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post<{ Params: { id: string }; Querystring: { fileName?: string }; Body: Buffer }>(
     '/v1/employees/:id/right-to-work/documents',
     {
-      preHandler: requireScope('rota:write'),
+      preHandler: requireScope('hr:write'),
       bodyLimit: MAX_DOCUMENT_BYTES,
       schema: {
         tags,
@@ -120,7 +158,7 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get<{ Params: { id: string; docId: string } }>(
     '/v1/employees/:id/right-to-work/documents/:docId',
     {
-      preHandler: requireScope('rota:read'),
+      preHandler: requireHrRead,
       schema: { tags, description: 'The stored copy, to view or download. Every view is logged, with who and from where.', params: docParams },
     },
     async (req, reply) => {
@@ -169,16 +207,10 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags,
         description:
-          'Deletes a copy: one uploaded in error, or a leaver\'s once the two years after they left have passed. Admins only.',
+          'Deletes a copy uploaded in error. Leavers\' copies go through the retention schedule (POST /v1/privacy/retention/apply). Admins only.',
         params: docParams,
       },
-      onResponse: async (req, reply) => {
-        // Only once the record no longer names it, so a failed save never leaves a link to nothing.
-        const id = removed.get(req);
-        if (!id || reply.statusCode >= 400) return;
-        await ctx.store.deleteDocument(orgOf(req).orgId, id);
-        await ctx.store.logDocumentAccess(accessEntry(req, id, req.params.id, 'deleted'));
-      },
+      onResponse: deleteCopiesOnSave(ctx),
     },
     async (req) => {
       const org = orgOf(req);
@@ -187,7 +219,7 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
       const doc = docs.find((d) => d.id === req.params.docId);
       if (!doc) throw notFound(`Document ${req.params.docId}`);
       e.rightToWork = { ...e.rightToWork!, documents: docs.filter((d) => d.id !== doc.id) };
-      removed.set(req, doc.id);
+      deleteCopiesAfterSave(req, [{ employeeId: e.id, documentId: doc.id }]);
       audit(org, req.principal.name, 'employee.rtw_document.deleted', { id: e.id, documentId: doc.id, fileName: doc.fileName, sha256: doc.sha256 });
       return e;
     },

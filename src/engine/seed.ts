@@ -1,4 +1,5 @@
-import type { DemandRule, Employee, Entity, HourForecast, Role, RotaState, Site } from './types';
+import type { Absence, DemandRule, Employee, Entity, HourForecast, HrProfile, HrRecord, Role, RotaState, Site } from './types';
+import { COURSES, requiredCourses } from './hr';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -160,9 +161,105 @@ export function seedState(today = toISODate(new Date())): RotaState {
     entities: entities.map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
     sites,
     roles,
-    employees: employees(today),
+    employees: withHr(employees(today), today),
     shifts: [],
     forecast: forecast(start),
     demandRules: rules,
   };
+}
+
+const FIRST_NAMES = ['Sarah', 'David', 'Amira', 'James', 'Rosa', 'Michael', 'Leah', 'Kofi'];
+const RELATIONSHIPS = ['Partner', 'Parent', 'Sibling', 'Friend'];
+
+/**
+ * Personnel files for the demo: most are in order, a few carry the problems a GM meets
+ * every month, so every HR screen has something to act on.
+ */
+function withHr(list: Employee[], today: string): Employee[] {
+  const gmOf = (siteId: string) => `${siteId}-1`;
+  const profiles: Record<string, Partial<HrProfile>> = {
+    // Starts in five days: statement not yet issued, probation set.
+    'mar-19': { contractIssuedOn: undefined, contractSignedOn: undefined, probationEnd: addDays(today, 95), probationPassedOn: undefined },
+    'mar-16': { emergencyContact: undefined },
+    'shd-13': { niNumber: undefined },
+    'mar-7': { contractSignedOn: undefined },
+    'fitz-6': { probationEnd: addDays(today, 10), probationPassedOn: undefined },
+    'fitz-9': { contractType: 'fixed-term', fixedTermEnd: addDays(today, 30) },
+  };
+  const absences: Record<string, Absence[]> = {
+    'mar-3': [
+      { id: 'abs-1', type: 'sickness', from: addDays(today, -200), to: addDays(today, -199), reason: 'Migraine', returnToWorkOn: addDays(today, -198) },
+      { id: 'abs-2', type: 'sickness', from: addDays(today, -120), to: addDays(today, -120), reason: 'Stomach bug', returnToWorkOn: addDays(today, -119) },
+      { id: 'abs-3', type: 'sickness', from: addDays(today, -40), to: addDays(today, -39), reason: 'Cold', returnToWorkOn: addDays(today, -38) },
+      { id: 'abs-4', type: 'sickness', from: addDays(today, -15), to: addDays(today, -14), reason: 'Migraine' },
+    ],
+    'mar-5': [
+      { id: 'abs-5', type: 'sickness', from: addDays(today, -70), to: addDays(today, -61), reason: 'Back injury', fitNote: true, returnToWorkOn: addDays(today, -60) },
+    ],
+    'fitz-5': [{ id: 'abs-6', type: 'sickness', from: addDays(today, -9), reason: 'Flu' }],
+    'shd-6': [{ id: 'abs-7', type: 'compassionate', from: addDays(today, -30), to: addDays(today, -28), reason: 'Bereavement' }],
+  };
+  return list.map((e, i) => {
+    const base: HrProfile = {
+      jobTitle: e.roleIds[0] === 'gm' ? 'General Manager' : undefined,
+      contractType: e.contractedHours === 0 ? 'casual' : 'permanent',
+      contractIssuedOn: '2024-01-02',
+      contractSignedOn: '2024-01-05',
+      probationEnd: '2024-04-07',
+      probationPassedOn: '2024-04-05',
+      niNumber: `QQ${String(100000 + i * 7919).slice(-6)}C`,
+      emergencyContact: { name: `${FIRST_NAMES[i % FIRST_NAMES.length]} ${e.name.split(' ')[1]}`, relationship: RELATIONSHIPS[i % 4], phone: `07700 900${String(100 + i).slice(-3)}` },
+      managerId: e.id === gmOf(e.siteId) ? undefined : gmOf(e.siteId),
+    };
+    const startDate = e.id === 'fitz-6' ? addDays(today, -80) : e.startDate;
+    return { ...e, startDate, hr: { ...base, ...profiles[e.id] }, ...(absences[e.id] ? { absences: absences[e.id] } : {}) };
+  });
+}
+
+/** Training, reviews and cases on the demo files. */
+export function seedHrRecords(today = toISODate(new Date())): HrRecord[] {
+  const people = withHr(employees(today), today).filter((e) => e.status !== 'leaver');
+  const records: HrRecord[] = [];
+  const add = (r: Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>) =>
+    records.push({ ...r, id: `hr-${records.length + 1}`, createdBy: 'Preshift demo', createdAt: today });
+  const plusYears = (iso: string, years: number) => `${Number(iso.slice(0, 4)) + years}${iso.slice(4)}`;
+
+  people.forEach((e, i) => {
+    for (const course of requiredCourses(e, roles)) {
+      // A few gaps and expiries so the training matrix shows what an EHO visit would find.
+      if (e.id === 'fitz-4' && course.name === 'Food hygiene level 2') continue;
+      if (i % 9 === 4 && course.name === 'Allergen awareness') continue;
+      let date = course.renewYears === 1 ? addDays(today, -(150 + (i * 13) % 150)) : addDays(today, -(200 + (i * 41) % 600));
+      if (e.id === 'mar-12' && course.renewYears === 1) date = addDays(today, -375);
+      let expiresOn = course.renewYears ? plusYears(date, course.renewYears) : undefined;
+      if (e.id === 'mar-4' && course.name === 'Food hygiene level 2') expiresOn = addDays(today, 20);
+      add({ employeeId: e.id, kind: 'training', date, title: course.name, expiresOn });
+    }
+    if (e.roleIds[0] === 'gm') {
+      const fa = COURSES.find((c) => c.name === 'First aid at work')!;
+      const date = addDays(today, -1050);
+      add({ employeeId: e.id, kind: 'training', date, title: fa.name, expiresOn: e.id === 'mar-1' ? addDays(today, 45) : plusYears(date, 3) });
+    }
+    if (e.startDate && e.startDate <= addDays(today, -365)) {
+      const date = addDays(today, -(40 + (i * 37) % 280));
+      const nextDue = e.id === 'mar-7' ? addDays(today, -12) : addDays(date, 365);
+      add({ employeeId: e.id, kind: 'review', reviewType: 'appraisal', date, title: 'Annual appraisal', outcome: 'Meets expectations', nextDue });
+    }
+  });
+
+  add({
+    employeeId: 'mar-14', kind: 'case', caseType: 'disciplinary', caseStatus: 'open', date: addDays(today, -6),
+    title: 'Lateness on three shifts', notes: 'Investigation meeting held. Hearing to be arranged with five days\' written notice and the right to be accompanied.',
+  });
+  add({
+    employeeId: 'shd-7', kind: 'case', caseType: 'disciplinary', caseStatus: 'closed', date: addDays(today, -60),
+    title: 'Till discrepancy', outcome: 'First written warning', warningExpires: addDays(today, 120),
+  });
+  add({
+    employeeId: 'fitz-7', kind: 'case', caseType: 'grievance', caseStatus: 'closed', date: addDays(today, -45),
+    title: 'Fairness of weekend rota', outcome: 'Grievance partly upheld', notes: 'Weekend shifts now rotated monthly.',
+  });
+  add({ employeeId: 'mar-3', kind: 'note', date: addDays(today, -14), title: 'Migraines', notes: 'Discussed support. Referral to GP suggested; consider occupational health if it continues.' });
+  add({ employeeId: 'mar-19', kind: 'document', date: addDays(today, -3), title: 'Offer letter', notes: 'Signed copy received.' });
+  return records;
 }

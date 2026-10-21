@@ -8,7 +8,8 @@ import { sniffType } from './routes/documents';
 
 const KEYS = [
   { key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] },
-  { key: 'gm', orgId: 'demo', name: 'GM', scopes: ['rota:read' as const, 'rota:write' as const] },
+  { key: 'gm', orgId: 'demo', name: 'GM', scopes: ['rota:read' as const, 'rota:write' as const, 'hr:read' as const, 'hr:write' as const] },
+  { key: 'rota', orgId: 'demo', name: 'Rota integration', scopes: ['rota:read' as const, 'rota:write' as const] },
   { key: 'other', orgId: 'acme', name: 'Other org', scopes: ['*' as const] },
 ];
 
@@ -198,5 +199,31 @@ describe('right to work documents', () => {
     const res = await call('GET', `/v1/employees/mar-2/right-to-work/documents/${doc.id}`);
     expect(res.statusCode).toBe(500);
     expect(res.rawPayload.includes(Buffer.from('%PDF'))).toBe(false);
+  });
+
+  it('keeps copies from keys without an HR scope', async () => {
+    const { upload, call } = await setup();
+    const doc = (await upload('mar-2', PDF)).json().rightToWork.documents[0];
+    expect((await upload('mar-2', PDF, 'application/pdf', 'rota')).statusCode).toBe(403);
+    expect((await call('GET', `/v1/employees/mar-2/right-to-work/documents/${doc.id}`, 'rota')).statusCode).toBe(403);
+  });
+
+  it('destroys a leaver\'s stored copies when retention removes their right to work record, and logs it', async () => {
+    const { upload, call, app, store, signInAdmin } = await setup();
+    const doc = (await upload('mar-2', PDF)).json().rightToWork.documents[0];
+    expect((await call('POST', '/v1/employees/mar-2/leaver', 'admin', { leaveDate: '2023-06-30' })).statusCode).toBe(200);
+    const cookie = await signInAdmin();
+    const schedule = (await app.inject({ method: 'GET', url: '/v1/privacy/retention', headers: { cookie } })).json();
+    const item = (schedule.items ?? schedule).find((i: { code: string; employeeId: string }) => i.code === 'right-to-work' && i.employeeId === 'mar-2');
+    expect(item).toMatchObject({ due: true });
+    expect(item.removes).toContain('copies');
+
+    const applied = await app.inject({ method: 'POST', url: '/v1/privacy/retention/apply', headers: { cookie } });
+    expect(applied.statusCode).toBe(200);
+    expect(await store.getDocument('demo', doc.id)).toBeNull();
+    const person = (await call('GET', '/v1/employees/mar-2')).json();
+    expect(person.rightToWork.documents ?? []).toEqual([]);
+    const log = (await store.listDocumentAccess('demo', doc.id)).map((a) => [a.action, a.actor]);
+    expect(log.at(-1)).toEqual(['deleted', 'owner@ws.example']);
   });
 });

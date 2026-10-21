@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { employeeWeekCost } from '../engine/cost';
-import { isEmployedOn, reviewEmployee, rightToWorkRetainUntil, RTW_RETENTION_YEARS } from '../engine/employees';
+import { isEmployedOn, reviewEmployee } from '../engine/employees';
 import { holidayBalance, STATUTORY_WEEKS } from '../engine/holiday';
 import { formatMinute, parseClock } from '../engine/time';
 import type { Availability, Employee, HolidayRecord, RotaState } from '../engine/types';
@@ -88,7 +88,6 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
   const takeDocuments = (saved: Employee) =>
     setDraft((d) => ({ ...d, rightToWork: { ...(d.rightToWork ?? { checked: false }), documents: saved.rightToWork?.documents ?? [] } }));
   const documents = rtw.documents ?? [];
-  const retainUntil = rightToWorkRetainUntil(draft);
 
   async function addDocuments(files: FileList | null) {
     if (!files?.length) return;
@@ -305,7 +304,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
         </div>
         <p className="muted small">
           Keep a clear copy of every document checked: the photo page of a passport, both sides of a card, or the online
-          check result for a share code. Hold it for the whole employment and {RTW_RETENTION_YEARS} years after, then delete it.
+          check result for a share code. Hold it for the whole employment and at least two years after; the retention schedule under GDPR deletes it when your policy says.
           Copies are encrypted, and every time one is opened it is logged.
         </p>
         {documents.length > 0 && (
@@ -346,9 +345,6 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
             />
             {uploading ? 'Uploading...' : documents.length ? 'Add another copy' : 'Add copy (PDF or photo)'}
           </label>
-        )}
-        {retainUntil && documents.length > 0 && (
-          <p className={`hint small ${today > retainUntil ? 'warn-text' : 'muted'}`}>Delete these copies on {retainUntil}, two years after they left.</p>
         )}
         {docError && <p className="hint bad-text">{docError}</p>}
 
