@@ -16,8 +16,8 @@ Preview locally:
 npx serve site        # or: python3 -m http.server -d site 4173
 ```
 
-Deploy by pointing any static host (Netlify, Vercel, Cloudflare Pages, S3) at the `site` folder.
-No build step.
+Vercel builds with `npm run build:vercel` (see `vercel.json`): the marketing site is served at `/`
+and the rota demo app at `/app/`. Any other static host can serve the `site` folder on its own.
 
 The true cost calculator in `main.js` mirrors `employeeWeekCost` in `src/engine/cost.ts`.
 When the statutory rates in `src/engine/ukRates.ts` change each April, update the `RATES`
