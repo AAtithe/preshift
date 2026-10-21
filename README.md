@@ -18,6 +18,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Marginal cost | The shift editor shows what a shift adds to the week, not a naive rate x hours. Someone on guaranteed hours costs nothing extra; someone already over the NI threshold costs 15% more than the headline rate. | `src/ui/ShiftEditor.tsx` |
 | UK compliance | Working Time Regulations breaks, 11 hour daily rest (across week boundaries), weekly rest, 48 hour average without opt-out, young worker limits (8h/day, 40h/week, 30 minute break, 12h rest, night work), minimum wage by age, double booking, leave, availability, training. Blocking issues stop publication. | `src/engine/compliance.ts` |
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
+| Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools. Every shift it proposes is costed by the payroll model and checked by the compliance engine; anything with a blocking issue is refused, so it cannot roster illegally. The GM sees labour % before and after, the changes, and a short note on gaps and trade-offs, then applies or discards the draft. | `src/ai/rotaTools.ts`, `src/ai/rotaAgent.ts`, `src/ui/AssistantPanel.tsx` |
 | Close | Rota to labour accrual journal by role nominal and site tracking category, exported in Xero manual journal format, plus an hours file for payroll. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
 
 ## Running it
@@ -29,6 +30,16 @@ npm test         # engine tests
 npm run build    # typecheck and production build
 ```
 
+The rota assistant needs a Claude API key on the server. Put it in `.env.local` (git ignored):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The browser never sees the key: it calls `/api/anthropic` on the dev or preview server, which adds the
+key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
+moves with it. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
 forecasts. Press "Build from forecast" to generate the week. Data is held in the browser only.
 
@@ -36,6 +47,7 @@ forecasts. Press "Build from forecast" to generate the week. Data is held in the
 
 ```
 src/engine   Pure TypeScript domain logic. No UI, fully unit tested. This is the product.
+src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
 src/ui       React front end over the engine.
 docs         Strategy and roadmap.
 ```

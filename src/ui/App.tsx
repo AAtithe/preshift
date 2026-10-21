@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
@@ -12,6 +12,9 @@ import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
+
+// Loaded on first use so the Claude SDK stays out of the main bundle.
+const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
 type Tab = 'rota' | 'demand' | 'team' | 'close';
 
@@ -29,6 +32,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const site = state.sites.find((s) => s.id === siteId)!;
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
@@ -77,7 +81,8 @@ export function App() {
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">Build from forecast</button>
+          <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>
+          <button onClick={runAutoBuild}>Build from forecast</button>
           <button onClick={() => { dispatch({ type: 'clearWeek', siteId, weekStart: week }); setUnfilled(null); }}>Clear week</button>
           <button
             disabled={blocks > 0 || weekShifts.length === 0 || published}
@@ -128,6 +133,18 @@ export function App() {
           Reset demo
         </button>
       </footer>
+
+      {assistantOpen && (
+        <Suspense fallback={null}>
+          <AssistantPanel
+            state={state}
+            siteId={siteId}
+            week={week}
+            onApply={(shifts) => { dispatch({ type: 'setShifts', shifts }); setUnfilled(null); setAssistantOpen(false); }}
+            onClose={() => setAssistantOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {editing && (
         <ShiftEditor
