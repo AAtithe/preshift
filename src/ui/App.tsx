@@ -5,6 +5,7 @@ import { scopeMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import { newEmployee } from '../engine/employees';
 import type { Employee, Shift } from '../engine/types';
+import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { GroupView } from './GroupView';
@@ -21,11 +22,12 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
 
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
+  { id: 'clock', label: 'Clock in' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
   { id: 'people', label: 'People' },
@@ -203,6 +205,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             metrics={metrics}
             issues={issues}
             onEdit={setEditing}
+          />
+        )}
+        {activeTab === 'clock' && single && (
+          <ClockView
+            state={state}
+            siteId={single.id}
+            today={today}
+            onSetGeofence={actions.setGeofence}
+            onSetBadge={actions.setBadge}
           />
         )}
         {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}

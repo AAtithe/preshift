@@ -3,9 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { POST as anthropic } from '../api/anthropic/v1/messages.js';
-import { POST as login } from '../api/auth/login.js';
-import { GET as logout } from '../api/auth/logout.js';
-import { GET as me } from '../api/auth/me.js';
+import { handleAuth, login, logout, me } from './signin';
 import { buildApp } from './app';
 import { createAppGate } from './appGate';
 import { loadApiKeys } from './auth';
@@ -83,6 +81,14 @@ describe('sign in flow', () => {
     delete process.env.SESSION_SECRET;
     const res = await login(form({ email: 'gm@site.co.uk', password: 'correct horse battery' }));
     expect(res.headers.get('location')).toMatch(/error=setup/);
+  });
+
+  it('routes all three through the one sign-in function', async () => {
+    const res = await handleAuth(form({ email: 'gm@site.co.uk', password: 'correct horse battery', next: '/app/' }));
+    expect(res.headers.get('set-cookie')).toMatch(/ps_session=/);
+    expect((await handleAuth(new Request(`${ORIGIN}/api/auth/me`))).status).toBe(401);
+    expect((await handleAuth(new Request(`${ORIGIN}/api/auth/logout`))).headers.get('location')).toBe('/login?signedout=1');
+    expect((await handleAuth(new Request(`${ORIGIN}/api/auth/other`))).status).toBe(404);
   });
 
   it('signs out by expiring the cookie', () => {

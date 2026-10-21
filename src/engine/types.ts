@@ -46,6 +46,29 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
+  geofence?: GeoFence;
+}
+
+/** A circle round the site's front door. */
+export interface GeoFence {
+  lat: number;
+  lng: number;
+  radiusMetres: number;
+}
+
+/** A device's position when someone clocked, as the browser reported it. */
+export interface GeoFix {
+  lat: number;
+  lng: number;
+  /** The browser's own estimate of how far out the fix may be, in metres. */
+  accuracyMetres: number;
+}
+
+/** Where a clock happened, kept on the time entry as evidence for approval and disputes. */
+export interface ClockLocation extends GeoFix {
+  /** Distance from the site's geofence centre, when the site has one. */
+  distanceMetres?: number;
 }
 
 export type PayBasis = 'hourly' | 'salaried';
@@ -104,6 +127,8 @@ export interface Employee {
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
+  /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
+  badgeId?: string;
 }
 
 export interface Shift {
@@ -156,6 +181,10 @@ export interface TimeEntry {
   breakMinutes: number;
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
+  /** How a clock was made: a card tapped on a site reader, or a person signing in on a device. */
+  method?: 'card' | 'device';
+  clockInLocation?: ClockLocation;
+  clockOutLocation?: ClockLocation;
   approvedBy?: string;
   approvedAt?: string;
 }

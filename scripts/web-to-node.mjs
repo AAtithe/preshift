@@ -19,7 +19,14 @@ export function toNodeHandler(mod) {
       headers,
       body: hasBody ? Buffer.concat(chunks) : undefined,
     });
-    const response = await handle(request);
+    let response;
+    try {
+      response = await handle(request);
+    } catch (err) {
+      // Logged and answered, so a fault shows in the function logs instead of taking the function down.
+      console.error(err);
+      response = Response.json({ error: 'internal', message: 'Something went wrong' }, { status: 500 });
+    }
     res.writeHead(response.status, Object.fromEntries(response.headers));
     if (response.body) for await (const chunk of response.body) res.write(chunk);
     res.end();
