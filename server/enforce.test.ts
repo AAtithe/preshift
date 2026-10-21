@@ -200,3 +200,12 @@ describe('access to staff app logins', () => {
     expect((await call('POST', '/v1/staff-logins/mar-2/invite', undefined, 'grace')).status).toBe(403);
   });
 });
+
+describe('access to site travel times', () => {
+  it('leaves where sites are and the travel between them to settings.manage', async () => {
+    const call = await setup();
+    expect((await call('PUT', '/v1/sites/mar/travel/shd', { minutes: 25 }, 'priya')).status).toBe(403);
+    expect((await call('PUT', '/v1/sites/mar/location', { lat: 51.52, lng: -0.15 }, 'priya')).status).toBe(403);
+    expect((await call('PUT', '/v1/sites/mar/travel/shd', { minutes: 25 }, 'owner')).status).toBe(200);
+  });
+});
