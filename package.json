@@ -12,7 +12,8 @@
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite",
     "start": "tsx server/index.ts",
-    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs"
+    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
+    "eval:assistant": "tsx scripts/eval-assistant.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",

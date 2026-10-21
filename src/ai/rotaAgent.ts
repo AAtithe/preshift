@@ -65,9 +65,18 @@ export interface RotaAgentResult {
   /** Every instruction given for this draft, oldest first, for the audit record. */
   instructions: string[];
   usage: RotaUsage;
+  /** Every model that actually served a response, as each response reported it (a fallback shows here). */
+  servedModels: string[];
 }
 
-export class RotaAgentError extends Error {}
+/** Why a draft stopped without finishing: kept distinct so an evaluation can count each separately. */
+export type RotaAgentFailure = 'refusal' | 'truncated' | 'turn_limit' | 'input';
+
+export class RotaAgentError extends Error {
+  constructor(message: string, readonly kind: RotaAgentFailure = 'input') {
+    super(message);
+  }
+}
 
 const noUsage = (): RotaUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 });
 
@@ -104,6 +113,7 @@ export async function runRotaAgent(
   if (!instruction) throw new RotaAgentError('Say what you would like changed in the draft.');
   const instructions = [...(req.previous?.instructions ?? []), instruction];
   let usage = req.previous?.usage ?? noUsage();
+  const servedModels = new Set(req.previous?.servedModels ?? []);
 
   const clock = `${req.now.date} ${formatMinute(req.now.minute)}`;
   const messages: Anthropic.Beta.BetaMessageParam[] = [
@@ -134,6 +144,7 @@ export async function runRotaAgent(
       { signal },
     );
     usage = addUsage(usage, response.usage);
+    servedModels.add(response.model);
 
     // Thinking and fallback blocks must go back unchanged, so keep the whole turn.
     messages.push({ role: 'assistant', content: response.content });
@@ -146,7 +157,7 @@ export async function runRotaAgent(
           .map((b) => b.text)
           .join('\n')
           .trim();
-        return { state: draft.state, summary, steps, messages, instructions, usage };
+        return { state: draft.state, summary, steps, messages, instructions, usage, servedModels: [...servedModels] };
       }
       case 'pause_turn':
         continue;
@@ -167,14 +178,14 @@ export async function runRotaAgent(
         continue;
       }
       case 'refusal':
-        throw new RotaAgentError('The assistant declined this request. Rephrase it as a rota instruction and try again.');
+        throw new RotaAgentError('The assistant declined this request. Rephrase it as a rota instruction and try again.', 'refusal');
       case 'max_tokens':
-        throw new RotaAgentError('The assistant ran out of room before finishing. Try a narrower request, for example one day at a time.');
+        throw new RotaAgentError('The assistant ran out of room before finishing. Try a narrower request, for example one day at a time.', 'truncated');
       default:
         throw new RotaAgentError(`The assistant stopped unexpectedly (${response.stop_reason ?? 'no reason given'}).`);
     }
   }
-  throw new RotaAgentError(`The assistant did not finish within ${MAX_TURNS} steps. The draft so far has not been applied.`);
+  throw new RotaAgentError(`The assistant did not finish within ${MAX_TURNS} steps. The draft so far has not been applied.`, 'turn_limit');
 }
 
 /** Turns SDK failures into something a GM can act on. */
