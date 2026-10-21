@@ -90,6 +90,31 @@ TeamPay, simulate clocking, approve, send hours, run payroll. Set the `TEAMPAY_*
 connect to real TeamPay and `PRESHIFT_DATABASE_URL` for Postgres; see `docs/API.md`, which also
 covers the Vercel deployment.
 
+## Business set-up
+
+Admin, then Set-up, holds the business the rota runs on (`src/ui/SetupView.tsx`, rules in
+`src/engine/setup.ts`, routes in `server/routes/setup.ts`):
+
+1. Companies: registered name, company number, PAYE reference, and an intercompany code once there
+   is more than one.
+2. Sites: company, opening hours, loaded labour target, Xero tracking category.
+3. Roles: starts from the standard hospitality roles, each mapped to a wages nominal code.
+4. Trading and staffing: a typical week's net sales per day and average spend for each site, and
+   covers or sales per person per hour for each role. Takings start blank on purpose.
+5. Review and save: weekly labour budget per site; anything incomplete blocks the save.
+6. Team: paste people from a spreadsheet or payroll export (Name, Roles, Rate or salary, Date of
+   birth, Contracted hours, Start date, Right to work checked on). Each goes through the starter
+   route, exactly as from People, so each is set up in TeamPay. Rows with problems are held back,
+   pay below the minimum wage band is flagged, and anyone without a right to work check is added
+   but cannot be rostered until it is recorded.
+
+A new live system starts on the sample group. Admins see a banner saying so, and set-up offers
+"Remove sample data" while nothing real exists: no own companies, sites or people, nothing in
+payroll, no clocked time, no staff logins. After that it is refused, and the sample can only be
+edited. Each site's typical week forecasts the next eight weeks, and the build fills any later week
+on demand. Figures from a sales system replace it week by week and are never overwritten. A company,
+site or role that people, rotas or clocked time still use cannot be removed.
+
 ## Deployment (Vercel)
 
 `npm run build:vercel` (set in `vercel.json`) writes `.vercel/output` with the Build Output API:

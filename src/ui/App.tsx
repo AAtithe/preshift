@@ -19,6 +19,7 @@ import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
+import { SetupView } from './SetupView';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -27,7 +28,7 @@ import { Timeline } from './Timeline';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'setup' | 'settings';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
@@ -57,7 +58,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'close', label: 'Close' },
     ],
   },
-  { heading: 'Admin', items: [{ id: 'settings', label: 'Settings' }] },
+  { heading: 'Admin', items: [{ id: 'setup', label: 'Set-up' }, { id: 'settings', label: 'Settings' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
@@ -77,6 +78,9 @@ const MONTH = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('
 
 export function App() {
   const { state, error, setError, actions } = useRotaStore();
+  // Set when the first save of set-up gives the organisation its first site: the workspace then
+  // opens on set-up's team step instead of dropping the person on an empty overview.
+  const [continueSetup, setContinueSetup] = useState(false);
   if (!state) {
     return (
       <div className="shell">
@@ -85,17 +89,53 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} />;
+  // An organisation with no sites has nothing to roster yet: set-up is the only useful screen.
+  if (state.sites.length === 0) {
+    return <FirstRun state={state} onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />;
+  }
+  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} continueSetup={continueSetup} />;
+}
+
+function useMe() {
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    fetch('/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: Me | null) => setMe(body))
+      .catch(() => setMe(null));
+  }, []);
+  return me;
+}
+
+function FirstRun({ state, onSaved }: { state: NonNullable<ReturnType<typeof useRotaStore>['state']>; onSaved: () => Promise<void> }) {
+  const me = useMe();
+  return (
+    <div className="first-run">
+      <div className="wordmark">
+        Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+      </div>
+      {me ? (
+        <SetupView state={state} isAdmin={me.role === 'admin'} onSaved={onSaved} />
+      ) : (
+        <p className="muted">Loading</p>
+      )}
+      {me && (
+        <p className="small muted">
+          Signed in as {me.email}. <a className="link" href="/auth/logout">Sign out</a>
+        </p>
+      )}
+    </div>
+  );
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, error, clearError, actions }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions'] }) {
+function Workspace({ state, error, clearError, actions, continueSetup }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions']; continueSetup: boolean }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [entityId, setEntityId] = useState(ALL);
   const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
-  const [tab, setTab] = useState<Tab>('sites');
+  const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : 'sites');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -106,14 +146,17 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [opening, setOpening] = useState<Opening | null>(null);
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
   const today = toISODate(new Date());
-  const [me, setMe] = useState<Me | null>(null);
+  const me = useMe();
+  const [sample, setSample] = useState(false);
 
+  // Admins are told when they are still looking at the sample group, and pointed at set-up.
   useEffect(() => {
-    fetch('/auth/me')
+    if (me?.role !== 'admin') return;
+    fetch('/v1/setup/status')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: Me | null) => setMe(body))
-      .catch(() => setMe(null));
-  }, []);
+      .then((body: { sample?: boolean } | null) => setSample(Boolean(body?.sample)))
+      .catch(() => setSample(false));
+  }, [me, state.sites]);
 
   // While a shift is being dragged, or a name is hovered in the picker, every figure on the
   // page is worked from the previewed rota. A shift not yet in the rota previews as an addition.
@@ -306,6 +349,12 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
 
         <div className="shell">
           <div className="main">
+            {sample && activeTab !== 'setup' && (
+              <div className="notice">
+                You are looking at the sample group, not your business.{' '}
+                <button className="link" onClick={() => setTab('setup')}>Set up your own</button>
+              </div>
+            )}
             {error && (
               <div className="notice error">
                 {error} <button className="link" onClick={clearError}>Dismiss</button>
@@ -417,6 +466,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
               )}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {activeTab === 'setup' && me && <SetupView state={state} isAdmin={me.role === 'admin'} onSaved={actions.reload} startOnTeam={continueSetup} />}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
             </main>
 

@@ -153,6 +153,10 @@ function forecast(start: string): HourForecast[] {
   return rows;
 }
 
+/** Ids the sample group uses, so set-up can tell sample data from a customer's own. */
+export const SAMPLE_ENTITY_IDS = entities.map((e) => e.id);
+export const SAMPLE_SITE_IDS = sites.map((s) => s.id);
+
 export function seedState(today = toISODate(new Date())): RotaState {
   const start = weekStart(today);
   return {

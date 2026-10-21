@@ -55,6 +55,15 @@ export interface Site {
   closeMinute: number;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** A typical trading week, used to forecast any week no sales system has sent figures for. */
+  salesProfile?: SalesProfile;
+}
+
+export interface SalesProfile {
+  /** Net sales by weekday, Monday first. */
+  dailySales: number[];
+  /** Net spend per cover, to turn sales into covers. */
+  averageSpend: number;
 }
 
 /** A circle round the site's front door. */
@@ -180,6 +189,8 @@ export interface HourForecast {
   hour: number; // 0-23
   sales: number; // net of VAT
   covers: number;
+  /** 'profile' when worked from the site's typical week. Figures sent by a sales system carry none and always win. */
+  source?: 'profile';
 }
 
 /** How a role's demand is driven by the forecast. */

@@ -13,6 +13,7 @@ import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
+import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
@@ -178,6 +179,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    setupRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     payrollRoutes(api, ctx);

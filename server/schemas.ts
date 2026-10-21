@@ -154,3 +154,79 @@ export const geofenceBody = {
     radiusMetres: { type: 'integer', minimum: 25, maximum: 2000 },
   },
 } as const;
+
+const refId = { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$' } as const;
+const text = (max: number) => ({ type: 'string', maxLength: max }) as const;
+
+/** Business set-up. Only the fields set-up manages: payroll links, allowances and geofences keep their own routes. */
+export const setupBody = {
+  type: 'object',
+  required: ['entities', 'sites', 'roles', 'demandRules'],
+  additionalProperties: false,
+  properties: {
+    entities: {
+      type: 'array',
+      maxItems: 50,
+      items: {
+        type: 'object',
+        required: ['id', 'name', 'companyNumber', 'payeReference', 'intercompanyCode'],
+        additionalProperties: false,
+        properties: { id: refId, name: text(160), companyNumber: text(20), payeReference: text(30), intercompanyCode: text(20) },
+      },
+    },
+    sites: {
+      type: 'array',
+      maxItems: 200,
+      items: {
+        type: 'object',
+        required: ['id', 'name', 'entityId', 'labourTargetPct', 'trackingCode', 'openMinute', 'closeMinute', 'salesProfile'],
+        additionalProperties: false,
+        properties: {
+          id: refId,
+          name: text(120),
+          entityId: refId,
+          labourTargetPct: { type: 'number', minimum: 0, maximum: 1 },
+          trackingCode: text(120),
+          openMinute: { type: 'integer', minimum: 0, maximum: 1440 },
+          closeMinute: { type: 'integer', minimum: 0, maximum: 1440 },
+          salesProfile: {
+            type: 'object',
+            required: ['dailySales', 'averageSpend'],
+            additionalProperties: false,
+            properties: {
+              dailySales: { type: 'array', minItems: 7, maxItems: 7, items: { type: 'number', minimum: 0, maximum: 10_000_000 } },
+              averageSpend: { type: 'number', minimum: 0, maximum: 10_000 },
+            },
+          },
+        },
+      },
+    },
+    roles: {
+      type: 'array',
+      maxItems: 100,
+      items: {
+        type: 'object',
+        required: ['id', 'name', 'department', 'nominalCode'],
+        additionalProperties: false,
+        properties: { id: refId, name: text(80), department: { enum: ['FOH', 'BOH', 'BAR', 'MGMT'] }, nominalCode: text(20) },
+      },
+    },
+    demandRules: {
+      type: 'array',
+      maxItems: 5000,
+      items: {
+        type: 'object',
+        required: ['roleId', 'siteId', 'minimumWhileOpen', 'maximum'],
+        additionalProperties: false,
+        properties: {
+          roleId: refId,
+          siteId: refId,
+          salesPerLabourHour: { type: 'number', minimum: 0 },
+          coversPerHour: { type: 'number', minimum: 0 },
+          minimumWhileOpen: { type: 'integer', minimum: 0, maximum: 100 },
+          maximum: { type: 'integer', minimum: 0, maximum: 100 },
+        },
+      },
+    },
+  },
+} as const;

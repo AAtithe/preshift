@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
+import { missingForecast } from '../../src/engine/setup';
 import { addDays, weekDates, weekStart } from '../../src/engine/time';
 import type { HourForecast, Shift } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -137,6 +138,9 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const siteIds = sitesOf(org, req.body, true);
+      // A week no sales system has sent figures for is forecast from each site's typical week.
+      const filled = missingForecast(org.state, siteIds, req.body.weekStart);
+      if (filled.length) org.state.forecast.push(...filled);
       const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
       org.state.shifts = result.shifts;
       audit(org, req.principal.name, 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
@@ -216,7 +220,8 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
   app.put<{ Body: { rows: HourForecast[] } }>('/v1/forecast', { ...write, schema: { tags: ['Forecast'], body: forecastBody } }, async (req) => {
     const org = orgOf(req);
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
-    const incoming = new Map(req.body.rows.map((r) => [key(r), r]));
+    // Pushed figures are the real forecast: never marked as profile rows, which set-up may replace.
+    const incoming = new Map(req.body.rows.map(({ source: _source, ...r }) => [key(r), r as HourForecast]));
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];
     audit(org, req.principal.name, 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };
