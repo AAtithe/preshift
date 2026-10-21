@@ -18,30 +18,52 @@ accrual so the P&L carries true labour before payroll has even run.
 | Marginal cost | The shift editor shows what a shift adds to the week, not a naive rate x hours. Someone on guaranteed hours costs nothing extra; someone already over the NI threshold costs 15% more than the headline rate. | `src/ui/ShiftEditor.tsx` |
 | UK compliance | Working Time Regulations breaks, 11 hour daily rest (across week boundaries), weekly rest, 48 hour average without opt-out, young worker limits (8h/day, 40h/week, 30 minute break, 12h rest, night work), minimum wage by age, double booking, leave, availability, training. Blocking issues stop publication. | `src/engine/compliance.ts` |
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
-| Close | Rota to labour accrual journal by role nominal and site tracking category, exported in Xero manual journal format, plus an hours file for payroll. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
+| Close | Labour accrual journal by role nominal and site tracking category, from approved actuals once available, otherwise the rota, exported in Xero manual journal format. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
+| API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
+| TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
+| Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 
 ## Running it
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # engine tests
+npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
+npm test         # engine and API tests
 npm run build    # typecheck and production build
 ```
 
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
-forecasts. Press "Build from forecast" to generate the week. Data is held in the browser only.
+forecasts, against a TeamPay simulator. Press "Build from forecast", then work through the
+Payroll tab: set people up in TeamPay, simulate clocking, approve, send hours, run payroll.
+Set the `TEAMPAY_*` variables to connect to real TeamPay; see `docs/API.md`.
+
+## Deployment (Vercel)
+
+`npm run build:vercel` (set in `vercel.json`) writes `.vercel/output` with the Build Output API:
+
+| Path | What |
+| --- | --- |
+| `/` | Marketing site, from `site/` |
+| `/app/` | Web app |
+| `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
+
+The hosted API keeps data in memory, so it resets when the function cold starts and is not
+shared between instances. That is fine for the demo and not for customers: Postgres is the
+Phase 2 store. With no `PRESHIFT_API_KEYS` set it accepts the public demo key the web app ships
+with; set `PRESHIFT_API_KEYS` in Vercel before any real data goes in.
 
 ## Structure
 
 ```
-src/engine   Pure TypeScript domain logic. No UI, fully unit tested. This is the product.
-src/ui       React front end over the engine.
-docs         Strategy and roadmap.
+src/engine   Pure TypeScript domain logic, shared by API and browser. Fully unit tested.
+server       The Preshift API: routes, auth, tenancy, payroll outbox, TeamPay client and simulator.
+src/ui       React web app, a client of the API.
+site         Marketing site (static, no build step).
+docs         API and integration guide, strategy and roadmap.
 ```
 
-The engine is deliberately framework-free so it can move server-side unchanged when we add
-persistence, multi-user access and integrations.
+The engine runs in both places: the server is the source of truth, and the browser runs the
+same code for instant cost and compliance feedback while editing.
 
 ## Statutory rates
 

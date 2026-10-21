@@ -1,0 +1,147 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
+import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider } from './provider';
+
+export interface TeamPayConfig {
+  baseUrl: string; // e.g. https://api.team-pay.co.uk/v1 (sandbox and production keys come from the TeamPay dashboard)
+  apiKey: string;
+  webhookSecret: string;
+  /** TeamPay employer the client company is set up as. */
+  employerId: string;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Native TeamPay client. Every path and payload field that TeamPay defines
+ * lives in this file and nowhere else, so aligning with the published TeamPay
+ * API reference is a change to this file only.
+ */
+export class TeamPayProvider implements PayrollProvider {
+  readonly name = 'TeamPay';
+  private readonly fetch: typeof fetch;
+
+  constructor(private readonly config: TeamPayConfig) {
+    this.fetch = config.fetchImpl ?? fetch;
+  }
+
+  async upsertEmployee(e: PayrollEmployee, payrollId: string | undefined, idempotencyKey: string) {
+    const body = {
+      external_ref: e.externalRef,
+      name: e.name,
+      date_of_birth: e.dateOfBirth,
+      cost_centre: e.siteId,
+      pay_basis: e.payBasis,
+      hourly_rate: e.hourlyRate,
+      annual_salary: e.annualSalary,
+      contracted_hours: e.contractedHours,
+      irregular_hours: e.irregularHours,
+      pension_enrolled: e.pensionEnrolled,
+      start_date: e.startDate,
+    };
+    const res = payrollId
+      ? await this.request<{ id: string }>('PATCH', `/employees/${encodeURIComponent(payrollId)}`, body, idempotencyKey)
+      : await this.request<{ id: string }>('POST', '/employees', body, idempotencyKey);
+    return { payrollId: res.id };
+  }
+
+  async markLeaver(payrollId: string, leaveDate: string, idempotencyKey: string) {
+    await this.request('POST', `/employees/${encodeURIComponent(payrollId)}/leaver`, { leave_date: leaveDate }, idempotencyKey);
+  }
+
+  async submitHours(batch: PayrollHoursBatch, idempotencyKey: string) {
+    const missing = batch.lines.filter((l) => !l.payrollId);
+    if (missing.length) {
+      // Retryable: the starter sync for these people is queued ahead of this batch.
+      throw new PayrollError(`${missing.length} line(s) for people not yet set up in TeamPay`, true);
+    }
+    const res = await this.request<{ id: string }>(
+      'POST',
+      '/hours',
+      {
+        period_start: batch.periodStart,
+        period_end: batch.periodEnd,
+        source: 'preshift',
+        lines: batch.lines.map((l) => ({
+          employee_id: l.payrollId,
+          cost_centre: l.siteId,
+          role: l.roleId,
+          hours: l.hours,
+          rate: l.rate,
+          reference: l.entryIds.join(','),
+        })),
+      },
+      idempotencyKey,
+    );
+    return { submissionId: res.id };
+  }
+
+  async getPayRun(id: string): Promise<PayRun> {
+    const r = await this.request<{
+      id: string;
+      period_start: string;
+      period_end: string;
+      status: PayRun['status'];
+      employees: {
+        employee_id: string;
+        external_ref: string;
+        gross: number;
+        holiday_pay: number;
+        employer_ni: number;
+        employer_pension: number;
+      }[];
+    }>('GET', `/pay-runs/${encodeURIComponent(id)}`);
+    return {
+      id: r.id,
+      periodStart: r.period_start,
+      periodEnd: r.period_end,
+      status: r.status,
+      employees: r.employees.map((e) => ({
+        payrollId: e.employee_id,
+        employeeId: e.external_ref,
+        gross: e.gross,
+        holidayPay: e.holiday_pay,
+        employerNi: e.employer_ni,
+        employerPension: e.employer_pension,
+      })),
+    };
+  }
+
+  verifyWebhook(rawBody: string, signature: string | undefined): boolean {
+    return verifyHmac(this.config.webhookSecret, rawBody, signature);
+  }
+
+  private async request<T = unknown>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+    let res: Response;
+    try {
+      res = await this.fetch(`${this.config.baseUrl}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${this.config.apiKey}`,
+          'content-type': 'application/json',
+          'x-teampay-employer': this.config.employerId,
+          ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new PayrollError(`TeamPay unreachable: ${(err as Error).message}`, true);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const retryable = res.status === 429 || res.status >= 500;
+      throw new PayrollError(`TeamPay ${method} ${path} failed (${res.status}): ${text.slice(0, 300)}`, retryable, res.status);
+    }
+    return (res.status === 204 ? undefined : await res.json()) as T;
+  }
+}
+
+export function signHmac(secret: string, rawBody: string): string {
+  return `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+}
+
+export function verifyHmac(secret: string, rawBody: string, signature: string | undefined): boolean {
+  if (!signature || !secret) return false;
+  const expected = Buffer.from(signHmac(secret, rawBody));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}

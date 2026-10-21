@@ -180,6 +180,11 @@ em.s,
 .nav-links a:hover {
   color: var(--coral-dark);
 }
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .nav-toggle {
   display: none;
   background: none;
@@ -1109,7 +1114,7 @@ section {
   .nav-toggle {
     display: inline-block;
   }
-  .nav .btn {
+  .nav .nav-demo {
     display: none;
   }
   .hero-row,
