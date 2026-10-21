@@ -110,7 +110,7 @@ function People({ me }: { me: Me }) {
     <section className="settings-card">
       <h2>Who can sign in</h2>
       <p className="muted small">
-        Accounts for signing in to Preshift. This is separate from the People tab, which holds your staff records. Admins can
+        Accounts for signing in to Preshift. This is separate from the Staff section, which holds your staff records. Admins can
         also add and remove accounts and change these settings.
       </p>
       <table className="table">
