@@ -164,6 +164,14 @@ describe('access on time and payroll', () => {
     expect((await call('POST', '/v1/time-entries/approve', { siteId: 'shd', from: WEEK, to: '2026-10-25' }, 'priya')).status).toBe(403);
   });
 
+  it('keeps which TeamPay employer a company pays through to those who manage settings', async () => {
+    const call = await setup();
+    // Repointing a company's PAYE scheme sends its hours elsewhere: not the GM's, nor even payroll's, to change.
+    expect((await call('PATCH', '/v1/entities/wdl', { payrollEmployerId: 'emp-west' }, 'priya')).status).toBe(403);
+    expect((await call('PATCH', '/v1/entities/wdl', { payrollEmployerId: 'emp-west' }, 'ravi')).status).toBe(403);
+    expect((await call('PATCH', '/v1/entities/wdl', { payrollEmployerId: 'emp-west' }, 'owner')).status).toBe(200);
+  });
+
   it('keeps sending pay to payroll roles with an authenticator, and the journal to finance', async () => {
     const call = await setup();
     expect((await call('POST', '/v1/payroll/submissions', { weekStart: WEEK }, 'priya')).status).toBe(403);

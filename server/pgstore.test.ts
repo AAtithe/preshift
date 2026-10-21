@@ -40,13 +40,15 @@ describe('Postgres store', () => {
     const second = await boot(query, new TeamPaySimulator());
     const run = await second.call('POST', '/v1/dev/teampay/run-payroll', { weekStart: WEEK });
     expect(run.status).toBe(200);
-    expect(run.body.payRun.variance.actual).toBeGreaterThan(0);
-    expect(Math.abs(run.body.payRun.variance.variancePct)).toBeLessThan(0.01);
+    for (const payRun of run.body.payRuns) {
+      expect(payRun.variance.actual).toBeGreaterThan(0);
+      expect(Math.abs(payRun.variance.variancePct)).toBeLessThan(0.01);
+    }
     const shifts = (await second.call('GET', `/v1/shifts?siteId=mar&from=${WEEK}&to=2026-10-25`)).body;
     expect(shifts.length).toBeGreaterThan(20);
     const status = (await second.call('GET', '/v1/integrations/payroll')).body;
     expect(status.employees.synced).toBe(status.employees.total);
-    expect(status.lastPayRun.id).toBe(run.body.payRun.id);
+    expect(status.lastPayRun.id).toBe(run.body.payRuns.at(-1).id);
     expect((await second.call('GET', '/v1/payroll/submissions')).body[0].status).toBe('sent');
   });
 

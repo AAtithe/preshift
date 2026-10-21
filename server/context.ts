@@ -2,12 +2,15 @@ import type { FastifyRequest } from 'fastify';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import type { TeamPaySimulator } from './integrations/payroll/simulator';
 import type { OutboxDispatcher } from './outbox';
+import type { EmployerConfig } from './payrollEmployers';
 import type { OrgData, Store } from './store';
 
 export interface AppContext {
   store: Store;
   dispatcher: OutboxDispatcher;
   providerFor: (orgId: string) => PayrollProvider;
+  /** Which payroll employer (PAYE scheme) each company is paid through. */
+  employers: EmployerConfig;
   /** Present when no TeamPay keys are configured. */
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */

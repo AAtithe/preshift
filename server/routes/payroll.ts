@@ -9,6 +9,8 @@ import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
 import { enqueue } from '../outbox';
+import { PayrollError } from '../integrations/payroll/provider';
+import { employerFor, employerStatus } from '../payrollEmployers';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 
@@ -37,13 +39,21 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('payroll:write') };
 
-  app.get('/v1/integrations/payroll', { ...read, schema: { tags: ['Payroll'], description: 'Payroll connection health.' } }, async (req) => {
+  app.get('/v1/integrations/payroll', { ...read, schema: { tags: ['Payroll'], description: 'Payroll connection health, overall and for each PAYE scheme.' } }, async (req) => {
     const org = orgOf(req);
     guard(ctx, req, org).allow('payroll.view');
     const active = org.state.employees.filter((e) => e.status !== 'leaver');
     return {
       provider: ctx.providerFor(org.orgId).name,
       employees: { total: active.length, synced: active.filter((e) => e.payrollId).length },
+      // One row per company: its TeamPay employer, and how many of its people are set up there.
+      employers: org.state.entities.map((entity) => {
+        const people = active.filter((e) => e.entityId === entity.id);
+        return {
+          ...employerStatus(org, entity, ctx.employers),
+          employees: { total: people.length, synced: people.filter((e) => e.payrollId).length },
+        };
+      }),
       outbox: {
         pending: org.outbox.filter((i) => i.status === 'pending').length,
         failed: org.outbox.filter((i) => i.status === 'failed').length,
@@ -89,68 +99,145 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     return item;
   });
 
-  app.post<{ Body: { weekStart: string } }>(
+  app.post<{ Body: { weekStart: string; entityId?: string } }>(
     '/v1/payroll/submissions',
     {
       ...write,
       schema: {
         tags: ['Payroll'],
         description:
-          'Sends the week\'s approved hours to TeamPay. Every entry must be approved or rejected first. ' +
-          'Sending again for the same week supersedes the earlier batch.',
-        body: { type: 'object', required: ['weekStart'], properties: { weekStart: isoDate } },
+          "Sends the week's approved hours to TeamPay, one batch per company, each to that company's own PAYE scheme. " +
+          'Pass entityId to send one company only. Every entry in scope must be approved or rejected first, and every ' +
+          'company with hours must have a TeamPay employer; otherwise nothing is sent. ' +
+          "Sending again for the same week supersedes that company's earlier batch.",
+        body: { type: 'object', required: ['weekStart'], properties: { weekStart: isoDate, entityId: { type: 'string' } } },
       },
     },
     async (req, reply) => {
       const org = orgOf(req);
       const g = guard(ctx, req, org);
       g.allow('payroll.send');
-      const periodStart = req.body.weekStart;
+      const { weekStart: periodStart, entityId } = req.body;
+      if (entityId && !org.state.entities.some((e) => e.id === entityId)) throw notFound(`Entity ${entityId}`);
       const periodEnd = addDays(periodStart, 6);
-      const inPeriod = org.timeEntries.filter((t) => t.date >= periodStart && t.date <= periodEnd);
-      const unapproved = inPeriod.filter((t) => t.status === 'open' || t.status === 'submitted');
+      // Hours belong to the company that employs the person, wherever they worked.
+      const employerOf = new Map(org.state.employees.map((e) => [e.id, e.entityId]));
+      const inScope = org.timeEntries.filter(
+        (t) => t.date >= periodStart && t.date <= periodEnd && (!entityId || employerOf.get(t.employeeId) === entityId),
+      );
+      const unapproved = inScope.filter((t) => t.status === 'open' || t.status === 'submitted');
       if (unapproved.length) {
         throw new HttpError(409, 'unapproved_time', `${unapproved.length} time entries still need approving or rejecting`, unapproved.map((t) => t.id));
       }
-      const batch = payrollHours(org.state.employees, inPeriod, periodStart, periodEnd);
-      if (batch.lines.length === 0) throw new HttpError(422, 'no_hours', 'No approved hours in this period');
 
-      // Anyone not yet in payroll is set up first; the outbox delivers in order.
-      const queued = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
-      for (const line of batch.lines) {
-        const e = org.state.employees.find((x) => x.id === line.employeeId)!;
-        if (!e.payrollId && !queued.has(e.id)) {
-          enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
-          queued.add(e.id);
-        }
+      const batches = org.state.entities
+        .filter((entity) => !entityId || entity.id === entityId)
+        .map((entity) => ({
+          entity,
+          batch: payrollHours(
+            org.state.employees.filter((e) => e.entityId === entity.id),
+            inScope.filter((t) => employerOf.get(t.employeeId) === entity.id),
+            periodStart,
+            periodEnd,
+          ),
+        }))
+        .filter((b) => b.batch.lines.length > 0);
+      if (batches.length === 0) throw new HttpError(422, 'no_hours', 'No approved hours in this period');
+
+      // All or nothing: a group's payroll is not half sent because one company is not set up.
+      const missing = batches.map((b) => employerStatus(org, b.entity, ctx.employers)).filter((s) => !s.employerId);
+      if (missing.length) {
+        throw new HttpError(409, 'payroll_employer_missing', missing.map((s) => s.problem).join(' '), missing.map((s) => s.entityId));
       }
 
-      const previous = org.submissions.filter((s) => s.periodStart === periodStart && s.status !== 'superseded');
-      for (const p of previous) p.status = 'superseded';
-      const version = org.submissions.filter((s) => s.periodStart === periodStart).length + 1;
       const { state } = labourBasis(org, periodStart, 'actual');
       const cost = weekCost(state, periodStart);
-      const submission = {
-        id: `sub_${randomUUID().slice(0, 12)}`,
-        periodStart,
-        periodEnd,
-        version,
-        status: 'queued' as const,
-        totalHours: batch.totalHours,
-        lineCount: batch.lines.length,
-        createdAt: new Date().toISOString(),
-        createdBy: actorName(g),
-        accrued: Object.fromEntries([...cost.employees].map(([id, c]) => [id, c.total])),
-      };
-      org.submissions.push(submission);
-      enqueue(org, {
-        type: 'hours.submit',
-        payload: { submissionId: submission.id, batch },
-        idempotencyKey: `hours:${org.orgId}:${periodStart}:v${version}`,
-      });
-      audit(org, actorName(g), 'payroll.hours_submitted', { id: submission.id, hours: batch.totalHours, version });
+      const queued = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
+      const created = [];
+      for (const { entity, batch } of batches) {
+        // Anyone not yet in payroll is set up first; the outbox delivers in order.
+        for (const line of batch.lines) {
+          const e = org.state.employees.find((x) => x.id === line.employeeId)!;
+          if (!e.payrollId && !queued.has(e.id)) {
+            enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
+            queued.add(e.id);
+          }
+        }
+        // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
+        const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id));
+        for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
+        const version = mine.length + 1;
+        const people = new Set(org.state.employees.filter((e) => e.entityId === entity.id).map((e) => e.id));
+        const submission = {
+          id: `sub_${randomUUID().slice(0, 12)}`,
+          entityId: entity.id,
+          periodStart,
+          periodEnd,
+          version,
+          status: 'queued' as const,
+          totalHours: batch.totalHours,
+          lineCount: batch.lines.length,
+          createdAt: new Date().toISOString(),
+          createdBy: actorName(g),
+          accrued: Object.fromEntries([...cost.employees].filter(([id]) => people.has(id)).map(([id, c]) => [id, c.total])),
+        };
+        org.submissions.push(submission);
+        enqueue(org, {
+          type: 'hours.submit',
+          payload: { submissionId: submission.id, batch, entityId: entity.id },
+          idempotencyKey: `hours:${org.orgId}:${entity.id}:${periodStart}:v${version}`,
+        });
+        audit(org, actorName(g), 'payroll.hours_submitted', { id: submission.id, entityId: entity.id, hours: batch.totalHours, version });
+        created.push(submission);
+      }
       await kick(ctx, org);
-      return reply.code(202).send(submission);
+      const totalHours = Math.round(created.reduce((s, x) => s + x.totalHours, 0) * 100) / 100;
+      return reply.code(202).send({ periodStart, totalHours, submissions: created });
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { payrollEmployerId?: string | null; payeReference?: string } }>(
+    '/v1/entities/:id',
+    {
+      ...write,
+      schema: {
+        tags: ['Payroll'],
+        description: "Sets a company's PAYE reference and the TeamPay employer its PAYE scheme is set up as.",
+        params: idParam,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { payrollEmployerId: { type: ['string', 'null'] }, payeReference: { type: 'string' } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const entity = org.state.entities.find((e) => e.id === req.params.id);
+      if (!entity) throw notFound(`Entity ${req.params.id}`);
+      // Which TeamPay employer a company pays through decides where its hours go: a setting,
+      // behind the authenticator, like the clocking area.
+      const g = guard(ctx, req, org);
+      g.allow('settings.manage');
+      if (req.body.payrollEmployerId !== undefined) {
+        const next = req.body.payrollEmployerId?.trim() || undefined;
+        if (next && org.state.entities.some((e) => e.id !== entity.id && e.payrollEmployerId === next)) {
+          throw new HttpError(409, 'employer_in_use', 'Another company already uses that TeamPay employer. Each PAYE scheme is one company.');
+        }
+        const current = employerStatus(org, entity, ctx.employers).employerId;
+        const onCurrent = org.state.employees.filter((e) => e.entityId === entity.id && e.payrollId && e.payrollEmployerId === current).length;
+        if (current && next !== current && onCurrent > 0) {
+          throw new HttpError(
+            409,
+            'employer_has_people',
+            `${onCurrent} of ${entity.name}'s people are already set up under ${current}. Moving them to another PAYE scheme is a leaver and a new starter for each, not a settings change.`,
+          );
+        }
+        entity.payrollEmployerId = next;
+      }
+      if (req.body.payeReference !== undefined) entity.payeReference = req.body.payeReference;
+      audit(org, actorName(g), 'entity.updated', { id: entity.id, fields: Object.keys(req.body) });
+      return entity;
     },
   );
 
@@ -227,14 +314,38 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       if (org.processedWebhookIds.has(event.id)) return { received: true, duplicate: true };
 
       if (event.type === 'payroll.run.completed') {
-        const run = await provider.getPayRun(event.data.pay_run_id);
+        // Each PAYE scheme runs its own payroll; the employer on the event says whose run this is.
+        const entity = event.data.employer_id
+          ? org.state.entities.find((e) => employerStatus(org, e, ctx.employers).employerId === event.data.employer_id)
+          : org.state.entities.length === 1 ? org.state.entities[0] : undefined;
+        if (!entity) {
+          // Not marked processed, so TeamPay's retry succeeds once the employer is set on the right company.
+          audit(org, 'TeamPay', 'payroll.run_unmatched', event.data);
+          return reply.code(422).send({ error: 'unknown_employer', message: `No company is set up as TeamPay employer ${event.data.employer_id ?? '(none given)'}` });
+        }
+        let employerId: string;
+        try {
+          employerId = event.data.employer_id ?? employerFor(org, entity.id, ctx.employers);
+        } catch (err) {
+          if (err instanceof PayrollError) return reply.code(422).send({ error: 'unknown_employer', message: err.message });
+          throw err;
+        }
+        const run = await provider.getPayRun(employerId, event.data.pay_run_id);
         const submission = org.submissions
-          .filter((s) => s.periodStart === run.periodStart && s.status === 'sent')
+          .filter((s) => s.periodStart === run.periodStart && s.status === 'sent' && (s.entityId ?? org.state.entities[0]?.id) === entity.id)
           .at(-1);
         const accrued = new Map(Object.entries(submission?.accrued ?? {}));
         const variance = payrollVariance(accrued, run.employees);
-        org.payRuns.push({ id: run.id, periodStart: run.periodStart, periodEnd: run.periodEnd, receivedAt: new Date().toISOString(), variance });
-        audit(org, 'TeamPay', 'payroll.run_completed', { run: run.id, variance: variance.variance });
+        org.payRuns.push({
+          id: run.id,
+          entityId: entity.id,
+          employerId,
+          periodStart: run.periodStart,
+          periodEnd: run.periodEnd,
+          receivedAt: new Date().toISOString(),
+          variance,
+        });
+        audit(org, 'TeamPay', 'payroll.run_completed', { run: run.id, entityId: entity.id, variance: variance.variance });
       } else if (event.type === 'payroll.run.flagged') {
         audit(org, 'TeamPay', 'payroll.run_flagged', event.data);
       }

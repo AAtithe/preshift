@@ -417,3 +417,5 @@ code.key { font-size: 13px; letter-spacing: 0.05em; overflow-wrap: anywhere; }
 div.tone-bad, dd.tone-bad { color: var(--bad); }
 div.tone-muted, dd.tone-muted { color: var(--muted); }
 dd.tone-good { color: var(--good); }
+.employer-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.employer-row span { min-width: 220px; }
