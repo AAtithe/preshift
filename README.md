@@ -35,7 +35,7 @@ accrual so the P&L carries true labour before payroll has even run.
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests
+npm test         # engine and API tests (103 across 7 files)
 npm run build    # typecheck and production build
 ```
 
