@@ -347,6 +347,16 @@ export interface TimeEntry {
   approvedAt?: string;
 }
 
+/** Takings for one trading day at one site, net of VAT: what the till actually rang, not the forecast. */
+export interface DaySales {
+  siteId: string;
+  date: string;
+  netSales: number;
+  covers?: number;
+  /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
+  source: 'till' | 'manual' | 'import';
+}
+
 export interface RotaState {
   entities: Entity[];
   sites: Site[];
@@ -355,4 +365,6 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  /** Actual takings by day. Absent on organisations saved before takings were recorded. */
+  sales?: DaySales[];
 }
