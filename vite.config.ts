@@ -23,10 +23,17 @@ export default defineConfig(({ mode }) => {
     },
   };
 
+  // The Preshift API runs on :8787 in development (npm run dev starts both).
+  const proxy: Record<string, string | ProxyOptions> = {
+    ...anthropicProxy,
+    '/v1': 'http://localhost:8787',
+    '/docs': 'http://localhost:8787',
+  };
+
   return {
     plugins: [react()],
-    server: { proxy: anthropicProxy },
-    preview: { proxy: anthropicProxy },
+    server: { proxy },
+    preview: { proxy },
     test: { globals: true, environment: 'node' },
   };
 });
