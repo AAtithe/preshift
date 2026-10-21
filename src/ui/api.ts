@@ -1,9 +1,5 @@
 // The web app is a client of the public Preshift API, with no private back door.
-// In production it authenticates with the sign-in session cookie and carries no key. The local
-// API accepts a development key, which is only ever added to development builds.
-
-const env = (import.meta as unknown as { env: Record<string, string | boolean | undefined> }).env;
-const DEV_KEY = env.DEV ? String(env.VITE_PRESHIFT_API_KEY ?? 'dev-key') : null;
+// It authenticates with the sign-in session cookie and carries no key, locally as well as live.
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
@@ -14,13 +10,10 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: {
-      ...(DEV_KEY ? { authorization: `Bearer ${DEV_KEY}` } : {}),
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
+    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 && !DEV_KEY) {
+  if (res.status === 401) {
     // Session ended: back to sign-in, returning here afterwards.
     window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
   }

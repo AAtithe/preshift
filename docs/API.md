@@ -27,9 +27,10 @@ locally. Set these to connect to real TeamPay:
 
 ## Authentication and tenancy
 
-People in the web app authenticate with the session cookie from signing in (see Sign in in the
-README); a session has full access to its own organisation until roles arrive with the user
-database. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
+People in the web app authenticate with the session cookie from signing in; accounts are managed
+in the app under Settings (see the README). A signed-in person works across their own organisation,
+and only admins can manage people (`/v1/users`) and settings (`/v1/settings`); integration keys never
+can. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
 `time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.

@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { cookieFrom, readSession } from './session';
+import type { UserRecord, UserStore } from './store';
 
 export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | '*';
 
@@ -8,6 +9,8 @@ export interface ApiKey {
   orgId: string;
   name: string;
   scopes: Scope[];
+  /** Set when the caller is a signed-in person rather than an integration key. */
+  user?: { email: string; role: UserRecord['role'] };
 }
 
 declare module 'fastify' {
@@ -27,10 +30,24 @@ export function loadApiKeys(env = process.env): ApiKey[] {
 }
 
 /**
+ * The signed-in person behind a request, or null. Checked against the database each time,
+ * so removing someone or resetting their password takes effect on their next request.
+ */
+export async function sessionUser(cookieHeader: string | undefined, users: UserStore): Promise<UserRecord | null> {
+  const token = cookieFrom(cookieHeader);
+  if (!token) return null;
+  const claims = await readSession(token, await users.sessionSecret());
+  if (!claims) return null;
+  const user = await users.getUser(claims.email);
+  if (!user || user.orgId !== claims.orgId || claims.issuedAt < user.sessionsValidFrom) return null;
+  return user;
+}
+
+/**
  * Integrations authenticate with an API key. People in the web app authenticate with the signed
  * session cookie from signing in, scoped to their own organisation, so the browser carries no key.
  */
-export function authenticate(keys: ApiKey[], sessionSecret: string | null = null) {
+export function authenticate(keys: ApiKey[], users: UserStore) {
   const byKey = new Map(keys.map((k) => [k.key, k]));
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const header = req.headers.authorization ?? '';
@@ -40,11 +57,24 @@ export function authenticate(keys: ApiKey[], sessionSecret: string | null = null
       req.principal = keyed;
       return;
     }
-    const user = await readSession(cookieFrom(req.headers.cookie), sessionSecret);
+    const user = await sessionUser(req.headers.cookie, users);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Sign in, or send a valid API key' });
-    // Everyone signed in has full access to their own organisation until roles arrive with the user database.
-    req.principal = { key: `session:${user.email}`, orgId: user.orgId, name: user.email, scopes: ['*'] };
+    // Everyone signed in works across their own organisation; managing access is for admins only.
+    req.principal = {
+      key: `session:${user.email}`,
+      orgId: user.orgId,
+      name: user.email,
+      scopes: ['*'],
+      user: { email: user.email, role: user.role },
+    };
   };
+}
+
+/** For managing people and settings: a signed-in admin only, never an integration key. */
+export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
+  if (req.principal?.user?.role !== 'admin') {
+    return reply.code(403).send({ error: 'forbidden', message: 'Only an admin can manage access and settings' });
+  }
 }
 
 export function requireScope(scope: Scope) {

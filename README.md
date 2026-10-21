@@ -38,40 +38,31 @@ npm test         # engine and API tests
 npm run build    # typecheck and production build
 ```
 
-The rota assistant needs a Claude API key on the server. Put it in `.env.local` (git ignored):
+Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only
+exists when the API runs without a database, and is never created on the live system.
 
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
+## Sign in, people and settings
 
-The browser never sees the key: it calls `/api/anthropic` on the dev or preview server, which adds the
-key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
-moves with it. On Vercel the same route is served by `api/anthropic/v1/messages.js`; set
-`ANTHROPIC_API_KEY` in the Vercel project's environment variables to switch the assistant on. That
-function only forwards the assistant's own requests (one model, capped output) from signed-in users.
-Keep a monthly spend limit on the key in the Claude Console all the same. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+Everything about access is managed inside the app, under Settings. Nothing is configured in
+environment variables.
 
-## Sign in
+- First run. On a system with no accounts yet, the sign-in page offers "Create the owner account".
+  Whoever completes it first becomes the owner (an admin), so do it straight after the first deploy.
+  It can only ever happen once, enforced in the database.
+- Who can sign in. Separate from the People tab, which holds staff records. Admins add accounts with a first password and a role, reset passwords, change roles and
+  remove people. Members use the app but cannot manage access. Every organisation keeps at least
+  one admin, and nobody can remove themselves.
+- Rota assistant. An admin saves the organisation's Claude API key. It is kept on the server, shown
+  afterwards only by its last four characters, and used only for the assistant's own requests (one
+  model, capped output). Set a monthly spend limit on it in the Claude Console all the same.
+- Your password. Anyone can change their own; doing so signs out their other devices.
 
-The app and the rota assistant sit behind an email and password sign-in. Until the app has a database,
-users are listed in the `APP_USERS` environment variable as hashed passwords; nobody's password is
-stored anywhere in plain text. To add a person:
-
-```bash
-npm run hash-password -- name@example.com [orgId]   # asks for the password, at least 12 characters
-```
-
-The organisation defaults to `demo`; each person only ever sees their own organisation's data.
-Add the printed line to `APP_USERS` (several people separated by commas). In production also set
-`SESSION_SECRET` to a random string of at least 32 characters (`openssl rand -hex 32`); changing it
-signs everyone out. Without both, the live app stays locked. To remove someone, delete their line.
-
-Sessions last 12 hours in an HttpOnly cookie, and the session is what the web app uses to call the
-API: the browser carries no API key in production. On Vercel the app's files sit inside a gate
-function (`server/appGate.ts`) rather than in public static output, so nothing under `/app` is served
-without a session; the API and the assistant check the session themselves. Locally, sign-in is off
-unless `APP_USERS` is set in `.env.local`, and the web app uses the local API's development key. Known limits until Phase 2: no self-service password reset, no
-roles, and failed attempts are slowed but not locked out.
+Accounts, password hashes (scrypt), the session signing key and the Claude key all live in the
+Preshift database. Sessions last 12 hours in an HttpOnly cookie and are checked against the database
+on every request, so removing someone or resetting their password takes effect at once. Five wrong
+passwords lock an account for 15 minutes. The web app carries no API key: it calls the API with the
+session. On Vercel the app's files are served by the API function only to signed-in people. Known
+limits: no self-service "forgot password" (an admin resets it), and two roles only.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.
@@ -90,11 +81,10 @@ covers the Vercel deployment.
 | Path | What |
 | --- | --- |
 | `/` | Marketing site, from `site/` |
-| `/login` | Sign-in page, from `site/login.html` |
-| `/app/` | Web app, served only to signed-in users by the gate function (`server/appGate.ts`) |
-| `/api/auth/login`, `/logout`, `/me` | Sign-in, one function from `server/signin.ts`, reached by its own route (needs `APP_USERS` and `SESSION_SECRET`) |
 | `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
-| `/api/anthropic/v1/messages` | Rota assistant proxy, from `api/anthropic/v1/messages.js` (needs `ANTHROPIC_API_KEY`) |
+| `/login`, `/auth/*` | Sign-in, first-run owner setup and sign-out, served by the API function |
+| `/app/` | Web app, served by the API function to signed-in people only (`server/routes/web.ts`) |
+| `/api/anthropic/v1/messages` | The rota assistant's route to Claude, using the key saved in Settings |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
@@ -108,11 +98,10 @@ no public key: people reach it by signing in, and integrations need a key from `
 ```
 src/engine   Pure TypeScript domain logic, shared by API, browser and assistant. Fully unit tested.
 src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
-server       The Preshift API and sign-in: routes, API keys and sessions, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
+server       The Preshift API: routes, sign-in, people and settings, API keys, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
 src/ui       React web app, a client of the API.
 site         Marketing site (static, no build step).
-api          Web handlers for sign in, sign out and the assistant's route to Claude.
-scripts      Local dev runner, the Vercel build and the password hasher.
+scripts      Local dev runner and the Vercel build.
 docs         API and integration guide, strategy and roadmap.
 ```
 

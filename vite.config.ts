@@ -1,41 +1,24 @@
 import { defineConfig } from 'vitest/config';
-import { loadEnv, type ProxyOptions } from 'vite';
+import type { ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
-import { devAuth } from './server/devAuth.js';
 
-export default defineConfig(({ mode }) => {
-  // Read without the VITE_ prefix so secrets stay on the server and are never bundled.
-  const env = loadEnv(mode, process.cwd(), '');
-  const apiKey = env.ANTHROPIC_API_KEY;
-
-  // The rota assistant calls /api/anthropic; this adds the key and forwards to the Claude API.
-  const anthropicProxy: Record<string, ProxyOptions> = {
-    '/api/anthropic': {
-      target: 'https://api.anthropic.com',
-      changeOrigin: true,
-      rewrite: (path) => path.replace(/^\/api\/anthropic/, ''),
-      configure: (proxy) => {
-        proxy.on('proxyReq', (req) => {
-          req.removeHeader('authorization');
-          req.removeHeader('anthropic-dangerous-direct-browser-access');
-          if (apiKey) req.setHeader('x-api-key', apiKey);
-          else req.removeHeader('x-api-key');
-        });
-      },
-    },
-  };
-
-  // The Preshift API runs on :8787 in development (npm run dev starts both).
+export default defineConfig(() => {
+  // The Preshift API runs on :8787 in development (npm run dev starts both). It also handles
+  // sign-in, the sign-in page and the rota assistant's route to Claude.
+  const api = 'http://localhost:8787';
   const proxy: Record<string, string | ProxyOptions> = {
-    ...anthropicProxy,
-    '/v1': 'http://localhost:8787',
-    '/docs': 'http://localhost:8787',
+    '/v1': api,
+    '/docs': api,
+    '/auth': api,
+    '/login': api,
+    '/api': api,
   };
 
   return {
-    plugins: [react(), devAuth(env)],
+    plugins: [react()],
     server: { proxy },
     preview: { proxy },
-    test: { globals: true, environment: 'node' },
+    // The Postgres tests run a real database engine in-process (PGlite), which is slow under parallel load.
+    test: { globals: true, environment: 'node', testTimeout: 30_000 },
   };
 });
