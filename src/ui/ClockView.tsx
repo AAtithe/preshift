@@ -3,6 +3,7 @@ import { checkFence } from '../engine/clocking';
 import { addDays, formatMinute } from '../engine/time';
 import type { Employee, GeoFix, RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
+import { StaffLogins } from './StaffLogins';
 
 interface Props {
   state: RotaState;
@@ -330,6 +331,8 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
             </tbody>
           </table>
         </div>
+
+        <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
       </details>
     </div>
   );

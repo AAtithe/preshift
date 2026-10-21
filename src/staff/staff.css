@@ -1,0 +1,21 @@
+/* The staff app: one column, thumb-sized controls, on top of the shared tokens in styles.css. */
+.staff { max-width: 480px; margin: 0 auto; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); display: grid; gap: 12px; font-size: 16px; }
+.staff-top { display: flex; align-items: center; gap: 10px; }
+.staff-top-text { flex: 1; }
+.staff-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.staff-card h1 { font-size: 20px; margin: 0 0 4px; }
+.staff-card h2 { font-size: 16px; margin: 0 0 8px; }
+.staff-form { display: grid; gap: 12px; }
+.staff-form label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+.staff-form input { font-size: 16px; padding: 12px; }
+.staff-big { width: 100%; font-size: 18px; font-weight: 650; padding: 16px; border-radius: 10px; }
+.staff-clock { display: grid; gap: 12px; }
+.staff-state { font-size: 24px; font-weight: 700; }
+.staff-where { margin: 0; font-size: 15px; }
+.staff-msg { margin: 0; padding: 12px; border-radius: 8px; font-size: 15px; }
+.staff-msg.good { background: var(--good-bg); color: var(--good); }
+.staff-msg.bad { background: var(--bad-bg); color: var(--bad); }
+.staff-list { list-style: none; margin: 0; padding: 0; }
+.staff-list li { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
+.staff-list li:first-child { border-top: none; }
+.staff-day { color: var(--muted); }

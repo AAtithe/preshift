@@ -15,6 +15,7 @@ import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
+import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -34,6 +35,8 @@ export interface BuildOptions {
   loginPage?: string;
   /** The built web app, served at /app/ to signed-in people only. Unset in development, where Vite serves it. */
   appDir?: string;
+  /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
+  staffDir?: string;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -147,8 +150,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store);
   signInRoutes(app, store);
+  staffRoutes(app, store);
   assistantRoutes(app, store);
-  webRoutes(app, store, { loginPage: options.loginPage ?? path.resolve('site/login.html'), appDir: options.appDir });
+  webRoutes(app, store, { loginPage: options.loginPage ?? path.resolve('site/login.html'), appDir: options.appDir, staffDir: options.staffDir });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
     api.addHook('onRequest', async (req, reply) => {
@@ -179,6 +183,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     payrollRoutes(api, ctx);
     devRoutes(api, ctx);
     accessRoutes(api, store);
+    staffAdminRoutes(api, store);
   });
 
   return { app, ctx };

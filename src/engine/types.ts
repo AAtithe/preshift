@@ -188,8 +188,8 @@ export interface TimeEntry {
   breakMinutes: number;
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
-  /** How a clock was made: a card tapped on a site reader, or a person signing in on a device. */
-  method?: 'card' | 'device';
+  /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
+  method?: 'card' | 'device' | 'phone';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
   approvedBy?: string;
