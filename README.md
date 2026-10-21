@@ -18,6 +18,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Marginal cost | The shift editor shows what a shift adds to the week, not a naive rate x hours. Someone on guaranteed hours costs nothing extra; someone already over the NI threshold costs 15% more than the headline rate. | `src/ui/ShiftEditor.tsx` |
 | UK compliance | Working Time Regulations breaks, 11 hour daily rest (across week boundaries), weekly rest, 48 hour average without opt-out, young worker limits (8h/day, 40h/week, 30 minute break, 12h rest, night work), minimum wage by age, double booking, leave, availability, training. Blocking issues stop publication. | `src/engine/compliance.ts` |
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
+| Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools. Every shift it proposes is costed by the payroll model and checked by the compliance engine; anything with a blocking issue is refused, so it cannot roster illegally. The GM sees labour % before and after, the changes, and a short note on gaps and trade-offs, then applies or discards the draft. | `src/ai/rotaTools.ts`, `src/ai/rotaAgent.ts`, `src/ui/AssistantPanel.tsx` |
 | Close | Rota to labour accrual journal by role nominal and site tracking category, one journal per entity, exported in Xero manual journal format, plus an hours file for payroll grouped by PAYE scheme. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
 | Multi-site | Group and entity views put every site side by side with entity subtotals and a sales-weighted group target. One press builds every site in scope: each site's own team first, then cover from people who have agreed to work other sites. Cross-site cover is reported each week. | `src/engine/metrics.ts`, `src/engine/autoschedule.ts`, `src/ui/GroupView.tsx` |
 | Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
@@ -32,16 +33,32 @@ npm test         # engine tests
 npm run build    # typecheck and production build
 ```
 
+The rota assistant needs a Claude API key on the server. Put it in `.env.local` (git ignored):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The browser never sees the key: it calls `/api/anthropic` on the dev or preview server, which adds the
+key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
+moves with it. On Vercel the same route is served by `api/anthropic/v1/messages.js`; set
+`ANTHROPIC_API_KEY` in the Vercel project's environment variables to switch the assistant on. That
+function only forwards the assistant's own requests (one model, capped output), but until the app has
+logins anyone who can open /app can spend against the key, so put a monthly spend limit on it in the
+Claude Console. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts. A few people cover sister
 sites, and one Shoreditch bartender covers Marylebone, which is a cross-company recharge. Choose
 an entity and site in the top bar, or leave both on "All" for the group view, and press "Build"
-to generate the week. Data is held in the browser only.
+to generate the week. The rota assistant drafts one site at a time, so it appears once a single
+site is selected. Data is held in the browser only.
 
 ## Structure
 
 ```
 src/engine   Pure TypeScript domain logic. No UI, fully unit tested. This is the product.
+src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
 src/ui       React front end over the engine.
 docs         Strategy and roadmap.
 ```

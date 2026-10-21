@@ -1,0 +1,410 @@
+import { autoSchedule } from '../engine/autoschedule';
+import { checkWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
+import { shiftPaidHours, weekCost } from '../engine/cost';
+import { dayDemand } from '../engine/demand';
+import { weekMetrics } from '../engine/metrics';
+import { ageOn, formatMinute, parseClock, weekDates, weekday } from '../engine/time';
+import type { RotaState, Shift } from '../engine/types';
+
+/**
+ * The tools Claude uses to write a rota. Every tool works on a draft copy of
+ * the rota and goes through the same engine the manager uses: costs come from
+ * the payroll model, and any change that would create a blocking compliance
+ * issue is refused. The model can suggest; it cannot break the law.
+ */
+
+export interface RotaDraft {
+  state: RotaState;
+  siteId: string;
+  weekStart: string;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required: string[];
+    additionalProperties: false;
+  };
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const CLOCK = '^([01][0-9]|2[0-3]):[0-5][0-9]$';
+
+export const ROTA_TOOLS: ToolDefinition[] = [
+  {
+    name: 'get_rota_status',
+    description:
+      'Current state of the draft week: forecast sales, loaded labour cost and labour % by day against the site target, ' +
+      'compliance issues, and for each day and role the hours that are short of or over the forecast headcount. ' +
+      'Call this first, and again after making changes to check the result.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    name: 'list_team',
+    description:
+      'Everyone at this site: id, roles they are trained for (first is primary), pay, age, contracted (guaranteed) hours, ' +
+      'maximum weekly hours, stated availability, approved leave this week, and hours already rostered this week. ' +
+      'Contracted hours are paid whether rostered or not, so use them before adding paid hours elsewhere.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    name: 'list_shifts',
+    description: 'Shifts on the draft rota for this site and week, with id, person, role, times, paid hours and loaded cost.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: ['string', 'null'], description: 'ISO date to limit to one day, or null for the whole week.' },
+      },
+      required: ['date'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'build_from_forecast',
+    description:
+      'Runs the demand-led auto-build: keeps existing shifts, then fills every hour short of forecast headcount with the ' +
+      'cheapest legal person, busiest days first, and trims overstaffed edges. A strong starting point for an empty or ' +
+      'part-built week. Use exclude_employee_ids to keep named people out of the build.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        exclude_employee_ids: { type: 'array', items: { type: 'string' }, description: 'People the build must not roster.' },
+      },
+      required: ['exclude_employee_ids'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'add_shift',
+    description:
+      'Adds one shift. The statutory unpaid break is applied automatically. Refused if it would create a blocking ' +
+      'compliance issue (double booking, leave, under 18 limits, minimum wage). Returns the cost it adds to the week and any warnings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        employee_id: { type: 'string' },
+        role_id: { type: 'string' },
+        date: { type: 'string', description: 'ISO date within the week.' },
+        start: { type: 'string', pattern: CLOCK, description: '24 hour clock, e.g. 11:00.' },
+        end: { type: 'string', pattern: CLOCK, description: '24 hour clock. A time at or before the start runs past midnight.' },
+      },
+      required: ['employee_id', 'role_id', 'date', 'start', 'end'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_shift',
+    description:
+      'Changes the times or the person on an existing shift. Pass null for anything that stays the same. ' +
+      'Refused on the same terms as add_shift.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        shift_id: { type: 'string' },
+        employee_id: { type: ['string', 'null'] },
+        start: { type: ['string', 'null'], pattern: CLOCK },
+        end: { type: ['string', 'null'], pattern: CLOCK },
+      },
+      required: ['shift_id', 'employee_id', 'start', 'end'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'remove_shift',
+    description: 'Removes one shift from the draft. Returns the saving to the week.',
+    input_schema: {
+      type: 'object',
+      properties: { shift_id: { type: 'string' } },
+      required: ['shift_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'clear_week',
+    description: 'Removes every shift for this site and week from the draft. Use only when asked to start again.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+];
+
+export class ToolInputError extends Error {}
+
+export interface ToolOutcome {
+  /** JSON returned to the model. */
+  result: unknown;
+  /** One line for the manager's progress log. */
+  label: string;
+  isError?: boolean;
+}
+
+let seq = 0;
+const newId = () => `ai-${Date.now().toString(36)}-${(seq++).toString(36)}`;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function str(input: Record<string, unknown>, key: string): string {
+  const v = input[key];
+  if (typeof v !== 'string' || v.length === 0) throw new ToolInputError(`${key} must be a non-empty string.`);
+  return v;
+}
+
+function optStr(input: Record<string, unknown>, key: string): string | null {
+  const v = input[key];
+  if (v === null || v === undefined) return null;
+  if (typeof v !== 'string') throw new ToolInputError(`${key} must be a string or null.`);
+  return v;
+}
+
+function clock(value: string, key: string): number {
+  if (!new RegExp(CLOCK).test(value)) throw new ToolInputError(`${key} must be HH:MM on the 24 hour clock.`);
+  return parseClock(value);
+}
+
+function weekShifts(d: RotaDraft): Shift[] {
+  const dates = new Set(weekDates(d.weekStart));
+  return d.state.shifts.filter((s) => s.siteId === d.siteId && dates.has(s.date));
+}
+
+function siteCost(d: RotaDraft): number {
+  return weekCost(d.state, d.weekStart, d.siteId).total;
+}
+
+function issueKey(i: Issue) {
+  return `${i.employeeId}|${i.code}|${i.shiftId ?? ''}|${i.date ?? ''}`;
+}
+
+/**
+ * Applies a change to the draft only if it leaves no new blocking issue for the
+ * people it touches. Warnings are allowed through and reported back.
+ */
+function applyChecked(d: RotaDraft, next: Shift[], people: string[]): { ok: true; warnings: string[]; delta: number } | { ok: false; reasons: string[] } {
+  const before = new Set(checkWeek(d.state, d.weekStart).map(issueKey));
+  const costBefore = siteCost(d);
+  const candidate = { ...d.state, shifts: next };
+  const fresh = checkWeek(candidate, d.weekStart).filter((i) => people.includes(i.employeeId) && !before.has(issueKey(i)));
+  const blocks = fresh.filter((i) => i.severity === 'block');
+  if (blocks.length) return { ok: false, reasons: blocks.map((i) => i.message) };
+  d.state = candidate;
+  return { ok: true, warnings: fresh.map((i) => i.message), delta: round2(siteCost(d) - costBefore) };
+}
+
+function personName(d: RotaDraft, id: string) {
+  return d.state.employees.find((e) => e.id === id)?.name ?? id;
+}
+
+function describe(d: RotaDraft, s: Shift) {
+  return `${personName(d, s.employeeId)} ${WEEKDAYS[weekday(s.date)]} ${formatMinute(s.startMinute)}-${formatMinute(s.endMinute)}`;
+}
+
+/** Hour ranges where a role is short (gap > 0) or over (gap < 0) the forecast headcount. */
+function ranges(hours: { hour: number; gap: number }[], test: (gap: number) => boolean): string[] {
+  const out: string[] = [];
+  let from = -1;
+  for (let i = 0; i <= hours.length; i++) {
+    const hit = i < hours.length && test(hours[i].gap);
+    if (hit && from < 0) from = hours[i].hour;
+    if (!hit && from >= 0) {
+      out.push(`${String(from).padStart(2, '0')}:00-${String(hours[i - 1].hour + 1).padStart(2, '0')}:00`);
+      from = -1;
+    }
+  }
+  return out;
+}
+
+function rotaStatus(d: RotaDraft) {
+  const site = d.state.sites.find((s) => s.id === d.siteId)!;
+  const m = weekMetrics(d.state, d.siteId, d.weekStart);
+  const rules = d.state.demandRules.filter((r) => r.siteId === d.siteId);
+  const issues = checkWeek(d.state, d.weekStart, d.siteId);
+  return {
+    site: site.name,
+    week_commencing: d.weekStart,
+    labour_target_pct: round2(site.labourTargetPct * 100),
+    week: {
+      forecast_sales: round2(m.forecastSales),
+      labour_cost: round2(m.labourCost),
+      labour_pct: round2(m.labourPct * 100),
+      variance_to_target: round2(m.varianceToTarget),
+      paid_hours: round2(m.paidHours),
+    },
+    days: m.days.map((day) => ({
+      date: day.date,
+      weekday: WEEKDAYS[weekday(day.date)],
+      forecast_sales: round2(day.forecastSales),
+      labour_cost: round2(day.labourCost),
+      labour_pct: round2(day.labourPct * 100),
+      cover: rules.map((r) => {
+        const demand = dayDemand(d.state, d.siteId, r.roleId, day.date);
+        return { role_id: r.roleId, short: ranges(demand, (g) => g > 0), over: ranges(demand, (g) => g < 0) };
+      }).filter((c) => c.short.length || c.over.length),
+    })),
+    issues: issues.map((i) => ({
+      severity: i.severity,
+      person: personName(d, i.employeeId),
+      shift_id: i.shiftId ?? null,
+      date: i.date ?? null,
+      message: i.message,
+    })),
+  };
+}
+
+function team(d: RotaDraft) {
+  const dates = weekDates(d.weekStart);
+  const shifts = d.state.shifts.filter((s) => dates.includes(s.date));
+  return d.state.employees
+    .filter((e) => e.siteId === d.siteId)
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      roles: e.roleIds,
+      pay: e.payBasis === 'salaried' ? `salaried £${e.annualSalary}` : `£${e.hourlyRate.toFixed(2)}/h`,
+      age: ageOn(e.dateOfBirth, d.weekStart),
+      contracted_hours: e.contractedHours,
+      max_weekly_hours: e.maxWeeklyHours,
+      opted_out_of_48: e.optedOutOf48,
+      availability: e.availability.length
+        ? e.availability.map((a) => `${WEEKDAYS[a.weekday]} ${formatMinute(a.fromMinute)}-${formatMinute(a.toMinute)}`)
+        : 'any',
+      leave_this_week: e.leave.filter((l) => dates.includes(l)),
+      rostered_hours: round2(shifts.filter((s) => s.employeeId === e.id).reduce((sum, s) => sum + shiftPaidHours(s), 0)),
+    }));
+}
+
+function shiftList(d: RotaDraft, date: string | null) {
+  const cost = weekCost(d.state, d.weekStart, d.siteId);
+  return weekShifts(d)
+    .filter((s) => !date || s.date === date)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
+    .map((s) => ({
+      id: s.id,
+      person: personName(d, s.employeeId),
+      employee_id: s.employeeId,
+      role_id: s.roleId,
+      date: s.date,
+      start: formatMinute(s.startMinute),
+      end: formatMinute(s.endMinute),
+      break_minutes: s.breakMinutes,
+      paid_hours: round2(shiftPaidHours(s)),
+      cost: round2(cost.shifts.get(s.id)?.total ?? 0),
+      published: Boolean(s.published),
+    }));
+}
+
+function makeShift(d: RotaDraft, base: Omit<Shift, 'breakMinutes'>): Shift {
+  const employee = d.state.employees.find((e) => e.id === base.employeeId);
+  if (!employee) throw new ToolInputError(`No one with id ${base.employeeId}.`);
+  if (!weekDates(d.weekStart).includes(base.date)) throw new ToolInputError(`${base.date} is not in the week commencing ${d.weekStart}.`);
+  const length = base.endMinute - base.startMinute;
+  if (length <= 0) throw new ToolInputError('Shift must end after it starts.');
+  if (length > 16 * 60) throw new ToolInputError('Shift is longer than 16 hours.');
+  return { ...base, breakMinutes: requiredBreakMinutes(length, ageOn(employee.dateOfBirth, base.date)) };
+}
+
+function endAfter(start: number, end: number) {
+  return end <= start ? end + 1440 : end;
+}
+
+export function executeRotaTool(d: RotaDraft, name: string, raw: unknown): ToolOutcome {
+  const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  try {
+    switch (name) {
+      case 'get_rota_status':
+        return { result: rotaStatus(d), label: 'Checked labour % and cover' };
+
+      case 'list_team':
+        return { result: team(d), label: 'Read the team' };
+
+      case 'list_shifts':
+        return { result: shiftList(d, optStr(input, 'date')), label: 'Read the shifts' };
+
+      case 'build_from_forecast': {
+        const exclude = Array.isArray(input.exclude_employee_ids) ? input.exclude_employee_ids.map(String) : [];
+        const before = siteCost(d);
+        const state = { ...d.state, employees: d.state.employees.filter((e) => !exclude.includes(e.id)) };
+        const built = autoSchedule(state, d.siteId, d.weekStart);
+        d.state = { ...d.state, shifts: built.shifts };
+        return {
+          result: {
+            shifts_added: built.added.length,
+            cost_added: round2(siteCost(d) - before),
+            unfilled: built.unfilled.map((g) => ({ date: g.date, role_id: g.roleId, from_hour: g.fromHour, to_hour: g.toHour })),
+          },
+          label: `Built from forecast: ${built.added.length} shifts${built.unfilled.length ? `, ${built.unfilled.length} gaps unfilled` : ''}`,
+        };
+      }
+
+      case 'add_shift': {
+        const employeeId = str(input, 'employee_id');
+        const roleId = str(input, 'role_id');
+        if (!d.state.roles.some((r) => r.id === roleId)) throw new ToolInputError(`No role with id ${roleId}.`);
+        const start = clock(str(input, 'start'), 'start');
+        const shift = makeShift(d, {
+          id: newId(),
+          employeeId,
+          roleId,
+          siteId: d.siteId,
+          date: str(input, 'date'),
+          startMinute: start,
+          endMinute: endAfter(start, clock(str(input, 'end'), 'end')),
+        });
+        const outcome = applyChecked(d, [...d.state.shifts, shift], [employeeId]);
+        if (!outcome.ok) return refused(`Refused: ${describe(d, shift)}`, outcome.reasons);
+        return {
+          result: { added: true, shift_id: shift.id, cost_added: outcome.delta, warnings: outcome.warnings },
+          label: `Added ${describe(d, shift)}`,
+        };
+      }
+
+      case 'update_shift': {
+        const id = str(input, 'shift_id');
+        const current = weekShifts(d).find((s) => s.id === id);
+        if (!current) throw new ToolInputError(`No shift ${id} this week.`);
+        const startClock = optStr(input, 'start');
+        const endClock = optStr(input, 'end');
+        const start = startClock ? clock(startClock, 'start') : current.startMinute;
+        const end = endClock ? endAfter(start, clock(endClock, 'end')) : current.endMinute;
+        const shift = makeShift(d, {
+          ...current,
+          employeeId: optStr(input, 'employee_id') ?? current.employeeId,
+          startMinute: start,
+          endMinute: end,
+          published: false,
+        });
+        const next = d.state.shifts.map((s) => (s.id === id ? shift : s));
+        const outcome = applyChecked(d, next, [shift.employeeId]);
+        if (!outcome.ok) return refused(`Refused change to ${describe(d, current)}`, outcome.reasons);
+        return {
+          result: { updated: true, cost_change: outcome.delta, warnings: outcome.warnings },
+          label: `Changed to ${describe(d, shift)}`,
+        };
+      }
+
+      case 'remove_shift': {
+        const id = str(input, 'shift_id');
+        const current = weekShifts(d).find((s) => s.id === id);
+        if (!current) throw new ToolInputError(`No shift ${id} this week.`);
+        const before = siteCost(d);
+        d.state = { ...d.state, shifts: d.state.shifts.filter((s) => s.id !== id) };
+        return { result: { removed: true, saving: round2(before - siteCost(d)) }, label: `Removed ${describe(d, current)}` };
+      }
+
+      case 'clear_week': {
+        const ids = new Set(weekShifts(d).map((s) => s.id));
+        d.state = { ...d.state, shifts: d.state.shifts.filter((s) => !ids.has(s.id)) };
+        return { result: { removed: ids.size }, label: `Cleared ${ids.size} shifts` };
+      }
+
+      default:
+        return { result: { error: `Unknown tool ${name}.` }, label: `Unknown tool ${name}`, isError: true };
+    }
+  } catch (err) {
+    if (err instanceof ToolInputError) return { result: { error: err.message }, label: `Rejected input: ${err.message}`, isError: true };
+    throw err;
+  }
+}
+
+function refused(label: string, reasons: string[]): ToolOutcome {
+  return { result: { refused: true, blocking_issues: reasons }, label: `${label} (${reasons[0]})`, isError: true };
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { autoScheduleSites, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { scopeMetrics } from '../engine/metrics';
@@ -13,6 +13,9 @@ import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
+
+// Loaded on first use so the Claude SDK stays out of the main bundle.
+const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
 type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'close';
 
@@ -39,6 +42,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('sites');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
   const site = state.sites.find((s) => s.id === siteId);
@@ -117,7 +121,9 @@ export function App() {
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">
+          {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
+          {single && <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>}
+          <button onClick={runAutoBuild} className={single ? '' : 'primary'}>
             {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
           </button>
           <button onClick={() => { dispatch({ type: 'clearWeek', siteIds, weekStart: week }); setUnfilled(null); }}>Clear week</button>
@@ -174,6 +180,18 @@ export function App() {
           Reset demo
         </button>
       </footer>
+
+      {assistantOpen && single && (
+        <Suspense fallback={null}>
+          <AssistantPanel
+            state={state}
+            siteId={single.id}
+            week={week}
+            onApply={(shifts) => { dispatch({ type: 'setShifts', shifts }); setUnfilled(null); setAssistantOpen(false); }}
+            onClose={() => setAssistantOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {editing && (
         <ShiftEditor

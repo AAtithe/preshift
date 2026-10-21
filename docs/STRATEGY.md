@@ -57,7 +57,8 @@ These are decisions for the founders, with the trade-offs.
 
 ## Roadmap
 
-Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal.
+Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal, and a
+rota assistant that writes and edits the week from plain English instructions through the same engine.
 
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
