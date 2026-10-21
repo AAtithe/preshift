@@ -4,6 +4,7 @@ import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
 import { isEmployedOn } from './employees';
 import { addDays, ageOn, weekDates, weekStart } from './time';
+import { travelIssues } from './travel';
 
 export interface AutoScheduleOptions {
   minShiftHours: number;
@@ -224,7 +225,7 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       breakMinutes: requiredBreakMinutes(length, ageOn(e.dateOfBirth, slot.date)),
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-    const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter(
+    const issues = [...checkEmployeeWeek(e, ws, [...context, shift]), ...travelIssues(e, [...context, shift], state.sites)].filter(
       (i) => i.shiftId === shift.id || i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
     );
     // Auto-build never creates a breach: anything flagged on the new shift rules the person out,

@@ -84,8 +84,10 @@ describe('GDPR', () => {
     const t = await boot();
     const id = await oldLeaver(t);
     await t.call('POST', '/v1/privacy/requests', { kind: 'access', subject: 'Old Leaver', employeeId: id, receivedOn: '2026-10-01' });
+    await t.call('POST', '/v1/hr/records', { employeeId: id, kind: 'case', caseType: 'grievance', date: '2018-06-01', title: 'Rota fairness' });
     const res = await t.call('POST', `/v1/privacy/subjects/${id}/export`);
     expect(res.status).toBe(200);
+    expect(res.body.hrRecords.map((r: { title: string }) => r.title)).toEqual(['Rota fairness']);
     expect(res.body.person).toMatchObject({ id, name: 'Old Leaver', email: 'old@example.com' });
     expect(res.body.timeEntries[0].clockInLocation).toBeDefined();
     expect(res.body.requests).toHaveLength(1);
@@ -109,6 +111,9 @@ describe('GDPR', () => {
   it('applies the retention schedule and records ids only in the audit', async () => {
     const t = await boot();
     const id = await oldLeaver(t);
+    await t.call('PUT', `/v1/employees/${id}/hr`, { niNumber: 'QQ123456C', address: '1 High St', emergencyContact: { name: 'Kin', phone: '07700 900001' } });
+    await t.call('POST', `/v1/employees/${id}/absences`, { type: 'sickness', from: '2018-05-01', to: '2018-05-02', reason: 'Back injury' });
+    await t.call('POST', '/v1/hr/records', { employeeId: id, kind: 'note', date: '2018-05-03', title: 'Return to work' });
     const before = await t.call('GET', '/v1/privacy/retention');
     expect(before.body.items.filter((i: { employeeId: string; due: boolean }) => i.employeeId === id && i.due).map((i: { code: string }) => i.code).sort())
       .toEqual(['anonymise', 'contact', 'location', 'right-to-work']);
@@ -116,6 +121,10 @@ describe('GDPR', () => {
     expect(applied.status).toBe(200);
     const person = (await t.call('GET', `/v1/employees/${id}`)).body;
     expect(person).toMatchObject({ name: `Former employee ${id.slice(-6)}`, dateOfBirth: '1990-01-01', rightToWork: { checked: true } });
+    // The personnel file goes with the name: no NI number, address, emergency contact, sickness reason or HR records.
+    expect(person.hr).toEqual({});
+    expect(person.absences).toEqual([{ id: expect.any(String), type: 'sickness', from: '2018-05-01', to: '2018-05-02' }]);
+    expect((await t.call('GET', `/v1/hr/records?employeeId=${id}`)).body).toEqual([]);
     const org = await t.store.load('demo');
     expect(org.timeEntries.find((x) => x.id === 'te-old')?.clockInLocation).toBeUndefined();
     expect(JSON.stringify(org.audit.at(-1))).not.toMatch(/Old Leaver|old@example/);
