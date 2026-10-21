@@ -148,3 +148,52 @@ describe('Postgres store: coaching and programme data', () => {
     expect((await third('GET', '/v1/calendar?siteId=mar')).status).toBe(200);
   });
 });
+
+describe('the daily refresh against a busy organisation', () => {
+  it('keeps a GM’s change made while the refresh was fetching', async () => {
+    const query = pglite();
+    let app: Awaited<ReturnType<typeof buildApp>>['app'] | null = null;
+    let raced = false;
+    const daily = (from: string, n: number) => {
+      const time = Array.from({ length: n }, (_, i) => {
+        const d = new Date(`${from}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + i);
+        return d.toISOString().slice(0, 10);
+      });
+      return { daily: { time, temperature_2m_max: time.map(() => 15), temperature_2m_min: time.map(() => 8), precipitation_sum: time.map(() => 0), weather_code: time.map(() => 1) } };
+    };
+    const slowFetch = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (!raced) {
+        // While the refresh is out fetching, the GM overrides Thursday's 19:00 and saves.
+        raced = true;
+        const res = await app!.inject({
+          method: 'PATCH',
+          url: '/v1/forecast/hour',
+          headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
+          payload: JSON.stringify({ siteId: 'mar', date: '2026-10-22', hour: 19, sales: 4321, covers: 99, reason: 'Party of 60' }),
+        });
+        expect(res.statusCode).toBe(200);
+      }
+      const start = url.searchParams.get('start_date') ?? '2026-10-14';
+      return new Response(JSON.stringify(daily(start, url.pathname.endsWith('/archive') ? 30 : 23)), { status: 200 });
+    }) as typeof fetch;
+    ({ app } = await buildApp({
+      apiKeys: KEYS,
+      store: new PgStore(query, ['demo'], '2026-10-21'),
+      provider: new TeamPaySimulator(),
+      now: () => new Date('2026-10-21T07:00:00Z'),
+      fetch: slowFetch,
+      env: { CRON_SECRET: 'tick' },
+    }));
+    const call = (method: string, url: string, body?: unknown) =>
+      app!.inject({ method: method as 'GET', url, headers: { authorization: 'Bearer admin', ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+    await call('PUT', '/v1/sites/mar/location', { lat: 51.52, lng: -0.15 });
+    const tick = await app.inject({ method: 'GET', url: '/internal/dispatch', headers: { authorization: 'Bearer tick' } });
+    expect(tick.json()).toMatchObject({ refreshed: 1, failed: 0 });
+    const rows = (await call('GET', '/v1/forecast?siteId=mar&from=2026-10-22&to=2026-10-22')).json() as { hour: number; sales: number; overriddenBy?: string }[];
+    expect(rows.find((r) => r.hour === 19)).toMatchObject({ sales: 4321, overriddenBy: 'Admin' });
+    const weather = (await call('GET', '/v1/weather?siteId=mar')).json() as unknown[];
+    expect(weather.length).toBeGreaterThan(20);
+  });
+});

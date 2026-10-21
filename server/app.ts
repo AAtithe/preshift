@@ -17,7 +17,7 @@ import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
-import { feedConfig, refreshOutside } from './forecasting';
+import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
@@ -171,19 +171,18 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     for (const { orgId } of due) {
       if (Date.now() - started > 40_000) break;
       try {
-        // Fetch once; if someone saved the organisation meanwhile, lay the same results over a fresh copy.
+        // Fetch once. If someone saved the organisation meanwhile, lay the same results over a fresh copy
+        // with the same merges, so their change survives; never copy whole lists across.
         const org = await store.load(orgId);
-        await refreshOutside(ctx, org, today, 'scheduled refresh');
+        const fetched = await fetchOutside(ctx, org, today);
+        applyOutside(org, fetched, today, 'scheduled refresh');
         org.lastOutsideRefresh = today;
         try {
           await store.save(org);
         } catch (err) {
           if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
           const fresh = await store.load(orgId);
-          fresh.state.weather = org.state.weather;
-          fresh.state.localEvents = org.state.localEvents;
-          fresh.state.forecast = org.state.forecast;
-          fresh.eventFeeds = fresh.eventFeeds.map((f) => org.eventFeeds.find((x) => x.id === f.id) ?? f);
+          applyOutside(fresh, fetched, today, 'scheduled refresh');
           fresh.lastOutsideRefresh = today;
           await store.save(fresh);
         }
