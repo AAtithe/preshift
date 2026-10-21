@@ -22,7 +22,8 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Finance | Payroll runs per PAYE scheme: one TeamPay employer per company, one batch of hours per company, each pay run reconciled to its own company's accrual. | Group structures with a central employer or sister-company cover now post and reconcile correctly. |
 | Finance | Employment Allowance applied to the claiming entity week by week, posted to its books only, resetting each tax year. | Employer NI in the accrual matches what payroll actually charges. |
 | Admin | Accounts, roles, passwords and the Claude key are managed in Settings. Forgot password by email through Resend, or a 24 hour link an admin hands over. | No access settings live in Vercel. Removing someone takes effect on their next click. |
-| Everyone | CI typechecks and runs the full suite (123 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| GMs | Short daily rest (under 11 hours, 12 for under 18s) and no clear day off in the week now block publication instead of warning. The auto-build and the assistant will not create either. | The rota cannot be published in breach of the Working Time Regulations rest rules, which is the promise we sell. |
+| Everyone | CI typechecks and runs the full suite (125 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -80,8 +81,8 @@ Blocking issues stop publication and are refused by the assistant. Warnings are 
 | Rest breaks under the Working Time Regulations; 30 minutes over 4.5 hours for under 18s | Block |
 | Under 18s: 8 hours a day, 40 hours a week | Block |
 | Double booking across any site, on leave, outside employment dates, right to work missing or expired | Block |
-| 11 hours daily rest, checked across week boundaries; 12 hours for under 18s | Warn |
-| Weekly rest: one clear day, two for under 18s | Warn |
+| 11 hours daily rest, checked across week boundaries; 12 hours for under 18s | Block |
+| Weekly rest: one clear day in the rota week, two for under 18s | Block |
 | Under 18 working between 22:00 and 06:00 (check the hospitality exemption) | Warn |
 | Outside stated availability, or not trained for the role | Warn |
 | Over 48 hours without an opt-out (must average 48 or less over 17 weeks) | Warn |
@@ -140,14 +141,14 @@ Blocking issues stop publication and are refused by the assistant. Warnings are 
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 123 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
+| Quality | 125 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests (123 across 9 files)
+npm test         # engine and API tests (125 across 9 files)
 npm run build    # typecheck and production build
 ```
 

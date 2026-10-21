@@ -139,7 +139,7 @@ export function checkEmployeeWeek(
         shiftId: next.id,
         date: next.date,
         code: 'daily-rest',
-        severity: 'warn',
+        severity: 'block',
         message: `Only ${(gap / H).toFixed(1)}h rest since the last shift; ${minRest / H}h is the legal minimum.`,
       });
     }
@@ -150,7 +150,7 @@ export function checkEmployeeWeek(
   const daysOff = dates.filter((d) => !worked.has(d)).length;
   const neededOff = young ? 2 : 1;
   if (daysOff < neededOff) {
-    push({ code: 'weekly-rest', severity: 'warn', message: `Needs ${neededOff} clear day${neededOff > 1 ? 's' : ''} off this week.` });
+    push({ code: 'weekly-rest', severity: 'block', message: `Needs ${neededOff} clear day${neededOff > 1 ? 's' : ''} off this week.` });
   }
 
   const hours = week.reduce((sum, s) => sum + shiftPaidMinutes(s), 0) / H;

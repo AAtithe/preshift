@@ -112,6 +112,13 @@ describe('compliance', () => {
     expect(codes(person(), [shift(addDays(WEEK, -1), 15, 24, 30), shift(WEEK, 8, 12, 0)])).toContain('daily-rest');
   });
 
+  it('blocks publication on short daily rest and no weekly rest', () => {
+    const severity = (shifts: Shift[], code: string) => checkEmployeeWeek(person(), WEEK, shifts).find((i) => i.code === code)?.severity;
+    expect(severity([shift(WEEK, 15, 24, 30), shift(addDays(WEEK, 1), 9, 15, 0)], 'daily-rest')).toBe('block');
+    const allWeek = Array.from({ length: 7 }, (_, i) => shift(addDays(WEEK, i), 10, 14, 0));
+    expect(severity(allWeek, 'weekly-rest')).toBe('block');
+  });
+
   it('flags double booking', () => {
     expect(codes(person(), [shift(WEEK, 10, 14), shift(WEEK, 13, 17)])).toContain('double-booked');
   });
@@ -169,6 +176,18 @@ describe('auto-schedule', () => {
     expect(result.added.length).toBeGreaterThan(20);
     const blocks = checkWeek(next, WEEK, 'mar').filter((i) => i.severity === 'block');
     expect(blocks).toEqual([]);
+  });
+
+  it('does not close someone the night before a shift they already open', () => {
+    // Everyone at the site already opens Tuesday at 06:00, so nobody can close Monday night.
+    const team = state.employees.filter((e) => e.siteId === 'mar');
+    const opens: Shift[] = team.map((e, n) => ({
+      id: `open-${n}`, employeeId: e.id, siteId: 'mar', roleId: e.roleIds[0], date: addDays(WEEK, 1),
+      startMinute: 6 * 60, endMinute: 10 * 60, breakMinutes: 0, published: false,
+    }));
+    const seeded = { ...state, shifts: [...state.shifts, ...opens] };
+    const built = { ...seeded, shifts: autoSchedule(seeded, 'mar', WEEK).shifts };
+    expect(checkWeek(built, WEEK, 'mar').filter((i) => i.code === 'daily-rest')).toEqual([]);
   });
 
   it('never rosters someone on leave', () => {

@@ -224,8 +224,16 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       breakMinutes: requiredBreakMinutes(length, ageOn(e.dateOfBirth, slot.date)),
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
+    // Short rest is flagged on the later shift, so a new shift placed before an existing one
+    // shows up against the existing one: compare with the rest issues already there.
+    const restBefore = new Set(
+      checkEmployeeWeek(e, ws, context).filter((i) => i.code === 'daily-rest').map((i) => i.shiftId),
+    );
     const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter(
-      (i) => i.shiftId === shift.id || i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
+      (i) =>
+        i.shiftId === shift.id ||
+        (i.code === 'daily-rest' && !restBefore.has(i.shiftId)) ||
+        i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
     );
     // Auto-build never creates a breach: anything flagged on the new shift rules the person out,
     // except being under contract, which the shift itself is helping to fix.
