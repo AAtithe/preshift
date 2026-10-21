@@ -33,6 +33,11 @@ export interface Entity {
    * the last day that payroll covered (the end of a pay week).
    */
   employmentAllowance?: { remaining: number; asAt: string };
+  /**
+   * The TeamPay employer this company's PAYE scheme is set up as. Each scheme
+   * runs its own payroll, so starters, hours and pay runs are routed by it.
+   */
+  payrollEmployerId?: string;
 }
 
 export interface Site {
@@ -124,6 +129,8 @@ export interface Employee {
   rightToWork?: RightToWork;
   /** The person's employee id in the payroll system (TeamPay). Set once synced. */
   payrollId?: string;
+  /** The payroll employer (PAYE scheme) that `payrollId` belongs to. */
+  payrollEmployerId?: string;
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;

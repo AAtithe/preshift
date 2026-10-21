@@ -66,11 +66,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
     : payrollFromEnv(env);
   const providerFor = () => payroll.provider;
+  const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
     providerFor,
+    employers,
     simulator: payroll.simulator,
-    dispatcher: new OutboxDispatcher(store, providerFor),
+    dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
   };
 
