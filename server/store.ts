@@ -100,7 +100,7 @@ const newSecret = () => randomBytes(32).toString('hex');
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
-    state: seeded ? seedState(today) : { sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -108,6 +108,26 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     processedWebhookIds: new Set(),
     audit: [],
   };
+}
+
+/**
+ * Organisations saved before entities existed have none. They get one company
+ * that holds every site and employs everyone, which is how they were costed
+ * before, so their journals do not change on upgrade.
+ */
+export function upgradeState(state: RotaState): RotaState {
+  const entities = [...(state.entities ?? [])];
+  if (entities.length === 0 && (state.sites.length > 0 || state.employees.length > 0)) {
+    entities.push({ id: 'main', name: 'Main company', companyNumber: '', payeReference: '', intercompanyCode: '1350' });
+  }
+  const fallback = entities[0]?.id ?? '';
+  const sites = state.sites.map((s) => (s.entityId ? s : { ...s, entityId: fallback }));
+  const employees = state.employees.map((e) => ({
+    ...e,
+    entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
+    coverSiteIds: e.coverSiteIds ?? [],
+  }));
+  return { ...state, entities, sites, employees };
 }
 
 export class MemoryStore implements Store {
@@ -360,7 +380,7 @@ function serialise(org: OrgData): string {
 
 function deserialise(data: unknown, version: number): OrgData {
   const raw = (typeof data === 'string' ? JSON.parse(data) : data) as Omit<OrgData, 'processedWebhookIds'> & { processedWebhookIds: string[] };
-  return { ...raw, processedWebhookIds: new Set(raw.processedWebhookIds), version };
+  return { ...raw, state: upgradeState(raw.state), processedWebhookIds: new Set(raw.processedWebhookIds), version };
 }
 
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {

@@ -1,4 +1,4 @@
-import type { Employee, RotaState, Shift } from './types';
+import type { RotaState, Shift } from './types';
 import { checkEmployeeWeek, requiredBreakMinutes } from './compliance';
 import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
@@ -8,9 +8,12 @@ import { addDays, ageOn, weekDates, weekStart } from './time';
 export interface AutoScheduleOptions {
   minShiftHours: number;
   maxShiftHours: number;
+  /** Borrow people from other sites who have said they will cover this one. */
+  allowCover: boolean;
 }
 
 export interface UnfilledGap {
+  siteId: string;
   date: string;
   roleId: string;
   fromHour: number;
@@ -23,7 +26,7 @@ export interface AutoScheduleResult {
   unfilled: UnfilledGap[];
 }
 
-const DEFAULTS: AutoScheduleOptions = { minShiftHours: 4, maxShiftHours: 9 };
+const DEFAULTS: AutoScheduleOptions = { minShiftHours: 4, maxShiftHours: 9, allowCover: true };
 
 let seq = 0;
 const newId = () => `auto-${Date.now().toString(36)}-${(seq++).toString(36)}`;
@@ -80,7 +83,7 @@ export function autoSchedule(
         while (end - start < opts.minShiftHours && end < closeHour) end++;
         while (end - start < opts.minShiftHours && start * 60 > site.openMinute) start--;
 
-        const candidate = pickEmployee(state.employees, shifts, {
+        const candidate = pickEmployee(state, shifts, opts.allowCover, {
           siteId,
           roleId: rule.roleId,
           date,
@@ -88,7 +91,7 @@ export function autoSchedule(
           endMinute: end * 60,
         });
         if (!candidate) {
-          unfilled.push({ date, roleId: rule.roleId, fromHour: start, toHour: end });
+          unfilled.push({ siteId, date, roleId: rule.roleId, fromHour: start, toHour: end });
           // Mark these hours as handled so we move on to the next gap.
           const placeholder: Shift = {
             id: `unfilled-${date}-${rule.roleId}-${start}`,
@@ -112,6 +115,36 @@ export function autoSchedule(
   shifts = trimOverstaffedEdges({ ...state, shifts }, new Set(added.map((s) => s.id)), opts.minShiftHours);
   const addedIds = new Set(added.map((s) => s.id));
   return { shifts, added: shifts.filter((s) => addedIds.has(s.id)), unfilled: mergeGaps(unfilled) };
+}
+
+/**
+ * Builds several sites together. The first pass fills every site from its own
+ * team, so each site has first call on its people. The second pass fills what
+ * is left with cover from other sites. Sites go busiest first in both passes.
+ */
+export function autoScheduleSites(
+  state: RotaState,
+  siteIds: string[],
+  weekStartDate: string,
+  options: Partial<AutoScheduleOptions> = {},
+): AutoScheduleResult {
+  const weekSales = (siteId: string) =>
+    weekDates(weekStartDate).reduce((sum, d) => sum + forecastSalesForDay(state, siteId, d), 0);
+  const order = [...siteIds].sort((a, b) => weekSales(b) - weekSales(a));
+  let shifts = state.shifts;
+  const added: Shift[] = [];
+  let unfilled: UnfilledGap[] = [];
+  for (const allowCover of [false, true]) {
+    unfilled = [];
+    for (const siteId of order) {
+      const result = autoSchedule({ ...state, shifts }, siteId, weekStartDate, { ...options, allowCover });
+      shifts = result.shifts;
+      added.push(...result.added);
+      unfilled.push(...result.unfilled);
+    }
+  }
+  const ids = new Set(shifts.map((s) => s.id));
+  return { shifts, added: added.filter((s) => ids.has(s.id)), unfilled };
 }
 
 /**
@@ -148,11 +181,19 @@ interface Slot {
   endMinute: number;
 }
 
-function pickEmployee(employees: Employee[], shifts: Shift[], slot: Slot): Shift | null {
+/** 0 = home site, 1 = another site in the same entity, 2 = another entity (an intercompany recharge). */
+export function coverDistance(state: Pick<RotaState, 'sites'>, employee: { siteId: string; entityId: string }, siteId: string): number {
+  if (employee.siteId === siteId) return 0;
+  const site = state.sites.find((s) => s.id === siteId);
+  return site?.entityId === employee.entityId ? 1 : 2;
+}
+
+function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, slot: Slot): Shift | null {
   const ws = weekStart(slot.date);
   const week = new Set(weekDates(ws));
-  const ranked = employees
-    .filter((e) => e.siteId === slot.siteId && e.roleIds.includes(slot.roleId) && e.payBasis === 'hourly')
+  const ranked = state.employees
+    .filter((e) => e.siteId === slot.siteId || (allowCover && e.coverSiteIds.includes(slot.siteId)))
+    .filter((e) => e.roleIds.includes(slot.roleId) && e.payBasis === 'hourly')
     .filter((e) => isEmployedOn(e, slot.date))
     .filter((e) => !shifts.some((s) => s.employeeId === e.id && s.date === slot.date))
     .map((e) => {
@@ -161,11 +202,14 @@ function pickEmployee(employees: Employee[], shifts: Shift[], slot: Slot): Shift
         .reduce((sum, s) => sum + shiftPaidMinutes(s), 0) / 60;
       const underContract = hours < e.contractedHours;
       const primary = e.roleIds[0] === slot.roleId;
-      return { e, hours, underContract, primary };
+      return { e, hours, underContract, primary, distance: coverDistance(state, e, slot.siteId) };
     })
+    // Guaranteed hours already paid for win wherever they are; otherwise the home team first,
+    // then a sister site in the same company, and only then another company, which costs a recharge.
     .sort(
       (a, b) =>
         Number(b.underContract) - Number(a.underContract) ||
+        a.distance - b.distance ||
         Number(b.primary) - Number(a.primary) ||
         a.e.hourlyRate - b.e.hourlyRate ||
         a.hours - b.hours,
@@ -193,11 +237,12 @@ function pickEmployee(employees: Employee[], shifts: Shift[], slot: Slot): Shift
 function mergeGaps(gaps: UnfilledGap[]): UnfilledGap[] {
   const out: UnfilledGap[] = [];
   const sorted = [...gaps].sort(
-    (a, b) => a.date.localeCompare(b.date) || a.roleId.localeCompare(b.roleId) || a.fromHour - b.fromHour,
+    (a, b) =>
+      a.siteId.localeCompare(b.siteId) || a.date.localeCompare(b.date) || a.roleId.localeCompare(b.roleId) || a.fromHour - b.fromHour,
   );
   for (const g of sorted) {
     const last = out[out.length - 1];
-    if (last && last.date === g.date && last.roleId === g.roleId && last.toHour >= g.fromHour) {
+    if (last && last.siteId === g.siteId && last.date === g.date && last.roleId === g.roleId && last.toHour >= g.fromHour) {
       last.toHour = Math.max(last.toHour, g.toHour);
     } else out.push({ ...g });
   }
