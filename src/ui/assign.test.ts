@@ -87,7 +87,7 @@ describe('adding a shift from the timeline', () => {
     expect(c.siteCost).toBeGreaterThan(0);
   });
 
-  it('blocks a double booking across sites and flags too little time to travel', () => {
+  it('blocks a double booking across sites and a move with too little time to make the journey', () => {
     const s = state();
     const person = s.employees.find((e) => e.siteId === 'shd' && e.roleIds.includes('server') && e.availability.length === 0)!;
     person.coverSiteIds = ['mar'];
@@ -95,7 +95,10 @@ describe('adding a shift from the timeline', () => {
     const at = (start: number, end: number) =>
       candidates(s, { siteId: 'mar', roleId: 'server', date: WEEK, startMinute: start, endMinute: end }, 'new').find((c) => c.employee.id === person.id)!;
     expect(at(16 * 60, 20 * 60).blocker).toMatch(/Overlaps/);
-    expect(at(17 * 60 + 30, 21 * 60).warnings[0]?.message).toMatch(/Also at Shoreditch 12:00-17:00, 30 minutes/);
-    expect(at(19 * 60, 23 * 60).warnings.find((w) => w.code === 'travel')).toBeUndefined();
+    // Shoreditch to Marylebone is about 43 minutes on the straight-line estimate.
+    expect(at(17 * 60 + 30, 21 * 60).blocker).toMatch(/Cannot get from Shoreditch \(ends 17:00\) to Marylebone \(starts 17:30\)/);
+    expect(at(17 * 60 + 45, 21 * 60).warnings[0]?.code).toBe('travel-tight');
+    expect(at(19 * 60, 23 * 60).warnings.find((w) => w.code.startsWith('travel'))).toBeUndefined();
+    expect(at(19 * 60, 23 * 60).journey).toMatchObject({ source: 'estimate' });
   });
 });

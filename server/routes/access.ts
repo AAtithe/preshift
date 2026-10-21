@@ -60,10 +60,11 @@ const backToLogin = (reply: FastifyReply, params: Record<string, string>) =>
   reply.code(303).header('location', `/login?${new URLSearchParams(params)}`).send();
 
 /** Sign-in and first-run setup. Registered outside the authenticated API. */
-export function signInRoutes(app: FastifyInstance, store: Store) {
+export function signInRoutes(app: FastifyInstance, store: Store, options: { demo?: boolean } = {}) {
   const hidden = { schema: { hide: true } };
+  const demo = options.demo ? { demo: true } : {};
 
-  app.get('/auth/status', hidden, async () => ({ setupNeeded: !(await store.hasUsers()) }));
+  app.get('/auth/status', hidden, async () => (options.demo ? { setupNeeded: false, ...demo } : { setupNeeded: !(await store.hasUsers()) }));
 
   // First run only: whoever opens the app first on a fresh database creates the owner account.
   app.post<{ Body: Record<string, string> }>('/auth/setup', hidden, async (req, reply) => {
@@ -106,7 +107,7 @@ export function signInRoutes(app: FastifyInstance, store: Store) {
   app.get('/auth/me', hidden, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
-    return { email: user.email, orgId: user.orgId, role: user.role };
+    return { email: user.email, orgId: user.orgId, role: user.role, ...demo };
   });
 
   // Anyone signed in can change their own password; every other session of theirs ends.

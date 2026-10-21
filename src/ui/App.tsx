@@ -14,25 +14,34 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { HowToView } from './HowToView';
+import { AbsenceView } from './AbsenceView';
+import { HrFile, type HrSection } from './HrFile';
+import { HrOverview } from './HrOverview';
+import { CasesView, ReviewsView } from './ReviewsView';
+import { TrainingView } from './TrainingView';
+import { IntegrationsView } from './IntegrationsView';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
+import { PrivacyView } from './PrivacyView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { SetupView } from './SetupView';
 import { ShiftEditor } from './ShiftEditor';
-import { useRotaStore } from './store';
+import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
+import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'setup' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'setup' | 'integrations' | 'privacy' | 'settings' | 'howto';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
-type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean };
+type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
   { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', groupOnly: true }] },
   {
@@ -52,13 +61,32 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     ],
   },
   {
+    heading: 'HR',
+    items: [
+      { id: 'hr', label: 'HR overview' },
+      { id: 'absence', label: 'Absence' },
+      { id: 'training', label: 'Training' },
+      { id: 'reviews', label: 'Probation and reviews' },
+      { id: 'cases', label: 'Cases', adminOnly: true },
+    ],
+  },
+  {
     heading: 'Finance',
     items: [
       { id: 'payroll', label: 'Payroll', siteOnly: true },
       { id: 'close', label: 'Close' },
     ],
   },
-  { heading: 'Admin', items: [{ id: 'setup', label: 'Set-up' }, { id: 'settings', label: 'Settings' }] },
+  {
+    heading: 'Admin',
+    items: [
+      { id: 'setup', label: 'Set-up' },
+      { id: 'integrations', label: 'Integrations' },
+      { id: 'privacy', label: 'GDPR' },
+      { id: 'settings', label: 'Settings' },
+    ],
+  },
+  { heading: 'Help', items: [{ id: 'howto', label: 'How to' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
@@ -93,7 +121,7 @@ export function App() {
   if (state.sites.length === 0) {
     return <FirstRun state={state} onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />;
   }
-  return <Workspace state={state} error={error} clearError={() => setError(null)} actions={actions} continueSetup={continueSetup} />;
+  return <Workspace state={state} error={error} setError={setError} actions={actions} continueSetup={continueSetup} />;
 }
 
 function useMe() {
@@ -130,12 +158,14 @@ function FirstRun({ state, onSaved }: { state: NonNullable<ReturnType<typeof use
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, error, clearError, actions, continueSetup }: { state: NonNullable<Store['state']>; error: string | null; clearError: () => void; actions: Store['actions']; continueSetup: boolean }) {
+function Workspace({ state, error, setError, actions, continueSetup }: { state: NonNullable<Store['state']>; error: string | null; setError: Store['setError']; actions: Store['actions']; continueSetup: boolean }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [entityId, setEntityId] = useState(ALL);
   const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : 'sites');
+  const [guide, setGuide] = useState<string | null>(null);
+  const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -147,6 +177,10 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
   const today = toISODate(new Date());
   const me = useMe();
+  const [hrPerson, setHrPerson] = useState<{ id: string; section?: HrSection } | null>(null);
+  const hr = useHrRecords(setError);
+  const isAdmin = me?.role === 'admin';
+  const openHr = (e: Employee, section?: HrSection) => setHrPerson({ id: e.id, section });
   const [sample, setSample] = useState(false);
 
   // Admins are told when they are still looking at the sample group, and pointed at set-up.
@@ -174,7 +208,7 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
-  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly);
+  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly) && (!t.adminOnly || isAdmin);
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t)) ? tab : single ? 'rota' : 'sites';
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
@@ -282,7 +316,7 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
                   className={activeTab === t.id ? 'active' : ''}
                   aria-current={activeTab === t.id ? 'page' : undefined}
                   disabled={!available(t)}
-                  title={available(t) ? undefined : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
+                  title={available(t) ? undefined : t.adminOnly && !isAdmin ? 'Admins only' : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
                   onClick={() => setTab(t.id)}
                 >
                   {t.label}
@@ -293,7 +327,7 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
         </nav>
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {me && (
+          {me && !me.demo && (
             <>
               <span className="small">Signed in as {me.email}</span>
               <a className="link" href="/auth/logout">Sign out</a>
@@ -333,7 +367,8 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
               <span className={`stamp ${status}`}>{statusLabel}</span>
             </div>
           </div>
-          <div className="sections">
+          {/* How to is for reading: no week actions and no P&L beside it, so the guide gets the width. */}
+          {activeTab !== 'howto' && <div className="sections">
             <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {single && <button onClick={() => setAssistantOpen(true)}>Ask the assistant</button>}
@@ -344,20 +379,34 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
                 {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
               </button>
             </div>
-          </div>
+          </div>}
         </header>
 
-        <div className="shell">
+        <div className={`shell${activeTab === 'howto' ? ' no-rail' : ''}`}>
           <div className="main">
-            {sample && activeTab !== 'setup' && (
+            {sample && !me?.demo && activeTab !== 'setup' && (
               <div className="notice">
                 You are looking at the sample group, not your business.{' '}
                 <button className="link" onClick={() => setTab('setup')}>Set up your own</button>
               </div>
             )}
+            {me?.demo && (
+              <div className="notice demo-banner">
+                <span>
+                  <strong>Live demo.</strong> This is your own copy of a sample group of three London sites, so change anything:
+                  build the week, edit shifts, add people, run payroll against the TeamPay simulator, post the accrual. Nobody
+                  else sees it, and it is deleted after a day.
+                </span>
+                <span className="demo-actions">
+                  <a className="link" href="/demo?fresh=1">Start again</a>
+                  <a className="button primary" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>
+                </span>
+              </div>
+            )}
+
             {error && (
               <div className="notice error">
-                {error} <button className="link" onClick={clearError}>Dismiss</button>
+                {error} <button className="link" onClick={() => setError(null)}>Dismiss</button>
               </div>
             )}
 
@@ -387,6 +436,14 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
             <main>
               {activeTab === 'sites' && (
                 <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
+              )}
+              {activeTab === 'sites' && scopeSites.length > 1 && (
+                <TravelPanel
+                  sites={scopeSites}
+                  onSetLocation={actions.setSiteLocation}
+                  onRefresh={actions.refreshTravel}
+                  onSetTravel={actions.setTravel}
+                />
               )}
               {activeTab === 'rota' && single && (
                 <div className="view-bar">
@@ -464,17 +521,29 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
                   onSetLeaveYear={actions.setLeaveYearStart}
                 />
               )}
-              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+              {activeTab === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'absence' && (
+                <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
+              )}
+              {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'setup' && me && <SetupView state={state} isAdmin={me.role === 'admin'} onSaved={actions.reload} startOnTeam={continueSetup} />}
+              {activeTab === 'integrations' && (
+                <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
+              )}
+              {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
             <footer className="foot">
               <span>UK rates 2026/27. Running on the Preshift API.</span>
             </footer>
           </div>
-          <PnlRail
+          {activeTab !== 'howto' && <PnlRail
             state={view}
             metrics={metrics}
             issues={issues}
@@ -482,7 +551,7 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
             published={published}
             blocks={blocks}
             onPublish={() => void actions.publish(siteIds, week)}
-          />
+          />}
         </div>
       </div>
 
@@ -514,6 +583,22 @@ function Workspace({ state, error, clearError, actions, continueSetup }: { state
 
       {opening && (
         <AssignPanel state={state} opening={opening} onPreview={setPreview} onAdd={(s) => void addShift(s)} onClose={() => setOpening(null)} />
+      )}
+
+      {hrPerson && state.employees.some((e) => e.id === hrPerson.id) && (
+        <HrFile
+          key={hrPerson.id}
+          state={state}
+          employee={state.employees.find((e) => e.id === hrPerson.id)!}
+          hr={hr}
+          today={today}
+          isAdmin={isAdmin}
+          initialSection={hrPerson.section}
+          onSaveProfile={actions.saveHrProfile}
+          onSaveAbsence={actions.saveAbsence}
+          onDeleteAbsence={actions.deleteAbsence}
+          onClose={() => setHrPerson(null)}
+        />
       )}
 
       {editingPerson && (
