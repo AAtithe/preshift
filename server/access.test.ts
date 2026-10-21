@@ -211,7 +211,14 @@ describe('managing people', () => {
   it('ends access at once when someone is suspended', async () => {
     const t = await withTeam();
     expect((await t.call('POST', `/v1/users/${t.gm.id}/suspend`, t.boss)).status).toBe(200);
-    expect((await t.call('GET', '/v1/sites', t.gm.cookie)).status).toBe(401);
+    // Signed out (401), or, for a session issued in the same millisecond as the suspension, refused
+    // as suspended (403) by the guard: either way nothing more gets through.
+    for (const url of ['/v1/sites', '/v1/shifts', '/v1/employees']) {
+      expect([401, 403]).toContain((await t.call('GET', url, t.gm.cookie)).status);
+    }
+    // The sign-out itself: a session from before the suspension no longer exists at all.
+    const stale = `${COOKIE}=${await createSession({ email: 'gm@ws.example', orgId: 'demo' }, await t.store.sessionSecret(), Date.now() - 60_000)}`;
+    expect((await t.call('GET', '/v1/sites', stale)).status).toBe(401);
   });
 
   it('never lets anyone change their own access, and never removes the last who manages it', async () => {
