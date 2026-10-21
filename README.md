@@ -44,9 +44,30 @@ The browser never sees the key: it calls `/api/anthropic` on the dev or preview 
 key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
 moves with it. On Vercel the same route is served by `api/anthropic/v1/messages.js`; set
 `ANTHROPIC_API_KEY` in the Vercel project's environment variables to switch the assistant on. That
-function only forwards the assistant's own requests (one model, capped output), but until the app has
-logins anyone who can open /app can spend against the key, so put a monthly spend limit on it in the
-Claude Console. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+function only forwards the assistant's own requests (one model, capped output) from signed-in users.
+Keep a monthly spend limit on the key in the Claude Console all the same. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+
+## Sign in
+
+The app and the rota assistant sit behind an email and password sign-in. Until the app has a database,
+users are listed in the `APP_USERS` environment variable as hashed passwords; nobody's password is
+stored anywhere in plain text. To add a person:
+
+```bash
+npm run hash-password -- name@example.com [orgId]   # asks for the password, at least 12 characters
+```
+
+The organisation defaults to `demo`; each person only ever sees their own organisation's data.
+Add the printed line to `APP_USERS` (several people separated by commas). In production also set
+`SESSION_SECRET` to a random string of at least 32 characters (`openssl rand -hex 32`); changing it
+signs everyone out. Without both, the live app stays locked. To remove someone, delete their line.
+
+Sessions last 12 hours in an HttpOnly cookie, and the session is what the web app uses to call the
+API: the browser carries no API key in production. On Vercel the app's files sit inside a gate
+function (`server/appGate.ts`) rather than in public static output, so nothing under `/app` is served
+without a session; the API and the assistant check the session themselves. Locally, sign-in is off
+unless `APP_USERS` is set in `.env.local`, and the web app uses the local API's development key. Known limits until Phase 2: no self-service password reset, no
+roles, and failed attempts are slowed but not locked out.
 
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
 forecasts, against a TeamPay simulator. Press "Build from forecast", then work through the
@@ -61,7 +82,9 @@ Postgres; see `docs/API.md`, which also covers the Vercel deployment.
 | Path | What |
 | --- | --- |
 | `/` | Marketing site, from `site/` |
-| `/app/` | Web app |
+| `/login` | Sign-in page, from `site/login.html` |
+| `/app/` | Web app, served only to signed-in users by the gate function (`server/appGate.ts`) |
+| `/api/auth/login`, `/logout`, `/me` | Sign-in functions, from `api/auth/*.js` (need `APP_USERS` and `SESSION_SECRET`) |
 | `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
 | `/api/anthropic/v1/messages` | Rota assistant proxy, from `api/anthropic/v1/messages.js` (needs `ANTHROPIC_API_KEY`) |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
@@ -69,19 +92,19 @@ Postgres; see `docs/API.md`, which also covers the Vercel deployment.
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when
 the function cold starts: fine for a demo, not for customers. Preshift never reads the generic
-`DATABASE_URL`, so it cannot write into another system's database by accident. With no
-`PRESHIFT_API_KEYS` set it accepts the public demo key the web app ships with; set
-`PRESHIFT_API_KEYS` in Vercel before any real data goes in.
+`DATABASE_URL`, so it cannot write into another system's database by accident. The hosted API has
+no public key: people reach it by signing in, and integrations need a key from `PRESHIFT_API_KEYS`.
 
 ## Structure
 
 ```
 src/engine   Pure TypeScript domain logic, shared by API, browser and assistant. Fully unit tested.
 src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
-server       The Preshift API: routes, auth, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
+server       The Preshift API and sign-in: routes, API keys and sessions, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
 src/ui       React web app, a client of the API.
 site         Marketing site (static, no build step).
-scripts      Local dev runner and the Vercel build.
+api          Web handlers for sign in, sign out and the assistant's route to Claude.
+scripts      Local dev runner, the Vercel build and the password hasher.
 docs         API and integration guide, strategy and roadmap.
 ```
 

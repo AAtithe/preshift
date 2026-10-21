@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Sign in to Preshift</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f4d3a%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 font-family=%22sans-serif%22 font-weight=%22700%22 fill=%22white%22 text-anchor=%22middle%22%3EP%3C/text%3E%3C/svg%3E" />
+    <style>
+      :root {
+        --bg: #f6f5f2; --surface: #ffffff; --border: #e2dfd8; --text: #1c1b19; --muted: #6d6a63;
+        --accent: #1f4d3a; --accent-text: #ffffff; --bad: #b3261e; --bad-bg: #fbe6e4; --good-bg: #e3f1e8;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131412; --surface: #1c1d1a; --border: #34352f; --text: #ecebe6; --muted: #a09d94;
+          --accent: #5fb88a; --accent-text: #0e1a13; --bad: #ff8a80; --bad-bg: #3b1a17; --good-bg: #1d3326;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+        background: var(--bg); color: var(--text);
+        font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      main { width: min(380px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+      .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
+      .mark { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; }
+      .name { font-weight: 700; font-size: 18px; }
+      .sub { color: var(--muted); font-size: 12px; }
+      h1 { font-size: 18px; margin: 0 0 14px; }
+      label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+      input { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
+      input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button { width: 100%; font: inherit; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); cursor: pointer; margin-top: 4px; }
+      .msg { font-size: 13px; padding: 8px 10px; border-radius: 8px; margin-bottom: 14px; }
+      .msg.bad { background: var(--bad-bg); color: var(--bad); }
+      .msg.ok { background: var(--good-bg); }
+      .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">P</span>
+        <div>
+          <div class="name">Preshift</div>
+          <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
+        </div>
+      </div>
+      <h1>Sign in</h1>
+      <p class="msg bad" id="invalid" role="alert" hidden>That email and password do not match. Check both and try again.</p>
+      <p class="msg bad" id="setup" role="alert" hidden>Sign-in is not set up on this deployment yet. Ask your administrator to add users.</p>
+      <p class="msg ok" id="signedout" hidden>You have signed out.</p>
+      <form method="post" action="/api/auth/login">
+        <input type="hidden" name="next" id="next" value="/app/" />
+        <label>Email <input type="email" name="email" autocomplete="username" required autofocus /></label>
+        <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p class="foot">Access is set up by your Williams, Stanley &amp; Co. or Preshift contact.</p>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const next = params.get('next');
+      if (next && next.startsWith('/') && !next.startsWith('//')) document.getElementById('next').value = next;
+      for (const id of ['invalid', 'setup', 'signedout']) {
+        if (params.get('error') === id || params.has(id)) document.getElementById(id).hidden = false;
+      }
+    </script>
+  </body>
+</html>

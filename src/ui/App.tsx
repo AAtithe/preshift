@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
@@ -55,6 +55,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const today = toISODate(new Date());
+  const [user, setUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
+      .catch(() => setUser(null));
+  }, []);
 
   const site = state.sites.find((s) => s.id === siteId)!;
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
@@ -166,7 +175,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
 
       <footer className="foot">
         <span>UK rates 2026/27. Running on the Preshift API.</span>
-        <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        <span>
+          <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+          {user && (
+            <>
+              {' '}Signed in as {user}{' '}
+              <a className="link" href="/api/auth/logout">Sign out</a>
+            </>
+          )}
+        </span>
       </footer>
 
       {assistantOpen && (

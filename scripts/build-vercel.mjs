@@ -1,6 +1,8 @@
 // Builds the Vercel deployment with the Build Output API (.vercel/output):
 //   /         marketing site (site/)
-//   /app/     rota web app (Vite build)
+//   /login    sign-in page (site/login.html)
+//   /app/     rota web app (Vite build), served only to signed-in users by the app gate function
+//   /api/auth/login, /api/auth/logout, /api/auth/me   sign-in functions (api/auth/*.js)
 //   /v1, /docs, /health   Preshift API as one bundled Node function
 //   /internal/dispatch    daily cron retry of undelivered payroll changes
 //   /api/anthropic/v1/messages   rota assistant proxy (api/anthropic/v1/messages.js)
@@ -16,9 +18,11 @@ const require = createRequire(import.meta.url);
 
 await rm(out, { recursive: true, force: true });
 
-await viteBuild({ base: '/app/', build: { outDir: `${out}/static/app`, emptyOutDir: true }, logLevel: 'warn' });
+// The app is built into the gate function, not static output, so nothing under /app is public.
+const gate = `${out}/functions/app-gate.func`;
+await viteBuild({ base: '/app/', build: { outDir: `${gate}/files`, emptyOutDir: true }, logLevel: 'warn' });
 
-for (const f of ['index.html', 'styles.css', 'main.js', 'img']) {
+for (const f of ['index.html', 'login.html', 'styles.css', 'main.js', 'img']) {
   await cp(`site/${f}`, `${out}/static/${f}`, { recursive: true });
 }
 
@@ -45,6 +49,38 @@ await nodeFunction(fn, { entryPoints: ['server/vercel.ts'] });
 const swaggerUi = path.dirname(require.resolve('@fastify/swagger-ui/package.json'));
 await cp(path.join(swaggerUi, 'static'), `${fn}/static`, { recursive: true });
 
+// Web-handler modules (export async function GET/POST) wrapped as Node functions.
+const webFunction = (dir, imports, exportExpr, extra) =>
+  nodeFunction(
+    dir,
+    {
+      stdin: {
+        contents: `${imports}\nimport { toNodeHandler } from './scripts/web-to-node.mjs';\nexport default toNodeHandler(${exportExpr});\n`,
+        resolveDir: process.cwd(),
+        sourcefile: `${path.basename(dir)}-entry.mjs`,
+      },
+    },
+    extra,
+  );
+
+for (const name of ['login', 'logout', 'me']) {
+  await webFunction(`${out}/functions/api/auth/${name}.func`, `import * as mod from './api/auth/${name}.js';`, 'mod');
+}
+
+// Routes send /app/* here with the original path in __p; restore it before the session check.
+await webFunction(
+  gate,
+  "import path from 'node:path';\nimport { createAppGate } from './server/appGate';\n" +
+    "const serve = createAppGate(path.join(__dirname, 'files'));\n" +
+    'const GET = (request) => {\n' +
+    '  const url = new URL(request.url);\n' +
+    "  const original = url.searchParams.get('__p');\n" +
+    "  if (original) { url.searchParams.delete('__p'); url.pathname = original; }\n" +
+    '  return serve(new Request(url, request));\n' +
+    '};',
+  '{ GET, HEAD: GET }',
+);
+
 await nodeFunction(
   `${out}/functions/api/anthropic/v1/messages.func`,
   {
@@ -68,7 +104,8 @@ await writeFile(
       version: 3,
       routes: [
         { src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch)$', dest: '/api?__p=/$1' },
-        { src: '^/app$', status: 308, headers: { Location: '/app/' } },
+        { src: '^/login$', dest: '/login.html' },
+        { src: '^/app(/.*)?$', dest: '/app-gate?__p=/app$1' },
         { handle: 'filesystem' },
       ],
       // Safety net for payroll changes TeamPay has not yet confirmed (needs CRON_SECRET).

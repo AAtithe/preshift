@@ -68,4 +68,19 @@ describe('Postgres store', () => {
     expect(conflict.status).toBe(422);
     expect((await call('GET', '/v1/payroll/submissions')).body).toEqual([]);
   });
+
+  it('retries setup after a failure instead of failing every later request', async () => {
+    const db = pglite();
+    let failures = 1;
+    const flaky: Query = async (text, params) => {
+      if (failures > 0 && text.startsWith('create schema')) {
+        failures--;
+        throw new Error('duplicate key value violates unique constraint "pg_namespace_nspname_index"');
+      }
+      return db(text, params);
+    };
+    const store = new PgStore(flaky, ['demo'], '2026-10-21');
+    await expect(store.load('demo')).rejects.toThrow('duplicate key');
+    expect((await store.load('demo')).orgId).toBe('demo');
+  });
 });

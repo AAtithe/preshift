@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
+import { sessionSecret } from './session';
 import { HttpError, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -121,7 +122,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
-  const auth = authenticate(keys);
+  const auth = authenticate(keys, sessionSecret(env));
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
     api.addHook('onRequest', async (req, reply) => {

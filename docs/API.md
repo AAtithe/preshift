@@ -21,13 +21,15 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_BASE_URL` | Defaults to `https://api.team-pay.co.uk/v1` |
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
-| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. Outside production a `dev-key` exists; on Vercel, with none set, the public demo key is accepted (see `server/vercel.ts`) |
+| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. Outside production a `dev-key` exists. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. Unset means in-memory storage. Deliberately not `DATABASE_URL`, so Preshift can never write into another system's database by accident |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
 ## Authentication and tenancy
 
-Bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
+People in the web app authenticate with the session cookie from signing in (see Sign in in the
+README); a session has full access to its own organisation until roles arrive with the user
+database. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
 `time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.

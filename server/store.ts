@@ -120,7 +120,12 @@ export class PgStore implements Store {
          )`,
         [],
       );
-    })();
+    })().catch((err) => {
+      // Instances starting together can collide creating the schema; let the next request try again
+      // rather than leave this instance failing every request until it is recycled.
+      this.ready = null;
+      throw err;
+    });
     return this.ready;
   }
 
