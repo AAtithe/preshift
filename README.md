@@ -66,7 +66,26 @@ the session cookie. The login screen in the browser is a convenience, not the se
 - State-changing endpoints only accept JSON, which blocks cross-site form posts.
 - Saves carry a version number. If a colleague saved in between, the save is refused with a
   "reload" prompt rather than silently overwriting their work.
-- A new account starts from the sample sites until site set-up is built.
+
+### Account set-up
+
+A new account signs in to a five-step set-up (`src/ui/Setup.tsx`, rules in `src/engine/setup.ts`)
+instead of sample data:
+
+1. Sites: opening hours, loaded labour target and the Xero tracking category.
+2. Roles: starts from the standard hospitality roles, each mapped to a wages nominal code.
+3. Team: added one by one or pasted from a spreadsheet or payroll export (Name, Roles, Rate or
+   salary, Date of birth, Contracted hours). Date of birth is required for minimum wage and young
+   worker checks.
+4. Trading and staffing: a typical week's net sales per day and average spend, plus covers or
+   sales per person per hour for each role. Takings start blank on purpose.
+5. Review: weekly labour budget per site, errors that block saving, and warnings such as pay
+   below the minimum wage band.
+
+The typical week is stored on the site and generates the forecast for any week opened, so the
+rota never runs out of forecast. "Set-up" in the top bar reopens it later. Changes apply from this
+week; past forecasts stay as the record, and rostered shifts that no longer fit (a leaver, a role
+removed) are listed before they are deleted.
 
 ## Structure
 

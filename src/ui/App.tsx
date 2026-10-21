@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
+import { applySetup, draftFromState, missingForecast } from '../engine/setup';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import type { RotaState, Shift } from '../engine/types';
 import { CloseView } from './CloseView';
@@ -10,6 +11,7 @@ import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { RotaGrid } from './RotaGrid';
 import type { User } from './session';
+import { Setup } from './Setup';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -44,10 +46,22 @@ export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Pro
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [settingUp, setSettingUp] = useState(false);
 
-  const site = state.sites.find((s) => s.id === siteId)!;
-  const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
-  const issues = useMemo(() => checkWeek(state, week, siteId), [state, siteId, week]);
+  // Sites set up with a sales profile get their forecast generated for any week the user opens.
+  useEffect(() => {
+    const rows = missingForecast(state, week);
+    if (rows.length) dispatch({ type: 'addForecast', rows });
+  }, [state, week, dispatch]);
+
+  // An edit to set-up can remove the site on screen.
+  const site = state.sites.find((s) => s.id === siteId) ?? state.sites[0];
+  useEffect(() => {
+    if (site.id !== siteId) setSiteId(site.id);
+  }, [site.id, siteId]);
+
+  const metrics = useMemo(() => weekMetrics(state, site.id, week), [state, site.id, week]);
+  const issues = useMemo(() => checkWeek(state, week, site.id), [state, site.id, week]);
   const dates = weekDates(week);
   const blocks = issues.filter((i) => i.severity === 'block').length;
   const weekShifts = state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
@@ -57,6 +71,23 @@ export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Pro
     const result = autoSchedule(state, siteId, week);
     dispatch({ type: 'setShifts', shifts: result.shifts });
     setUnfilled(result.unfilled);
+  }
+
+  if (settingUp) {
+    return (
+      <div className="app">
+        <Setup
+          initial={draftFromState(state)}
+          prev={state}
+          onCancel={() => setSettingUp(false)}
+          onFinish={(draft) => {
+            dispatch({ type: 'replace', state: applySetup(state, draft) });
+            setUnfilled(null);
+            setSettingUp(false);
+          }}
+        />
+      </div>
+    );
   }
 
   return (
@@ -84,6 +115,7 @@ export function App({ mode, initial, persist, user, saveStatus, onSignOut }: Pro
           {user && (
             <div className="account">
               <span title={user.email}>{user.name} &middot; {user.accountName}</span>
+              <button className="link" onClick={() => setSettingUp(true)}>Set-up</button>
               <button className="link" onClick={onSignOut}>Sign out</button>
             </div>
           )}

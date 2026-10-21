@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { seedState } from '../engine/seed';
+import { applySetup, emptyDraft } from '../engine/setup';
 import type { RotaState } from '../engine/types';
 import { App, type SaveStatus } from './App';
 import { Login } from './Login';
+import { Setup } from './Setup';
 import { ApiError, getMe, loadRota, logout, saveRota, type User } from './session';
 
 type Phase =
   | { kind: 'loading' }
   | { kind: 'signedOut' }
+  | { kind: 'setup'; user: User }
   | { kind: 'ready'; user: User; state: RotaState; version: number }
   | { kind: 'error'; message: string };
 
@@ -24,8 +26,7 @@ export function LiveApp() {
       const user = await getMe();
       if (!user) return setPhase({ kind: 'signedOut' });
       const { state, version } = await loadRota();
-      // A new account starts from the sample sites until site set-up is built.
-      setPhase({ kind: 'ready', user, state: state ?? seedState(), version });
+      setPhase(state ? { kind: 'ready', user, state, version } : { kind: 'setup', user });
     } catch (err) {
       setPhase({ kind: 'error', message: err instanceof Error ? err.message : 'Could not load your rota.' });
     }
@@ -35,6 +36,23 @@ export function LiveApp() {
 
   if (phase.kind === 'loading') return <div className="login"><p className="muted">Loading</p></div>;
   if (phase.kind === 'signedOut') return <Login onSignedIn={start} />;
+  if (phase.kind === 'setup') {
+    const { user } = phase;
+    return (
+      <div className="app">
+        <Setup
+          initial={emptyDraft()}
+          prev={null}
+          onFinish={async (draft) => {
+            const state = applySetup(null, draft);
+            // Version 0 is a first save; a 409 means a colleague finished set-up first.
+            const { version } = await saveRota(state, 0);
+            setPhase({ kind: 'ready', user, state, version });
+          }}
+        />
+      </div>
+    );
+  }
   if (phase.kind === 'error') {
     return (
       <div className="login">

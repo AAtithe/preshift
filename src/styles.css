@@ -215,3 +215,38 @@ td:hover .add, .add:focus { opacity: 1; }
 .login-alt { font-size: 13px; color: var(--muted); margin: 0; }
 .login-alt a { color: var(--accent); }
 .muted { color: var(--muted); }
+
+/* Account set-up */
+.setup { display: flex; flex-direction: column; gap: 16px; }
+.setup-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.setup-head h1 { margin: 0 0 4px; font-size: 22px; }
+.setup-head p { margin: 0; max-width: 70ch; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.steps button { display: flex; align-items: center; gap: 6px; }
+.steps button span { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--surface-2); font-size: 12px; font-weight: 600; }
+.steps button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.steps button.active span { background: var(--accent); color: var(--accent-text); }
+.steps button.done span { background: var(--good-bg); color: var(--good); }
+.setup-body { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.setup-body > .grid-wrap, .setup-body > .setup-card, .setup-body > .notice, .setup-body > .issues { align-self: stretch; }
+.step-intro { margin: 0; max-width: 80ch; color: var(--muted); line-height: 1.5; }
+.setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.setup-card h2 { margin: 0; font-size: 16px; }
+.setup-card p { margin: 0; }
+.setup-card textarea { width: 100%; font: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: inherit; }
+.field-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.field input { font-size: 14px; color: var(--text); }
+.field small { font-size: 11px; }
+.team-edit td { vertical-align: middle; }
+.team-edit input:not([type='checkbox']) { min-width: 0; }
+.center { text-align: center; }
+.role-pills { display: flex; flex-wrap: wrap; gap: 4px; min-width: 200px; }
+.role-pills button { padding: 2px 8px; font-size: 12px; border-radius: 999px; color: var(--muted); }
+.role-pills button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.setup-nav { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+button.link.danger { color: var(--bad); }
+@media (max-width: 640px) {
+  .setup-head { flex-direction: column; }
+}

@@ -20,6 +20,15 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** Typical week, used to generate the forecast for any week that has none. */
+  salesProfile?: SalesProfile;
+}
+
+export interface SalesProfile {
+  /** Net sales by weekday, Monday first. */
+  dailySales: number[];
+  /** Net spend per cover, to turn sales into covers. */
+  averageSpend: number;
 }
 
 export type PayBasis = 'hourly' | 'salaried';

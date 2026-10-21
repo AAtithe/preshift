@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef } from 'react';
-import type { RotaState, Shift } from '../engine/types';
+import type { HourForecast, RotaState, Shift } from '../engine/types';
 import { seedState } from '../engine/seed';
 import { weekDates } from '../engine/time';
 
@@ -9,6 +9,8 @@ export type Action =
   | { type: 'setShifts'; shifts: Shift[] }
   | { type: 'clearWeek'; siteId: string; weekStart: string }
   | { type: 'publishWeek'; siteId: string; weekStart: string }
+  | { type: 'addForecast'; rows: HourForecast[] }
+  | { type: 'replace'; state: RotaState }
   | { type: 'reset' };
 
 const DEMO_KEY = 'preshift.rota.v1';
@@ -57,6 +59,10 @@ function reducer(state: RotaState, action: Action): RotaState {
         ...state,
         shifts: state.shifts.map((s) => (inWeek(s, action.siteId, action.weekStart) ? { ...s, published: true } : s)),
       };
+    case 'addForecast':
+      return { ...state, forecast: [...state.forecast, ...action.rows] };
+    case 'replace':
+      return action.state;
     case 'reset':
       return seedState();
   }
