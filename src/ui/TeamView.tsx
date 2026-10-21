@@ -1,4 +1,5 @@
 import type { Issue } from '../engine/compliance';
+import { isEmployedOn } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { ageOn } from '../engine/time';
 import type { RotaState } from '../engine/types';
@@ -7,13 +8,22 @@ import { Avatar, COMPONENTS, CostStack } from './viz';
 
 interface Props {
   state: RotaState;
-  siteId: string;
+  siteIds: string[];
   metrics: WeekMetrics;
   issues: Issue[];
+  dates: string[];
 }
 
-export function TeamView({ state, siteId, metrics, issues }: Props) {
-  const people = state.employees.filter((e) => e.siteId === siteId);
+export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
+  // Everyone based in scope and on the books this week, then anyone borrowed in from outside it.
+  const people = [
+    ...state.employees.filter(
+      (e) => siteIds.includes(e.siteId) && (dates.some((d) => isEmployedOn(e, d)) || metrics.cost.employees.has(e.id)),
+    ),
+    ...state.employees.filter((e) => !siteIds.includes(e.siteId) && metrics.cost.employees.has(e.id)),
+  ];
+  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
+  const entityName = (id: string) => state.entities.find((x) => x.id === id)?.name ?? id;
   const totals = { gross: 0, holiday: 0, ni: 0, pension: 0, total: 0 };
   return (
     <div className="panel grid-wrap">
@@ -33,6 +43,8 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
           <tr>
             <th>Name</th>
             <th>Roles</th>
+            <th>Base</th>
+            <th>Employer</th>
             <th className="num">Pay</th>
             <th>Rostered vs contract</th>
             <th className="num">Gross</th>
@@ -66,6 +78,13 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
                   </div>
                 </td>
                 <td className="muted">{e.roleIds.map((r) => state.roles.find((x) => x.id === r)?.name).join(', ')}</td>
+                <td>
+                  {siteName(e.siteId)}
+                  {e.coverSiteIds.length > 0 && (
+                    <div className="muted small">Covers {e.coverSiteIds.map(siteName).join(', ')}</div>
+                  )}
+                </td>
+                <td className="muted">{entityName(e.entityId)}</td>
                 <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>
                 <td style={{ minWidth: 150 }}>
                   <div className="tnum small" style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -103,7 +122,7 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
         </tbody>
         <tfoot>
           <tr>
-            <th colSpan={4}>Team total, every site they work</th>
+            <th colSpan={6}>{siteIds.length === 1 ? 'Team total' : 'Total'}, every site they work</th>
             <td className="num">{money(totals.gross)}</td>
             <td className="num">{money(totals.holiday)}</td>
             <td className="num">{money(totals.ni)}</td>

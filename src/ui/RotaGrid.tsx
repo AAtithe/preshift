@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Issue } from '../engine/compliance';
+import { isEmployedOn } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { ageOn, formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
@@ -110,7 +111,9 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
   const roleOf = (id: string) => state.roles.find((r) => r.id === id);
   const deptOf = (e: Employee) => roleOf(e.roleIds[0])?.department ?? 'FOH';
   const people = state.employees.filter(
-    (e) => e.siteId === site.id || state.shifts.some((s) => s.employeeId === e.id && s.siteId === site.id && dates.includes(s.date)),
+    (e) =>
+      (e.siteId === site.id && dates.some((d) => isEmployedOn(e, d))) ||
+      state.shifts.some((s) => s.employeeId === e.id && s.siteId === site.id && dates.includes(s.date)),
   );
   const groups = DEPT_ORDER.map((dept) => ({
     dept,
@@ -196,7 +199,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                               {ageOn(e.dateOfBirth, dates[0]) < 18 && <span className="tag">Under 18</span>}
                             </div>
                             <div className="meta">
-                              {e.siteId !== site.id && <span className="tag borrowed">{state.sites.find((x) => x.id === e.siteId)?.name}</span>}
+                              {e.siteId !== site.id && <span className="tag borrowed">Cover from {state.sites.find((x) => x.id === e.siteId)?.name}</span>}
                               {e.roleIds.map((r) => roleOf(r)?.name).join(', ')}
                               {e.payBasis === 'salaried' ? ' · salaried' : ` · £${e.hourlyRate.toFixed(2)}`}
                             </div>

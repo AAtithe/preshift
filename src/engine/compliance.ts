@@ -1,5 +1,6 @@
 import type { Employee, RotaState, Shift } from './types';
 import { shiftPaidMinutes } from './cost';
+import { isEmployedOn } from './employees';
 import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
@@ -60,6 +61,8 @@ export function checkEmployeeWeek(
         absoluteMinute(anchor, a.date, a.startMinute) - absoluteMinute(anchor, b.date, b.startMinute),
     );
   const week = mine.filter((s) => inWeek.has(s.date));
+  // Someone not on the books this week, and not rostered, has nothing to check.
+  if (week.length === 0 && !dates.some((d) => isEmployedOn(employee, d))) return [];
   const age = ageOn(employee.dateOfBirth, weekStartDate);
   const young = age < 18;
   const push = (i: Omit<Issue, 'employeeId'>) => issues.push({ employeeId: employee.id, ...i });
@@ -78,6 +81,16 @@ export function checkEmployeeWeek(
         severity: 'block',
         message: `${(length / H).toFixed(1)}h shift needs a ${needed} minute break${young ? ' (under 18)' : ''}.`,
       });
+    }
+    if (!isEmployedOn(employee, shift.date)) {
+      const before = employee.startDate && shift.date < employee.startDate;
+      push({ ...base, code: 'not-employed', severity: 'block', message: before ? `Starts on ${employee.startDate}.` : `Left on ${employee.leaveDate}.` });
+    }
+    const rtw = employee.rightToWork;
+    if (rtw && !rtw.checked) {
+      push({ ...base, code: 'right-to-work', severity: 'block', message: 'No right to work check on file.' });
+    } else if (rtw?.expiry && shift.date > rtw.expiry) {
+      push({ ...base, code: 'right-to-work', severity: 'block', message: `Right to work expired on ${rtw.expiry}.` });
     }
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
@@ -150,17 +163,24 @@ export function checkEmployeeWeek(
   if (hours > employee.maxWeeklyHours) {
     push({ code: 'max-hours', severity: 'warn', message: `${hours.toFixed(1)}h exceeds their ${employee.maxWeeklyHours}h maximum.` });
   }
-  if (employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
+  const fullWeek = dates.every((d) => isEmployedOn(employee, d));
+  if (fullWeek && employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
     push({ code: 'under-contract', severity: 'warn', message: `${hours.toFixed(1)}h is below ${employee.contractedHours} contracted hours. You pay the gap either way.` });
   }
   return issues;
 }
 
-export function checkWeek(state: RotaState, weekStartDate: string, siteId?: string): Issue[] {
+/**
+ * Checks everyone based at, or rostered into, the given sites (all sites if none
+ * given). A person's whole week is checked across every site and entity they
+ * work for: rest, hours and double booking are about the worker, not the site.
+ */
+export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: string | string[]): Issue[] {
   const from = addDays(weekStartDate, -1);
   const to = addDays(weekStartDate, 7);
   const context = state.shifts.filter((s) => s.date >= from && s.date <= to);
+  const scope = siteIds === undefined ? null : new Set(typeof siteIds === 'string' ? [siteIds] : siteIds);
   return state.employees
-    .filter((e) => !siteId || e.siteId === siteId || context.some((s) => s.employeeId === e.id && s.siteId === siteId))
+    .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
     .flatMap((e) => checkEmployeeWeek(e, weekStartDate, context));
 }

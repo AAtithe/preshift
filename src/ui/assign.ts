@@ -1,6 +1,7 @@
 import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
+import { isEmployedOn } from '../engine/employees';
 import { addDays, absoluteMinute, ageOn, formatMinute, weekStart } from '../engine/time';
 import type { Employee, RotaState, Shift } from '../engine/types';
 import { dropBlocker, MIN_SHIFT_MINUTES, SNAP_MINUTES } from './drag';
@@ -24,6 +25,8 @@ export interface Candidate {
   /** Works for another site and would be borrowed. */
   borrowed: boolean;
   homeSite: string;
+  /** Employed by a different company from the host site's, so the shift is an intercompany recharge. */
+  intercompany: boolean;
   trained: boolean;
   /** Why this person cannot take the shift, or null when they can. */
   blocker: string | null;
@@ -91,8 +94,10 @@ export const TRAVEL_MINUTES = 60;
 export function candidates(state: RotaState, opening: Opening, id: string): Candidate[] {
   const ws = weekStart(opening.date);
   const siteName = (siteId: string) => state.sites.find((x) => x.id === siteId)?.name ?? siteId;
+  const host = state.sites.find((x) => x.id === opening.siteId);
   const context = state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
   return state.employees
+    .filter((e) => isEmployedOn(e, opening.date))
     .map((employee) => {
       const length = opening.endMinute - opening.startMinute;
       const shift: Shift = {
@@ -111,12 +116,17 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
       const siteCost = atSite([...week, shift]) - atSite(week);
       const issues = checkEmployeeWeek(employee, ws, [...context, shift]).filter((i) => i.shiftId === shift.id);
       const trained = employee.roleIds.includes(opening.roleId);
-      const blocker = dropBlocker(employee, shift) ?? issues.find((i) => i.severity === 'block')?.message ?? null;
+      const borrowed = employee.siteId !== opening.siteId;
+      // Cover is set up person by person on their People record, the same rule the auto-build uses.
+      const notCover = borrowed && !employee.coverSiteIds.includes(opening.siteId)
+        ? `Not set up to cover ${siteName(opening.siteId)}. Add it on their People record.`
+        : null;
+      const blocker = dropBlocker(employee, shift) ?? notCover ?? issues.find((i) => i.severity === 'block')?.message ?? null;
       const warnings = issues.filter((i) => i.severity === 'warn' && i.code !== 'not-trained');
       const travel = travelWarning(employee, shift, context, siteName);
       if (travel) warnings.unshift(travel);
-      const borrowed = employee.siteId !== opening.siteId;
-      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId) };
+      const intercompany = borrowed && !!host && employee.entityId !== host.entityId;
+      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId), intercompany };
     })
     .sort((a, b) => rank(a) - rank(b) || a.marginal - b.marginal || a.employee.name.localeCompare(b.employee.name));
 }

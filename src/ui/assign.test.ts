@@ -57,22 +57,29 @@ describe('adding a shift from the timeline', () => {
     expect(adult.shift.breakMinutes).toBe(20);
   });
 
-  it('offers people from other sites as borrowed, with the cost landing on the site they work at', () => {
+  it('offers other sites as borrowed, only people set up to cover this site, cost landing where they work', () => {
     const s = state();
     s.shifts = [];
-    const list = candidates(s, { siteId: 'mar', roleId: 'server', date: WEEK, startMinute: 12 * 60, endMinute: 16 * 60 }, 'new');
+    const list = candidates(s, { siteId: 'mar', roleId: 'bar', date: WEEK, startMinute: 17 * 60, endMinute: 21 * 60 }, 'new');
     const away = list.filter((c) => c.borrowed);
     expect(away.length).toBeGreaterThan(0);
-    expect(away.every((c) => c.employee.siteId !== 'mar' && c.homeSite === 'Shoreditch')).toBe(true);
     expect(list.filter((c) => !c.borrowed).every((c) => c.employee.siteId === 'mar')).toBe(true);
-    const plain = away.find((c) => c.employee.payBasis === 'hourly' && c.employee.contractedHours === 0 && !c.blocker)!;
-    expect(plain.siteCost).toBeCloseTo(plain.marginal, 1);
+    for (const c of away) {
+      if (!c.employee.coverSiteIds.includes('mar')) expect(c.blocker).toMatch(/Not set up to cover Marylebone/);
+    }
+    const dev = away.find((c) => c.employee.name === 'Dev Kapoor')!;
+    expect(dev.blocker).toBeNull();
+    expect(dev.homeSite).toBe('Shoreditch');
+    // Shoreditch trades in a different company from Marylebone, so Dev's shift is a recharge.
+    expect(dev.intercompany).toBe(true);
+    expect(dev.siteCost).toBeCloseTo(dev.marginal, 1);
   });
 
   it('borrowing someone with unworked contracted hours costs the group nothing but moves cost to the host site', () => {
     const s = state();
     s.shifts = [];
     const contracted = s.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours >= 8)!;
+    contracted.coverSiteIds = ['mar'];
     const list = candidates(s, { siteId: 'mar', roleId: contracted.roleIds[0], date: WEEK, startMinute: 12 * 60, endMinute: 16 * 60 }, 'new');
     const c = list.find((x) => x.employee.id === contracted.id)!;
     expect(c.borrowed).toBe(true);
@@ -83,6 +90,7 @@ describe('adding a shift from the timeline', () => {
   it('blocks a double booking across sites and flags too little time to travel', () => {
     const s = state();
     const person = s.employees.find((e) => e.siteId === 'shd' && e.roleIds.includes('server') && e.availability.length === 0)!;
+    person.coverSiteIds = ['mar'];
     s.shifts = [{ id: 'home', employeeId: person.id, roleId: 'server', siteId: 'shd', date: WEEK, startMinute: 12 * 60, endMinute: 17 * 60, breakMinutes: 0 }];
     const at = (start: number, end: number) =>
       candidates(s, { siteId: 'mar', roleId: 'server', date: WEEK, startMinute: start, endMinute: end }, 'new').find((c) => c.employee.id === person.id)!;

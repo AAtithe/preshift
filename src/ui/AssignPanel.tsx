@@ -68,6 +68,7 @@ export function AssignPanel({ state, opening: initial, onPreview, onAdd, onClose
             <span className="strong">
               {c.employee.name}
               {c.borrowed && <span className="tag borrowed">{c.homeSite}</span>}
+              {c.intercompany && <span className="tag" title="Employed by another company: the journal books a recharge">Intercompany</span>}
             </span>
             <span className="muted small">
               {c.employee.roleIds.map((r) => state.roles.find((x) => x.id === r)?.name).join(', ')}

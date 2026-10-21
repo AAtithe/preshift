@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Sign in to Preshift</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f4d3a%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 font-family=%22sans-serif%22 font-weight=%22700%22 fill=%22white%22 text-anchor=%22middle%22%3EP%3C/text%3E%3C/svg%3E" />
+    <style>
+      :root {
+        --bg: #f6f5f2; --surface: #ffffff; --border: #e2dfd8; --text: #1c1b19; --muted: #6d6a63;
+        --accent: #1f4d3a; --accent-text: #ffffff; --bad: #b3261e; --bad-bg: #fbe6e4; --good-bg: #e3f1e8;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131412; --surface: #1c1d1a; --border: #34352f; --text: #ecebe6; --muted: #a09d94;
+          --accent: #5fb88a; --accent-text: #0e1a13; --bad: #ff8a80; --bad-bg: #3b1a17; --good-bg: #1d3326;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+        background: var(--bg); color: var(--text);
+        font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      main { width: min(380px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+      .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
+      .mark { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; }
+      .name { font-weight: 700; font-size: 18px; }
+      .sub { color: var(--muted); font-size: 12px; }
+      h1 { font-size: 18px; margin: 0 0 14px; }
+      label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+      input { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
+      input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button { width: 100%; font: inherit; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); cursor: pointer; margin-top: 4px; }
+      .msg { font-size: 13px; padding: 8px 10px; border-radius: 8px; margin-bottom: 14px; }
+      .msg.bad { background: var(--bad-bg); color: var(--bad); }
+      .msg.ok { background: var(--good-bg); }
+      .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+      .foot.intro { margin: -6px 0 16px; }
+      .foot a, .linkish { color: var(--accent); }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">P</span>
+        <div>
+          <div class="name">Preshift</div>
+          <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
+        </div>
+      </div>
+      <p class="msg bad" id="invalid" role="alert" hidden>That email and password do not match. Check both and try again.</p>
+      <p class="msg bad" id="locked" role="alert" hidden>Too many attempts. Sign-in for this account is paused for 15 minutes, or ask an admin to reset your password.</p>
+      <p class="msg bad" id="taken" role="alert" hidden>The owner account has already been created. Sign in instead.</p>
+      <p class="msg bad" id="email" role="alert" hidden>Enter a valid email address.</p>
+      <p class="msg bad" id="weak" role="alert" hidden>Use a password of at least 12 characters.</p>
+      <p class="msg bad" id="mismatch" role="alert" hidden>The two passwords do not match.</p>
+      <p class="msg ok" id="signedout" hidden>You have signed out.</p>
+      <p class="msg ok" id="sent" role="status" hidden>If that email has an account, a reset link is on its way. It works once and expires in 30 minutes. Nothing after a few minutes? Check spam, or ask an admin in your organisation for a reset link.</p>
+
+      <section id="signin">
+        <h1>Sign in</h1>
+        <form method="post" action="/auth/login">
+          <input type="hidden" name="next" value="/app/" />
+          <label>Email <input type="email" name="email" autocomplete="username" required autofocus /></label>
+          <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+          <button type="submit">Sign in</button>
+        </form>
+        <p class="foot"><a href="#forgot" id="forgot-link">Forgot your password?</a></p>
+        <p class="foot">Access is set up by an admin in your organisation, under Settings in the app.</p>
+      </section>
+
+      <section id="forgot" hidden>
+        <h1>Reset your password</h1>
+        <p class="foot intro">Enter the email you sign in with and we will send you a link to choose a new password.</p>
+        <form method="post" action="/auth/forgot">
+          <label>Email <input type="email" name="email" autocomplete="username" required /></label>
+          <button type="submit">Send reset link</button>
+        </form>
+        <p class="foot"><a href="/login">Back to sign in</a></p>
+      </section>
+
+      <section id="reset" hidden>
+        <h1>Choose a new password</h1>
+        <p class="msg bad" id="reset-error" role="alert" hidden></p>
+        <p class="foot intro" id="reset-for" hidden></p>
+        <form id="reset-form" hidden>
+          <label>New password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>New password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Save password and sign in</button>
+        </form>
+        <p class="foot"><a href="/login">Back to sign in</a></p>
+      </section>
+
+      <section id="setup" hidden>
+        <h1>Create the owner account</h1>
+        <p class="foot intro">This is the first sign-in on this system. The account you create here becomes the owner, and can add everyone else from Settings.</p>
+        <form method="post" action="/auth/setup">
+          <input type="hidden" name="next" value="/app/" />
+          <label>Your email <input type="email" name="email" autocomplete="username" required /></label>
+          <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Create owner account</button>
+        </form>
+      </section>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const next = params.get('next');
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
+      }
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'signedout', 'sent']) {
+        if (params.get('error') === id || params.has(id)) document.getElementById(id).hidden = false;
+      }
+      const show = (id) => {
+        for (const section of ['signin', 'forgot', 'reset']) document.getElementById(section).hidden = section !== id;
+        document.querySelector(`#${id} input:not([type=hidden])`)?.focus();
+      };
+      document.getElementById('forgot-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        show('forgot');
+      });
+
+      // A reset link carries its token after #, which never reaches a server. Take it out of the
+      // address bar straight away so it is not left in history or shared by accident.
+      const resetToken = location.hash.startsWith('#reset=') ? location.hash.slice(7) : null;
+      if (resetToken) {
+        history.replaceState(null, '', '/login');
+        show('reset');
+        const fail = (message) => {
+          const el = document.getElementById('reset-error');
+          el.textContent = message;
+          el.hidden = false;
+        };
+        const post = (body) =>
+          fetch('/auth/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+            .then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+        post({ token: resetToken })
+          .then(({ ok, body }) => {
+            if (!ok) return fail(body.message || 'This reset link does not work. Ask for a new one.');
+            const who = document.getElementById('reset-for');
+            who.textContent = `For ${body.email}. Saving signs out every device signed in to this account.`;
+            who.hidden = false;
+            document.getElementById('reset-form').hidden = false;
+            document.querySelector('#reset-form input').focus();
+          })
+          .catch(() => fail('Could not check the link. Check your connection and open it again.'));
+        document.getElementById('reset-form').addEventListener('submit', (e) => {
+          e.preventDefault();
+          const form = new FormData(e.target);
+          if (form.get('password') !== form.get('confirm')) return fail('The two passwords do not match.');
+          post({ token: resetToken, password: form.get('password') })
+            .then(({ ok, body }) => (ok ? location.assign('/app/') : fail(body.message || 'The password was not saved.')))
+            .catch(() => fail('Could not save the password. Check your connection and try again.'));
+        });
+      }
+      // On a fresh system there is nobody to sign in as yet, so offer the owner set-up instead.
+      fetch('/auth/status')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((status) => {
+          if (!status?.setupNeeded || resetToken) return;
+          document.getElementById('signin').hidden = true;
+          document.getElementById('setup').hidden = false;
+          document.querySelector('#setup input[name=email]').focus();
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>

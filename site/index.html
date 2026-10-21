@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preshift Rota | The rota that costs like payroll</title>
+    <meta
+      name="description"
+      content="Preshift Rota builds your rota from the sales forecast, costs every shift the way payroll will, blocks anything that breaks UK employment law, and posts the labour accrual for a 3-day close."
+    />
+    <meta property="og:title" content="Preshift Rota | The rota that costs like payroll" />
+    <meta
+      property="og:description"
+      content="Forecast-led rotas, fully loaded labour cost and UK compliance, built by Preshift and Williams, Stanley &amp; Co."
+    />
+    <meta property="og:image" content="img/rota.webp" />
+    <meta name="theme-color" content="#f6f1e6" />
+    <link rel="canonical" href="https://preshift-nine.vercel.app/" />
+    <meta property="og:url" content="https://preshift-nine.vercel.app/" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230e0e10%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2220%22 font-family=%22sans-serif%22 font-weight=%22800%22 fill=%22%23ff5e1a%22 text-anchor=%22middle%22%3Ep%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400..700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="arrow" viewBox="0 0 16 16"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="2" /></symbol>
+      <symbol id="arrow-ne" viewBox="0 0 16 16"><path d="M4 12 12 4M5.5 4H12v6.5" fill="none" stroke="currentColor" stroke-width="2" /></symbol>
+    </svg>
+
+    <header class="site-header">
+      <div class="wrap nav">
+        <a class="logo" href="#top" aria-label="Preshift Rota home">preshift.<span class="logo-tag">Rota</span></a>
+        <ul class="nav-links" id="nav-links">
+          <li><a href="#product">Product</a></li>
+          <li><a href="#cost">True cost</a></li>
+          <li><a href="#compliance">Compliance</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
+        <div class="nav-actions">
+          <a class="btn btn-ghost btn-sm" href="/app/">Log in</a>
+          <a class="btn btn-ink btn-sm nav-demo" href="#contact">Book a demo <svg><use href="#arrow" /></svg></a>
+          <button class="nav-toggle" aria-expanded="false" aria-controls="nav-links">Menu</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- Hero -->
+      <section class="hero" id="top">
+        <div class="wrap">
+          <h1>
+            Your rota says <span class="s">26%.</span><br />
+            Your P&amp;L says <span class="s">31%.</span>
+          </h1>
+          <div class="hero-row">
+            <p>
+              Preshift Rota builds the week from your sales forecast, costs every shift the way payroll will, blocks
+              anything that breaks UK employment law, and hands finance a ready-to-post labour accrual. One cost model,
+              from the GM's screen to the ledger.
+            </p>
+            <div>
+              <div class="hero-ctas">
+                <a class="btn btn-ink" href="#contact">Book a demo <svg><use href="#arrow" /></svg></a>
+                <a class="btn btn-ghost" href="#product">See the product <svg><use href="#arrow" /></svg></a>
+              </div>
+              <p class="hero-note">Built by Preshift and Williams, Stanley &amp; Co. Rates set for 2026/27.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Strip -->
+      <div class="strip" aria-hidden="true">
+        <div class="strip-track">
+          <span>Employer NI 15% over £96/wk</span><span>Holiday accrual 12.07%</span><span>Auto-enrolment 3%</span
+          ><span>NLW £12.71</span><span>11 hour daily rest</span><span>48 hour average</span><span>Young worker limits</span
+          ><span>Sales per labour hour</span><span>Xero manual journal</span><span>3-day close</span>
+          <span>Employer NI 15% over £96/wk</span><span>Holiday accrual 12.07%</span><span>Auto-enrolment 3%</span
+          ><span>NLW £12.71</span><span>11 hour daily rest</span><span>48 hour average</span><span>Young worker limits</span
+          ><span>Sales per labour hour</span><span>Xero manual journal</span><span>3-day close</span>
+        </div>
+      </div>
+
+      <!-- 01 Reality -->
+      <section id="reality">
+        <div class="wrap">
+          <div class="eyebrow">01 &middot; The reality</div>
+          <h2 class="h-section">Sound <span class="s">familiar?</span></h2>
+          <p class="lede">If you run more than one site, this is how labour gets managed today.</p>
+
+          <div class="grid-4">
+            <article class="card top-coral vignette reveal">
+              <div class="vignette-meta"><span class="mono">Monday 09:10</span><span class="pill">Payroll lands</span></div>
+              <h3>Labour came in five points over. Again.</h3>
+              <p>
+                The rota said 26%. Payroll says 31%. Holiday, employer NI and pension were never on the rota, so nobody can
+                say where the five points went.
+              </p>
+              <p class="sting"><b>Five points on £40k a week</b> is £104k a year you only find out about after it has gone.</p>
+            </article>
+            <article class="card top-indigo vignette reveal">
+              <div class="vignette-meta"><span class="mono">Saturday 15:30</span><span class="pill">Overstaffed</span></div>
+              <h3>"Why are there six on the floor?"</h3>
+              <p>
+                The rota was built from last week's rota, not from the forecast. The quiet afternoon got the same team as
+                the Friday rush.
+              </p>
+              <p class="sting"><b>Habit, not demand,</b> is setting your biggest controllable cost.</p>
+            </article>
+            <article class="card top-sage vignette reveal">
+              <div class="vignette-meta"><span class="mono">Sunday 23:40</span><span class="pill">Compliance</span></div>
+              <h3>A 17-year-old on a ten-hour close.</h3>
+              <p>
+                Nobody meant to. The rota tool let it through, the same way it let through the 9 hour turnaround and the
+                missing break.
+              </p>
+              <p class="sting"><b>Tribunal risk</b> sitting quietly in a spreadsheet.</p>
+            </article>
+            <article class="card top-coral vignette reveal">
+              <div class="vignette-meta"><span class="mono">Day 9 of close</span><span class="pill">Month end</span></div>
+              <h3>Finance is still guessing the labour accrual.</h3>
+              <p>
+                Payroll runs after month end, so labour on the P&amp;L is an estimate built from last month. The real number
+                arrives too late to act on.
+              </p>
+              <p class="sting"><b>Decisions made on stale numbers</b> are decisions made too late.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 02 Product -->
+      <section class="tint" id="product">
+        <div class="wrap">
+          <div class="eyebrow">02 &middot; The product</div>
+          <h2 class="h-section">One cost model. <span class="s">Three jobs.</span></h2>
+          <p class="lede">
+            Build the rota. Show the GM the consequence of every shift. Post the accrual to the ledger. The same numbers,
+            every step, so the rota reconciles to payroll.
+          </p>
+
+          <div class="card product-shot reveal">
+            <div class="shot-bar">
+              <i></i><i></i><i></i>
+              <div class="shot-tabs" role="tablist" aria-label="Product screens">
+                <button role="tab" aria-selected="true" data-shot="rota">Rota</button>
+                <button role="tab" aria-selected="false" data-shot="demand">Demand</button>
+                <button role="tab" aria-selected="false" data-shot="editor">Shift editor</button>
+                <button role="tab" aria-selected="false" data-shot="close">Close</button>
+              </div>
+            </div>
+            <div class="shot-frame">
+              <img
+                id="shot-img"
+                src="img/rota.webp"
+                width="1440"
+                height="1000"
+                alt="Preshift Rota weekly grid with forecast sales, loaded labour cost, labour percentage against target and compliance flags"
+              />
+            </div>
+            <p class="shot-caption" id="shot-caption">
+              The week at a glance: forecast sales, fully loaded labour, labour % against the site target and anything that
+              needs a second look before you publish.
+            </p>
+          </div>
+
+          <div class="grid-3">
+            <article class="card top-coral feature reveal">
+              <div class="feature-head"><span class="mono">Demand-led build</span><span class="num">/01</span></div>
+              <h3>Built from the forecast, not from last week.</h3>
+              <p>
+                Hourly sales and covers become headcount per role. The build fills peaks first with the cheapest legal
+                person, then trims overstaffed edges.
+              </p>
+              <ul>
+                <li>Sales per labour hour or covers per person</li>
+                <li>Floors and caps by role</li>
+                <li>Unfillable gaps flagged as a hiring signal</li>
+              </ul>
+            </article>
+            <article class="card top-indigo feature reveal">
+              <div class="feature-head"><span class="mono">True cost per shift</span><span class="num">/02</span></div>
+              <h3>Costed the way payroll will cost it.</h3>
+              <p>
+                Gross pay, holiday accrual, employer NI and pension, worked out on the whole week and spread back over
+                each shift. No more rate times hours.
+              </p>
+              <ul>
+                <li>Marginal cost of every shift in the editor</li>
+                <li>Guaranteed contracted hours included</li>
+                <li>Live labour % and pound variance to target</li>
+              </ul>
+            </article>
+            <article class="card top-sage feature reveal">
+              <div class="feature-head"><span class="mono">Rota to ledger</span><span class="num">/03</span></div>
+              <h3>The rota is the first document in the close.</h3>
+              <p>
+                Publish the week and the labour accrual is ready: by role nominal and site tracking category, in Xero
+                manual journal format, with an hours file for payroll.
+              </p>
+              <ul>
+                <li>Accrual posted before payroll runs</li>
+                <li>Rota to payroll variance reviewed weekly</li>
+                <li>Built for a 3-day close</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 03 How it works -->
+      <section id="how">
+        <div class="wrap">
+          <div class="eyebrow">03 &middot; How it works</div>
+          <h2 class="h-section">Forecast. Build. <span class="s">Close.</span></h2>
+          <p class="lede">A week of labour, start to finish, without a spreadsheet in sight.</p>
+
+          <div class="grid-3">
+            <article class="card step reveal">
+              <div class="roman">I.</div>
+              <h3>Forecast</h3>
+              <p>
+                Sales and covers by hour, per site. Set the labour target and the productivity rule for each role. That is
+                the brief the rota has to meet.
+              </p>
+              <div class="tags"><span>Hourly</span><span>Per role</span><span>Per site</span></div>
+            </article>
+            <article class="card step reveal">
+              <div class="roman">II.</div>
+              <h3>Build</h3>
+              <p>
+                Press one button. Preshift fills the week legally and cheaply, then the GM adjusts with the cost of every
+                change in front of them. Blocking issues stop publication.
+              </p>
+              <div class="tags"><span>One click</span><span>Marginal cost</span><span>Compliance gate</span></div>
+            </article>
+            <article class="card step reveal">
+              <div class="roman">III.</div>
+              <h3>Close</h3>
+              <p>
+                The published rota becomes the labour accrual. Finance posts it, payroll confirms it, and the variance is
+                reviewed every week rather than discovered every month.
+              </p>
+              <div class="tags"><span>Xero journal</span><span>Payroll hours</span><span>3-day close</span></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 04 True cost calculator -->
+      <section class="tint" id="cost">
+        <div class="wrap">
+          <div class="eyebrow">04 &middot; True cost</div>
+          <h2 class="h-section">What does that shift <span class="s">really cost?</span></h2>
+          <p class="lede">
+            Rate times hours is the number most rota tools show. Move the sliders and watch what the shift actually adds to
+            the week once holiday, employer NI and pension are counted the way HMRC counts them.
+          </p>
+
+          <div class="card calc reveal" id="calc">
+            <div class="calc-inputs">
+              <label>
+                <span class="mono">Hourly rate <output id="o-rate">£12.71</output></span>
+                <input type="range" id="i-rate" min="8" max="20" step="0.01" value="12.71" />
+              </label>
+              <label>
+                <span class="mono">Shift length (paid) <output id="o-hours">8h</output></span>
+                <input type="range" id="i-hours" min="2" max="12" step="0.5" value="8" />
+              </label>
+              <label>
+                <span class="mono">Already rostered this week <output id="o-week">24h</output></span>
+                <input type="range" id="i-week" min="0" max="44" step="1" value="24" />
+              </label>
+              <label>
+                <span class="mono">Contracted guaranteed hours <output id="o-contract">0h</output></span>
+                <input type="range" id="i-contract" min="0" max="40" step="1" value="0" />
+              </label>
+              <label class="calc-switch"><input type="checkbox" id="i-pension" checked /> Enrolled in workplace pension</label>
+            </div>
+            <div class="calc-out" aria-live="polite">
+              <div class="calc-compare">
+                <div>
+                  <span class="mono">Rate x hours</span>
+                  <div class="calc-big naive" id="r-naive">£0</div>
+                </div>
+                <div>
+                  <span class="mono">What it adds to the week</span>
+                  <div class="calc-big" id="r-marginal">£0</div>
+                </div>
+              </div>
+              <table class="calc-table">
+                <tbody>
+                  <tr><td>Gross pay</td><td id="r-gross">£0.00</td></tr>
+                  <tr><td>Holiday accrual (12.07%)</td><td id="r-holiday">£0.00</td></tr>
+                  <tr><td>Employer NI (15% over £96/wk)</td><td id="r-ni">£0.00</td></tr>
+                  <tr><td>Employer pension (3% of qualifying earnings)</td><td id="r-pension">£0.00</td></tr>
+                  <tr class="total"><td>Marginal cost of this shift</td><td id="r-total">£0.00</td></tr>
+                </tbody>
+              </table>
+              <p class="calc-verdict" id="r-verdict"></p>
+              <p class="fineprint">Illustrative. 2026/27 rates, single employment, weekly pay period. The product uses the same rules.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 05 Compliance -->
+      <section id="compliance">
+        <div class="wrap">
+          <div class="eyebrow">05 &middot; UK compliance</div>
+          <h2 class="h-section">Legal by default. <span class="s">Not by luck.</span></h2>
+          <p class="lede">
+            Every shift is checked as it is built. Warnings get a second look. Blocking issues stop the rota being published
+            until they are fixed.
+          </p>
+
+          <ul class="checks">
+            <li><span class="mono">WTR</span><div><b>Breaks and daily rest</b><span>20 minute break over six hours, 11 hours between shifts, checked across week boundaries.</span></div></li>
+            <li><span class="mono">WTR</span><div><b>Weekly rest and the 48 hour average</b><span>Weekly rest enforced, 48 hours flagged for anyone without a signed opt-out.</span></div></li>
+            <li><span class="mono">Young workers</span><div><b>Under-18 limits</b><span>8 hours a day, 40 a week, 30 minute break, 12 hours rest and restricted night work.</span></div></li>
+            <li><span class="mono">NMW / NLW</span><div><b>Minimum wage by age</b><span>Every rate checked against the band for the person's age on the shift date.</span></div></li>
+            <li><span class="mono">Rostering</span><div><b>Double booking, leave and availability</b><span>No one rostered twice, on holiday or outside the hours they said they can work.</span></div></li>
+            <li><span class="mono">Training</span><div><b>Right person, right role</b><span>Only people trained for a role can be put on it, across every site in the group.</span></div></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 06 Thesis (dark) -->
+      <section class="dark" id="why">
+        <div class="wrap">
+          <div class="eyebrow">06 &middot; Why it exists</div>
+          <h2 class="h-section">Rota software is sold to ops. <span class="s">Labour is reported by finance.</span></h2>
+          <p class="lede">
+            Two systems, two definitions of cost, weeks apart. That gap is where margin leaks. Preshift closes it with one
+            cost model, signed off by the firm that produces your management accounts.
+          </p>
+
+          <div class="gap-visual reveal">
+            <div class="gap-box">
+              <span class="mono">The rota</span>
+              <div class="figure">26%</div>
+              <p>Rate times hours. Built by the GM on Thursday. Never sees holiday, NI or pension.</p>
+            </div>
+            <div class="gap-mid">five points<small>Nobody can explain</small></div>
+            <div class="gap-box pnl">
+              <span class="mono">The P&amp;L</span>
+              <div class="figure">31%</div>
+              <p>Fully loaded. Produced by finance three weeks after the month closed.</p>
+            </div>
+          </div>
+
+          <div class="targets">
+            <div class="target"><strong>&lt;1<span class="s">%</span></strong><p>Rota to payroll variance, as a share of labour cost.</p></div>
+            <div class="target"><strong>80<span class="s">%</span></strong><p>Of weeks with labour % within one point of target.</p></div>
+            <div class="target"><strong>3 <span class="s">days</span></strong><p>To close the month for sites on Preshift.</p></div>
+            <div class="target"><strong>-30<span class="s">%</span></strong><p>Overstaffed hours in the first quarter.</p></div>
+          </div>
+          <p class="fineprint" style="color: color-mix(in srgb, var(--cream) 50%, transparent)">
+            The targets we hold ourselves to with every site.
+          </p>
+        </div>
+      </section>
+
+      <!-- 07 Partners -->
+      <section id="partners">
+        <div class="wrap">
+          <div class="eyebrow">07 &middot; Who's behind it</div>
+          <h2 class="h-section">Operators. <span class="s">And accountants.</span></h2>
+          <p class="lede">
+            Neither of us could build this alone as credibly. Together we cover the data, the floor and the ledger.
+          </p>
+          <div class="partners">
+            <article class="card top-coral partner reveal">
+              <span class="mono">Data and operators</span>
+              <div class="who">Preshift</div>
+              <p>
+                Runs technology and marketing for UK multi-site hospitality groups. Brings the sales, covers, weather and
+                footfall feeds that drive the forecast, and the onboarding that gets you live.
+              </p>
+            </article>
+            <article class="card top-indigo partner reveal">
+              <span class="mono">Finance engine and the close</span>
+              <div class="who">Williams, Stanley &amp; Co.</div>
+              <p>
+                Hospitality accountants, founded by a restaurateur turned accountant. Brings the cost model, the 3-day close
+                and a labour number signed off by the people who produce your management accounts.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 08 Pricing -->
+      <section class="tint" id="pricing">
+        <div class="wrap">
+          <div class="eyebrow">08 &middot; Pricing</div>
+          <h2 class="h-section">Three ways to <span class="s">get started.</span></h2>
+          <p class="lede">Done for you by Preshift and WS onboarding. No consultancy-led six-month implementation.</p>
+
+          <div class="grid-3">
+            <article class="card top-coral price reveal">
+              <div class="price-head"><h3>Founding sites.</h3><svg><use href="#arrow-ne" /></svg></div>
+              <div class="price-body">
+                <p class="lead">Shape the product with us.</p>
+                <p>A small group of multi-site operators going live first, with direct access to the people building it.</p>
+                <ul>
+                  <li>Set up and onboarded for you</li>
+                  <li>Weekly variance review with WS</li>
+                  <li>Founding pricing, locked in</li>
+                </ul>
+                <div class="price-foot">
+                  <span class="mono">Limited places</span>
+                  <a href="#contact">Apply for a founding place &rarr;</a>
+                </div>
+              </div>
+            </article>
+            <article class="card top-indigo price reveal">
+              <div class="price-head"><h3>With WS.</h3><svg><use href="#arrow-ne" /></svg></div>
+              <div class="price-body">
+                <p class="lead">Bundled into your WS service.</p>
+                <p>For Williams, Stanley &amp; Co. clients. The rota feeds your management accounts and the 3-day close.</p>
+                <ul>
+                  <li>Accrual posted by your WS team</li>
+                  <li>Labour % on the same basis as your P&amp;L</li>
+                  <li>One relationship, one number</li>
+                </ul>
+                <div class="price-foot">
+                  <span class="mono">Included in your WS fee</span>
+                  <a href="#contact">Talk to your WS lead &rarr;</a>
+                </div>
+              </div>
+            </article>
+            <article class="card top-sage price reveal">
+              <div class="price-head"><h3>Standalone.</h3><svg><use href="#arrow-ne" /></svg></div>
+              <div class="price-body">
+                <p class="lead">Per site, per month.</p>
+                <p>Through Preshift, alongside Preshift Reports and Core. Exports to the ledger and payroll you already use.</p>
+                <ul>
+                  <li>Forecast from your Preshift data</li>
+                  <li>Xero journal and payroll hours file</li>
+                  <li>Month-to-month</li>
+                </ul>
+                <div class="price-foot">
+                  <span class="mono">Priced per site</span>
+                  <a href="#contact">Get a quote &rarr;</a>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Manifesto -->
+      <section class="manifesto">
+        <div class="wrap">
+          <div class="eyebrow">What we believe</div>
+          <h2>Labour % should be known <span class="s">on Tuesday,</span> not discovered <span class="s">at month end.</span></h2>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section class="tint" id="faq">
+        <div class="wrap">
+          <div class="eyebrow">09 &middot; Questions</div>
+          <h2 class="h-section">The <span class="s">sensible</span> questions.</h2>
+          <div class="faq">
+            <details>
+              <summary>How is this different from Fourth, Sona or Workforce.com?</summary>
+              <p>
+                Scheduling is a commodity. The difference is that our cost on the rota is the cost on the P&amp;L: fully
+                loaded, reconciled to payroll, and posted to the ledger as the labour accrual. The rota becomes part of the
+                close, not a separate tool that finance has to reconcile after the fact.
+              </p>
+            </details>
+            <details>
+              <summary>Where does the forecast come from?</summary>
+              <p>
+                From Preshift's own sales and covers feeds, by hour and by site. Forecast accuracy improves with every week
+                of actuals. You set the labour target and the productivity rule for each role.
+              </p>
+            </details>
+            <details>
+              <summary>Which accounting and payroll systems does it work with?</summary>
+              <p>
+                The labour accrual exports in Xero manual journal format, by role nominal and site tracking category, with an
+                hours file for payroll. Further payroll exports are on the roadmap for the payrolls WS clients run.
+              </p>
+            </details>
+            <details>
+              <summary>Who keeps the statutory rates up to date?</summary>
+              <p>
+                We do. Minimum wage bands, employer NI, the pension band and holiday accrual are held in one place, set for
+                2026/27 and re-checked against GOV.UK before every new tax year.
+              </p>
+            </details>
+            <details>
+              <summary>What is coming next?</summary>
+              <p>
+                A staff app for rotas, swaps, availability and leave; geofenced clock-in so actual hours replace rostered
+                hours in the accrual; a live sales feed so labour % updates through the day; and tronc allocation under the
+                Employment (Allocation of Tips) Act 2023.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- Contact -->
+      <section class="contact" id="contact">
+        <div class="wrap">
+          <div class="eyebrow">Whenever you're ready</div>
+          <h2>Let's look at <span class="s">your labour.</span></h2>
+          <p>
+            Half an hour on Zoom or in person. Bring last month's rota and payroll. We will show you where the points went.
+          </p>
+          <div class="hero-ctas">
+            <a class="btn btn-coral" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo <svg><use href="#arrow" /></svg></a>
+            <a class="btn btn-ghost" href="mailto:hello@preshift.co.uk">Email us</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <div class="foot-grid">
+          <div>
+            <div class="foot-logo">preshift.</div>
+            <p>
+              The rota that costs like payroll. Forecast-led rotas, fully loaded labour and UK compliance for multi-site
+              hospitality operators. A Preshift and Williams, Stanley &amp; Co. venture.
+            </p>
+            <span class="mono">hello@preshift.co.uk &middot; Built in London</span>
+          </div>
+          <div>
+            <h4>Product</h4>
+            <ul>
+              <li><a href="#product">Rota</a></li>
+              <li><a href="#cost">True cost</a></li>
+              <li><a href="#compliance">Compliance</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Company</h4>
+            <ul>
+              <li><a href="#partners">Who's behind it</a></li>
+              <li><a href="#why">Why it exists</a></li>
+              <li><a href="#faq">FAQ</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Get started</h4>
+            <ul>
+              <li><a href="#contact">Book a demo</a></li>
+              <li><a href="/app/">Try the demo</a></li>
+              <li><a href="#pricing">Pricing</a></li>
+              <li><a href="mailto:hello@preshift.co.uk">Email us</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="wordmark" aria-hidden="true">Pre<span class="s">shift.</span></div>
+        <div class="foot-base">
+          <span class="mono">Preshift Rota. Built in London for hospitality operators.</span>
+          <nav class="mono" aria-label="Legal">
+            <a href="#">Privacy</a><a href="#">Cookies</a><a href="#">DPA</a><a href="#">Terms</a>
+          </nav>
+        </div>
+      </div>
+    </footer>
+
+    <script src="main.js"></script>
+  </body>
+</html>
