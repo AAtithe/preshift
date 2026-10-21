@@ -10,6 +10,8 @@ import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { forecastBody, idParam, rangeQuery, shiftBody, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
+import { canSeeSite, requireSiteAccess, rosterableEmployee, seesRecord } from '../scope';
+import type { FastifyRequest } from 'fastify';
 
 type SiteWeek = { siteId: string; weekStart: string };
 type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
@@ -47,9 +49,10 @@ function sitesOf(org: OrgData, body: SitesWeek, mustExist: boolean): string[] {
   return [...new Set(ids)];
 }
 
-function validateShift(org: OrgData, shift: Shift) {
+function validateShift(req: FastifyRequest, org: OrgData, shift: Shift) {
   requireSite(org, shift.siteId);
-  if (!org.state.employees.some((e) => e.id === shift.employeeId)) throw notFound(`Employee ${shift.employeeId}`);
+  requireSiteAccess(req, shift.siteId);
+  rosterableEmployee(req, org, shift.employeeId);
   if (!org.state.roles.some((r) => r.id === shift.roleId)) throw notFound(`Role ${shift.roleId}`);
   if (shift.endMinute <= shift.startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
 }
@@ -74,14 +77,14 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
   app.get('/v1/demand-rules', { ...read, schema: { tags: ['Reference'] } }, async (req) => orgOf(req).state.demandRules);
 
   app.get<{ Querystring: Range }>('/v1/shifts', { ...read, schema: { tags: ['Shifts'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).state.shifts.filter(inRange(req.query)),
+    orgOf(req).state.shifts.filter((s) => inRange(req.query)(s) && seesRecord(req, orgOf(req), s, 'shift')),
   );
 
   app.post<{ Body: Shift }>('/v1/shifts', { ...write, schema: { tags: ['Shifts'], body: shiftBody } }, async (req, reply) => {
     const org = orgOf(req);
     const shift: Shift = { ...req.body, id: req.body.id ?? `s_${randomUUID()}`, published: false };
     if (org.state.shifts.some((s) => s.id === shift.id)) throw new HttpError(409, 'conflict', `Shift ${shift.id} exists`);
-    validateShift(org, shift);
+    validateShift(req, org, shift);
     org.state.shifts.push(shift);
     audit(org, req.principal.name, 'shift.created', { id: shift.id });
     return reply.code(201).send({ shift, issues: shiftIssues(org, shift) });
@@ -94,8 +97,9 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const i = org.state.shifts.findIndex((s) => s.id === req.params.id);
       if (i < 0) throw notFound(`Shift ${req.params.id}`);
+      requireSiteAccess(req, org.state.shifts[i].siteId);
       const shift: Shift = { ...org.state.shifts[i], ...req.body, id: req.params.id, published: false };
-      validateShift(org, shift);
+      validateShift(req, org, shift);
       org.state.shifts[i] = shift;
       audit(org, req.principal.name, 'shift.updated', { id: shift.id });
       return { shift, issues: shiftIssues(org, shift) };
@@ -104,9 +108,10 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
 
   app.delete<{ Params: { id: string } }>('/v1/shifts/:id', { ...write, schema: { tags: ['Shifts'], params: idParam } }, async (req, reply) => {
     const org = orgOf(req);
-    const before = org.state.shifts.length;
+    const shift = org.state.shifts.find((s) => s.id === req.params.id);
+    if (!shift) throw notFound(`Shift ${req.params.id}`);
+    requireSiteAccess(req, shift.siteId);
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
-    if (org.state.shifts.length === before) throw notFound(`Shift ${req.params.id}`);
     audit(org, req.principal.name, 'shift.deleted', { id: req.params.id });
     return reply.code(204).send();
   });
@@ -115,6 +120,7 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     const org = orgOf(req);
     const { siteId, weekStart: ws } = req.query;
     requireSite(org, siteId);
+    requireSiteAccess(req, siteId);
     const dates = weekDates(ws);
     return {
       siteId,
@@ -138,6 +144,7 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const siteIds = sitesOf(org, req.body, true);
+      requireSiteAccess(req, ...siteIds);
       const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
       org.state.shifts = result.shifts;
       audit(org, req.principal.name, 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
@@ -164,13 +171,14 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const { siteId, weekStart: ws } = req.body;
       requireSite(org, siteId);
+      requireSiteAccess(req, siteId);
       const dates = weekDates(ws);
       const incoming: Shift[] = req.body.shifts.map((s) => ({ ...s, id: s.id ?? `s_${randomUUID()}`, published: false }));
       for (const s of incoming) {
         if (s.siteId !== siteId || !dates.includes(s.date)) {
           throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
         }
-        validateShift(org, s);
+        validateShift(req, org, s);
       }
       const keep = org.state.shifts.filter((s) => !(s.siteId === siteId && dates.includes(s.date)));
       org.state.shifts = [...keep, ...incoming];
@@ -182,6 +190,7 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
   app.post<{ Body: SitesWeek }>('/v1/rota/clear', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
     const siteIds = sitesOf(org, req.body, false);
+    requireSiteAccess(req, ...siteIds);
     const dates = weekDates(req.body.weekStart);
     const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)));
     const removed = org.state.shifts.length - keep.length;
@@ -193,6 +202,7 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
   app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
     const siteIds = sitesOf(org, req.body, false);
+    requireSiteAccess(req, ...siteIds);
     const ws = req.body.weekStart;
     // All or nothing: a group publish is refused if any site in it has a blocking issue.
     const blocks = checkWeek(org.state, ws, siteIds).filter((i) => i.severity === 'block');
@@ -210,12 +220,13 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
   });
 
   app.get<{ Querystring: Range }>('/v1/forecast', { ...read, schema: { tags: ['Forecast'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).state.forecast.filter(inRange(req.query)),
+    orgOf(req).state.forecast.filter((f) => inRange(req.query)(f) && canSeeSite(req, f.siteId)),
   );
 
   // Preshift Reports (or any forecasting source) pushes hourly sales and covers here.
   app.put<{ Body: { rows: HourForecast[] } }>('/v1/forecast', { ...write, schema: { tags: ['Forecast'], body: forecastBody } }, async (req) => {
     const org = orgOf(req);
+    requireSiteAccess(req, ...new Set(req.body.rows.map((r) => r.siteId)));
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
     const incoming = new Map(req.body.rows.map((r) => [key(r), r]));
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];

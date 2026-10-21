@@ -21,6 +21,7 @@ import { emailSetting } from '../mail';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { claudeKeySetting } from './access';
+import { reach } from '../scope';
 
 const today = () => londonParts(new Date()).date;
 const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
@@ -74,7 +75,8 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/v1/privacy/retention', { ...read, schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
     const org = orgOf(req);
     const policy = policyOf(org);
-    return { policy, items: retentionSchedule(org.state, org.timeEntries, today(), policy) };
+    const held = new Set(org.state.employees.filter((e) => reach(req, org, e) === 'full').map((e) => e.id));
+    return { policy, items: retentionSchedule(org.state, org.timeEntries, today(), policy).filter((i) => held.has(i.employeeId)) };
   });
 
   app.put<{ Body: RetentionPolicy }>('/v1/privacy/policy', { ...admin, schema: { tags: ['Privacy'], body: policyBody } }, async (req) => {

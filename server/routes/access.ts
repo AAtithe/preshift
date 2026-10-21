@@ -6,6 +6,7 @@ import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { createSession, safeNext, sessionCookie } from '../session';
 import { audit, type Store, type UserRecord, type UserRole } from '../store';
+import { scopeProblem, type AccessScope } from '../../src/engine/access';
 
 export const MAX_FAILURES = 5;
 export const LOCK_SECONDS = 15 * 60;
@@ -23,7 +24,14 @@ export const now = () => Math.floor(Date.now() / 1000);
 export const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
 
 /** What an admin sees about a person: never the hash. */
-const view = (u: UserRecord) => ({ email: u.email, role: u.role, createdAt: u.createdAt, locked: u.lockedUntil > now() });
+const view = (u: UserRecord) => ({
+  email: u.email,
+  role: u.role,
+  createdAt: u.createdAt,
+  locked: u.lockedUntil > now(),
+  // Admins always reach the whole organisation, whatever is stored.
+  access: u.role === 'admin' ? null : u.access ?? null,
+});
 
 async function newUser(email: string, orgId: string, role: UserRole, password: string): Promise<UserRecord> {
   return {
@@ -107,7 +115,7 @@ export function signInRoutes(app: FastifyInstance, store: Store, options: { demo
   app.get('/auth/me', hidden, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
-    return { email: user.email, orgId: user.orgId, role: user.role, ...demo };
+    return { email: user.email, orgId: user.orgId, role: user.role, access: user.role === 'admin' ? null : user.access ?? null, ...demo };
   });
 
   // Anyone signed in can change their own password; every other session of theirs ends.
@@ -207,9 +215,20 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
     return reply.code(201).send(view((await store.getUser(email))!));
   });
 
-  app.patch<{ Params: { email: string }; Body: { role?: UserRole; password?: string } }>('/v1/users/:email', admin, async (req) => {
+  app.patch<{ Params: { email: string }; Body: { role?: UserRole; password?: string; access?: AccessScope | null } }>('/v1/users/:email', admin, async (req) => {
     const user = await mine(req, req.params.email);
     const patch: Partial<UserRecord> = {};
+    if (req.body?.access !== undefined) {
+      const access = req.body.access;
+      if (access) {
+        const clean = { siteIds: [...new Set((access.siteIds ?? []).map(String))], entityIds: [...new Set((access.entityIds ?? []).map(String))] };
+        const problem = scopeProblem(clean, req.org!.state);
+        if (problem) throw new HttpError(400, 'invalid_access', problem);
+        patch.access = clean;
+      } else {
+        patch.access = undefined;
+      }
+    }
     if (req.body?.role && req.body.role !== user.role) {
       if (req.body.role !== 'admin') await keepAnAdmin(req, user);
       patch.role = req.body.role === 'admin' ? 'admin' : 'member';
@@ -221,7 +240,12 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
       Object.assign(patch, await hashPassword(req.body.password), { sessionsValidFrom: Date.now(), failedAttempts: 0, lockedUntil: 0, resetTokenHash: undefined, resetExpires: undefined });
     }
     await store.updateUser(user.email, patch);
-    audit(req.org!, actor(req), 'access.user_changed', { email: user.email, role: patch.role, passwordReset: req.body?.password !== undefined });
+    audit(req.org!, actor(req), 'access.user_changed', {
+      email: user.email,
+      role: patch.role,
+      passwordReset: req.body?.password !== undefined,
+      ...(req.body?.access !== undefined ? { access: patch.access ?? 'whole organisation' } : {}),
+    });
     return view((await store.getUser(user.email))!);
   });
 

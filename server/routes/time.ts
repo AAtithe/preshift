@@ -6,6 +6,7 @@ import { breakShortfalls } from '../../src/engine/breaks';
 import { checkFence } from '../../src/engine/clocking';
 import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
+import { canSeeSite, requireSiteAccess, rosterableEmployee, seesRecord } from '../scope';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { geoFixBody, idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -132,7 +133,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
   const approve = { preHandler: requireScope('time:approve') };
 
   app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).timeEntries.filter(inRange(req.query)),
+    orgOf(req).timeEntries.filter((t) => inRange(req.query)(t) && seesRecord(req, orgOf(req), t, 'entry')),
   );
 
   app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string; location?: GeoFix } }>(
@@ -159,8 +160,8 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
-      if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
+      requireSiteAccess(req, req.body.siteId);
+      const employee = rosterableEmployee(req, org, req.body.employeeId);
       const entry = clockIn(org, employee, req.body.siteId, { method: 'device', ...req.body });
       return reply.code(201).send(entry);
     },
@@ -183,7 +184,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
-      if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      if (!entry || !seesRecord(req, org, entry, 'entry')) throw notFound(`Time entry ${req.params.id}`);
       return clockOut(org, entry, { method: 'device', ...req.body });
     },
   );
@@ -193,7 +194,8 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     { ...write, schema: { tags: ['Time'], description: 'Manual entry by a manager, for a missed clock.', body: timeEntryBody } },
     async (req, reply) => {
       const org = orgOf(req);
-      if (!org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
+      requireSiteAccess(req, req.body.siteId);
+      rosterableEmployee(req, org, req.body.employeeId);
       if ((req.body.clockOut ?? 0) <= req.body.clockIn) throw new HttpError(422, 'invalid_time', 'Clock out must be after clock in');
       const entry: TimeEntry = { ...req.body, id: `te_${randomUUID().slice(0, 12)}`, status: 'submitted', source: 'manual' };
       org.timeEntries.push(entry);
@@ -219,7 +221,8 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
-      if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      if (!entry || !seesRecord(req, org, entry, 'entry')) throw notFound(`Time entry ${req.params.id}`);
+      requireSiteAccess(req, entry.siteId);
       assertEditable(org, entry);
       Object.assign(entry, req.body, { status: entry.status === 'open' ? 'open' : 'submitted', approvedBy: undefined, approvedAt: undefined });
       audit(org, req.principal.name, 'time.edited', { id: entry.id, fields: Object.keys(req.body) });
@@ -248,7 +251,10 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
-      const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
+      if (body.siteId) requireSiteAccess(req, body.siteId);
+      // A manager signs off hours worked at their own sites only.
+      const picked = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
+      const match = (t: TimeEntry) => picked(t) && canSeeSite(req, t.siteId);
       const now = new Date().toISOString();
       const done: TimeEntry[] = [];
       for (const t of org.timeEntries) {
@@ -285,7 +291,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      return breakShortfalls(org.timeEntries.filter(inRange(req.query)), org.state.employees);
+      return breakShortfalls(org.timeEntries.filter((t) => inRange(req.query)(t) && seesRecord(req, org, t, 'entry')), org.state.employees);
     },
   );
 
@@ -294,6 +300,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     { ...read, schema: { tags: ['Time'], description: 'Rostered against clocked hours per person.', querystring: siteWeekQuery } },
     async (req) => {
       const org = orgOf(req);
+      requireSiteAccess(req, req.query.siteId);
       return rosterVsActual(org.state, org.timeEntries, weekDates(req.query.weekStart), req.query.siteId);
     },
   );

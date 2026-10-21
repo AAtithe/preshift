@@ -6,6 +6,7 @@ import { geocodePostcode, refreshTravel } from '../integrations/travel/journeys'
 import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { replaceSite } from './clocking';
+import { requireSiteAccess, scopeOf } from '../scope';
 
 const locationBody = {
   type: 'object',
@@ -48,6 +49,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      requireSiteAccess(req, req.params.id);
       const { postcode, lat, lng } = req.body;
       let location: Site['location'];
       if (lat !== undefined && lng !== undefined) {
@@ -77,6 +79,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      if (scopeOf(req)) throw new HttpError(403, 'out_of_scope', 'Refreshing every journey is for people with access to the whole organisation.');
       const today = londonParts(new Date()).date;
       const result = await refreshTravel(org.state.sites, ctx.fetch, today, ctx.tflAppKey);
       org.state.sites = result.sites;
@@ -98,6 +101,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      requireSiteAccess(req, req.params.id);
       const { id, toId } = req.params;
       if (id === toId) throw new HttpError(422, 'same_site', 'Choose two different sites.');
       if (!org.state.sites.some((s) => s.id === toId)) throw notFound(`Site ${toId}`);
@@ -115,6 +119,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...write, schema: { tags: ['Travel'], description: 'Removes a hand-set journey time both ways, so the next refresh looks it up.', params: pairParams } },
     async (req) => {
       const org = orgOf(req);
+      requireSiteAccess(req, req.params.id);
       const { id, toId } = req.params;
       const drop = (s: Site, other: string) => {
         const { [other]: _gone, ...rest } = s.travel ?? {};

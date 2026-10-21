@@ -6,6 +6,7 @@ import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { enqueue } from '../outbox';
 import { employeeBody, idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { fullEmployee, reach, visibleEmployee, visibleEmployees } from '../scope';
 import { employeeView } from './hr';
 
 // Fields payroll holds a copy of; changing any of them is synced to TeamPay.
@@ -35,12 +36,23 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
 
-  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => orgOf(req).state.employees.map((e) => employeeView(req, e)));
+  app.get(
+    '/v1/employees',
+    {
+      ...read,
+      schema: {
+        tags: ['Employees'],
+        description: 'Everyone the caller may see. A manager limited to some sites gets cover staff from elsewhere as limited records (restricted: true).',
+      },
+    },
+    async (req) => visibleEmployees(req, orgOf(req), (e) => employeeView(req, e)),
+  );
 
   app.get<{ Params: { id: string } }>('/v1/employees/:id', { ...read, schema: { tags: ['Employees'], params: idParam } }, async (req) => {
-    const e = orgOf(req).state.employees.find((x) => x.id === req.params.id);
+    const org = orgOf(req);
+    const e = org.state.employees.find((x) => x.id === req.params.id);
     if (!e) throw notFound(`Employee ${req.params.id}`);
-    return employeeView(req, e);
+    return visibleEmployee(req, org, e, (x) => employeeView(req, x));
   });
 
   app.post<{ Body: Partial<Employee> }>(
@@ -77,6 +89,9 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         status: 'active',
       };
       validateEmployment(org, e);
+      if (reach(req, org, e) !== 'full') {
+        throw new HttpError(403, 'out_of_scope', 'You can only add people employed by your companies at your sites.');
+      }
       org.state.employees.push(e);
       queueUpsert(org, e);
       audit(org, req.principal.name, 'employee.created', { id: e.id });
@@ -90,11 +105,13 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...write, schema: { tags: ['Employees'], params: idParam, body: employeeBody } },
     async (req) => {
       const org = orgOf(req);
-      const i = org.state.employees.findIndex((x) => x.id === req.params.id);
-      if (i < 0) throw notFound(`Employee ${req.params.id}`);
-      const before = org.state.employees[i];
+      const before = fullEmployee(req, org, req.params.id);
+      const i = org.state.employees.indexOf(before);
       const after: Employee = { ...before, ...req.body, id: before.id };
       validateEmployment(org, after);
+      if (reach(req, org, after) !== 'full') {
+        throw new HttpError(403, 'out_of_scope', 'That would move them outside your companies and sites. Ask someone with access to both.');
+      }
       if (before.payrollId && after.entityId !== before.entityId) {
         throw new HttpError(
           409,
@@ -127,8 +144,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      const e = org.state.employees.find((x) => x.id === req.params.id);
-      if (!e) throw notFound(`Employee ${req.params.id}`);
+      const e = fullEmployee(req, org, req.params.id);
       if (e.status === 'leaver') throw new HttpError(409, 'conflict', `${e.name} is already a leaver`);
       e.status = 'leaver';
       e.leaveDate = req.body.leaveDate;

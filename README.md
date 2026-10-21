@@ -52,7 +52,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (210 across 21 files)
+npm test         # engine, UI rules and API tests (216 across 22 files)
 npm run build    # typecheck and production build
 ```
 
@@ -70,6 +70,14 @@ environment variables.
 - Who can sign in. Separate from the People tab, which holds staff records. Admins add accounts with a first password and a role, reset passwords, change roles and
   remove people. Members use the app but cannot manage access. Every organisation keeps at least
   one admin, and nobody can remove themselves.
+- Manager access by company and site. An admin can limit a member to the sites they run and the
+  companies whose staff they hold. The server then returns full records only for people employed by
+  those companies at those sites; anyone covering their sites from elsewhere comes back as a limited
+  record (`restricted: true`: no contact details, right to work, holiday record, payroll link, card,
+  HR file or absence reasons, and the date of birth rounded to 31 December so age checks only ever
+  err strict). Rota, clocking, time approval and HR work only at their own sites and on their own
+  staff, and payroll and close are refused. Admins and integration keys always reach the whole
+  organisation; members nobody has limited still do too. See `src/engine/access.ts` and `server/scope.ts`.
 - Rota assistant. An admin saves the organisation's Claude API key. It is kept on the server, shown
   afterwards only by its last four characters, and used only for the assistant's own requests (one
   model, capped output). Set a monthly spend limit on it in the Claude Console all the same.

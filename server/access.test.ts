@@ -47,7 +47,7 @@ describe('first-run owner setup', () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe('/app/');
     expect(String(res.headers['set-cookie'])).toMatch(/HttpOnly.*SameSite=Lax/);
-    expect((await t.call('GET', '/auth/me', t.cookieOf(res))).json()).toEqual({ email: OWNER.email, orgId: 'demo', role: 'admin' });
+    expect((await t.call('GET', '/auth/me', t.cookieOf(res))).json()).toEqual({ email: OWNER.email, orgId: 'demo', role: 'admin', access: null });
 
     expect((await t.call('GET', '/auth/status')).json()).toEqual({ setupNeeded: false });
     const again = await t.setup({ email: 'intruder@evil.example' });

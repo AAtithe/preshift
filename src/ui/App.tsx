@@ -40,7 +40,7 @@ type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday'
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
-type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean };
+type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean; wholeOrg?: boolean };
 const NAV: { heading: string; items: NavItem[] }[] = [
   { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', groupOnly: true }] },
   {
@@ -72,8 +72,8 @@ const NAV: { heading: string; items: NavItem[] }[] = [
   {
     heading: 'Finance',
     items: [
-      { id: 'payroll', label: 'Payroll', siteOnly: true },
-      { id: 'close', label: 'Close' },
+      { id: 'payroll', label: 'Payroll', siteOnly: true, wholeOrg: true },
+      { id: 'close', label: 'Close', wholeOrg: true },
     ],
   },
   {
@@ -139,12 +139,23 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   const [hrPerson, setHrPerson] = useState<{ id: string; section?: HrSection } | null>(null);
   const hr = useHrRecords(setError);
   const isAdmin = me?.role === 'admin';
-  const openHr = (e: Employee, section?: HrSection) => setHrPerson({ id: e.id, section });
+  // A limited record belongs to someone employed outside this manager's companies: their employer keeps it.
+  const heldElsewhere = (e: Employee) => {
+    if (!e.restricted) return false;
+    setRefusal(`${e.name} is employed by ${state.entities.find((x) => x.id === e.entityId)?.name ?? 'another company'}. Their employer manages their record.`);
+    return true;
+  };
+  const openHr = (e: Employee, section?: HrSection) => { if (!heldElsewhere(e)) setHrPerson({ id: e.id, section }); };
+  const editPerson = (e: Employee) => { if (!heldElsewhere(e)) setEditingPerson(e); };
 
   useEffect(() => {
     fetch('/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: Me | null) => setMe(body))
+      .then((body: Me | null) => {
+        setMe(body);
+        // Someone who runs one site lands on it.
+        if (body?.access?.siteIds.length === 1) setSiteId(body.access.siteIds[0]);
+      })
       .catch(() => setMe(null));
   }, []);
 
@@ -156,15 +167,19 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
     return { ...state, shifts: exists ? state.shifts.map((s) => (s.id === preview.id ? preview : s)) : [...state.shifts, preview] };
   }, [state, preview]);
 
-  const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
+  // A manager limited to some sites picks only from those, and from the companies they trade in.
+  const access = me?.access ?? null;
+  const mySites = access ? state.sites.filter((s) => access.siteIds.includes(s.id)) : state.sites;
+  const myEntities = access ? state.entities.filter((e) => mySites.some((s) => s.entityId === e.id)) : state.entities;
+  const scopeSites = mySites.filter((s) => !entityId || s.entityId === entityId);
   const site = state.sites.find((s) => s.id === siteId);
   const siteIds = useMemo(
-    () => (siteId ? [siteId] : state.sites.filter((s) => !entityId || s.entityId === entityId).map((s) => s.id)),
-    [state.sites, entityId, siteId],
+    () => (siteId ? [siteId] : mySites.filter((s) => !entityId || s.entityId === entityId).map((s) => s.id)),
+    [mySites, entityId, siteId],
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
-  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly) && (!t.adminOnly || isAdmin);
+  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly) && (!t.adminOnly || isAdmin) && (!t.wholeOrg || !access);
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t)) ? tab : single ? 'rota' : 'sites';
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
@@ -272,7 +287,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   className={activeTab === t.id ? 'active' : ''}
                   aria-current={activeTab === t.id ? 'page' : undefined}
                   disabled={!available(t)}
-                  title={available(t) ? undefined : t.adminOnly && !isAdmin ? 'Admins only' : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
+                  title={available(t) ? undefined :  t.adminOnly && !isAdmin ? 'Admins only' : t.wholeOrg && access ? 'Head office only: your access is limited to your sites' : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
                   onClick={() => setTab(t.id)}
                 >
                   {t.label}
@@ -299,7 +314,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
             <div className="mast-controls">
               <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
                 <option value={ALL}>All entities</option>
-                {state.entities.map((e) => (
+                {myEntities.map((e) => (
                   <option key={e.id} value={e.id}>{e.name}</option>
                 ))}
               </select>
@@ -458,7 +473,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   state={state}
                   siteId={single.id}
                   today={today}
-                  onEdit={setEditingPerson}
+                  onEdit={editPerson}
                   onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
                 />
               )}
@@ -467,7 +482,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   state={state}
                   siteIds={siteIds}
                   today={today}
-                  onEdit={setEditingPerson}
+                  onEdit={editPerson}
                   onSetLeaveYear={actions.setLeaveYearStart}
                 />
               )}
@@ -484,7 +499,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
-              {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'settings' && me && <SettingsView me={me} state={state} />}
               {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 

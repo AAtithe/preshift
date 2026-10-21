@@ -11,6 +11,7 @@ import { enqueue } from '../outbox';
 import { PayrollError } from '../integrations/payroll/provider';
 import { employerFor, employerStatus } from '../payrollEmployers';
 import { idParam, isoDate } from '../schemas';
+import { requireWholeOrg } from '../scope';
 import { audit, type OrgData } from '../store';
 
 function approvedIn(org: OrgData, from: string, to: string) {
@@ -35,8 +36,9 @@ export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'ac
 }
 
 export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
-  const read = { preHandler: requireScope('rota:read') };
-  const write = { preHandler: requireScope('payroll:write') };
+  // Payroll is per company and covers everyone it employs, so it is for whole-organisation access only.
+  const read = { preHandler: [requireScope('rota:read'), requireWholeOrg] };
+  const write = { preHandler: [requireScope('payroll:write'), requireWholeOrg] };
 
   app.get('/v1/integrations/payroll', { ...read, schema: { tags: ['Payroll'], description: 'Payroll connection health, overall and for each PAYE scheme.' } }, async (req) => {
     const org = orgOf(req);

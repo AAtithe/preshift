@@ -815,3 +815,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .form { grid-template-columns: 1fr; }
 }
 .table tr.clickable { cursor: pointer; }
+.access-editor { display: grid; gap: 8px; margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.access-editor fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.access-editor legend { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 4px; }
+.access-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

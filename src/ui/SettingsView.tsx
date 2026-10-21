@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { defaultEntities, type AccessScope } from '../engine/access';
+import type { RotaState } from '../engine/types';
 import { api, ApiError } from './api';
 
 export interface Me {
@@ -7,6 +9,8 @@ export interface Me {
   role: 'admin' | 'member';
   /** Set in the public demo, where each visitor has a sandbox of their own. */
   demo?: boolean;
+  /** The sites and companies a member is limited to; null for the whole organisation. */
+  access?: AccessScope | null;
 }
 
 interface Person {
@@ -14,7 +18,10 @@ interface Person {
   role: 'admin' | 'member';
   createdAt: string;
   locked: boolean;
+  access: AccessScope | null;
 }
+
+type Places = Pick<RotaState, 'sites' | 'entities'>;
 
 interface EmailStatus {
   set: boolean;
@@ -30,7 +37,7 @@ interface Settings {
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
-export function SettingsView({ me }: { me: Me }) {
+export function SettingsView({ me, state }: { me: Me; state: Places }) {
   if (me.demo) {
     return (
       <div className="settings">
@@ -48,7 +55,7 @@ export function SettingsView({ me }: { me: Me }) {
   }
   return (
     <div className="settings">
-      {me.role === 'admin' && <People me={me} />}
+      {me.role === 'admin' && <People me={me} state={state} />}
       {me.role === 'admin' && <ClaudeKey />}
       {me.role === 'admin' && <EmailSetup />}
       <OwnPassword />
@@ -56,8 +63,9 @@ export function SettingsView({ me }: { me: Me }) {
   );
 }
 
-function People({ me }: { me: Me }) {
+function People({ me, state }: { me: Me; state: Places }) {
   const [people, setPeople] = useState<Person[]>([]);
+  const [limiting, setLimiting] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [form, setForm] = useState({ email: '', password: '', role: 'member' as Person['role'] });
   const [link, setLink] = useState<{ email: string; url: string; hours: number } | null>(null);
@@ -113,9 +121,14 @@ function People({ me }: { me: Me }) {
         Accounts for signing in to Preshift. This is separate from the People tab, which holds your staff records. Admins can
         also add and remove accounts and change these settings.
       </p>
+      <p className="muted small">
+        Admins reach the whole organisation. Limit a member to the sites they run and the companies that employ their team: they
+        then see full records only for those staff, a limited record (no contact, right to work, HR file or absence reasons) for
+        anyone covering their sites from elsewhere, and no payroll or close. Members not yet limited still reach everything.
+      </p>
       <table className="table">
         <thead>
-          <tr><th>Email</th><th>Role</th><th>Added</th><th /></tr>
+          <tr><th>Email</th><th>Role</th><th>Access</th><th>Added</th><th /></tr>
         </thead>
         <tbody>
           {people.map((p) => (
@@ -136,6 +149,29 @@ function People({ me }: { me: Me }) {
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
                 </select>
+              </td>
+              <td className="small">
+                {p.role === 'admin' ? (
+                  <span className="muted">Whole organisation (admin)</span>
+                ) : (
+                  <>
+                    {accessLabel(p.access, state)}{' '}
+                    <button className="link" onClick={() => setLimiting(limiting === p.email ? null : p.email)}>Change</button>
+                  </>
+                )}
+                {limiting === p.email && p.role !== 'admin' && (
+                  <AccessEditor
+                    person={p}
+                    state={state}
+                    onSave={(access) =>
+                      act(`${p.email} now reaches ${accessLabel(access, state).toLowerCase()}.`, async () => {
+                        await api.patch(`/v1/users/${encodeURIComponent(p.email)}`, { access });
+                        setLimiting(null);
+                      })
+                    }
+                    onCancel={() => setLimiting(null)}
+                  />
+                )}
               </td>
               <td className="muted small">{new Date(p.createdAt).toLocaleDateString('en-GB')}</td>
               <td className="num">
@@ -328,5 +364,63 @@ function EmailSetup() {
       </form>
       {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
     </section>
+  );
+}
+
+function accessLabel(access: AccessScope | null, state: Places): string {
+  if (!access) return 'Whole organisation';
+  const names = (ids: string[], list: { id: string; name: string }[]) => ids.map((id) => list.find((x) => x.id === id)?.name ?? id).join(', ');
+  return `${names(access.siteIds, state.sites)} (${names(access.entityIds, state.entities)})`;
+}
+
+/** Ticks the sites a member runs and the companies whose staff they hold; companies follow the sites until changed. */
+function AccessEditor({ person, state, onSave, onCancel }: {
+  person: Person;
+  state: Places;
+  onSave: (access: AccessScope | null) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [siteIds, setSiteIds] = useState<string[]>(person.access?.siteIds ?? []);
+  const [entityIds, setEntityIds] = useState<string[]>(person.access?.entityIds ?? []);
+  const [touchedEntities, setTouchedEntities] = useState(Boolean(person.access));
+  const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+
+  function pickSite(id: string) {
+    const next = toggle(siteIds, id);
+    setSiteIds(next);
+    if (!touchedEntities) setEntityIds(defaultEntities(next, state));
+  }
+
+  return (
+    <div className="access-editor">
+      <fieldset>
+        <legend>Sites they run</legend>
+        {state.sites.map((s) => (
+          <label key={s.id} className="check-inline">
+            <input type="checkbox" checked={siteIds.includes(s.id)} onChange={() => pickSite(s.id)} /> {s.name}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset>
+        <legend>Companies whose staff they hold in full</legend>
+        {state.entities.map((e) => (
+          <label key={e.id} className="check-inline">
+            <input
+              type="checkbox"
+              checked={entityIds.includes(e.id)}
+              onChange={() => { setTouchedEntities(true); setEntityIds(toggle(entityIds, e.id)); }}
+            />{' '}
+            {e.name}
+          </label>
+        ))}
+      </fieldset>
+      <div className="access-actions">
+        <button className="primary" disabled={siteIds.length === 0 || entityIds.length === 0} onClick={() => void onSave({ siteIds, entityIds })}>
+          Limit to these
+        </button>
+        {person.access && <button onClick={() => void onSave(null)}>Whole organisation</button>}
+        <button className="link" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
   );
 }

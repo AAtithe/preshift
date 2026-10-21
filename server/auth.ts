@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { AccessScope } from '../src/engine/access';
 import { cookieFrom, readSession } from './session';
 import type { UserRecord, UserStore } from './store';
 
@@ -10,7 +11,7 @@ export interface ApiKey {
   name: string;
   scopes: Scope[];
   /** Set when the caller is a signed-in person rather than an integration key. */
-  user?: { email: string; role: UserRecord['role'] };
+  user?: { email: string; role: UserRecord['role']; access?: AccessScope };
 }
 
 declare module 'fastify' {
@@ -65,7 +66,7 @@ export function authenticate(keys: ApiKey[], users: UserStore) {
       orgId: user.orgId,
       name: user.email,
       scopes: ['*'],
-      user: { email: user.email, role: user.role },
+      user: { email: user.email, role: user.role, ...(user.access ? { access: user.access } : {}) },
     };
   };
 }

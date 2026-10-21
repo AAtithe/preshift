@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { seedHrRecords, seedState } from '../src/engine/seed';
+import type { AccessScope } from '../src/engine/access';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
@@ -66,6 +67,8 @@ export interface UserRecord {
   email: string;
   orgId: string;
   role: UserRole;
+  /** Sites and employing companies a member is limited to. Absent means the whole organisation; ignored for admins. */
+  access?: AccessScope;
   salt: string;
   hash: string;
   createdAt: string;

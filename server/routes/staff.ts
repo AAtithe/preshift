@@ -5,10 +5,11 @@ import { requiredBreakMinutes } from '../../src/engine/compliance';
 import { addDays, ageOn } from '../../src/engine/time';
 import type { Employee, GeoFix, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
-import { HttpError, londonParts, notFound, orgOf } from '../context';
+import { HttpError, londonParts, orgOf } from '../context';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
 import { geoFixBody, idParam } from '../schemas';
+import { fullEmployee, reach } from '../scope';
 import { audit, type OrgData, type StaffLogin, type Store } from '../store';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
@@ -245,14 +246,15 @@ export function staffAdminRoutes(app: FastifyInstance, store: Store) {
   const write = { preHandler: requireScope('rota:write') };
   const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
 
-  const employeeOf = (req: FastifyRequest<{ Params: { id: string } }>) => {
-    const employee = orgOf(req).state.employees.find((e) => e.id === req.params.id);
-    if (!employee) throw notFound(`Employee ${req.params.id}`);
-    return employee;
-  };
+  const employeeOf = (req: FastifyRequest<{ Params: { id: string } }>) => fullEmployee(req, orgOf(req), req.params.id);
 
   app.get('/v1/staff-logins', { ...write, schema: { tags: ['Staff app'], description: 'Who has a staff app login, and who has an invite waiting.' } }, async (req) =>
-    (await store.listStaffLogins(req.principal.orgId)).map((l) => ({
+    (await store.listStaffLogins(req.principal.orgId))
+      .filter((l) => {
+        const e = orgOf(req).state.employees.find((x) => x.id === l.employeeId);
+        return Boolean(e && reach(req, orgOf(req), e) === 'full');
+      })
+      .map((l) => ({
       employeeId: l.employeeId,
       email: l.email ?? null,
       status: l.hash ? 'active' : (l.inviteExpires ?? 0) > now() ? 'invited' : 'expired',

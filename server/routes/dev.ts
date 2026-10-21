@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { addDays, weekDates } from '../../src/engine/time';
 import type { TimeEntry } from '../../src/engine/types';
+import { requireWholeOrg } from '../scope';
 import { requireScope } from '../auth';
 import { HttpError, orgOf, type AppContext } from '../context';
 import { siteWeekQuery, isoDate } from '../schemas';
@@ -17,7 +18,7 @@ function jitter(seed: string, min: number, max: number) {
 export function devRoutes(app: FastifyInstance, ctx: AppContext) {
   const simulator = ctx.simulator;
   if (!simulator) return;
-  const write = { preHandler: requireScope('*') };
+  const write = { preHandler: [requireScope('*'), requireWholeOrg] };
 
   app.post<{ Body: { siteId: string; weekStart: string } }>(
     '/v1/dev/simulate-clocking',

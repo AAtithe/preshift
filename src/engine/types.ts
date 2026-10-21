@@ -184,6 +184,8 @@ export interface Employee {
   absences?: Absence[];
   /** Set when the retention period ended and the record was anonymised under UK GDPR. */
   anonymisedOn?: string;
+  /** Set on the limited record a manager sees for someone covering from outside their scope. Never stored. */
+  restricted?: boolean;
 }
 
 export type ContractType = 'permanent' | 'fixed-term' | 'casual' | 'apprentice';
