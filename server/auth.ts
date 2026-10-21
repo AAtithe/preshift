@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { cookieFrom, readSession } from './session';
 
 export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | '*';
 
@@ -25,14 +26,24 @@ export function loadApiKeys(env = process.env): ApiKey[] {
   return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'] }];
 }
 
-export function authenticate(keys: ApiKey[]) {
+/**
+ * Integrations authenticate with an API key. People in the web app authenticate with the signed
+ * session cookie from signing in, scoped to their own organisation, so the browser carries no key.
+ */
+export function authenticate(keys: ApiKey[], sessionSecret: string | null = null) {
   const byKey = new Map(keys.map((k) => [k.key, k]));
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const header = req.headers.authorization ?? '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    const principal = byKey.get(token);
-    if (!principal) return reply.code(401).send({ error: 'unauthorised', message: 'Missing or invalid API key' });
-    req.principal = principal;
+    const keyed = byKey.get(token);
+    if (keyed) {
+      req.principal = keyed;
+      return;
+    }
+    const user = await readSession(cookieFrom(req.headers.cookie), sessionSecret);
+    if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Sign in, or send a valid API key' });
+    // Everyone signed in has full access to their own organisation until roles arrive with the user database.
+    req.principal = { key: `session:${user.email}`, orgId: user.orgId, name: user.email, scopes: ['*'] };
   };
 }
 

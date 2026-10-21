@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { scopeMetrics } from '../engine/metrics';
@@ -59,6 +59,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [user, setUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
+      .catch(() => setUser(null));
+  }, []);
 
   const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
   const site = state.sites.find((s) => s.id === siteId);
@@ -198,7 +207,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
 
       <footer className="foot">
         <span>UK rates 2026/27. Running on the Preshift API.</span>
-        <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        <span>
+          <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+          {user && (
+            <>
+              {' '}Signed in as {user}{' '}
+              <a className="link" href="/api/auth/logout">Sign out</a>
+            </>
+          )}
+        </span>
       </footer>
 
       {assistantOpen && single && (

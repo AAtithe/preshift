@@ -129,6 +129,9 @@ export async function runRotaAgent(
 export function describeAgentError(err: unknown): string {
   if (err instanceof RotaAgentError) return err.message;
   if (err instanceof Anthropic.APIUserAbortError) return 'Stopped.';
+  if (err instanceof Anthropic.AuthenticationError && JSON.stringify(err.error).includes('session_expired')) {
+    return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
+  }
   if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
     return 'The assistant is not connected. Set ANTHROPIC_API_KEY in .env.local for local use, or in the Vercel project settings for the live site.';
   }

@@ -1,6 +1,9 @@
 // Production counterpart of the /api/anthropic proxy in vite.config.ts, run as a Vercel function.
 // It adds the API key on the server and only forwards the rota assistant's own requests, so a
-// public deployment cannot be used as a general-purpose Claude endpoint on our key.
+// public deployment cannot be used as a general-purpose Claude endpoint on our key. The session
+// check repeats the middleware's, so the key stays protected even if the middleware is bypassed.
+
+import { requireSession } from '../../../server/session';
 
 const MODEL = 'claude-opus-5-5';
 const MAX_TOKENS = 16000;
@@ -10,6 +13,8 @@ const error = (status, message) =>
   Response.json({ type: 'error', error: { type: 'proxy_error', message } }, { status });
 
 export async function POST(request) {
+  const denied = await requireSession(request);
+  if (denied) return denied;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return error(403, 'The rota assistant is not configured on this deployment.');
 

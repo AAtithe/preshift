@@ -3,16 +3,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { buildApp } from './app';
-import { loadApiKeys, type ApiKey } from './auth';
+import { loadApiKeys } from './auth';
 
-// The hosted demo is public: the web app ships this key in its bundle. Set
-// PRESHIFT_API_KEYS in Vercel to replace it once real customer data is involved.
-const DEMO_KEY: ApiKey = { key: 'dev-key', orgId: 'demo', name: 'Public demo', scopes: ['*'] };
-
+// The hosted app is behind sign-in: people reach the API with their session cookie, and
+// integrations with keys from PRESHIFT_API_KEYS. There is no public fallback key, so a
+// deployment missing its settings refuses requests rather than serving data to anyone.
 const ready = (async () => {
-  const keys = loadApiKeys(process.env);
   const { app } = await buildApp({
-    apiKeys: keys.length ? keys : [DEMO_KEY],
+    apiKeys: loadApiKeys({ ...process.env, NODE_ENV: 'production' }),
     docsBaseDir: path.join(__dirname, 'static'),
   });
   await app.ready();
