@@ -1,4 +1,5 @@
 import type { Issue } from '../engine/compliance';
+import { isEmployedOn } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { ageOn } from '../engine/time';
 import type { RotaState } from '../engine/types';
@@ -9,12 +10,15 @@ interface Props {
   siteIds: string[];
   metrics: WeekMetrics;
   issues: Issue[];
+  dates: string[];
 }
 
-export function TeamView({ state, siteIds, metrics, issues }: Props) {
-  // Everyone based in scope, then anyone borrowed in from outside it this week.
+export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
+  // Everyone based in scope and on the books this week, then anyone borrowed in from outside it.
   const people = [
-    ...state.employees.filter((e) => siteIds.includes(e.siteId)),
+    ...state.employees.filter(
+      (e) => siteIds.includes(e.siteId) && (dates.some((d) => isEmployedOn(e, d)) || metrics.cost.employees.has(e.id)),
+    ),
     ...state.employees.filter((e) => !siteIds.includes(e.siteId) && metrics.cost.employees.has(e.id)),
   ];
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;

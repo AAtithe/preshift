@@ -3,13 +3,16 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { scopeMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
-import type { Shift } from '../engine/types';
+import { newEmployee } from '../engine/employees';
+import type { Employee, Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { GroupView } from './GroupView';
+import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
+import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
@@ -18,13 +21,14 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'payroll' | 'close';
+type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
 
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
+  { id: 'people', label: 'People' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
 ];
@@ -59,6 +63,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
+  const today = toISODate(new Date());
   const [user, setUser] = useState<string | null>(null);
 
   useEffect(() => {
@@ -200,7 +206,16 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           />
         )}
         {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
-        {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} />}
+        {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} />}
+        {activeTab === 'people' && single && (
+          <PeopleView
+            state={state}
+            siteId={single.id}
+            today={today}
+            onEdit={setEditingPerson}
+            onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
+          />
+        )}
         {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
         {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
       </main>
@@ -228,6 +243,20 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             onClose={() => setAssistantOpen(false)}
           />
         </Suspense>
+      )}
+
+      {editingPerson && (
+        <EmployeeEditor
+          state={state}
+          employee={editingPerson}
+          today={today}
+          onSave={async (employee) => {
+            const isNew = !state.employees.some((e) => e.id === employee.id);
+            if (await actions.saveEmployee(employee, isNew)) setEditingPerson(null);
+          }}
+          onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
+          onClose={() => setEditingPerson(null)}
+        />
       )}
 
       {editing && (

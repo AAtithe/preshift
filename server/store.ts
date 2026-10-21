@@ -130,6 +130,20 @@ export class PgStore implements Store {
 
   private init() {
     this.ready ??= (async () => {
+      // Interlock: Preshift only ever runs in a database of its own. If this one already holds
+      // another system's tables, refuse to touch it rather than write the JV's data alongside them.
+      const foreign = await this.query(
+        `select count(*)::int as n from information_schema.tables
+         where table_schema not in ('information_schema', 'preshift', 'neon_auth') and table_schema not like 'pg\\_%'`,
+        [],
+      );
+      if (Number(foreign[0].n) > 0) {
+        throw new HttpError(
+          503,
+          'database_not_dedicated',
+          'This database already belongs to another system, so Preshift will not use it. Give Preshift its own Neon database.',
+        );
+      }
       await this.query('create schema if not exists preshift', []);
       await this.query(
         `create table if not exists preshift.orgs (
@@ -171,6 +185,16 @@ export class PgStore implements Store {
       throw new HttpError(409, 'conflict', 'Someone else changed this organisation at the same time. Reload and try again.');
     }
     org.version = Number(rows[0].version);
+  }
+
+  /** Whether the database is reachable and Preshift's own; for the health check. */
+  async status(): Promise<'ok' | string> {
+    try {
+      await this.init();
+      return 'ok';
+    } catch (err) {
+      return err instanceof HttpError ? err.code : 'unreachable';
+    }
   }
 
   async orgIds() {

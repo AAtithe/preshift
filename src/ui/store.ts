@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { RotaState, Shift } from '../engine/types';
+import type { Employee, RotaState, Shift } from '../engine/types';
 import { api } from './api';
 
 /**
@@ -83,6 +83,26 @@ export function useRotaStore() {
       guard(async () => {
         await api.post('/v1/rota/publish', { siteIds, weekStart });
         await refreshShifts();
+      }),
+    /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
+    saveEmployee: (employee: Employee, isNew: boolean) =>
+      guard(async () => {
+        // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
+        const { id, payrollId: _p, status: _s, leaveDate: _l, ...body } = employee;
+        const saved = isNew
+          ? await api.post<Employee>('/v1/employees', body)
+          : await api.patch<Employee>(`/v1/employees/${id}`, body);
+        setState((s) => s && { ...s, employees: isNew ? [...s.employees, saved] : s.employees.map((x) => (x.id === id ? saved : x)) });
+        await refreshShifts();
+        return saved;
+      }),
+    /** Marks a leaver: the server removes later shifts and tells TeamPay. */
+    markLeaver: (id: string, leaveDate: string) =>
+      guard(async () => {
+        const res = await api.post<{ employee: Employee; shiftsRemoved: number }>(`/v1/employees/${id}/leaver`, { leaveDate });
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === id ? res.employee : x)) });
+        await refreshShifts();
+        return res;
       }),
     /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
     applyDraft: (current: Shift[], draft: Shift[]) =>

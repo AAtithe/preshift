@@ -48,6 +48,8 @@ function team(siteId: string, people: Seed[]): Employee[] {
     pensionEnrolled: true,
     availability: [],
     leave: [],
+    startDate: '2024-01-08',
+    rightToWork: { checked: true, checkedOn: '2024-01-02', evidence: 'British passport' },
     ...extra,
   }));
 }
@@ -72,7 +74,10 @@ function employees(today: string): Employee[] {
       ['Zara Ahmed', ['bar'], 13.1, '1998-02-17', 0],
       ['Callum Fraser', ['bar', 'server'], 12.8, '2002-10-29', 0, { coverSiteIds: ['fitz'] }],
       ['Freya Jones', ['host', 'server'], 12.71, '2003-03-08', 0],
-      ['Mateo Garcia', ['server'], 12.71, '2001-09-23', 0],
+      ['Mateo Garcia', ['server'], 12.71, '2001-09-23', 0, {
+        rightToWork: { checked: true, checkedOn: '2025-02-03', evidence: 'Share code', expiry: addDays(today, 40) },
+      }],
+      ['Nadia Haddad', ['server', 'host'], 12.71, '2000-01-15', 0, { startDate: addDays(today, 5), rightToWork: { checked: false } }],
     ]),
     ...team('shd', [
       ['Hannah Lee', ['gm'], 0, '1988-09-01', 0, { payBasis: 'salaried', annualSalary: 48_000, maxWeeklyHours: 55, optedOutOf48: true }],
@@ -88,7 +93,7 @@ function employees(today: string): Employee[] {
       ['Ruby Clarke', ['bar'], 13.0, '2000-07-07', 0],
       ['Dev Kapoor', ['bar', 'server'], 12.9, '1999-03-03', 0, { coverSiteIds: ['mar'] }],
       ['Lily Evans', ['server', 'host'], 12.71, '2004-11-19', 0],
-      ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0],
+      ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0, { status: 'leaver', leaveDate: addDays(today, 3) }],
     ]),
     ...team('fitz', [
       ['Rachel Adams', ['gm'], 0, '1989-12-02', 0, { payBasis: 'salaried', annualSalary: 46_000, maxWeeklyHours: 55, optedOutOf48: true }],

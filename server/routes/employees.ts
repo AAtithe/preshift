@@ -95,6 +95,9 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const after: Employee = { ...before, ...req.body, id: before.id };
       validateEmployment(org, after);
       org.state.employees[i] = after;
+      if (after.startDate && after.startDate !== before.startDate) {
+        org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
+      }
       if (PAYROLL_FIELDS.some((f) => before[f] !== after[f])) queueUpsert(org, after);
       audit(org, req.principal.name, 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
       await kick(ctx, org);

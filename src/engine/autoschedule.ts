@@ -2,6 +2,7 @@ import type { RotaState, Shift } from './types';
 import { checkEmployeeWeek, requiredBreakMinutes } from './compliance';
 import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
+import { isEmployedOn } from './employees';
 import { addDays, ageOn, weekDates, weekStart } from './time';
 
 export interface AutoScheduleOptions {
@@ -193,6 +194,7 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
   const ranked = state.employees
     .filter((e) => e.siteId === slot.siteId || (allowCover && e.coverSiteIds.includes(slot.siteId)))
     .filter((e) => e.roleIds.includes(slot.roleId) && e.payBasis === 'hourly')
+    .filter((e) => isEmployedOn(e, slot.date))
     .filter((e) => !shifts.some((s) => s.employeeId === e.id && s.date === slot.date))
     .map((e) => {
       const hours = shifts
