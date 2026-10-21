@@ -1,0 +1,12 @@
+import type { ComponentType } from 'react';
+import { breaksGuide } from './breaks';
+
+export interface Guide {
+  id: string;
+  title: string;
+  summary: string;
+  Body: ComponentType;
+}
+
+/** Everything in How to, in the order it is listed. Add a guide here and it appears in the app. */
+export const GUIDES: Guide[] = [breaksGuide];

@@ -3,6 +3,8 @@ import type { BreakShortfall } from '../engine/breaks';
 import { formatMinute } from '../engine/time';
 import type { TimeEntry } from '../engine/types';
 import { dayLabel } from './format';
+import { BreakRule, BreakSteps } from './guides/breaks';
+import { HelpModal } from './HelpModal';
 
 interface Props {
   shortfalls: BreakShortfall[];
@@ -11,6 +13,7 @@ interface Props {
   busy: boolean;
   /** Saves the break actually taken; the entry goes back to waiting for approval. */
   onCorrect: (entryId: string, breakMinutes: number) => void;
+  onOpenGuide: () => void;
 }
 
 const hm = (minutes: number) => `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`;
@@ -19,8 +22,9 @@ const hm = (minutes: number) => `${Math.floor(minutes / 60)}h${String(minutes % 
  * Shifts this week with less rest break than the law gives. Shown, never fixed for the manager:
  * setting a break that was not taken would cut the person's pay and falsify the record.
  */
-export function BreakShortfalls({ shortfalls, entries, name, busy, onCorrect }: Props) {
+export function BreakShortfalls({ shortfalls, entries, name, busy, onCorrect, onOpenGuide }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [help, setHelp] = useState(false);
   if (shortfalls.length === 0) return null;
   return (
     <div className="notice">
@@ -29,7 +33,23 @@ export function BreakShortfalls({ shortfalls, entries, name, busy, onCorrect }: 
       </strong>{' '}
       The Working Time Regulations give 20 minutes in one block over 6 hours of work, and 30 minutes over 4.5 hours for under 18s.
       If a break was taken but not recorded, enter it. If it was not taken, leave the record as it is: the time was worked and
-      is owed. Approving is still allowed, and is recorded against these shifts.
+      is owed. Approving is still allowed, and is recorded against these shifts.{' '}
+      <button className="link" onClick={() => setHelp(true)}>What do I do?</button>
+      {help && (
+        <HelpModal
+          title="What to do with a break flag"
+          onClose={() => setHelp(false)}
+          actions={
+            <>
+              <button className="primary" onClick={() => setHelp(false)}>Got it</button>
+              <button onClick={() => { setHelp(false); onOpenGuide(); }}>Read the full guide</button>
+            </>
+          }
+        >
+          <BreakRule />
+          <BreakSteps />
+        </HelpModal>
+      )}
       <div className="grid-wrap" style={{ marginTop: 8 }}>
         <table className="table">
           <thead>
