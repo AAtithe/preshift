@@ -29,7 +29,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
   const write = { preHandler: requireScope('payroll:write') };
 
   app.get('/v1/integrations/payroll', { ...read, schema: { tags: ['Payroll'], description: 'Payroll connection health.' } }, async (req) => {
-    const org = orgOf(ctx, req);
+    const org = orgOf(req);
     const active = org.state.employees.filter((e) => e.status !== 'leaver');
     return {
       provider: ctx.providerFor(org.orgId).name,
@@ -45,21 +45,21 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post('/v1/integrations/payroll/sync-employees', { ...write, schema: { tags: ['Payroll'], description: 'Sets up everyone not yet in TeamPay.' } }, async (req) => {
-    const org = orgOf(ctx, req);
+    const org = orgOf(req);
     const pending = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
     const toSync = org.state.employees.filter((e) => !e.payrollId && e.status !== 'leaver' && !pending.has(e.id));
     for (const e of toSync) enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
     audit(org, req.principal.name, 'payroll.employees_queued', { count: toSync.length });
-    kick(ctx);
+    await kick(ctx, org);
     return { queued: toSync.length };
   });
 
   app.get('/v1/integrations/payroll/outbox', { ...read, schema: { tags: ['Payroll'] } }, async (req) =>
-    orgOf(ctx, req).outbox.slice(-200).reverse(),
+    orgOf(req).outbox.slice(-200).reverse(),
   );
 
   app.post<{ Params: { id: string } }>('/v1/integrations/payroll/outbox/:id/retry', { ...write, schema: { tags: ['Payroll'], params: idParam } }, async (req) => {
-    const org = orgOf(ctx, req);
+    const org = orgOf(req);
     const item = org.outbox.find((i) => i.id === req.params.id);
     if (!item) throw notFound(`Outbox item ${req.params.id}`);
     if (item.status !== 'failed') throw new HttpError(409, 'not_failed', 'Only failed items can be retried');
@@ -69,7 +69,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       if (sub) sub.status = 'queued';
     }
     audit(org, req.principal.name, 'payroll.retry', { item: item.id });
-    kick(ctx);
+    await kick(ctx, org);
     return item;
   });
 
@@ -86,7 +86,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const periodStart = req.body.weekStart;
       const periodEnd = addDays(periodStart, 6);
       const inPeriod = org.timeEntries.filter((t) => t.date >= periodStart && t.date <= periodEnd);
@@ -131,14 +131,14 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         idempotencyKey: `hours:${org.orgId}:${periodStart}:v${version}`,
       });
       audit(org, req.principal.name, 'payroll.hours_submitted', { id: submission.id, hours: batch.totalHours, version });
-      kick(ctx);
+      await kick(ctx, org);
       return reply.code(202).send(submission);
     },
   );
 
-  app.get('/v1/payroll/submissions', { ...read, schema: { tags: ['Payroll'] } }, async (req) => orgOf(ctx, req).submissions.slice().reverse());
+  app.get('/v1/payroll/submissions', { ...read, schema: { tags: ['Payroll'] } }, async (req) => orgOf(req).submissions.slice().reverse());
   app.get('/v1/payroll/runs', { ...read, schema: { tags: ['Payroll'], description: 'Completed TeamPay runs with rota-to-payroll variance.' } }, async (req) =>
-    orgOf(ctx, req).payRuns.slice().reverse(),
+    orgOf(req).payRuns.slice().reverse(),
   );
 
   app.get<{ Querystring: { weekStart: string; basis?: 'rota' | 'actual' | 'auto'; format?: 'json' | 'xero-csv' } }>(
@@ -160,7 +160,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const { basis, state } = labourBasis(org, req.query.weekStart, req.query.basis);
       const lines = rotaJournal(state, req.query.weekStart);
       if (req.query.format === 'xero-csv') {
@@ -183,7 +183,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       const signature = req.headers['x-teampay-signature'] as string | undefined;
       if (!provider.verifyWebhook(raw, signature)) return reply.code(401).send({ error: 'bad_signature' });
 
-      const org = ctx.store.org(req.params.orgId);
+      const org = orgOf(req);
       const event = JSON.parse(raw) as { id: string; type: string; data: Record<string, string> };
       if (org.processedWebhookIds.has(event.id)) return { received: true, duplicate: true };
 

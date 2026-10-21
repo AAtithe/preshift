@@ -2,10 +2,10 @@ import type { FastifyRequest } from 'fastify';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import type { TeamPaySimulator } from './integrations/payroll/simulator';
 import type { OutboxDispatcher } from './outbox';
-import type { MemoryStore, OrgData } from './store';
+import type { OrgData, Store } from './store';
 
 export interface AppContext {
-  store: MemoryStore;
+  store: Store;
   dispatcher: OutboxDispatcher;
   providerFor: (orgId: string) => PayrollProvider;
   /** Present when no TeamPay keys are configured. */
@@ -14,12 +14,21 @@ export interface AppContext {
   autoDispatch: boolean;
 }
 
-export function orgOf(ctx: AppContext, req: FastifyRequest): OrgData {
-  return ctx.store.org(req.principal.orgId);
+declare module 'fastify' {
+  interface FastifyRequest {
+    org?: OrgData;
+  }
 }
 
-export function kick(ctx: AppContext) {
-  if (ctx.autoDispatch) void ctx.dispatcher.processDue();
+/** The organisation loaded for this request. Saved once when a successful write completes. */
+export function orgOf(req: FastifyRequest): OrgData {
+  if (!req.org) throw new HttpError(500, 'internal', 'Organisation not loaded');
+  return req.org;
+}
+
+/** Delivers this organisation's queued payroll changes inside the request, so they persist with it. */
+export async function kick(ctx: AppContext, org: OrgData) {
+  if (ctx.autoDispatch) await ctx.dispatcher.processOrg(org);
 }
 
 export class HttpError extends Error {

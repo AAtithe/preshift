@@ -21,13 +21,13 @@ function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>)
   }
 }
 
-export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
+export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('time:write') };
   const approve = { preHandler: requireScope('time:approve') };
 
   app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) =>
-    orgOf(ctx, req).timeEntries.filter(inRange(req.query)),
+    orgOf(req).timeEntries.filter(inRange(req.query)),
   );
 
   app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string } }>(
@@ -45,7 +45,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
       if (org.timeEntries.some((t) => t.employeeId === employee.id && t.status === 'open')) {
@@ -81,7 +81,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
       if (entry.status !== 'open') throw new HttpError(409, 'not_open', 'Already clocked out');
@@ -99,7 +99,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     '/v1/time-entries',
     { ...write, schema: { tags: ['Time'], description: 'Manual entry by a manager, for a missed clock.', body: timeEntryBody } },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       if (!org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
       if ((req.body.clockOut ?? 0) <= req.body.clockIn) throw new HttpError(422, 'invalid_time', 'Clock out must be after clock in');
       const entry: TimeEntry = { ...req.body, id: `te_${randomUUID().slice(0, 12)}`, status: 'submitted', source: 'manual' };
@@ -124,7 +124,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
       assertEditable(org, entry);
@@ -153,7 +153,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
       const now = new Date().toISOString();
@@ -176,7 +176,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
     '/v1/time-entries/compare',
     { ...read, schema: { tags: ['Time'], description: 'Rostered against clocked hours per person.', querystring: siteWeekQuery } },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       return rosterVsActual(org.state, org.timeEntries, weekDates(req.query.weekStart), req.query.siteId);
     },
   );

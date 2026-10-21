@@ -1,6 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
-import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
 import { HttpError, type AppContext } from './context';
 import type { PayrollProvider } from './integrations/payroll/provider';
@@ -12,11 +11,12 @@ import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
-import { MemoryStore } from './store';
+import { neon } from '@neondatabase/serverless';
+import { MemoryStore, PgStore, type Store } from './store';
 
 export interface BuildOptions {
   apiKeys?: ApiKey[];
-  store?: MemoryStore;
+  store?: Store;
   /** Supply a provider directly (tests). Otherwise TeamPay if configured, else the simulator. */
   provider?: PayrollProvider;
   autoDispatch?: boolean;
@@ -39,10 +39,21 @@ function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; si
   return { provider: simulator, simulator };
 }
 
+/**
+ * Preshift's database is named explicitly. It never falls back to a generic
+ * DATABASE_URL, so it cannot land in another system's database by accident.
+ */
+function storeFromEnv(env: NodeJS.ProcessEnv): Store {
+  const url = env.PRESHIFT_DATABASE_URL;
+  if (!url) return new MemoryStore();
+  const sql = neon(url);
+  return new PgStore((text, params) => sql(text, params) as Promise<Record<string, unknown>[]>);
+}
+
 export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const env = options.env ?? process.env;
   const app = Fastify({ logger: options.logger ?? false });
-  const store = options.store ?? new MemoryStore();
+  const store = options.store ?? storeFromEnv(env);
   const payroll = options.provider
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
     : payrollFromEnv(env);
@@ -81,7 +92,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       security: [{ bearer: [] }],
     },
   });
-  await app.register(swaggerUi, { routePrefix: '/docs' });
+  app.get('/docs/json', { schema: { hide: true } }, async () => app.swagger());
+  app.get('/docs', { schema: { hide: true } }, async (_req, reply) => reply.type('text/html').send(DOCS_HTML));
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof HttpError) {
@@ -93,14 +105,43 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return reply.code(500).send({ error: 'internal', message: 'Something went wrong' });
   });
 
-  app.get('/health', { schema: { hide: true } }, async () => ({ ok: true, payroll: payroll.provider.name }));
+  app.get('/health', { schema: { hide: true } }, async () => ({
+    ok: true,
+    payroll: payroll.provider.name,
+    storage: store instanceof PgStore ? 'postgres' : 'memory',
+  }));
+
+  // Scheduled retry of anything payroll has not yet confirmed (Vercel Cron sends CRON_SECRET).
+  app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await ctx.dispatcher.processDue();
+    return { ok: true };
+  });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys);
   await app.register(async (api) => {
+    const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
     api.addHook('onRequest', async (req, reply) => {
-      if (req.url.startsWith('/v1/integrations/teampay/webhook/')) return;
+      if (isWebhook(req.url)) return;
       return auth(req, reply);
+    });
+    // Load the organisation once per request; webhooks name it in the path, everything else by API key.
+    api.addHook('preHandler', async (req) => {
+      const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
+      req.org = await store.load(orgId);
+    });
+    // Save once, only after a successful write, so a failed request leaves nothing half done.
+    api.addHook('onSend', async (req, reply, payload) => {
+      if (!req.org || req.method === 'GET' || reply.statusCode >= 400) return payload;
+      try {
+        await store.save(req.org);
+        return payload;
+      } catch (err) {
+        const e = err instanceof HttpError ? err : new HttpError(500, 'internal', 'Could not save');
+        reply.code(e.statusCode).header('content-type', 'application/json; charset=utf-8');
+        return JSON.stringify({ error: e.code, message: e.message });
+      }
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
@@ -111,3 +152,18 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
 
   return { app, ctx };
 }
+
+const DOCS_HTML = `<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preshift API</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css" />
+</head>
+<body>
+  <div id="ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+  <script>SwaggerUIBundle({ url: '/docs/json', dom_id: '#ui', persistAuthorization: true });</script>
+</body>
+</html>`;

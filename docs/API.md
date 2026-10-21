@@ -21,7 +21,9 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_BASE_URL` | Defaults to `https://api.team-pay.co.uk/v1` |
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
-| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`; a `dev-key` exists only outside production |
+| `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. With neither this nor `TEAMPAY_API_KEY` set, the deployment runs as a public demo (`dev-key`, demo organisation, TeamPay simulator) |
+| `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. Unset means in-memory storage. Deliberately not `DATABASE_URL`, so Preshift can never write into another system's database by accident |
+| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
 ## Authentication and tenancy
 
@@ -83,10 +85,35 @@ assumptions until checked against the API reference:
 Because WS runs TeamPay, these can be settled in one working session. Change that file, run
 `npm test`, and the rest of the system is unaffected.
 
-## Moving to production
+## Storage
 
-- Swap `MemoryStore` for Postgres; each collection on `OrgData` becomes a table keyed by
-  `org_id`, and the outbox insert shares a transaction with the change that caused it.
-- Run the outbox dispatcher as a worker rather than a timer in the API process.
+Each request loads one organisation, works on it, and saves it once, only if the request
+succeeded. Saves use optimistic locking: if two requests change the same organisation at once,
+the second is refused with 409 instead of overwriting the first. Payroll changes are queued in
+the same save as the change that caused them, so a starter or a batch of hours is never saved
+without its delivery to TeamPay also being recorded.
+
+`PgStore` keeps each organisation as one JSONB document in its own `preshift` schema, using
+Neon's HTTPS driver (works from serverless functions). Tests run the same code on PGlite.
+
+## Deployment (Vercel)
+
+`npm run build:vercel` writes one deployment using Vercel's Build Output API:
+
+| Path | Served by |
+| --- | --- |
+| `/` | Marketing site (`site/`) |
+| `/app` | Rota web app |
+| `/v1/*`, `/docs`, `/health` | The API, as one Node function |
+| `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
+
+Payroll changes are also delivered inside the request that makes them, so the cron is a safety
+net, not the main path.
+
+## Before real client data
+
+- Give Preshift its own Neon project and set `PRESHIFT_DATABASE_URL`. Do not share a database
+  with the WS operations platform: the JV is a separate controller of its client data.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
+- Split the JSONB document into tables when cross-organisation reporting needs SQL.

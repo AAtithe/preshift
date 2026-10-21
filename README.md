@@ -35,14 +35,17 @@ npm run build    # typecheck and production build
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
 forecasts, against a TeamPay simulator. Press "Build from forecast", then work through the
 Payroll tab: set people up in TeamPay, simulate clocking, approve, send hours, run payroll.
-Set the `TEAMPAY_*` variables to connect to real TeamPay; see `docs/API.md`.
+Set the `TEAMPAY_*` variables to connect to real TeamPay and `PRESHIFT_DATABASE_URL` for
+Postgres; see `docs/API.md`, which also covers the Vercel deployment.
 
 ## Structure
 
 ```
 src/engine   Pure TypeScript domain logic, shared by API and browser. Fully unit tested.
-server       The Preshift API: routes, auth, tenancy, payroll outbox, TeamPay client and simulator.
+server       The Preshift API: routes, auth, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
 src/ui       React web app, a client of the API.
+site         Marketing site.
+scripts      Local dev runner and the Vercel build.
 docs         API and integration guide, strategy and roadmap.
 ```
 

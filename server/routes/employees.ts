@@ -26,10 +26,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
 
-  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => orgOf(ctx, req).state.employees);
+  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => orgOf(req).state.employees);
 
   app.get<{ Params: { id: string } }>('/v1/employees/:id', { ...read, schema: { tags: ['Employees'], params: idParam } }, async (req) => {
-    const e = orgOf(ctx, req).state.employees.find((x) => x.id === req.params.id);
+    const e = orgOf(req).state.employees.find((x) => x.id === req.params.id);
     if (!e) throw notFound(`Employee ${req.params.id}`);
     return e;
   });
@@ -45,7 +45,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req, reply) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       if (!org.state.sites.some((s) => s.id === req.body.siteId)) throw notFound(`Site ${req.body.siteId}`);
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
         hourlyRate: 0,
@@ -67,7 +67,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       org.state.employees.push(e);
       queueUpsert(org, e);
       audit(org, req.principal.name, 'employee.created', { id: e.id });
-      kick(ctx);
+      await kick(ctx, org);
       return reply.code(201).send(e);
     },
   );
@@ -76,7 +76,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     '/v1/employees/:id',
     { ...write, schema: { tags: ['Employees'], params: idParam, body: employeeBody } },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const i = org.state.employees.findIndex((x) => x.id === req.params.id);
       if (i < 0) throw notFound(`Employee ${req.params.id}`);
       const before = org.state.employees[i];
@@ -84,7 +84,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       org.state.employees[i] = after;
       if (PAYROLL_FIELDS.some((f) => before[f] !== after[f])) queueUpsert(org, after);
       audit(org, req.principal.name, 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
-      kick(ctx);
+      await kick(ctx, org);
       return after;
     },
   );
@@ -101,7 +101,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (req) => {
-      const org = orgOf(ctx, req);
+      const org = orgOf(req);
       const e = org.state.employees.find((x) => x.id === req.params.id);
       if (!e) throw notFound(`Employee ${req.params.id}`);
       if (e.status === 'leaver') throw new HttpError(409, 'conflict', `${e.name} is already a leaver`);
@@ -111,7 +111,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === e.id && s.date > req.body.leaveDate));
       enqueue(org, { type: 'employee.leaver', payload: { employeeId: e.id }, idempotencyKey: `leaver:${e.id}:${req.body.leaveDate}` });
       audit(org, req.principal.name, 'employee.leaver', { id: e.id, leaveDate: req.body.leaveDate, shiftsRemoved: removed });
-      kick(ctx);
+      await kick(ctx, org);
       return { employee: e, shiftsRemoved: removed };
     },
   );
