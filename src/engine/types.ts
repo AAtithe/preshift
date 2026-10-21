@@ -158,6 +158,8 @@ export interface Employee {
   leaveDate?: string;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** Set when the retention period ended and the record was anonymised under UK GDPR. */
+  anonymisedOn?: string;
 }
 
 export interface Shift {

@@ -322,3 +322,4 @@ button.link.danger { color: var(--bad); }
 .check-inline { display: inline-flex; gap: 6px; align-items: center; }
 .leave-chip .day-hours { width: 56px; padding: 1px 4px; font-size: 12px; }
 .holiday-box { margin-top: 8px; }
+.settings.privacy { max-width: none; }
