@@ -26,25 +26,37 @@ const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ defa
 
 type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'settings';
 
-// One site gets the rota and demand detail; several get the side-by-side view.
-const SITE_TABS: { id: Tab; label: string }[] = [
-  { id: 'rota', label: 'Rota' },
-  { id: 'clock', label: 'Clock in' },
-  { id: 'demand', label: 'Demand' },
-  { id: 'team', label: 'Team' },
-  { id: 'people', label: 'People' },
-  { id: 'holiday', label: 'Holiday' },
-  { id: 'payroll', label: 'Payroll' },
-  { id: 'close', label: 'Close' },
-  { id: 'settings', label: 'Settings' },
+// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
+// Site-only sections stay visible across a group so the map never changes; they ask for one site.
+type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean };
+const NAV: { heading: string; items: NavItem[] }[] = [
+  { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', groupOnly: true }] },
+  {
+    heading: 'Scheduling',
+    items: [
+      { id: 'rota', label: 'Rota', siteOnly: true },
+      { id: 'demand', label: 'Demand', siteOnly: true },
+      { id: 'clock', label: 'Clock in', siteOnly: true },
+    ],
+  },
+  {
+    heading: 'People',
+    items: [
+      { id: 'team', label: 'Team' },
+      { id: 'people', label: 'People', siteOnly: true },
+      { id: 'holiday', label: 'Holiday' },
+    ],
+  },
+  {
+    heading: 'Finance',
+    items: [
+      { id: 'payroll', label: 'Payroll', siteOnly: true },
+      { id: 'close', label: 'Close' },
+    ],
+  },
+  { heading: 'Admin', items: [{ id: 'settings', label: 'Settings' }] },
 ];
-const GROUP_TABS: { id: Tab; label: string }[] = [
-  { id: 'sites', label: 'Sites' },
-  { id: 'team', label: 'Team' },
-  { id: 'holiday', label: 'Holiday' },
-  { id: 'close', label: 'Close' },
-  { id: 'settings', label: 'Settings' },
-];
+const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
 
 export function App() {
@@ -90,8 +102,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
-  const tabs = single ? SITE_TABS : GROUP_TABS;
-  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
+  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly);
+  const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t)) ? tab : single ? 'rota' : 'sites';
 
   const metrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
   const issues = useMemo(() => checkWeek(state, week, siteIds), [state, siteIds, week]);
@@ -119,8 +131,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   }
 
   return (
-    <div className="app">
-      <header className="topbar">
+    <div className="shell">
+      <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark" aria-hidden>P</span>
           <div>
@@ -128,136 +140,159 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             <div className="brand-sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
           </div>
         </div>
-        <div className="controls">
-          <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
-            <option value={ALL}>All entities</option>
-            {state.entities.map((e) => (
-              <option key={e.id} value={e.id}>{e.name}</option>
-            ))}
-          </select>
-          <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
-            <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
-            {scopeSites.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-          <div className="week-nav">
-            <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&lsaquo;</button>
-            <span>w/c {dayLabel(week).date}</span>
-            <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rsaquo;</button>
-          </div>
-        </div>
-      </header>
-
-      <KpiBar metrics={metrics} issues={issues} />
-
-      <nav className="tabs">
-        {tabs.map((t) => (
-          <button key={t.id} className={activeTab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-        <div className="tab-actions">
-          {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-          {single && <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>}
-          <button onClick={runAutoBuild} className={single ? '' : 'primary'}>
-            {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
-          </button>
-          <button onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>Clear week</button>
-          <button
-            disabled={blocks > 0 || weekShifts.length === 0 || published}
-            title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
-            onClick={() => void actions.publish(siteIds, week)}
-          >
-            {published ? 'Published' : single ? 'Publish' : 'Publish all'}
-          </button>
-        </div>
-      </nav>
-
-      {error && (
-        <div className="notice error">
-          {error} <button className="link" onClick={clearError}>Dismiss</button>
-        </div>
-      )}
-
-      {unfilled && unfilled.length > 0 && (
-        <div className="notice">
-          <strong>{unfilled.length} gaps could not be filled legally with the current team.</strong>{' '}
-          That is a hiring or cross-training signal, not a rota problem.
-          <ul>
-            {unfilled.slice(0, 6).map((g, i) => (
-              <li key={i}>
-                {single ? '' : `${siteName(g.siteId)}: `}
-                {dayLabel(g.date).short} {state.roles.find((r) => r.id === g.roleId)?.name}{' '}
-                {String(g.fromHour).padStart(2, '0')}:00 to {String(g.toHour % 24).padStart(2, '0')}:00
-              </li>
-            ))}
-            {unfilled.length > 6 && <li>and {unfilled.length - 6} more</li>}
-          </ul>
-          <button className="link" onClick={() => setUnfilled(null)}>Dismiss</button>
-        </div>
-      )}
-
-      <main>
-        {activeTab === 'sites' && (
-          <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
-        )}
-        {activeTab === 'rota' && single && (
-          <RotaGrid
-            state={state}
-            site={single}
-            dates={dates}
-            metrics={metrics}
-            issues={issues}
-            onEdit={setEditing}
-          />
-        )}
-        {activeTab === 'clock' && single && (
-          <ClockView
-            state={state}
-            siteId={single.id}
-            today={today}
-            onSetGeofence={actions.setGeofence}
-            onSetBadge={actions.setBadge}
-          />
-        )}
-        {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
-        {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} />}
-        {activeTab === 'people' && single && (
-          <PeopleView
-            state={state}
-            siteId={single.id}
-            today={today}
-            onEdit={setEditingPerson}
-            onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
-          />
-        )}
-        {activeTab === 'holiday' && (
-          <HolidayView
-            state={state}
-            siteIds={siteIds}
-            today={today}
-            onEdit={setEditingPerson}
-            onSetLeaveYear={actions.setLeaveYearStart}
-          />
-        )}
-        {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
-        {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
-        {activeTab === 'settings' && me && <SettingsView me={me} />}
-      </main>
-
-      <footer className="foot">
-        <span>UK rates 2026/27. Running on the Preshift API.</span>
-        <span>
+        <nav className="side-nav" aria-label="Management">
+          {NAV.map((group) => (
+            <div key={group.heading} className="nav-group">
+              <div className="nav-heading">{group.heading}</div>
+              {group.items.map((t) => (
+                <button
+                  key={t.id}
+                  className={activeTab === t.id ? 'active' : ''}
+                  aria-current={activeTab === t.id ? 'page' : undefined}
+                  disabled={!available(t)}
+                  title={available(t) ? undefined : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
+                  onClick={() => setTab(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {me && (
             <>
-              {' '}Signed in as {me.email}{' '}
+              <span className="muted small">Signed in as {me.email}</span>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
-        </span>
-      </footer>
+        </div>
+      </aside>
+
+      <div className="app">
+        <header className="topbar">
+          <h1 className="page-title">
+            {NAV_ITEMS.find((t) => t.id === activeTab)?.label}
+            <span className="muted">{single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name : 'All entities'}</span>
+          </h1>
+          <div className="controls">
+            <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
+              <option value={ALL}>All entities</option>
+              {state.entities.map((e) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
+            <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
+              <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
+              {scopeSites.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <div className="week-nav">
+              <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&lsaquo;</button>
+              <span>w/c {dayLabel(week).date}</span>
+              <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rsaquo;</button>
+            </div>
+          </div>
+        </header>
+
+        <KpiBar metrics={metrics} issues={issues} />
+
+        <div className="tabs">
+          <div className="tab-actions">
+            {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
+            {single && <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>}
+            <button onClick={runAutoBuild} className={single ? '' : 'primary'}>
+              {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
+            </button>
+            <button onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>Clear week</button>
+            <button
+              disabled={blocks > 0 || weekShifts.length === 0 || published}
+              title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
+              onClick={() => void actions.publish(siteIds, week)}
+            >
+              {published ? 'Published' : single ? 'Publish' : 'Publish all'}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="notice error">
+            {error} <button className="link" onClick={clearError}>Dismiss</button>
+          </div>
+        )}
+
+        {unfilled && unfilled.length > 0 && (
+          <div className="notice">
+            <strong>{unfilled.length} gaps could not be filled legally with the current team.</strong>{' '}
+            That is a hiring or cross-training signal, not a rota problem.
+            <ul>
+              {unfilled.slice(0, 6).map((g, i) => (
+                <li key={i}>
+                  {single ? '' : `${siteName(g.siteId)}: `}
+                  {dayLabel(g.date).short} {state.roles.find((r) => r.id === g.roleId)?.name}{' '}
+                  {String(g.fromHour).padStart(2, '0')}:00 to {String(g.toHour % 24).padStart(2, '0')}:00
+                </li>
+              ))}
+              {unfilled.length > 6 && <li>and {unfilled.length - 6} more</li>}
+            </ul>
+            <button className="link" onClick={() => setUnfilled(null)}>Dismiss</button>
+          </div>
+        )}
+
+        <main>
+          {activeTab === 'sites' && (
+            <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
+          )}
+          {activeTab === 'rota' && single && (
+            <RotaGrid
+              state={state}
+              site={single}
+              dates={dates}
+              metrics={metrics}
+              issues={issues}
+              onEdit={setEditing}
+            />
+          )}
+          {activeTab === 'clock' && single && (
+            <ClockView
+              state={state}
+              siteId={single.id}
+              today={today}
+              onSetGeofence={actions.setGeofence}
+              onSetBadge={actions.setBadge}
+            />
+          )}
+          {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
+          {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} />}
+          {activeTab === 'people' && single && (
+            <PeopleView
+              state={state}
+              siteId={single.id}
+              today={today}
+              onEdit={setEditingPerson}
+              onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
+            />
+          )}
+          {activeTab === 'holiday' && (
+            <HolidayView
+              state={state}
+              siteIds={siteIds}
+              today={today}
+              onEdit={setEditingPerson}
+              onSetLeaveYear={actions.setLeaveYearStart}
+            />
+          )}
+          {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+          {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+          {activeTab === 'settings' && me && <SettingsView me={me} />}
+        </main>
+
+        <footer className="foot">
+          <span>UK rates 2026/27. Running on the Preshift API.</span>
+        </footer>
+      </div>
 
       {assistantOpen && single && (
         <Suspense fallback={null}>
