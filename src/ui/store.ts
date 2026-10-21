@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { Employee, Entity, GeoFence, RotaState, Shift, Site } from '../engine/types';
+import type { DaySales, Employee, Entity, GeoFence, RotaState, Shift, Site } from '../engine/types';
 import { api } from './api';
 
 /**
@@ -15,7 +15,7 @@ export function useRotaStore() {
 
   const load = useCallback(async () => {
     try {
-      const [entities, sites, roles, demandRules, employees, shifts, forecast] = await Promise.all([
+      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales] = await Promise.all([
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
@@ -23,8 +23,9 @@ export function useRotaStore() {
         api.get<RotaState['employees']>('/v1/employees'),
         api.get<Shift[]>('/v1/shifts'),
         api.get<RotaState['forecast']>('/v1/forecast'),
+        api.get<DaySales[]>('/v1/sales'),
       ]);
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -50,9 +51,22 @@ export function useRotaStore() {
     }
   }, []);
 
+  const refreshSales = useCallback(async () => {
+    const sales = await api.get<DaySales[]>('/v1/sales');
+    setState((s) => (s ? { ...s, sales } : s));
+  }, []);
+
   const actions = {
     reload: load,
     refreshShifts,
+    /** Records takings for the days given and removes the ones cleared. */
+    saveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) =>
+      guard(async () => {
+        if (rows.length) await api.put('/v1/sales', { rows: rows.map((r) => ({ ...r, source })) });
+        for (const c of cleared) await api.del(`/v1/sales?siteId=${encodeURIComponent(c.siteId)}&date=${c.date}`);
+        await refreshSales();
+        return true;
+      }),
     saveShift: (shift: Shift, isNew: boolean) =>
       guard(async () => {
         const { id, employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = shift;

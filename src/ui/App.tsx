@@ -292,8 +292,10 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             <ReportsView
               state={state}
               siteIds={siteIds}
+              entityIds={entityIds}
               week={week}
               today={today}
+              onSaveSales={actions.saveSales}
               scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
             />
           )}

@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { labourByRole, labourTrend, rotaVsActual, type CostLine } from '../engine/reports';
+import { labourByRole, performanceTrend, rotaVsActual, type CostLine, type TrendFigures } from '../engine/reports';
 import { addDays } from '../engine/time';
-import type { Department, RotaState, TimeEntry } from '../engine/types';
+import type { DaySales, Department, RotaState, TimeEntry } from '../engine/types';
 import { api } from './api';
-import { dayLabel, download, hours, money, pct } from './format';
+import { dayLabel, download, hours, money, pct, signed, slug, toCsv as csv } from './format';
+import { PayrollAccuracy } from './PayrollAccuracy';
+import { TakingsEntry } from './TakingsEntry';
 
-type Report = 'trend' | 'roles' | 'actual';
+type Report = 'trend' | 'roles' | 'actual' | 'takings' | 'accuracy';
 
 const REPORTS: { id: Report; label: string; intro: string }[] = [
   {
     id: 'trend',
     label: 'Labour trend',
-    intro: 'Labour against target week by week, from the rota. One bad week is noise; three in a row at the same site is a staffing model that needs changing.',
+    intro: 'Labour against target on what each week actually took. The target flexes with takings: a site that took less than forecast should have spent less. One bad week is noise; three in a row at the same site is a staffing model that needs changing.',
   },
   {
     id: 'roles',
@@ -23,6 +25,16 @@ const REPORTS: { id: Report; label: string; intro: string }[] = [
     label: 'Rota vs actual',
     intro: 'The week as planned against the week as it now stands: clocked time for days worked, the rota for days left, priced as payroll will price it. The variance is what drift on the floor has cost so far.',
   },
+  {
+    id: 'takings',
+    label: 'Takings',
+    intro: 'What the till actually rang, net of VAT, by site and day. A till integration sends these through the API; until then key them in or import the till’s daily export. Every report uses takings where they exist and the forecast where they do not.',
+  },
+  {
+    id: 'accuracy',
+    label: 'Payroll accuracy',
+    intro: 'Each week-end accrual against what payroll actually cost when the pay run came back. Inside 1% and the 3-day close can post the accrual and move on. Outside it, the people listed below are where the rate, contract or hours are wrong.',
+  },
 ];
 
 const DEPARTMENTS: Record<Department, string> = { FOH: 'Front of house', BAR: 'Bar', BOH: 'Kitchen', MGMT: 'Management' };
@@ -30,18 +42,18 @@ const DEPARTMENTS: Record<Department, string> = { FOH: 'Front of house', BAR: 'B
 interface Props {
   state: RotaState;
   siteIds: string[];
+  /** Companies in scope, for pay runs: each PAYE scheme runs its own. */
+  entityIds: string[];
   week: string;
   today: string;
   /** Names the scope in export file names. */
   scopeName: string;
+  onSaveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) => Promise<unknown>;
 }
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const csv = (rows: (string | number)[][]) =>
-  rows.map((r) => r.map((v) => (typeof v === 'number' ? v.toFixed(2) : `"${v.replace(/"/g, '""')}"`)).join(',')).join('\n');
-const signed = (n: number, f: (n: number) => string) => `${n > 0 ? '+' : ''}${f(n)}`;
+type ReportProps = Pick<Props, 'state' | 'siteIds' | 'week' | 'today' | 'scopeName'>;
 
-export function ReportsView({ state, siteIds, week, today, scopeName }: Props) {
+export function ReportsView(props: Props) {
   const [report, setReport] = useState<Report>('trend');
   const current = REPORTS.find((r) => r.id === report)!;
   return (
@@ -56,30 +68,52 @@ export function ReportsView({ state, siteIds, week, today, scopeName }: Props) {
         </div>
         <p className="muted">{current.intro}</p>
       </div>
-      {report === 'trend' && <Trend state={state} siteIds={siteIds} week={week} scopeName={scopeName} />}
-      {report === 'roles' && <ByRole state={state} siteIds={siteIds} week={week} scopeName={scopeName} />}
-      {report === 'actual' && <VsActual state={state} siteIds={siteIds} week={week} today={today} scopeName={scopeName} />}
+      {report === 'trend' && <Trend {...props} />}
+      {report === 'roles' && <ByRole {...props} />}
+      {report === 'actual' && <VsActual {...props} />}
+      {report === 'takings' && <TakingsEntry state={props.state} siteIds={props.siteIds} week={props.week} today={props.today} onSave={props.onSaveSales} />}
+      {report === 'accuracy' && <PayrollAccuracy state={props.state} entityIds={props.entityIds} scopeName={props.scopeName} />}
     </div>
   );
 }
 
-function Trend({ state, siteIds, week, scopeName }: Omit<Props, 'today'>) {
+/** Time entries for a date range, refetched when the range changes. Null while loading. */
+function useEntries(from: string, to: string) {
+  const [entries, setEntries] = useState<TimeEntry[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    setEntries(null);
+    // Every site's time: people who also cover elsewhere keep their true on-costs.
+    api
+      .get<TimeEntry[]>(`/v1/time-entries?from=${from}&to=${to}`)
+      .then((list) => live && setEntries(list))
+      .catch(() => live && setEntries([]));
+    return () => { live = false; };
+  }, [from, to]);
+  return entries;
+}
+
+function Trend({ state, siteIds, week, today, scopeName }: ReportProps) {
   const [weeks, setWeeks] = useState(4);
-  const trend = useMemo(() => labourTrend(state, siteIds, week, weeks), [state, siteIds, week, weeks]);
+  const entries = useEntries(addDays(week, -7 * (weeks - 1)), addDays(week, 6));
+  const trend = useMemo(() => (entries ? performanceTrend(state, entries, siteIds, week, weeks, today) : null), [state, entries, siteIds, week, weeks, today]);
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
   // A week with no shifts carries only salaried pay, which would read as a very good week. It is not one.
-  const counts = (m: { forecastSales: number; paidHours: number }) => m.forecastSales > 0 && m.paidHours > 0;
-  const tone = (m: { forecastSales: number; paidHours: number; varianceToTarget: number }) => (!counts(m) ? '' : m.varianceToTarget > 0 ? 'bad-text' : 'good-text');
+  const counts = (m: TrendFigures) => m.sales > 0 && m.paidHours > 0;
+  const tone = (m: TrendFigures) => (!counts(m) ? '' : m.varianceToTarget > 0 ? 'bad-text' : 'good-text');
+
+  if (!trend) return <p className="muted">Loading</p>;
+
   const overWeeks = (siteId: string) =>
     trend.filter((w) => {
-      const m = w.metrics.sites.find((s) => s.siteId === siteId)!;
+      const m = w.sites.find((s) => s.siteId === siteId)!;
       return counts(m) && m.varianceToTarget > 0;
     }).length;
 
   function exportCsv() {
-    const header = ['Week commencing', 'Site', 'Forecast sales', 'Labour cost', 'Labour %', 'Target %', 'Vs target', 'SPLH', 'Paid hours'];
-    const rows = trend.flatMap((w) =>
-      w.metrics.sites.map((m) => [w.weekStart, siteName(m.siteId), m.forecastSales, m.labourCost, m.labourPct * 100, m.targetPct * 100, m.varianceToTarget, m.splh, m.paidHours]),
+    const header = ['Week commencing', 'Site', 'Forecast sales', 'Sales (takings where recorded)', 'Days with takings', 'Rota labour', 'Labour', 'Labour basis', 'Labour %', 'Target %', 'Target spend', 'Vs target', 'Paid hours'];
+    const rows = trend!.flatMap((w) =>
+      w.sites.map((m) => [w.weekStart, siteName(m.siteId), m.forecastSales, m.sales, m.actualDays, m.rotaLabour, m.labour, m.labourBasis === 'clock' ? 'Clocked and rota' : 'Rota', m.labourPct * 100, m.targetPct * 100, m.targetCost, m.varianceToTarget, m.paidHours]),
     );
     download(`preshift-labour-trend-${slug(scopeName)}-${week}.csv`, csv([header, ...rows]));
   }
@@ -99,26 +133,34 @@ function Trend({ state, siteIds, week, scopeName }: Omit<Props, 'today'>) {
           <thead>
             <tr>
               <th>Week commencing</th>
-              <th className="num">Forecast sales</th>
-              <th className="num">Labour cost</th>
+              <th className="num">Forecast</th>
+              <th className="num">Sales</th>
+              <th className="num">Vs forecast</th>
+              <th className="num">Labour</th>
               <th className="num">Labour %</th>
               <th className="num">Target</th>
               <th className="num">Vs target</th>
               <th className="num">SPLH</th>
-              <th className="num">Paid hours</th>
             </tr>
           </thead>
           <tbody>
-            {trend.map(({ weekStart, metrics: m }) => (
-              <tr key={weekStart}>
-                <td>{dayLabel(weekStart).date}</td>
-                <td className="num">{m.forecastSales ? money(m.forecastSales) : <span className="muted">No forecast</span>}</td>
-                <td className="num">{m.paidHours ? money(m.labourCost) : <span className="muted">No rota</span>}</td>
-                <td className={`num ${tone(m)}`}>{counts(m) ? pct(m.labourPct) : ''}</td>
-                <td className="num muted">{m.forecastSales ? pct(m.targetPct) : ''}</td>
-                <td className={`num ${tone(m)}`}>{counts(m) ? signed(m.varianceToTarget, money) : ''}</td>
-                <td className="num">{m.paidHours ? money(m.splh) : ''}</td>
-                <td className="num">{hours(m.paidHours)}</td>
+            {trend.map((w) => (
+              <tr key={w.weekStart}>
+                <td>{dayLabel(w.weekStart).date}</td>
+                <td className="num">{w.forecastSales ? money(w.forecastSales) : <span className="muted">None</span>}</td>
+                <td className="num">
+                  {w.sales ? money(w.sales) : ''}
+                  {w.sales > 0 && w.actualDays < 7 && <span className="tag" title="Days with takings recorded at every site in scope; the rest is forecast">{w.actualDays}/7 days</span>}
+                </td>
+                <td className={`num ${w.sales < w.forecastSales ? 'warn-text' : ''}`}>{w.forecastSales && w.actualDays ? signed(w.sales / w.forecastSales - 1, (n) => pct(n)) : ''}</td>
+                <td className="num">
+                  {w.paidHours ? money(w.labour) : <span className="muted">No rota</span>}
+                  {w.paidHours > 0 && w.labourBasis === 'rota' && <span className="tag" title="Nothing clocked: this is the rota">Rota</span>}
+                </td>
+                <td className={`num ${tone(w)}`}>{counts(w) ? pct(w.labourPct) : ''}</td>
+                <td className="num muted">{w.sales ? pct(w.targetPct) : ''}</td>
+                <td className={`num ${tone(w)}`}>{counts(w) ? signed(w.varianceToTarget, money) : ''}</td>
+                <td className="num">{counts(w) ? money(w.sales / w.paidHours) : ''}</td>
               </tr>
             ))}
           </tbody>
@@ -129,7 +171,7 @@ function Trend({ state, siteIds, week, scopeName }: Omit<Props, 'today'>) {
         <div className="grid-wrap report-block">
           <div className="entity-journal-head">
             <h3>Labour % by site</h3>
-            <span className="muted small">Red is over the site's own target. The last column counts weeks over target.</span>
+            <span className="muted small">Red is over the site's own target on what it took. The last column counts weeks over target.</span>
           </div>
           <table className="table">
             <thead>
@@ -144,7 +186,7 @@ function Trend({ state, siteIds, week, scopeName }: Omit<Props, 'today'>) {
                 <tr key={siteId}>
                   <td>{siteName(siteId)}</td>
                   {trend.map((w) => {
-                    const m = w.metrics.sites.find((s) => s.siteId === siteId)!;
+                    const m = w.sites.find((s) => s.siteId === siteId)!;
                     return (
                       <td key={w.weekStart} className={`num ${tone(m)}`}>
                         {counts(m) ? pct(m.labourPct) : <span className="muted">-</span>}
@@ -162,7 +204,7 @@ function Trend({ state, siteIds, week, scopeName }: Omit<Props, 'today'>) {
   );
 }
 
-function ByRole({ state, siteIds, week, scopeName }: Omit<Props, 'today'>) {
+function ByRole({ state, siteIds, week, scopeName }: ReportProps) {
   const report = useMemo(() => labourByRole(state, siteIds, week), [state, siteIds, week]);
   const roleName = (id: string) => state.roles.find((r) => r.id === id)?.name ?? id;
   const ofSales = (n: number) => (report.forecastSales ? pct(n / report.forecastSales) : '');
@@ -263,30 +305,21 @@ function DepartmentRows({ label, many, total, children }: { label: string; many:
   );
 }
 
-function VsActual({ state, siteIds, week, today, scopeName }: Props) {
-  const [entries, setEntries] = useState<TimeEntry[] | null>(null);
+function VsActual({ state, siteIds, week, today, scopeName }: ReportProps) {
   const end = addDays(week, 6);
+  const entries = useEntries(week, end);
 
-  useEffect(() => {
-    let live = true;
-    setEntries(null);
-    api
-      .get<TimeEntry[]>(`/v1/time-entries?from=${week}&to=${end}`)
-      .then((list) => live && setEntries(list))
-      .catch(() => live && setEntries([]));
-    return () => { live = false; };
-  }, [week, end]);
 
   const report = useMemo(() => (entries ? rotaVsActual(state, entries, siteIds, week, today) : null), [state, entries, siteIds, week, today]);
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
   const personName = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
-  const tone = (n: number) => (Math.abs(n) < 0.5 ? '' : n > 0 ? 'bad-text' : 'good-text');
+  const tone = (n: number, noise = 0.5) => (Math.abs(n) < noise ? '' : n > 0 ? 'bad-text' : 'good-text');
 
   if (week > today) return <p className="muted">This week has not started, so there is nothing worked to compare yet.</p>;
   if (!report) return <p className="muted">Loading</p>;
 
   const people = report.people.filter((p) => p.rosteredHours || p.clockedHours || p.costVariance || p.noShows || p.unrostered);
-  const nothingClocked = people.every((p) => p.clockedHours === 0);
+  const nothingClocked = report.unclockedSiteIds.length === siteIds.length;
   const to = dayLabel(report.workedTo);
 
   function exportCsv() {
@@ -302,12 +335,13 @@ function VsActual({ state, siteIds, week, today, scopeName }: Props) {
           Worked to {to.short} {to.date}{report.workedTo < end ? ', the rota after that' : ''}.
           {report.awaitingApproval > 0 && ` ${report.awaitingApproval} entries are waiting for approval and are included.`}
           {report.stillOpen > 0 && ` ${report.stillOpen} people are still clocked in, so their rota stands for now.`}
+          {!nothingClocked && report.unclockedSiteIds.length > 0 && ` Nothing clocked at ${report.unclockedSiteIds.map(siteName).join(', ')}, so ${report.unclockedSiteIds.length > 1 ? 'they show' : 'it shows'} the rota and nobody there is flagged.`}
         </span>
         <button onClick={exportCsv} disabled={people.length === 0}>Download CSV</button>
       </div>
 
       {nothingClocked && (
-        <div className="notice">Nothing has been clocked for this week yet, so any rostered shift on a day already past shows as not worked. Clock in on the Clock in tab, or simulate clocking on the Payroll tab in the demo.</div>
+        <div className="notice">Nothing has been clocked for this week yet, so the latest estimate is still the rota. Clock in on the Clock in tab, or simulate clocking on the Payroll tab in the demo.</div>
       )}
 
       <div className="grid-wrap">
@@ -315,7 +349,8 @@ function VsActual({ state, siteIds, week, today, scopeName }: Props) {
           <thead>
             <tr>
               <th>Site</th>
-              <th className="num">Forecast sales</th>
+              <th className="num">Forecast</th>
+              <th className="num">Sales</th>
               <th className="num">Rota cost</th>
               <th className="num">Latest estimate</th>
               <th className="num">Variance</th>
@@ -328,11 +363,12 @@ function VsActual({ state, siteIds, week, today, scopeName }: Props) {
               <tr key={s.siteId}>
                 <td>{siteName(s.siteId)}</td>
                 <td className="num">{money(s.forecastSales)}</td>
+                <td className="num">{money(s.sales)}</td>
                 <td className="num">{money(s.rotaCost)}</td>
                 <td className="num">{money(s.estimateCost)}</td>
                 <td className={`num ${tone(s.costVariance)}`}>{signed(s.costVariance, money)}</td>
                 <td className="num">{pct(s.rotaPct)}</td>
-                <td className={`num ${tone(s.costVariance)}`}>{pct(s.estimatePct)}</td>
+                <td className={`num ${tone(s.estimatePct - s.rotaPct, 0.0005)}`}>{pct(s.estimatePct)}</td>
               </tr>
             ))}
           </tbody>
@@ -341,6 +377,7 @@ function VsActual({ state, siteIds, week, today, scopeName }: Props) {
               <tr>
                 <th>Total</th>
                 <td className="num strong">{money(report.forecastSales)}</td>
+                <td className="num strong">{money(report.sales)}</td>
                 <td className="num strong">{money(report.rotaCost)}</td>
                 <td className="num strong">{money(report.estimateCost)}</td>
                 <td className={`num strong ${tone(report.costVariance)}`}>{signed(report.costVariance, money)}</td>

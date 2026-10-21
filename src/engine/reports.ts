@@ -1,6 +1,6 @@
-import type { Department, RotaState, Shift, TimeEntry } from './types';
+import type { DaySales, Department, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours, weekCost } from './cost';
-import { scopeMetrics, type ScopeMetrics } from './metrics';
+import type { PayrollVariance } from './timesheet';
 import { addDays, weekDates } from './time';
 
 // Management reports. Every figure comes from the same cost and metrics engine the rota and the
@@ -9,16 +9,100 @@ import { addDays, weekDates } from './time';
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
 
-export interface TrendWeek {
-  weekStart: string;
-  metrics: ScopeMetrics;
+/** Actual takings where the till has them, the forecast for days it does not. */
+export function salesEstimate(state: RotaState, siteId: string, dates: string[]) {
+  let forecast = 0;
+  let actual = 0;
+  let estimate = 0;
+  let actualDays = 0;
+  for (const date of dates) {
+    const f = state.forecast.filter((x) => x.siteId === siteId && x.date === date).reduce((s, x) => s + x.sales, 0);
+    const a = state.sales?.find((x) => x.siteId === siteId && x.date === date);
+    forecast += f;
+    if (a) {
+      actual += a.netSales;
+      actualDays++;
+    }
+    estimate += a ? a.netSales : f;
+  }
+  return { forecast: round2(forecast), actual: round2(actual), estimate: round2(estimate), actualDays };
 }
 
-/** The scope's labour week by week, oldest first, ending with `endWeek`. */
-export function labourTrend(state: RotaState, siteIds: string[], endWeek: string, weeks: number): TrendWeek[] {
+export interface TrendFigures {
+  forecastSales: number;
+  /** Takings where recorded, forecast for the rest. */
+  sales: number;
+  /** Days of the week that have takings recorded. */
+  actualDays: number;
+  rotaLabour: number;
+  /** Clocked time for days worked, the rota for the rest, or the rota alone where nothing was clocked. */
+  labour: number;
+  labourBasis: 'clock' | 'rota';
+  labourPct: number;
+  targetPct: number;
+  /** Labour the week should have cost at target on what it actually took. */
+  targetCost: number;
+  varianceToTarget: number;
+  paidHours: number;
+}
+
+export interface TrendWeek extends TrendFigures {
+  weekStart: string;
+  sites: (TrendFigures & { siteId: string })[];
+}
+
+/**
+ * Labour against target on what each week actually took, oldest first, ending with `endWeek`.
+ * The target flexes with takings: a site that took less than forecast should have spent less,
+ * so the variance is set against target spend on real sales, not on the forecast.
+ */
+export function performanceTrend(state: RotaState, entries: TimeEntry[], siteIds: string[], endWeek: string, weeks: number, today: string): TrendWeek[] {
   return Array.from({ length: weeks }, (_, i) => {
     const weekStart = addDays(endWeek, (i - weeks + 1) * 7);
-    return { weekStart, metrics: scopeMetrics(state, siteIds, weekStart) };
+    const dates = weekDates(weekStart);
+    const latest = { employees: state.employees, shifts: latestShifts(state, entries, weekStart, today) };
+    const sites = siteIds.map((siteId) => {
+      const site = state.sites.find((s) => s.id === siteId);
+      const sales = salesEstimate(state, siteId, dates);
+      const rota = weekCost(state, weekStart, siteId);
+      const est = weekCost(latest, weekStart, siteId);
+      const clocked = entries.some((e) => e.siteId === siteId && dates.includes(e.date));
+      const targetPct = site?.labourTargetPct ?? 0;
+      const paidHours = latest.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)).reduce((t, s) => t + shiftPaidHours(s), 0);
+      return {
+        siteId,
+        forecastSales: sales.forecast,
+        sales: sales.estimate,
+        actualDays: sales.actualDays,
+        rotaLabour: rota.total,
+        labour: est.total,
+        labourBasis: clocked ? ('clock' as const) : ('rota' as const),
+        labourPct: ratio(est.total, sales.estimate),
+        targetPct,
+        targetCost: round2(sales.estimate * targetPct),
+        varianceToTarget: round2(est.total - sales.estimate * targetPct),
+        paidHours: round2(paidHours),
+      };
+    });
+    const sum = (f: (x: TrendFigures) => number) => round2(sites.reduce((t, x) => t + f(x), 0));
+    const sales = sum((x) => x.sales);
+    const labour = sum((x) => x.labour);
+    const targetCost = sum((x) => x.targetCost);
+    return {
+      weekStart,
+      sites,
+      forecastSales: sum((x) => x.forecastSales),
+      sales,
+      actualDays: Math.min(...sites.map((x) => x.actualDays), 7),
+      rotaLabour: sum((x) => x.rotaLabour),
+      labour,
+      labourBasis: sites.some((x) => x.labourBasis === 'clock') ? 'clock' : 'rota',
+      labourPct: ratio(labour, sales),
+      targetPct: ratio(targetCost, sales),
+      targetCost,
+      varianceToTarget: round2(labour - targetCost),
+      paidHours: sum((x) => x.paidHours),
+    };
   });
 }
 
@@ -126,6 +210,24 @@ export function clockedShifts(entries: TimeEntry[]): Shift[] {
     }));
 }
 
+/**
+ * The week as it now stands, as shifts the cost engine can price: clocked time for days worked and
+ * the rota for days left. Today counts as worked for a person once they have clocked out there;
+ * until then their rota stands. A site with nothing clocked all week keeps its rota, because that
+ * means clocking is not in use there yet, not that nobody came in.
+ */
+export function latestShifts(state: RotaState, entries: TimeEntry[], week: string, today: string): Shift[] {
+  const dates = weekDates(week);
+  const clocked = clockedShifts(entries.filter((e) => dates.includes(e.date) && e.date <= today));
+  const clockingSites = new Set(entries.filter((e) => dates.includes(e.date)).map((e) => e.siteId));
+  const rota = state.shifts.filter((s) => dates.includes(s.date));
+  const closedToday = (s: Shift) => s.date === today && clocked.some((c) => c.employeeId === s.employeeId && c.siteId === s.siteId && c.date === s.date);
+  return [
+    ...rota.filter((s) => !clockingSites.has(s.siteId) || s.date > today || (s.date === today && !closedToday(s))),
+    ...clocked.filter((c) => c.date < today || closedToday(c)),
+  ];
+}
+
 export interface PersonVariance {
   employeeId: string;
   /** Hours on days worked so far. */
@@ -143,6 +245,8 @@ export interface PersonVariance {
 export interface SiteVariance {
   siteId: string;
   forecastSales: number;
+  /** Takings where recorded, forecast for the rest: what the estimate's labour % is set against. */
+  sales: number;
   rotaCost: number;
   estimateCost: number;
   costVariance: number;
@@ -153,13 +257,18 @@ export interface SiteVariance {
 export interface RotaVsActual {
   /** Last day that counts as worked; later days are still the rota. */
   workedTo: string;
+  /** Sites in scope with nothing clocked this week: their estimate is the rota and nobody is flagged. */
+  unclockedSiteIds: string[];
   sites: SiteVariance[];
   people: PersonVariance[];
   forecastSales: number;
+  sales: number;
   rotaCost: number;
   estimateCost: number;
   costVariance: number;
+  /** Rota against forecast: the plan, as the KPI bar showed it. */
   rotaPct: number;
+  /** Latest estimate against takings so far plus forecast for the rest. */
   estimatePct: number;
   /** Clocked entries in scope still waiting for a manager. */
   awaitingApproval: number;
@@ -168,13 +277,10 @@ export interface RotaVsActual {
 }
 
 /**
- * The rota against the floor, in pounds. The latest estimate is the week as it now stands: clocked
- * time for days already worked and the rota for the days left, so it is set against the whole
- * week's forecast and the salaried pay is a full week on both sides. Both are priced by the same
- * cost engine, so the variance is what drift costs after NI, pension and holiday.
- *
- * Today counts as worked for a person once they have clocked out there; until then, their rota
- * stands. Before today, only the clock counts, so a rostered shift nobody clocked costs nothing.
+ * The rota against the floor, in pounds. The latest estimate (see latestShifts) is set against the
+ * whole week's forecast, and salaried pay is a full week on both sides. Both are priced by the same
+ * cost engine, so the variance is what drift costs after NI, pension and holiday. Before today, only
+ * the clock counts where a site clocks, so a rostered shift nobody clocked costs nothing.
  */
 export function rotaVsActual(state: RotaState, entries: TimeEntry[], siteIds: string[], week: string, today: string): RotaVsActual {
   const dates = weekDates(week);
@@ -184,9 +290,7 @@ export function rotaVsActual(state: RotaState, entries: TimeEntry[], siteIds: st
   const weekEntries = entries.filter((e) => e.date >= week && e.date <= workedTo);
   const clocked = clockedShifts(weekEntries);
   const rota = state.shifts.filter((s) => dates.includes(s.date));
-  const closedToday = (s: Shift) => s.date === today && clocked.some((c) => c.employeeId === s.employeeId && c.siteId === s.siteId && c.date === s.date);
-  const stands = (s: Shift) => s.date > today || (s.date === today && !closedToday(s));
-  const estimate = [...rota.filter(stands), ...clocked.filter((c) => c.date < today || closedToday(c))];
+  const estimate = latestShifts(state, entries, week, today);
   const planned = { employees: state.employees, shifts: rota };
   const latest = { employees: state.employees, shifts: estimate };
 
@@ -211,7 +315,9 @@ export function rotaVsActual(state: RotaState, entries: TimeEntry[], siteIds: st
     price(est, estimate, 'estimateCost');
 
     const siteEntries = weekEntries.filter((e) => e.siteId === siteId);
-    for (const s of rota.filter((x) => x.siteId === siteId && x.date <= workedTo)) {
+    // A site that does not clock yet has nothing to compare hours against.
+    const clocks = entries.some((e) => e.siteId === siteId && dates.includes(e.date));
+    for (const s of rota.filter((x) => clocks && x.siteId === siteId && x.date <= workedTo)) {
       const p = person(s.employeeId);
       p.rosteredHours += shiftPaidHours(s);
       const any = siteEntries.some((e) => e.employeeId === s.employeeId && e.date === s.date);
@@ -222,15 +328,16 @@ export function rotaVsActual(state: RotaState, entries: TimeEntry[], siteIds: st
       if (!rota.some((s) => s.employeeId === e.employeeId && s.siteId === siteId && s.date === e.date)) person(e.employeeId).unrostered++;
     }
 
-    const forecastSales = state.forecast.filter((f) => f.siteId === siteId && dates.includes(f.date)).reduce((s, f) => s + f.sales, 0);
+    const sales = salesEstimate(state, siteId, dates);
     return {
       siteId,
-      forecastSales: round2(forecastSales),
+      forecastSales: sales.forecast,
+      sales: sales.estimate,
       rotaCost: plan.total,
       estimateCost: est.total,
       costVariance: round2(est.total - plan.total),
-      rotaPct: ratio(plan.total, forecastSales),
-      estimatePct: ratio(est.total, forecastSales),
+      rotaPct: ratio(plan.total, sales.forecast),
+      estimatePct: ratio(est.total, sales.estimate),
     };
   });
 
@@ -246,19 +353,160 @@ export function rotaVsActual(state: RotaState, entries: TimeEntry[], siteIds: st
 
   const scoped = weekEntries.filter((e) => siteIds.includes(e.siteId));
   const forecastSales = round2(sites.reduce((s, x) => s + x.forecastSales, 0));
+  const sales = round2(sites.reduce((s, x) => s + x.sales, 0));
   const rotaCost = round2(sites.reduce((s, x) => s + x.rotaCost, 0));
   const estimateCost = round2(sites.reduce((s, x) => s + x.estimateCost, 0));
   return {
     workedTo,
+    unclockedSiteIds: siteIds.filter((id) => !entries.some((e) => e.siteId === id && dates.includes(e.date))),
     sites,
     people: list,
     forecastSales,
+    sales,
     rotaCost,
     estimateCost,
     costVariance: round2(estimateCost - rotaCost),
     rotaPct: ratio(rotaCost, forecastSales),
-    estimatePct: ratio(estimateCost, forecastSales),
+    estimatePct: ratio(estimateCost, sales),
     awaitingApproval: scoped.filter((e) => e.status === 'submitted').length,
     stillOpen: scoped.filter((e) => e.status === 'open').length,
   };
+}
+
+/** A completed pay run as the API returns it, reconciled to the accrual sent with its hours. */
+export interface PayRunSummary {
+  id: string;
+  entityId?: string;
+  periodStart: string;
+  periodEnd: string;
+  /** When the run came back. A later run for the same company and period replaces an earlier one. */
+  receivedAt?: string;
+  variance: PayrollVariance;
+}
+
+export interface AccuracyRow extends PayRunSummary {
+  withinTolerance: boolean;
+}
+
+export interface AccrualAccuracy {
+  runs: AccuracyRow[];
+  tolerance: number;
+  within: number;
+  accrued: number;
+  actual: number;
+  /** Net of every run: what the accruals have under or over stated in total. */
+  variance: number;
+  /** Average size of the miss, ignoring sign, as a share of accrued. Netting would hide misses that cancel. */
+  meanAbsolutePct: number;
+  /** Earlier runs for a period that a rerun replaced, left out of every figure. */
+  superseded: number;
+  /** People whose accrual missed in the same direction in more than one run: a rate or contract to fix, not noise. */
+  repeatOffenders: { employeeId: string; runs: number; variance: number }[];
+}
+
+/**
+ * How far the week-end accrual has been from what payroll actually cost, run by run. The accrual is
+ * only worth posting if it is close: inside 1% of labour and the 3-day close can rely on it.
+ */
+export function accrualAccuracy(runs: PayRunSummary[], tolerance = 0.01): AccrualAccuracy {
+  // A rerun of a period is a correction: only the latest run for each company and period counts.
+  const latest = new Map<string, PayRunSummary>();
+  for (const r of runs) {
+    const k = `${r.entityId ?? ''}|${r.periodStart}`;
+    const cur = latest.get(k);
+    if (!cur || (r.receivedAt ?? '') > (cur.receivedAt ?? '')) latest.set(k, r);
+  }
+  const rows = [...latest.values()]
+    .sort((a, b) => a.periodStart.localeCompare(b.periodStart) || (a.entityId ?? '').localeCompare(b.entityId ?? ''))
+    .map((r) => ({ ...r, withinTolerance: Math.abs(r.variance.variancePct) <= tolerance }));
+  const accrued = round2(rows.reduce((s, r) => s + r.variance.accrued, 0));
+  const actual = round2(rows.reduce((s, r) => s + r.variance.actual, 0));
+  const misses = new Map<string, { employeeId: string; over: number; under: number; variance: number }>();
+  for (const r of rows) {
+    for (const l of r.variance.lines) {
+      if (Math.abs(l.variance) < 1) continue;
+      const m = misses.get(l.employeeId) ?? { employeeId: l.employeeId, over: 0, under: 0, variance: 0 };
+      if (l.variance > 0) m.over++;
+      else m.under++;
+      m.variance += l.variance;
+      misses.set(l.employeeId, m);
+    }
+  }
+  const repeatOffenders = [...misses.values()]
+    .filter((m) => Math.max(m.over, m.under) > 1)
+    .map((m) => ({ employeeId: m.employeeId, runs: Math.max(m.over, m.under), variance: round2(m.variance) }))
+    .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+  return {
+    runs: rows,
+    superseded: runs.length - rows.length,
+    tolerance,
+    within: rows.filter((r) => r.withinTolerance).length,
+    accrued,
+    actual,
+    variance: round2(actual - accrued),
+    meanAbsolutePct: rows.length ? rows.reduce((s, r) => s + Math.abs(r.variance.variancePct), 0) / rows.length : 0,
+    repeatOffenders,
+  };
+}
+
+export interface TakingsImport {
+  rows: Omit<DaySales, 'source'>[];
+  errors: string[];
+}
+
+/**
+ * Reads takings from a till or EPOS export: one row per site and day with the date, the site (its
+ * name, id or tracking code) and net sales, then covers if the file has them. A header row is
+ * skipped. Dates may be 2026-10-19 or 19/10/2026. Pound signs and thousands commas in quoted
+ * figures are ignored. Rows that cannot be read are reported by line, never guessed at.
+ */
+export function parseTakingsCsv(text: string, sites: Pick<Site, 'id' | 'name' | 'trackingCode'>[]): TakingsImport {
+  const rows: Omit<DaySales, 'source'>[] = [];
+  const errors: string[] = [];
+  const siteOf = (v: string) => {
+    const k = v.trim().toLowerCase();
+    return sites.find((s) => s.id.toLowerCase() === k || s.name.toLowerCase() === k || s.trackingCode.toLowerCase() === k);
+  };
+  const dateOf = (v: string) => {
+    const t = v.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
+    return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
+  };
+  const amount = (v: string | undefined) => {
+    if (v === undefined || v.trim() === '') return undefined;
+    const n = Number(v.replace(/[£,\s]/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+  };
+  text.split(/\r?\n/).forEach((line, i) => {
+    if (!line.trim()) return;
+    const cells = splitCsvLine(line);
+    const date = dateOf(cells[0] ?? '');
+    if (!date) {
+      if (i > 0) errors.push(`Line ${i + 1}: "${cells[0] ?? ''}" is not a date`);
+      return; // the first line without a date is the header
+    }
+    const site = siteOf(cells[1] ?? '');
+    if (!site) return void errors.push(`Line ${i + 1}: no site called "${cells[1] ?? ''}"`);
+    const netSales = amount(cells[2]);
+    if (netSales === undefined || Number.isNaN(netSales) || netSales < 0) return void errors.push(`Line ${i + 1}: "${cells[2] ?? ''}" is not an amount`);
+    const covers = amount(cells[3]);
+    rows.push({ siteId: site.id, date, netSales: round2(netSales), ...(covers !== undefined && !Number.isNaN(covers) ? { covers } : {}) });
+  });
+  return { rows, errors };
+}
+
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quoted && c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+    else if (c === '"') quoted = !quoted;
+    else if (c === ',' && !quoted) { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
 }

@@ -22,3 +22,9 @@ export function download(filename: string, content: string, type = 'text/csv') {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Rows to CSV: figures to two places, text quoted. */
+export const toCsv = (rows: (string | number)[][]) =>
+  rows.map((r) => r.map((v) => (typeof v === 'number' ? v.toFixed(2) : `"${v.replace(/"/g, '""')}"`)).join(',')).join('\n');
+export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+export const signed = (n: number, f: (n: number) => string) => `${n > 0 ? '+' : ''}${f(n)}`;
