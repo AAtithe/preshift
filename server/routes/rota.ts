@@ -5,7 +5,7 @@ import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { addDays, weekDates, weekStart } from '../../src/engine/time';
 import type { HourForecast, Shift } from '../../src/engine/types';
-import { requireScope } from '../auth';
+import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { forecastBody, idParam, rangeQuery, shiftBody, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -14,15 +14,19 @@ type SiteWeek = { siteId: string; weekStart: string };
 type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
 type Range = { siteId?: string; from?: string; to?: string };
 
-export function serialiseMetrics(m: WeekMetrics) {
+/**
+ * Without employees:read the week carries labour totals only. Cost by person, or by shift (which
+ * names its person), would give away individual pay.
+ */
+export function serialiseMetrics(m: WeekMetrics, byPerson = true) {
   const { cost, ...rest } = m;
   return {
     ...rest,
     cost: {
       total: cost.total,
       unallocated: cost.unallocated,
-      employees: Object.fromEntries(cost.employees),
-      shifts: Object.fromEntries(cost.shifts),
+      employees: byPerson ? Object.fromEntries(cost.employees) : {},
+      shifts: byPerson ? Object.fromEntries(cost.shifts) : {},
     },
   };
 }
@@ -119,7 +123,7 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       siteId,
       weekStart: ws,
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
-      metrics: serialiseMetrics(weekMetrics(org.state, siteId, ws)),
+      metrics: serialiseMetrics(weekMetrics(org.state, siteId, ws), hasScope(req, 'employees:read')),
       issues: checkWeek(org.state, ws, siteId),
     };
   });

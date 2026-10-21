@@ -71,7 +71,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
     );
   });
 
-  app.get('/v1/privacy/retention', { ...read, schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
+  app.get('/v1/privacy/retention', { preHandler: requireScope('employees:read'), schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
     const org = orgOf(req);
     const policy = policyOf(org);
     return { policy, items: retentionSchedule(org.state, org.timeEntries, today(), policy) };

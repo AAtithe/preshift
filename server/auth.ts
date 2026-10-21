@@ -3,11 +3,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { cookieFrom, readSession } from './session';
 import type { ApiKeyStore, UserRecord, UserStore } from './store';
 
-export type Scope = 'rota:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'webhooks:write' | '*';
+export type Scope = 'rota:read' | 'employees:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'webhooks:write' | '*';
 
 /** What each scope allows, as shown to an admin choosing them for a new key. */
 export const SCOPES: Record<Exclude<Scope, '*'>, string> = {
-  'rota:read': 'Read sites, roles, people, shifts, forecast, time, payroll status and journals',
+  'rota:read': 'Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals',
+  'employees:read': 'Read staff records and pay: names, dates of birth, rates, right to work, cost and pay by person, clock locations',
   'rota:write': 'Change shifts and people, build and publish rotas, load the forecast',
   'time:write': 'Clock in and out, and enter or edit time',
   'time:approve': 'Approve clocked time for payroll',
@@ -44,9 +45,24 @@ declare module 'fastify' {
  * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
-  if (env.PRESHIFT_API_KEYS) return JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
+  if (env.PRESHIFT_API_KEYS) return (JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[]).map(keepEmployeeAccess);
   if (env.NODE_ENV === 'production') return [];
   return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'] }];
+}
+
+/**
+ * Staff records and pay used to come with rota:read. Keys set by deployment before employees:read
+ * existed keep what they had, so splitting the scope breaks no running integration. Keys made in
+ * the app choose it explicitly.
+ */
+function keepEmployeeAccess(k: ApiKey): ApiKey {
+  return k.scopes.includes('rota:read') && !k.scopes.includes('employees:read') ? { ...k, scopes: [...k.scopes, 'employees:read'] } : k;
+}
+
+/** Whether the caller holds the scope, or every scope. */
+export function hasScope(req: FastifyRequest, scope: Scope) {
+  const scopes = req.principal?.scopes ?? [];
+  return scopes.includes('*') || scopes.includes(scope);
 }
 
 /**
@@ -135,8 +151,7 @@ export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
 
 export function requireScope(scope: Scope) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
-    const scopes = req.principal?.scopes ?? [];
-    if (!scopes.includes('*') && !scopes.includes(scope)) {
+    if (!hasScope(req, scope)) {
       return reply.code(403).send({ error: 'forbidden', message: `This key lacks the ${scope} scope` });
     }
   };

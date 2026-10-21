@@ -112,6 +112,42 @@ describe('API keys made in the app', () => {
   });
 });
 
+describe('staff records and pay need employees:read', () => {
+  it('keeps people, pay by person and clock locations from a rota:read key, and gives them to one with employees:read', async () => {
+    const t = await boot();
+    const bi = await t.makeKey(['rota:read'], 'Group BI');
+    const hr = await t.makeKey(['rota:read', 'employees:read'], 'HR system');
+    await t.call('POST', '/v1/rota/build', undefined, { siteId: 'mar', weekStart: WEEK });
+    await t.call('POST', '/v1/time-entries', undefined, {
+      employeeId: 'mar-2', siteId: 'mar', roleId: 'chef', date: WEEK, clockIn: 600, clockOut: 900, breakMinutes: 0,
+    });
+    const org = await t.ctx.store.load('demo');
+    org.timeEntries[0].clockInLocation = { lat: 51.52, lng: -0.15, accuracyMetres: 10 } as never;
+
+    for (const url of ['/v1/employees', '/v1/employees/mar-2', '/v1/payroll/submissions', '/v1/payroll/runs', '/v1/integrations/payroll/outbox', '/v1/privacy/retention']) {
+      expect((await t.call('GET', url, { key: bi.key })).status, url).toBe(403);
+      expect((await t.call('GET', url, { key: hr.key })).status, url).toBe(200);
+    }
+
+    const week = (key: string) => t.call('GET', `/v1/rota/week?siteId=mar&weekStart=${WEEK}`, { key });
+    const biWeek = (await week(bi.key)).body.metrics.cost;
+    expect(biWeek.total).toBeGreaterThan(0);
+    expect(biWeek.employees).toEqual({});
+    expect(biWeek.shifts).toEqual({});
+    expect(Object.keys((await week(hr.key)).body.metrics.cost.employees).length).toBeGreaterThan(0);
+
+    const entries = (key: string) => t.call('GET', `/v1/time-entries?siteId=mar`, { key });
+    expect((await entries(bi.key)).body[0].clockInLocation).toBeUndefined();
+    expect((await entries(hr.key)).body[0].clockInLocation).toMatchObject({ lat: 51.52 });
+  });
+
+  it('lets deployment keys made before the split keep reading staff records', async () => {
+    const { loadApiKeys } = await import('./auth');
+    const [old] = loadApiKeys({ PRESHIFT_API_KEYS: JSON.stringify([{ key: 'k', orgId: 'demo', name: 'Old', scopes: ['rota:read'] }]) });
+    expect(old.scopes).toEqual(['rota:read', 'employees:read']);
+  });
+});
+
 describe('webhooks', () => {
   it('sends a signed, thin event when a shift is added', async () => {
     const t = await boot();

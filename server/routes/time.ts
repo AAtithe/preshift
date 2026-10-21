@@ -5,7 +5,7 @@ import { weekDates } from '../../src/engine/time';
 import { breakShortfalls } from '../../src/engine/breaks';
 import { checkFence } from '../../src/engine/clocking';
 import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engine/types';
-import { requireScope } from '../auth';
+import { hasScope, requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { geoFixBody, idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -132,7 +132,10 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
   const approve = { preHandler: requireScope('time:approve') };
 
   app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).timeEntries.filter(inRange(req.query)),
+    orgOf(req)
+      .timeEntries.filter(inRange(req.query))
+      // Where someone was when they clocked is personal data; hours are not.
+      .map((t) => (hasScope(req, 'employees:read') ? t : { ...t, clockInLocation: undefined, clockOutLocation: undefined })),
   );
 
   app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string; location?: GeoFix } }>(

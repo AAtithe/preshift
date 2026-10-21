@@ -51,13 +51,21 @@ labour, an in-house app, a partner product. Nobody at Preshift has to issue anyt
 3. Revoking a key under Settings stops it on the next request. Each key shows when it was last used,
    so keys nobody uses any more are easy to find and remove.
 
+Staff records and pay sit behind `employees:read`, apart from `rota:read`, so a BI tool or EPOS can
+read labour totals without seeing anyone's date of birth, rate or pay. Without it, `/v1/rota/week`
+still returns total labour cost but leaves cost by person and by shift empty, and time entries come
+without clock locations. Grant it only to systems that hold staff records themselves (HR, payroll).
+Keys in `PRESHIFT_API_KEYS` that have `rota:read` are given `employees:read` too, because they had
+it before the split.
+
 Each key may make 300 requests a minute (`x-ratelimit-*` headers; `429` with `retry-after` beyond
 that). The limit is held per server instance, so it guards against a runaway loop rather than
 acting as a billing quota. Keys from `PRESHIFT_API_KEYS` still work, for keys set by deployment.
 
 | Scope | Allows |
 | --- | --- |
-| `rota:read` | Read sites, roles, people, shifts, forecast, time, payroll status and journals |
+| `rota:read` | Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals |
+| `employees:read` | Read staff records and pay: `/v1/employees`, cost by person and by shift in `/v1/rota/week`, clock locations on time entries, payroll submissions, pay runs and the payroll outbox, and the retention schedule |
 | `rota:write` | Change shifts and people, build and publish rotas, load the forecast |
 | `time:write` | Clock in and out, enter or edit time |
 | `time:approve` | Approve clocked time for payroll |
