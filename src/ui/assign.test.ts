@@ -33,7 +33,6 @@ describe('adding a shift from the timeline', () => {
     const chloe = s.employees.find((e) => e.name === 'Chloe Dubois')!;
     const leaveDay = chloe.leave[0];
     const list = candidates(s, { siteId: 'mar', roleId: 'bar', date: leaveDay, startMinute: 17 * 60, endMinute: 23 * 60 }, 'new');
-    expect(list.every((c) => c.employee.siteId === 'mar')).toBe(true);
     expect(list.find((c) => c.employee.id === chloe.id)?.blocker).toMatch(/approved leave/);
     const rank = (c: (typeof list)[number]) => (c.blocker ? 3 : !c.trained ? 2 : c.warnings.length ? 1 : 0);
     for (let i = 1; i < list.length; i++) {
@@ -56,5 +55,39 @@ describe('adding a shift from the timeline', () => {
     const list = candidates(s, { siteId: 'mar', roleId: 'server', date: WEEK, startMinute: 11 * 60, endMinute: 19 * 60 }, 'new');
     const adult = list.find((c) => c.employee.name === 'Grace Mensah')!;
     expect(adult.shift.breakMinutes).toBe(20);
+  });
+
+  it('offers people from other sites as borrowed, with the cost landing on the site they work at', () => {
+    const s = state();
+    s.shifts = [];
+    const list = candidates(s, { siteId: 'mar', roleId: 'server', date: WEEK, startMinute: 12 * 60, endMinute: 16 * 60 }, 'new');
+    const away = list.filter((c) => c.borrowed);
+    expect(away.length).toBeGreaterThan(0);
+    expect(away.every((c) => c.employee.siteId !== 'mar' && c.homeSite === 'Shoreditch')).toBe(true);
+    expect(list.filter((c) => !c.borrowed).every((c) => c.employee.siteId === 'mar')).toBe(true);
+    const plain = away.find((c) => c.employee.payBasis === 'hourly' && c.employee.contractedHours === 0 && !c.blocker)!;
+    expect(plain.siteCost).toBeCloseTo(plain.marginal, 1);
+  });
+
+  it('borrowing someone with unworked contracted hours costs the group nothing but moves cost to the host site', () => {
+    const s = state();
+    s.shifts = [];
+    const contracted = s.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours >= 8)!;
+    const list = candidates(s, { siteId: 'mar', roleId: contracted.roleIds[0], date: WEEK, startMinute: 12 * 60, endMinute: 16 * 60 }, 'new');
+    const c = list.find((x) => x.employee.id === contracted.id)!;
+    expect(c.borrowed).toBe(true);
+    expect(c.marginal).toBeCloseTo(0, 2);
+    expect(c.siteCost).toBeGreaterThan(0);
+  });
+
+  it('blocks a double booking across sites and flags too little time to travel', () => {
+    const s = state();
+    const person = s.employees.find((e) => e.siteId === 'shd' && e.roleIds.includes('server') && e.availability.length === 0)!;
+    s.shifts = [{ id: 'home', employeeId: person.id, roleId: 'server', siteId: 'shd', date: WEEK, startMinute: 12 * 60, endMinute: 17 * 60, breakMinutes: 0 }];
+    const at = (start: number, end: number) =>
+      candidates(s, { siteId: 'mar', roleId: 'server', date: WEEK, startMinute: start, endMinute: end }, 'new').find((c) => c.employee.id === person.id)!;
+    expect(at(16 * 60, 20 * 60).blocker).toMatch(/Overlaps/);
+    expect(at(17 * 60 + 30, 21 * 60).warnings[0]?.message).toMatch(/Also at Shoreditch 12:00-17:00, 30 minutes/);
+    expect(at(19 * 60, 23 * 60).warnings.find((w) => w.code === 'travel')).toBeUndefined();
   });
 });

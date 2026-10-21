@@ -35,7 +35,7 @@ export function roundToTotal(values: number[], total = values.reduce((a, b) => a
   let gap = Math.round(total) - floors.reduce((a, b) => a + b, 0);
   // Largest fractions take a pound up; if the parts overshoot the total, the smallest give one back.
   const order = values.map((v, i) => [v - Math.floor(v), i] as const).sort((a, b) => b[0] - a[0]);
-  for (let k = 0; gap !== 0 && k < order.length * 4; k++) {
+  for (let k = 0; gap !== 0 && k < order.length * (Math.abs(gap) + 1); k++) {
     const i = gap > 0 ? order[k % order.length][1] : order[order.length - 1 - (k % order.length)][1];
     floors[i] += gap > 0 ? 1 : -1;
     gap += gap > 0 ? -1 : 1;

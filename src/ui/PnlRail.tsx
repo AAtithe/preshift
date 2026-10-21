@@ -19,16 +19,8 @@ interface Props {
  * contribution left after labour, and the verdict against target. Sits beside every screen.
  */
 export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish }: Props) {
-  let gross = 0;
-  let holiday = 0;
-  let ni = 0;
-  let pension = 0;
-  for (const c of metrics.cost.employees.values()) {
-    gross += c.gross;
-    holiday += c.holiday;
-    ni += c.employerNi;
-    pension += c.pension;
-  }
+  // Site-scoped parts: anyone borrowed brings only the share of their week worked here.
+  const { gross, holiday, employerNi: ni, pension } = metrics.cost.parts;
   // Tie the statement to the labour cost the rest of the page and the journal use.
   const [rGross, rHoliday, rNi, rPension] = roundToTotal([gross, holiday, ni, pension], metrics.labourCost);
   const labour = rGross + rHoliday + rNi + rPension;

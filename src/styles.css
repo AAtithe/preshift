@@ -580,3 +580,15 @@ button.tl-cell.short:hover:not(:disabled) { filter: brightness(0.88); box-shadow
   .assign-row { grid-template-columns: auto 1fr 76px; }
   .assign-status { grid-column: 2 / 4; text-align: left; max-width: none; }
 }
+
+/* Borrowing across sites */
+.assign-scroll { max-height: 48vh; overflow: auto; margin: 0 -4px 12px; padding: 0 4px; }
+.assign-scroll .assign-list { max-height: none; overflow: visible; margin-bottom: 6px; }
+.assign-head { margin: 12px 0 6px; }
+.assign-head:first-child { margin-top: 0; }
+.assign-head .muted { text-transform: none; letter-spacing: 0; font-family: var(--font); }
+.assign-advice { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--good-bg); color: var(--good); font-size: 13px; font-weight: 500; }
+.tag.borrowed { background: var(--paper-2); color: var(--ink-2); }
+.tl-from { font: 600 9px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 4px; border-radius: 3px; background: var(--paper-2); color: var(--ink-2); flex: none; }
+.tl-bar.pub .tl-from { background: rgb(255 255 255 / 0.18); color: inherit; }
+.recharge { margin-bottom: 16px; } .recharge .panel-head { padding-bottom: 12px; }

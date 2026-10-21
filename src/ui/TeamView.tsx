@@ -103,7 +103,7 @@ export function TeamView({ state, siteId, metrics, issues }: Props) {
         </tbody>
         <tfoot>
           <tr>
-            <th colSpan={4}>Site total</th>
+            <th colSpan={4}>Team total, every site they work</th>
             <td className="num">{money(totals.gross)}</td>
             <td className="num">{money(totals.holiday)}</td>
             <td className="num">{money(totals.ni)}</td>

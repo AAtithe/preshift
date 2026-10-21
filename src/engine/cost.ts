@@ -34,6 +34,11 @@ export interface WeekCost {
   employees: Map<string, EmployeeWeekCost>;
   shifts: Map<string, ShiftCost>;
   total: number;
+  /**
+   * The total split into its parts, for the site in scope only: a person who also works at
+   * another site brings just the share of their week spent here.
+   */
+  parts: { gross: number; holiday: number; employerNi: number; pension: number };
   /** Cost of people paid but not rostered (salaried or guaranteed hours). */
   unallocated: number;
 }
@@ -94,6 +99,13 @@ export function weekCost(
   const shifts = new Map<string, ShiftCost>();
   let total = 0;
   let unallocated = 0;
+  const parts = { gross: 0, holiday: 0, employerNi: 0, pension: 0 };
+  const addParts = (c: { gross: number; holiday: number; employerNi: number; pension: number }) => {
+    parts.gross += c.gross;
+    parts.holiday += c.holiday;
+    parts.employerNi += c.employerNi;
+    parts.pension += c.pension;
+  };
 
   for (const employee of state.employees) {
     // On-costs depend on everything the person works that week, at any site.
@@ -119,11 +131,19 @@ export function weekCost(
       };
       shifts.set(shift.id, sc);
       total += sc.total;
+      addParts(sc);
     }
     if (unrostered) {
       unallocated += cost.total;
       total += cost.total;
+      addParts(cost);
     }
   }
-  return { employees, shifts, total: round2(total), unallocated: round2(unallocated) };
+  const rounded = {
+    gross: round2(parts.gross),
+    holiday: round2(parts.holiday),
+    employerNi: round2(parts.employerNi),
+    pension: round2(parts.pension),
+  };
+  return { employees, shifts, total: round2(total), unallocated: round2(unallocated), parts: rounded };
 }

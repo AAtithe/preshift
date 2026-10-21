@@ -196,6 +196,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                               {ageOn(e.dateOfBirth, dates[0]) < 18 && <span className="tag">Under 18</span>}
                             </div>
                             <div className="meta">
+                              {e.siteId !== site.id && <span className="tag borrowed">{state.sites.find((x) => x.id === e.siteId)?.name}</span>}
                               {e.roleIds.map((r) => roleOf(r)?.name).join(', ')}
                               {e.payBasis === 'salaried' ? ' · salaried' : ` · £${e.hourlyRate.toFixed(2)}`}
                             </div>

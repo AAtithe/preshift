@@ -195,3 +195,25 @@ describe('journal', () => {
     expect(csv).toContain('25/10/2026');
   });
 });
+
+describe('cross-site cost', () => {
+  it('splits a person working at two sites by hours, and the parts tie to each site total', () => {
+    const state = seedState(WEEK);
+    const borrowed = state.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours === 0)!;
+    const at = (id: string, siteId: string, start: number) =>
+      ({ id, employeeId: borrowed.id, roleId: borrowed.roleIds[0], siteId, date: WEEK, startMinute: start * 60, endMinute: (start + 4) * 60, breakMinutes: 0 }) as Shift;
+    state.shifts = [at('home', 'shd', 12), at('away', 'mar', 18)];
+    const mar = weekCost(state, WEEK, 'mar');
+    const shd = weekCost(state, WEEK, 'shd');
+    const whole = employeeWeekCost(borrowed, state.shifts).total;
+    expect(mar.shifts.get('away')!.total + shd.shifts.get('home')!.total).toBeCloseTo(whole, 1);
+    for (const c of [mar, shd]) {
+      const sum = c.parts.gross + c.parts.holiday + c.parts.employerNi + c.parts.pension;
+      expect(sum).toBeCloseTo(c.total, 0);
+    }
+    // Marylebone carries half of the borrowed person's week, not all of it.
+    const p = mar.parts;
+    const marOwn = weekCost({ ...state, shifts: [] }, WEEK, 'mar').total;
+    expect(p.gross + p.holiday + p.employerNi + p.pension - marOwn).toBeCloseTo(whole / 2, 0);
+  });
+});

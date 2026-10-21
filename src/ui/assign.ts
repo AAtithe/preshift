@@ -1,7 +1,7 @@
 import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
-import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
+import { employeeWeekCost, shiftsInWeek, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
-import { addDays, ageOn, weekStart } from '../engine/time';
+import { addDays, absoluteMinute, ageOn, formatMinute, weekStart } from '../engine/time';
 import type { Employee, RotaState, Shift } from '../engine/types';
 import { dropBlocker, MIN_SHIFT_MINUTES, SNAP_MINUTES } from './drag';
 
@@ -17,8 +17,13 @@ export interface Opening {
 export interface Candidate {
   employee: Employee;
   shift: Shift;
-  /** What adding this shift does to the week's loaded labour cost for this person. */
+  /** What adding this shift does to the group's loaded labour cost for this person's week. */
   marginal: number;
+  /** What it adds to the labour of the site the shift is at, which is what that site's labour % sees. */
+  siteCost: number;
+  /** Works for another site and would be borrowed. */
+  borrowed: boolean;
+  homeSite: string;
   trained: boolean;
   /** Why this person cannot take the shift, or null when they can. */
   blocker: string | null;
@@ -73,15 +78,21 @@ export function openingForGap(state: RotaState, siteId: string, date: string, ho
   return { siteId, roleId, date, startMinute: hour * 60, endMinute: hour * 60 + length };
 }
 
+/** A gap shorter than this between shifts at two sites is flagged as too tight to travel. */
+export const TRAVEL_MINUTES = 60;
+
 /**
- * Everyone who could work an opening, cheapest legal person first. Cost is the change to the
- * person's whole loaded week, so someone short of their contracted hours can cost nothing extra,
- * and someone already over the NI threshold costs more than their rate suggests.
+ * Everyone who could work an opening, cheapest legal person first: the site's own team, then
+ * people who could be borrowed from other sites. Cost is the change to the person's whole loaded
+ * week, so someone short of their contracted hours can cost the group nothing, and someone already
+ * over the NI threshold costs more than their rate suggests. The site cost is the share the shift
+ * moves onto this site's labour, because cost follows the work.
  */
 export function candidates(state: RotaState, opening: Opening, id: string): Candidate[] {
   const ws = weekStart(opening.date);
+  const siteName = (siteId: string) => state.sites.find((x) => x.id === siteId)?.name ?? siteId;
+  const context = state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
   return state.employees
-    .filter((e) => e.siteId === opening.siteId)
     .map((employee) => {
       const length = opening.endMinute - opening.startMinute;
       const shift: Shift = {
@@ -96,14 +107,42 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
       };
       const week = shiftsInWeek(state.shifts, ws).filter((s) => s.employeeId === employee.id);
       const marginal = employeeWeekCost(employee, [...week, shift]).total - employeeWeekCost(employee, week).total;
-      const context = state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
+      const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts }, ws, opening.siteId).total;
+      const siteCost = atSite([...week, shift]) - atSite(week);
       const issues = checkEmployeeWeek(employee, ws, [...context, shift]).filter((i) => i.shiftId === shift.id);
       const trained = employee.roleIds.includes(opening.roleId);
       const blocker = dropBlocker(employee, shift) ?? issues.find((i) => i.severity === 'block')?.message ?? null;
       const warnings = issues.filter((i) => i.severity === 'warn' && i.code !== 'not-trained');
-      return { employee, shift, marginal, trained, blocker, warnings };
+      const travel = travelWarning(employee, shift, context, siteName);
+      if (travel) warnings.unshift(travel);
+      const borrowed = employee.siteId !== opening.siteId;
+      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId) };
     })
     .sort((a, b) => rank(a) - rank(b) || a.marginal - b.marginal || a.employee.name.localeCompare(b.employee.name));
+}
+
+/** Flags a same-day shift at another site that leaves too little time to get between them. */
+export function travelWarning(employee: Employee, shift: Shift, shifts: Shift[], siteName: (id: string) => string): Issue | null {
+  const anchor = shift.date;
+  const start = absoluteMinute(anchor, shift.date, shift.startMinute);
+  const end = absoluteMinute(anchor, shift.date, shift.endMinute);
+  for (const other of shifts) {
+    if (other.employeeId !== employee.id || other.siteId === shift.siteId || other.id === shift.id) continue;
+    const oStart = absoluteMinute(anchor, other.date, other.startMinute);
+    const oEnd = absoluteMinute(anchor, other.date, other.endMinute);
+    const gap = Math.max(start - oEnd, oStart - end);
+    if (gap >= 0 && gap < TRAVEL_MINUTES) {
+      return {
+        code: 'travel',
+        severity: 'warn',
+        employeeId: employee.id,
+        shiftId: shift.id,
+        date: shift.date,
+        message: `Also at ${siteName(other.siteId)} ${formatMinute(other.startMinute)}-${formatMinute(other.endMinute)}, ${gap} minutes to get across.`,
+      };
+    }
+  }
+  return null;
 }
 
 /** Trained and clear first, then trained with something to review, then the rest. */

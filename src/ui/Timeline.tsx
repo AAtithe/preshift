@@ -209,6 +209,8 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
   const forecastMax = Math.max(1, ...state.forecast.filter((f) => f.siteId === site.id && dates.includes(f.date)).map((f) => f.sales));
   const today = toISODate(new Date());
   const name = (id: string) => state.employees.find((p) => p.id === id)?.name ?? '';
+  const homeOf = (id: string) => state.employees.find((p) => p.id === id)?.siteId ?? site.id;
+  const siteOf = (id: string) => state.sites.find((x) => x.id === id)?.name ?? '';
   const short = (full: string) => {
     const [first, last] = full.split(' ');
     return last ? `${first} ${last[0]}` : first;
@@ -354,6 +356,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                 >
                   <span className="tl-edge start" data-edge="start" aria-hidden />
                   <span className="tl-name">{short(name(shift.employeeId))}</span>
+                  {homeOf(shift.employeeId) !== site.id && <span className="tl-from">{siteOf(homeOf(shift.employeeId))}</span>}
                   <span className="tl-meta">
                     {role?.name} · {formatMinute(shift.startMinute)}-{formatMinute(shift.endMinute)}
                   </span>
