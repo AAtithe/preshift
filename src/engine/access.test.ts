@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { seedUsers } from '../../server/seedUsers';
 import { accessHealth, can, checkAuthority, checkGrant, type Actor, type User } from './access';
 import { seedState } from './seed';
+import { mailAttention, type MailView } from './mail';
 
 const TODAY = '2026-10-21';
 
@@ -105,5 +106,24 @@ describe('health', () => {
     expect(kinds).toContain('ending_soon:usr_auditor');
     expect(kinds).toContain('review_due:');
     expect(kinds).not.toContain('must_enrol:usr_viewer');
+  });
+});
+
+describe('emails that did not arrive', () => {
+  const person = (over: Partial<User>): User => ({ id: 'u1', email: 'ama@example.com', name: 'Ama', audience: 'operator', status: 'invited', mfaEnrolled: false, createdAt: '', memberships: [], ...over });
+  const mail = (over: Partial<MailView>): Map<string, MailView> =>
+    new Map([['u1', { id: 'm1', to: 'ama@example.com', kind: 'invite', userId: 'u1', sentAt: '2026-10-20T09:00:00Z', by: 'Tom', status: 'bounced', at: '2026-10-20T09:01:00Z', ...over }]]);
+
+  it('flags a bounced invitation while it is unaccepted, and nothing once the person is in or suspended', () => {
+    expect(mailAttention([person({})], mail({}))[0]).toMatchObject({ kind: 'email_bounced', severity: 'warn', userId: 'u1' });
+    expect(mailAttention([person({ status: 'active' })], mail({}))).toEqual([]);
+    expect(mailAttention([person({ status: 'suspended' })], mail({}))).toEqual([]);
+    expect(mailAttention([person({})], mail({ status: 'delivered' }))).toEqual([]);
+  });
+
+  it('flags a reset that did not arrive only until the person signs in after it', () => {
+    const reset = mail({ kind: 'reset', status: 'complained' });
+    expect(mailAttention([person({ status: 'active', lastSeenAt: '2026-10-19T08:00:00Z' })], reset)[0].kind).toBe('email_complained');
+    expect(mailAttention([person({ status: 'active', lastSeenAt: '2026-10-20T10:00:00Z' })], reset)).toEqual([]);
   });
 });

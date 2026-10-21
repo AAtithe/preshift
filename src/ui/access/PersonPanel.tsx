@@ -6,7 +6,7 @@ import type { RotaState } from '../../engine/types';
 import { api, ApiError } from '../api';
 import {
   actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today,
-  deliveryText, type AuditRow, type Delivery, type Me,
+  deliveryText, emailState, lastEmailOf, undelivered, unsettled, type AuditRow, type Delivery, type Me,
 } from './model';
 
 interface Props {
@@ -33,6 +33,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
   const employee = state.employees.find((e) => e.id === user.employeeId);
   const sign = signInText(user);
   const signIn = signInState(user);
+  const mail = lastEmailOf(user);
 
   useEffect(() => {
     if (!canReadTrail) return;
@@ -80,6 +81,20 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
           <div><dt>Invited by</dt><dd>{user.invitedBy ?? 'Set-up'}</dd></div>
           <div><dt>On the rota</dt><dd>{employee ? `${employee.name}, ${siteName(state, employee.siteId)}` : 'No'}</dd></div>
           <div><dt>Sign-in</dt><dd className={`tone-${signIn.tone}`}>{signIn.text}</dd></div>
+          {mail && (
+            <div>
+              <dt>Last email</dt>
+              <dd className={`tone-${emailState(mail).tone}`}>
+                {emailState(mail).text}
+                {unsettled(mail) && (
+                  <>
+                    {' '}
+                    <button className="link" onClick={() => void act('Checked with Resend', () => api.post(`/v1/access/emails/${encodeURIComponent(mail.id)}/check`))}>Check now</button>
+                  </>
+                )}
+              </dd>
+            </div>
+          )}
         </dl>
 
         {mine.length > 0 && (
@@ -147,6 +162,9 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
             {user.status === 'invited' && (
               <>
                 <button onClick={() => void act('Invitation sent again', () => api.post(`/v1/users/${user.id}/resend-invite`))}>Resend invitation</button>
+                {undelivered(mail) && (
+                  <button onClick={() => void act('New invitation link made', () => api.post(`/v1/users/${user.id}/resend-invite`, { handOver: true }))}>Hand over a new link instead</button>
+                )}
                 <button className="danger" onClick={() => void act('Invitation withdrawn', () => api.del(`/v1/users/${user.id}/invite`).then(onClose), `Withdraw ${user.name}'s invitation? Their account is removed.`)}>Withdraw invitation</button>
               </>
             )}
@@ -155,6 +173,13 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
                 onClick={() => void act('Password reset. Their old password and every session have stopped', () => api.post(`/v1/users/${user.id}/reset-password`), `Reset ${user.name}'s password? Their current password stops working now and they are signed out everywhere. A link, valid for a day, goes to their email for them to set a new one themselves. If email is not set up you get the link instead: confirm who they are by phone or in person before you pass it on.`)}
               >
                 Reset password
+              </button>
+            )}
+            {user.status === 'active' && undelivered(mail) && (
+              <button
+                onClick={() => void act('Password reset. Their old password and every session have stopped', () => api.post(`/v1/users/${user.id}/reset-password`, { handOver: true }), `Reset ${user.name}'s password and hand the link over yourself? Their last email did not arrive. Confirm who they are by phone or in person before you pass it on.`)}
+              >
+                Reset and hand over the link
               </button>
             )}
             {user.mfaEnrolled && (

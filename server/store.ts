@@ -65,6 +65,21 @@ export interface AuthenticatorRecord {
   lockedUntil?: string;
 }
 
+export type { MailKind } from '../src/engine/mail';
+import type { MailKind, MailStatus } from '../src/engine/mail';
+export type MailEventType = MailStatus;
+
+export interface MailRecord {
+  to: string;
+  kind: MailKind;
+  userId?: string;
+  sentAt: string;
+  /** Who sent it: a person's name, or the sign-in page for "Forgot your password?". */
+  by: string;
+  /** Kept as reported, oldest first; the status is read from them (maillog.statusOf), never stored. */
+  events: { id: string; type: MailEventType; at: string; detail?: string }[];
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -82,6 +97,8 @@ export interface OrgData {
   inviteSends: Record<string, string[]>;
   /** Authenticators by user id. */
   authenticators: Record<string, AuthenticatorRecord>;
+  /** Emails sent through Resend, by Resend's id, with what Resend has reported since. Never their content. */
+  mail: Record<string, MailRecord>;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
@@ -172,6 +189,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     accessReviews: people.reviews,
     inviteTokens: {},
     inviteSends: {},
+    mail: {},
     authenticators: seeded ? demoAuthenticators(people.users) : {},
   };
 }
@@ -520,6 +538,7 @@ function deserialise(data: unknown, version: number): OrgData {
     accessReviews: raw.accessReviews ?? [],
     inviteTokens: raw.inviteTokens ?? {},
     inviteSends: raw.inviteSends ?? {},
+    mail: raw.mail ?? {},
     authenticators: raw.authenticators ?? {},
     processedWebhookIds: new Set(raw.processedWebhookIds),
     version,

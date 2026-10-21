@@ -11,14 +11,16 @@ import { authenticatorState } from './authenticator';
 import { accessResetEmail, emailSetting, inviteEmail, linkFor, parseEmailSettings, sendMail, type Mail } from '../mail';
 import { hashPassword } from '../passwords';
 import { ADMIN_RESET_HOURS, issueReset } from './access';
-import type { Store } from '../store';
+import { mailAttention } from '../../src/engine/mail';
+import { addEvent, askResend, latestByUser, recordSent, view } from '../maillog';
+import type { MailKind, Store } from '../store';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESENDS_PER_HOUR = 3;
-const ACCESS_ACTIONS = ['user.', 'membership.', 'access.', 'invite.', 'authenticator.'];
+const ACCESS_ACTIONS = ['user.', 'membership.', 'access.', 'invite.', 'authenticator.', 'email.'];
 
 const grantFields = {
   roleId: { type: 'string' },
@@ -40,6 +42,9 @@ interface InviteBody extends GrantBody { email: string; name: string; jobTitle?:
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const hash = hashToken;
+
+/** `{ handOver: true }` asks for the link back instead of an email, for an address that bounced. */
+const handOverAsked = (body: unknown) => (body as { handOver?: unknown } | undefined)?.handOver === true;
 
 const nameOf = (a: Actor) => (a.kind === 'system' ? a.name : a.user.name);
 
@@ -97,20 +102,26 @@ export interface Delivery {
   emailProblem?: string;
 }
 
-/** Emails the link once email is set up under Settings; otherwise, or if Resend refuses, returns it. */
-async function deliver(store: Store, orgId: string, path: string, mail: (link: string) => Mail): Promise<Delivery> {
-  const settings = parseEmailSettings(await store.getSetting(emailSetting(orgId)));
+/**
+ * Emails the link once email is set up under Settings, and logs it so what Resend reports later
+ * lands against the person. Otherwise, if Resend refuses, or when asked to hand it over (an
+ * address that bounced), returns it.
+ */
+async function deliver(store: Store, org: OrgData, path: string, mail: (link: string) => Mail, log: { kind: MailKind; userId: string; by: string }, handOver = false): Promise<Delivery> {
+  const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
   const link = linkFor(settings, path);
-  if (settings && (await sendMail(settings, mail(link)))) return { emailed: true };
-  return settings
-    ? { emailed: false, inviteUrl: link, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' }
-    : { emailed: false, inviteUrl: link };
+  if (!settings || handOver) return { emailed: false, inviteUrl: link };
+  const message = mail(link);
+  const id = await sendMail(settings, message);
+  if (id === null) return { emailed: false, inviteUrl: link, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' };
+  if (id) recordSent(org, id, { to: message.to, ...log });
+  return { emailed: true };
 }
 
 /** Sends an invitation link to the person invited, naming who invited them and the role they start with. */
-async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }) {
+async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false) {
   const role = roleOf(user.memberships.find((m) => m.active)?.roleId ?? '')?.name ?? 'a member of the team';
-  const sent = await deliver(store, org.orgId, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS));
+  const sent = await deliver(store, org, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS), { kind: 'invite', userId: user.id, by: nameOf(actor) }, handOver);
   return { expiresAt: link.expiresAt, ...sent };
 }
 
@@ -120,12 +131,18 @@ async function signOutEverywhere(store: Store, email: string) {
 }
 
 /** What the Access screen needs to know about each person's sign-in. Never the hash. */
-async function withAccounts(store: Store, orgId: string, users: User[]) {
-  const accounts = new Map((await store.listUsers(orgId)).map((a) => [a.email, a]));
+async function withAccounts(store: Store, org: OrgData, users: User[]) {
+  const accounts = new Map((await store.listUsers(org.orgId)).map((a) => [a.email, a]));
+  const mail = latestByUser(org);
   const nowSecs = Math.floor(Date.now() / 1000);
   return users.map((u) => {
     const a = accounts.get(u.email);
-    return { ...u, account: a ? { exists: true, locked: a.lockedUntil > nowSecs, since: a.createdAt } : { exists: false, locked: false } };
+    return {
+      ...u,
+      account: a ? { exists: true, locked: a.lockedUntil > nowSecs, since: a.createdAt } : { exists: false, locked: false },
+      // The last email sent to them and what Resend reported, so a link that never arrived shows.
+      lastEmail: mail.get(u.id),
+    };
   });
 }
 
@@ -153,7 +170,7 @@ function grant(org: OrgData, actor: Actor, target: User, body: GrantBody, today:
 type AccountAction = 'suspend' | 'reactivate' | 'reset-authenticator' | 'resend-invite';
 
 /** The account actions, shared by the single routes and the bulk route so both apply the same rules. */
-async function accountAction(store: Store, org: OrgData, actor: Actor, target: User, action: AccountAction, today: string) {
+async function accountAction(store: Store, org: OrgData, actor: Actor, target: User, action: AccountAction, today: string, handOver = false) {
   const now = new Date();
   switch (action) {
     case 'suspend': {
@@ -186,8 +203,8 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
       refuse(checkAuthority(actor, target, org.users, today));
       const recent = (org.inviteSends[target.id] ?? []).filter((t) => now.getTime() - Date.parse(t) < 3_600_000);
       if (recent.length >= RESENDS_PER_HOUR) throw new HttpError(429, 'too_many', `Already sent ${RESENDS_PER_HOUR} times in the last hour. Check the email address instead.`);
-      const sent = await sendInvite(store, org, actor, target, issueInvite(org, target, now));
-      audit(org, nameOf(actor), 'invite.resent', { userId: target.id, expiresAt: sent.expiresAt, emailed: sent.emailed });
+      const sent = await sendInvite(store, org, actor, target, issueInvite(org, target, now), handOver);
+      audit(org, nameOf(actor), 'invite.resent', { userId: target.id, expiresAt: sent.expiresAt, emailed: sent.emailed, ...(handOver ? { handedOver: true } : {}) });
       return { user: target, ...sent };
     }
   }
@@ -232,14 +249,14 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/users', { ...manage, schema: { tags } }, async (req) => {
     const org = orgOf(req);
-    return withAccounts(ctx.store, org.orgId, readable(actorOf(req, org, today()), org, today()));
+    return withAccounts(ctx.store, org, readable(actorOf(req, org, today()), org, today()));
   });
 
   app.get<{ Params: { id: string } }>('/v1/users/:id', { ...manage, schema: { tags, params: idParam } }, async (req) => {
     const org = orgOf(req);
     const u = readable(actorOf(req, org, today()), org, today()).find((x) => x.id === req.params.id);
     if (!u) throw notFound(`User ${req.params.id}`);
-    return (await withAccounts(ctx.store, org.orgId, [u]))[0];
+    return (await withAccounts(ctx.store, org, [u]))[0];
   });
 
   app.post<{ Body: InviteBody }>(
@@ -397,10 +414,10 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
   );
 
   for (const action of ['suspend', 'reactivate', 'reset-authenticator', 'resend-invite'] as const) {
-    app.post<{ Params: { id: string } }>(`/v1/users/:id/${action}`, { ...manage, schema: { tags, params: idParam } }, async (req) => {
+    app.post<{ Params: { id: string }; Body: { handOver?: boolean } | undefined }>(`/v1/users/:id/${action}`, { ...manage, schema: { tags, params: idParam } }, async (req) => {
       const org = orgOf(req);
       const target = findUser(org, req.params.id);
-      const out = await accountAction(ctx.store, org, actorOf(req, org, today()), target, action, today());
+      const out = await accountAction(ctx.store, org, actorOf(req, org, today()), target, action, today(), handOverAsked(req.body));
       // A suspended person's sessions end now, not when they next try something.
       if (action === 'suspend') await signOutEverywhere(ctx.store, target.email);
       return out;
@@ -441,8 +458,9 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         // Active with no account to reset (made before accounts lived here): the link makes one.
         path = issueInvite(org, target, new Date(), 'reset').path;
       }
-      const sent = await deliver(ctx.store, org.orgId, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS));
-      audit(org, nameOf(actor), 'user.password_reset', { userId: target.id, emailed: sent.emailed });
+      const handOver = handOverAsked(req.body);
+      const sent = await deliver(ctx.store, org, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS), { kind: 'reset', userId: target.id, by: nameOf(actor) }, handOver);
+      audit(org, nameOf(actor), 'user.password_reset', { userId: target.id, emailed: sent.emailed, ...(handOver ? { handedOver: true } : {}) });
       return { user: target, expiresInHours: ADMIN_RESET_HOURS, ...sent };
     },
   );
@@ -504,8 +522,11 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     const users = readable(actorOf(req, org, today()), org, today());
     const t = today();
     const ids = (us: User[]) => us.map((u) => u.id);
+    const rank = { block: 0, warn: 1, info: 2 };
+    const attention = [...accessHealth(users, org.state.sites, org.state.employees, org.accessReviews, t), ...mailAttention(users, latestByUser(org))]
+      .sort((a, b) => rank[a.severity] - rank[b.severity]);
     return {
-      attention: accessHealth(users, org.state.sites, org.state.employees, org.accessReviews, t),
+      attention,
       coverage: {
         organisation: Object.fromEntries(ORG_DUTIES.map((p) => [p, ids(holders(users, p, t))])),
         sites: Object.fromEntries(org.state.sites.map((s) => [s.id, Object.fromEntries(SITE_DUTIES.map((p) => [p, ids(holders(users, p, t, s.id))]))])),
@@ -523,6 +544,47 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     };
   });
+
+  app.get<{ Querystring: { userId?: string } }>(
+    '/v1/access/emails',
+    {
+      ...manage,
+      schema: {
+        tags,
+        description:
+          'Invitations and resets sent by email, newest first, with what Resend reported: sent, delivered, delayed, bounced, complained or failed. ' +
+          'Only for people the caller can read. Never the email itself or its link.',
+        querystring: { type: 'object', properties: { userId: { type: 'string' } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const ids = new Set(readable(actorOf(req, org, today()), org, today()).map((u) => u.id));
+      return Object.entries(org.mail)
+        .filter(([, r]) => r.userId && ids.has(r.userId) && (!req.query.userId || r.userId === req.query.userId))
+        .map(([id, r]) => view(id, r))
+        .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+    },
+  );
+
+  // Without the webhook, Resend can still be asked where one email stands.
+  app.post<{ Params: { id: string } }>(
+    '/v1/access/emails/:id/check',
+    { ...manage, schema: { tags, description: 'Asks Resend where an email stands now, for organisations without the webhook.', params: idParam } },
+    async (req) => {
+      const org = orgOf(req);
+      const record = org.mail[req.params.id];
+      const readableIds = new Set(readable(actorOf(req, org, today()), org, today()).map((u) => u.id));
+      if (!record || !record.userId || !readableIds.has(record.userId)) throw notFound(`Email ${req.params.id}`);
+      const settings = parseEmailSettings(await ctx.store.getSetting(emailSetting(org.orgId)));
+      if (!settings) throw new HttpError(409, 'email_off', 'Email is not set up under Settings, so Resend cannot be asked.');
+      const type = await askResend(settings, req.params.id);
+      if (!type) throw new HttpError(502, 'resend_unavailable', 'Resend could not say where this email stands. Try again shortly.');
+      // One event per state Resend reports, however often it is asked.
+      addEvent(org, req.params.id, { id: `asked:${type}`, type, at: new Date().toISOString() });
+      return view(req.params.id, record);
+    },
+  );
 
   app.get('/v1/access/reviews', { ...manage, schema: { tags } }, async (req) => {
     const org = orgOf(req);

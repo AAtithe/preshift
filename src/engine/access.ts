@@ -412,7 +412,8 @@ export function reachText(m: Pick<Membership, 'siteIds'>, sites: SiteRef[]): str
 
 export type AttentionKind =
   | 'must_enrol' | 'invite_expired' | 'invite_pending' | 'ending_soon' | 'ended' | 'paired_block' | 'paired_warn'
-  | 'single_admin' | 'no_admin' | 'self_approval' | 'dormant' | 'no_coverage' | 'review_due';
+  | 'single_admin' | 'no_admin' | 'self_approval' | 'dormant' | 'no_coverage' | 'review_due'
+  | 'email_bounced' | 'email_failed' | 'email_complained' | 'email_delayed';
 
 export interface Attention {
   kind: AttentionKind;

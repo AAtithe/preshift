@@ -91,6 +91,16 @@ up. Its reply never says whether an account exists, and one account gets at most
 invitations are capped at three sends an hour too. Every link's token sits after `#`, so it never
 reaches a server log, and only its hash is kept.
 
+What became of each email shows on the Access tab against the person: sent, delivered, delayed,
+bounced, marked as spam or failed. Resend reports it to a webhook at
+`/v1/integrations/resend/webhook/<organisation>`; Settings shows the address to give Resend and takes
+its signing secret (`whsec_...`), and a report without a valid signature from the last five minutes
+is refused. Without the webhook, "Check now" on the person asks Resend. A bounce, a spam complaint or
+a failure goes on the Access overview with the receiving server's reason until it stops mattering
+(the invitation is accepted or withdrawn, or the person signs in after the reset), and the person's
+panel offers to hand a new link over instead of emailing it again. Preshift keeps who each email went
+to and its reports for 180 days, never its content or link, and does not track opens or clicks.
+
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.
 A few people cover sister sites, and one Shoreditch bartender covers Marylebone, which is a

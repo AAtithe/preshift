@@ -1,6 +1,7 @@
 import {
   accessHealth, AUDIENCE_LABEL, live, PERMISSIONS, roleOf, ukDate, type AccessReview, type Actor, type Attention, type Permission, type User,
 } from '../../engine/access';
+import { mailAttention, type MailView } from '../../engine/mail';
 import { addDays, toISODate } from '../../engine/time';
 import type { AuthenticatorState } from './Authenticator';
 import type { RotaState } from '../../engine/types';
@@ -43,8 +44,11 @@ export const today = () => toISODate(new Date());
 
 export const actorOf = (me: Me): Actor => (me.user ? { kind: 'user', user: me.user } : { kind: 'system', name: me.key });
 
+/** The same list the server gives: access rules, then emails that did not arrive, worst first. */
 export function healthOf(users: User[], state: RotaState, reviews: AccessReview[]): Attention[] {
-  return accessHealth(users, state.sites, state.employees, reviews, today());
+  const latest = new Map(users.flatMap((u) => { const m = lastEmailOf(u); return m ? [[u.id, m] as const] : []; }));
+  const rank = { block: 0, warn: 1, info: 2 };
+  return [...accessHealth(users, state.sites, state.employees, reviews, today()), ...mailAttention(users, latest)].sort((x, y) => rank[x.severity] - rank[y.severity]);
 }
 
 export const siteName = (state: RotaState, id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
@@ -100,6 +104,9 @@ const ACTION_TEXT: Record<string, string> = {
   'invite.resent': 'Resent invitation',
   'invite.revoked': 'Withdrew invitation',
   'invite.accepted': 'Accepted invitation',
+  'email.bounced': 'Email bounced',
+  'email.complained': 'Email marked as spam',
+  'email.failed': 'Email could not be sent',
   'access.reviewed': 'Recorded an access review',
   'access.owner_created': 'Created the owner account',
   'user.password_reset': 'Reset the password',
@@ -122,6 +129,10 @@ export function describeEvent(e: AuditRow, users: User[], state: RotaState): { w
   if (Array.isArray(d.warnings) && d.warnings.length) parts.push(`accepted ${d.warnings.length} paired-duty warning${d.warnings.length > 1 ? 's' : ''}`);
   if (e.action === 'access.reviewed') parts.push(`${d.people} people, ${d.attention} open points`);
   if (e.action === 'user.invited' && typeof d.audience === 'string') parts.push(AUDIENCE_LABEL[d.audience as User['audience']]);
+  if (d.emailed === true) parts.push('emailed');
+  if (d.handedOver === true) parts.push('link handed over');
+  else if (d.emailed === false) parts.push('link shown to the sender');
+  if (e.action.startsWith('email.') && typeof d.kind === 'string') parts.push(MAIL_KIND[d.kind as MailState['kind']] ?? d.kind);
   return { what: ACTION_TEXT[e.action] ?? e.action, whom, detail: parts.join('; ') };
 }
 
@@ -156,4 +167,32 @@ export function deliveryText(done: string, email: string, d: Delivery | undefine
   if (d?.emailed) return `${done}. The link is on its way to ${email}.`;
   if (!d?.inviteUrl) return done;
   return `${done}. ${d.emailProblem ? `${d.emailProblem} ` : ''}Send them this link yourself; it works once and is not shown again: ${fullLink(d.inviteUrl)}`;
+}
+
+/** The last email sent to a person and what Resend reported, from the People list. */
+export type MailState = MailView;
+
+export const lastEmailOf = (u: User) => (u as User & { lastEmail?: MailState }).lastEmail;
+
+export const MAIL_KIND: Record<MailState['kind'], string> = { invite: 'Invitation', reset: 'Password reset', forgot: 'Forgotten password' };
+
+const MAIL_STATUS: Record<MailState['status'], { text: string; tone: 'good' | 'bad' | 'muted' }> = {
+  sent: { text: 'accepted by Resend, not yet confirmed delivered', tone: 'muted' },
+  delivered: { text: 'delivered', tone: 'good' },
+  delayed: { text: 'delayed, Resend is retrying', tone: 'muted' },
+  bounced: { text: 'bounced', tone: 'bad' },
+  complained: { text: 'marked as spam', tone: 'bad' },
+  failed: { text: 'could not be sent', tone: 'bad' },
+};
+
+/** An email that did not reach the person: a link sent again by email would likely fail the same way. */
+export const undelivered = (m: MailState | undefined) => !!m && (m.status === 'bounced' || m.status === 'complained' || m.status === 'failed');
+
+/** Whether Resend may still have more to say. */
+export const unsettled = (m: MailState | undefined) => !!m && (m.status === 'sent' || m.status === 'delayed');
+
+export function emailState(m: MailState): { text: string; tone: 'good' | 'bad' | 'muted' } {
+  const s = MAIL_STATUS[m.status];
+  const when = m.status === 'sent' ? shortDate(m.sentAt.slice(0, 10)) : shortDate(m.at.slice(0, 10));
+  return { text: `${MAIL_KIND[m.kind]} email ${s.text}, ${when}${m.detail ? `: ${m.detail}` : ''}`, tone: s.tone };
 }

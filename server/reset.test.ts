@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore, PgStore, type Query, type Store } from './store';
+import { verifyWebhook } from './maillog';
 import { tokenOf } from './testkit';
+import { createHmac } from 'node:crypto';
 import { codeAt, stepAt } from './totp';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
@@ -16,14 +18,24 @@ function pglite(): Query {
   return async (text, params) => (await db.query(text, params)).rows as Record<string, unknown>[];
 }
 
-let sent: { to: string[]; text: string; auth: string }[] = [];
+let sent: { to: string[]; text: string; auth: string; id: string }[] = [];
+/** What Resend says when asked about an email. */
+let lastEvent = 'delivered';
+let asked = 0;
 
 beforeEach(() => {
   sent = [];
-  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+  lastEvent = 'delivered';
+  asked = 0;
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+    if (url.startsWith('https://api.resend.com/emails/') && (init.method ?? 'GET') === 'GET') {
+      asked++;
+      return new Response(JSON.stringify({ object: 'email', id: url.split('/').pop(), last_event: lastEvent }), { status: 200 });
+    }
     if (url !== 'https://api.resend.com/emails') throw new Error(`unexpected fetch ${url}`);
-    sent.push({ ...JSON.parse(String(init.body)), auth: (init.headers as Record<string, string>).authorization });
-    return new Response('{}', { status: 200 });
+    const id = `4ef9a417-02e9-4d39-ad75-9611e0fcc33${sent.length}`;
+    sent.push({ ...JSON.parse(String(init.body)), auth: (init.headers as Record<string, string>).authorization, id });
+    return new Response(JSON.stringify({ id }), { status: 200 });
   });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -193,7 +205,7 @@ describe('resets from the Access tab and email settings', () => {
   it('never returns the Resend key, keeps it when only the address changes, and refuses bad values', async () => {
     const t = await boot();
     const view = (await t.call('GET', '/v1/settings', t.owner)).json().email;
-    expect(view).toEqual({ set: true, from: EMAIL.from, appUrl: EMAIL.appUrl, keyEndsWith: 'abcd' });
+    expect(view).toEqual({ set: true, from: EMAIL.from, appUrl: EMAIL.appUrl, keyEndsWith: 'abcd', webhook: { url: 'https://rota.ws.example/v1/integrations/resend/webhook/demo', set: false } });
     expect(JSON.stringify(view)).not.toContain(EMAIL.resendApiKey);
 
     const moved = await t.call('PUT', '/v1/settings/email', t.owner, { from: EMAIL.from, appUrl: 'https://new.ws.example/app/' });
@@ -282,5 +294,144 @@ describe('the sign-in page', () => {
     for (const id of ['badlink', 'expired', 'weak', 'mismatch', 'suspended', 'elsewhere', 'sent', 'setpassword', 'reset', 'forgot']) {
       expect(page).toContain(`id="${id}"`);
     }
+  });
+});
+
+
+const SECRET = `whsec_${Buffer.from('a webhook signing secret for tests').toString('base64')}`;
+let delivery = 0;
+
+/** A report signed the way Resend signs them. */
+function signed(type: string, emailId: string, data: Record<string, unknown> = {}, opts: { secret?: string; at?: number; id?: string } = {}) {
+  const body = JSON.stringify({ type, created_at: '2026-10-21T10:00:00.000Z', data: { email_id: emailId, ...data } });
+  const id = opts.id ?? `msg_${++delivery}`;
+  const at = String(opts.at ?? Math.floor(Date.now() / 1000));
+  const key = Buffer.from((opts.secret ?? SECRET).replace(/^whsec_/, ''), 'base64');
+  const signature = createHmac('sha256', key).update(`${id}.${at}.${body}`).digest('base64');
+  return { body, headers: { 'content-type': 'application/json', 'svix-id': id, 'svix-timestamp': at, 'svix-signature': `v1,${signature}` } };
+}
+
+async function withWebhook() {
+  const t = await boot();
+  expect((await t.call('PUT', '/v1/settings/email', t.owner, { from: EMAIL.from, appUrl: EMAIL.appUrl, webhookSecret: SECRET })).statusCode).toBe(200);
+  const report = (r: ReturnType<typeof signed>, orgId = 'demo') => t.app.inject({ method: 'POST', url: `/v1/integrations/resend/webhook/${orgId}`, headers: r.headers, payload: r.body });
+  const invited = async () => {
+    const ama = (await t.invite({ email: 'ama@ws.example', name: 'Ama Boateng' }, t.owner)).json().user;
+    return { ama, emailId: sent[sent.length - 1].id };
+  };
+  const person = async (id: string) => (await t.call('GET', `/v1/users/${id}`, t.owner)).json();
+  const attention = async () => (await t.call('GET', '/v1/access/health', t.owner)).json().attention as { kind: string; userId?: string; message: string; severity: string }[];
+  return { ...t, report, invited, person, attention };
+}
+
+describe('what became of each email', () => {
+  it('checks signatures exactly as Resend makes them, by the published Svix test vector', () => {
+    const headers = { 'svix-id': 'msg_p5jXN8AQM9LWM0D4loKWxJek', 'svix-timestamp': '1614265330', 'svix-signature': 'v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=' };
+    expect(verifyWebhook('whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', headers, '{"test": 2432232314}', 1614265330)).toBe(true);
+    expect(verifyWebhook('whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', headers, '{"test": 2432232315}', 1614265330)).toBe(false);
+  });
+
+  it('shows an invitation as sent, then delivered once Resend reports it', async () => {
+    const t = await withWebhook();
+    const { ama, emailId } = await t.invited();
+    expect((await t.person(ama.id)).lastEmail).toMatchObject({ id: emailId, kind: 'invite', status: 'sent', to: 'ama@ws.example', by: 'owner' });
+    const res = await t.report(signed('email.delivered', emailId));
+    expect(res.json()).toEqual({ ok: true, recorded: true });
+    expect((await t.person(ama.id)).lastEmail).toMatchObject({ status: 'delivered', at: '2026-10-21T10:00:00.000Z' });
+    const listed = (await t.call('GET', `/v1/access/emails?userId=${ama.id}`, t.owner)).json();
+    expect(listed).toHaveLength(1);
+    expect(JSON.stringify(listed)).not.toMatch(/#invite=|login/);
+  });
+
+  it('puts a bounce in front of whoever manages access, with the reason, until it stops mattering', async () => {
+    const t = await withWebhook();
+    const { ama, emailId } = await t.invited();
+    await t.report(signed('email.bounced', emailId, { bounce: { type: 'Permanent', subType: 'General', message: 'The recipient mailbox does not exist.' } }));
+    expect((await t.person(ama.id)).lastEmail).toMatchObject({ status: 'bounced', detail: 'permanent: The recipient mailbox does not exist.' });
+    const flag = (await t.attention()).find((a) => a.kind === 'email_bounced');
+    expect(flag).toMatchObject({ userId: ama.id, severity: 'warn' });
+    expect(flag!.message).toMatch(/invitation to ama@ws\.example bounced.*mailbox does not exist.*Withdraw the invitation/);
+    const audit = (await t.call('GET', '/v1/access/audit', t.owner)).json();
+    expect(audit.find((e: { action: string }) => e.action === 'email.bounced')).toMatchObject({ actor: 'Resend' });
+    // A later delivery report cannot undo a bounce.
+    await t.report(signed('email.delivered', emailId));
+    expect((await t.person(ama.id)).lastEmail.status).toBe('bounced');
+    // Withdrawn, the invitation no longer needs anyone's attention.
+    await t.call('DELETE', `/v1/users/${ama.id}/invite`, t.owner);
+    expect((await t.attention()).some((a) => a.kind === 'email_bounced')).toBe(false);
+  });
+
+  it('hands a link over instead of emailing it when asked, for an address that bounced', async () => {
+    const t = await withWebhook();
+    const { ama } = await t.invited();
+    const res = (await t.call('POST', `/v1/users/${ama.id}/resend-invite`, t.owner, { handOver: true })).json();
+    expect(res).toMatchObject({ emailed: false });
+    expect(res.inviteUrl).toMatch(/^https:\/\/rota\.ws\.example\/login#invite=/);
+    expect(sent).toHaveLength(1);
+    const reset = (await t.call('POST', `/v1/users/${t.memberId}/reset-password`, t.owner, { handOver: true })).json();
+    expect(reset.inviteUrl).toMatch(/#reset=/);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('believes a report only with a valid, recent signature, and records each one once', async () => {
+    const t = await withWebhook();
+    const { ama, emailId } = await t.invited();
+    expect((await t.report(signed('email.bounced', emailId, {}, { secret: `whsec_${Buffer.from('someone else').toString('base64')}` }))).statusCode).toBe(401);
+    expect((await t.report(signed('email.bounced', emailId, {}, { at: Math.floor(Date.now() / 1000) - 600 }))).statusCode).toBe(401);
+    const tampered = signed('email.delivered', emailId);
+    expect((await t.report({ ...tampered, body: tampered.body.replace('delivered', 'bounced') })).statusCode).toBe(401);
+    expect((await t.app.inject({ method: 'POST', url: '/v1/integrations/resend/webhook/demo', headers: { 'content-type': 'application/json' }, payload: tampered.body })).statusCode).toBe(401);
+    // An organisation without a saved secret believes nothing, and an invented one learns nothing.
+    expect((await t.report(signed('email.bounced', emailId), 'nowhere')).statusCode).toBe(401);
+    expect((await t.person(ama.id)).lastEmail.status).toBe('sent');
+
+    const once = signed('email.delivery_delayed', emailId, {}, { id: 'msg_retried' });
+    expect((await t.report(once)).json().recorded).toBe(true);
+    expect((await t.report(once)).json().recorded).toBe(false);
+    expect((await t.call('GET', `/v1/access/emails?userId=${ama.id}`, t.owner)).json()[0].status).toBe('delayed');
+    // Emails Preshift never sent, and events it does not track, are acknowledged and ignored.
+    expect((await t.report(signed('email.delivered', 'not-ours'))).json()).toEqual({ ok: true, recorded: false });
+    expect((await t.report(signed('email.opened', emailId))).json()).toEqual({ ok: true, recorded: false });
+  });
+
+  it('logs "Forgot your password?" emails against the person, and drops a bounce once they sign in', async () => {
+    const t = await withWebhook();
+    await t.forgot(MEMBER.email);
+    const emailId = sent[0].id;
+    expect((await t.person(t.memberId)).lastEmail).toMatchObject({ kind: 'forgot', by: 'Forgot your password?' });
+    await t.report(signed('email.bounced', emailId, { bounce: { type: 'Transient', message: 'Mailbox full' } }));
+    expect((await t.attention()).find((a) => a.kind === 'email_bounced')!.message).toMatch(/password reset email.*temporary: Mailbox full.*hand the link over in person/);
+    await new Promise((r) => setTimeout(r, 5));
+    const member = t.cookieOf(await t.signIn(MEMBER.email, MEMBER.password));
+    await t.call('GET', '/v1/me', member);
+    expect((await t.attention()).some((a) => a.kind === 'email_bounced')).toBe(false);
+  });
+
+  it('asks Resend where an email stands when there is no webhook, and records each state once', async () => {
+    const t = await boot();
+    const ama = (await t.invite({ email: 'ama@ws.example', name: 'Ama Boateng' }, t.owner)).json().user;
+    const emailId = sent[0].id;
+    lastEvent = 'bounced';
+    expect((await t.call('POST', `/v1/access/emails/${emailId}/check`, t.owner)).json()).toMatchObject({ status: 'bounced' });
+    await t.call('POST', `/v1/access/emails/${emailId}/check`, t.owner);
+    expect(asked).toBe(2);
+    expect((await t.call('GET', `/v1/access/emails?userId=${ama.id}`, t.owner)).json()[0]).toMatchObject({ status: 'bounced' });
+    expect((await t.call('POST', '/v1/access/emails/not-ours/check', t.owner)).statusCode).toBe(404);
+    // Nobody learns about emails to people they cannot read: the general manager at Marylebone, of a Shoreditch invitation.
+    await t.call('POST', '/v1/users', t.owner, { email: 'ben@ws.example', name: 'Ben Ross', audience: 'operator', roleId: 'general_manager', siteIds: ['shd'] });
+    const member = t.cookieOf(await t.signIn(MEMBER.email, MEMBER.password));
+    expect((await t.call('POST', `/v1/access/emails/${sent[1].id}/check`, member)).statusCode).toBe(404);
+    expect((await t.call('GET', '/v1/access/emails', member)).json().map((m: { to: string }) => m.to)).not.toContain('ben@ws.example');
+  });
+
+  it('shows where to send reports and whether the secret is saved, never the secret itself', async () => {
+    const t = await withWebhook();
+    const email = (await t.call('GET', '/v1/settings', t.owner)).json().email;
+    expect(email.webhook).toEqual({ url: 'https://rota.ws.example/v1/integrations/resend/webhook/demo', set: true });
+    expect(JSON.stringify(email)).not.toContain(SECRET);
+    // Saving without the secret keeps it; a bad one is refused; null removes it.
+    expect((await t.call('PUT', '/v1/settings/email', t.owner, { from: EMAIL.from, appUrl: EMAIL.appUrl })).json().email.webhook.set).toBe(true);
+    expect((await t.call('PUT', '/v1/settings/email', t.owner, { from: EMAIL.from, appUrl: EMAIL.appUrl, webhookSecret: 'secret' })).statusCode).toBe(400);
+    expect((await t.call('PUT', '/v1/settings/email', t.owner, { from: EMAIL.from, appUrl: EMAIL.appUrl, webhookSecret: null })).json().email.webhook.set).toBe(false);
   });
 });

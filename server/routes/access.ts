@@ -8,6 +8,7 @@ import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { createSession, safeNext, sessionCookie } from '../session';
 import { audit, type OrgData, type Store, type UserRecord } from '../store';
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
+import { addEvent, fromWebhook, recordSent, verifyWebhook, webhookPath } from '../maillog';
 import { hashToken } from './users';
 
 const MAX_FAILURES = 5;
@@ -223,7 +224,13 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
       else if (recent.length < MAX_RESETS_PER_HOUR) {
         const token = await issueReset(store, user, RESET_MINUTES * 60, { resetRequests: [...recent, now()] });
         // The token goes in the fragment, which browsers never send to a server or in a Referer header.
-        await sendMail(settings, resetEmail(email, `${settings.appUrl}/login#reset=${token}`, RESET_MINUTES));
+        const id = await sendMail(settings, resetEmail(email, `${settings.appUrl}/login#reset=${token}`, RESET_MINUTES));
+        // Logged against the person, so a reset that bounces shows on the Access tab.
+        if (id) {
+          const org = await store.load(user.orgId);
+          recordSent(org, id, { to: email, kind: 'forgot', userId: recordFor(org, email)?.id, by: 'Forgot your password?' });
+          await store.save(org).catch((err) => console.error('Reset email not logged:', err));
+        }
       }
     }
     await new Promise((resolve) => setTimeout(resolve, Math.max(0, FORGOT_MIN_MS - (Date.now() - started))));
@@ -256,6 +263,28 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext) {
     const token = await createSession(claimed, await store.sessionSecret(), issued);
     return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
   });
+
+  // What Resend reports about the emails it sent: delivered, delayed, bounced, complained or failed.
+  // Believed only with Resend's signature over the exact bytes, under the secret saved in Settings.
+  app.post<{ Params: { orgId: string } }>('/v1/integrations/resend/webhook/:orgId', hidden, async (req, reply) => {
+    const { orgId } = req.params;
+    const settings = parseEmailSettings(await store.getSetting(emailSetting(orgId)));
+    const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
+    if (!settings?.webhookSecret || !verifyWebhook(settings.webhookSecret, req.headers, raw)) {
+      return reply.code(401).send({ error: 'unauthorised', message: 'Signature not valid' });
+    }
+    const report = fromWebhook(String(req.headers['svix-id']), req.body);
+    if (!report || !(await store.has(orgId))) return { ok: true, recorded: false };
+    const org = await store.load(orgId);
+    const record = addEvent(org, report.mailId, report.event);
+    if (!record) return { ok: true, recorded: false };
+    if (report.event.type === 'bounced' || report.event.type === 'complained' || report.event.type === 'failed') {
+      audit(org, 'Resend', `email.${report.event.type}`, { mailId: report.mailId, kind: record.kind, userId: record.userId });
+    }
+    // A conflicting save answers 409, and Resend sends the report again.
+    await store.save(org);
+    return { ok: true, recorded: true };
+  });
 }
 
 /** Deployment settings for the caller's organisation. People are managed on the Access routes. */
@@ -274,7 +303,16 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
 
   const emailView = async (req: FastifyRequest) => {
     const email = parseEmailSettings(await store.getSetting(emailSetting(orgId(req))));
-    return email ? { set: true, from: email.from, appUrl: email.appUrl, keyEndsWith: email.resendApiKey.slice(-4) } : { set: false };
+    return email
+      ? {
+          set: true,
+          from: email.from,
+          appUrl: email.appUrl,
+          keyEndsWith: email.resendApiKey.slice(-4),
+          // The address to give Resend, and whether its signing secret is saved. Never the secret.
+          webhook: { url: `${email.appUrl}${webhookPath(orgId(req))}`, set: !!email.webhookSecret },
+        }
+      : { set: false };
   };
 
   app.get('/v1/settings', hidden, async (req) => {
@@ -284,10 +322,11 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   // Saving without a key keeps the one already saved, so the address can change without re-entering it.
-  app.put<{ Body: { resendApiKey?: string; from?: string; appUrl?: string } }>('/v1/settings/email', hidden, async (req) => {
+  app.put<{ Body: { resendApiKey?: string; from?: string; appUrl?: string; webhookSecret?: string | null } }>('/v1/settings/email', hidden, async (req) => {
     const who = settingsPerson(req);
     const setting = emailSetting(orgId(req));
-    const resendApiKey = req.body?.resendApiKey?.trim() || parseEmailSettings(await store.getSetting(setting))?.resendApiKey;
+    const saved = parseEmailSettings(await store.getSetting(setting));
+    const resendApiKey = req.body?.resendApiKey?.trim() || saved?.resendApiKey;
     if (!resendApiKey || !/^re_[A-Za-z0-9_]{10,}$/.test(resendApiKey)) {
       throw new HttpError(400, 'invalid_key', 'That does not look like a Resend API key. It starts with re_.');
     }
@@ -303,8 +342,14 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     } catch {
       throw new HttpError(400, 'invalid_app_url', 'Enter the address people open Preshift at, starting https://.');
     }
-    await store.setSetting(setting, JSON.stringify({ resendApiKey, from, appUrl }));
-    audit(req.org!, who, 'settings.email_set', { from, appUrl });
+    // Blank keeps the saved secret, null removes it.
+    const given = req.body?.webhookSecret;
+    const webhookSecret = given === null ? undefined : given?.trim() || saved?.webhookSecret;
+    if (webhookSecret && !/^whsec_[A-Za-z0-9+/]{20,}={0,2}$/.test(webhookSecret)) {
+      throw new HttpError(400, 'invalid_webhook_secret', 'That does not look like a Resend webhook signing secret. It starts with whsec_.');
+    }
+    await store.setSetting(setting, JSON.stringify({ resendApiKey, from, appUrl, ...(webhookSecret ? { webhookSecret } : {}) }));
+    audit(req.org!, who, 'settings.email_set', { from, appUrl, webhook: !!webhookSecret });
     return { email: await emailView(req) };
   });
 

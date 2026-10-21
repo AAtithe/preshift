@@ -12,6 +12,7 @@ interface EmailStatus {
   from?: string;
   appUrl?: string;
   keyEndsWith?: string;
+  webhook?: { url: string; set: boolean };
 }
 
 interface Settings {
@@ -118,7 +119,7 @@ function OwnPassword() {
 
 function EmailSetup() {
   const [email, setEmail] = useState<EmailStatus | null>(null);
-  const [form, setForm] = useState({ resendApiKey: '', from: '', appUrl: location.origin });
+  const [form, setForm] = useState({ resendApiKey: '', from: '', appUrl: location.origin, webhookSecret: '' });
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 
   useEffect(() => {
@@ -126,7 +127,7 @@ function EmailSetup() {
       .get<Settings>('/v1/settings')
       .then(({ email }) => {
         setEmail(email);
-        if (email.set) setForm({ resendApiKey: '', from: email.from ?? '', appUrl: email.appUrl ?? location.origin });
+        if (email.set) setForm({ resendApiKey: '', from: email.from ?? '', appUrl: email.appUrl ?? location.origin, webhookSecret: '' });
       })
       .catch((e) => setMessage({ text: problem(e), bad: true }));
   }, []);
@@ -135,7 +136,7 @@ function EmailSetup() {
     e.preventDefault();
     try {
       setEmail((await api.put<{ email: EmailStatus }>('/v1/settings/email', form)).email);
-      setForm({ ...form, resendApiKey: '' });
+      setForm({ ...form, resendApiKey: '', webhookSecret: '' });
       setMessage({ text: 'Saved. Invitations and password resets now go by email, and "Forgot your password?" works on the sign-in page.' });
     } catch (err) {
       setMessage({ text: problem(err), bad: true });
@@ -176,6 +177,20 @@ function EmailSetup() {
           App address used in links
           <input type="url" required value={form.appUrl} onChange={(e) => setForm({ ...form, appUrl: e.target.value })} />
         </label>
+        {email?.set && email.webhook && (
+          <>
+            <p className="muted small">
+              Delivery reports: in Resend, add a webhook to <code>{email.webhook.url}</code> for the events email.sent,
+              email.delivered, email.delivery_delayed, email.bounced, email.complained and email.failed, then paste its signing
+              secret here. Bounces then show on the Access tab against the person. Leave opens and clicks off: Preshift does not
+              track them. Without the webhook, "Check now" on a person asks Resend instead.
+            </p>
+            <label>
+              {email.webhook.set ? 'Webhook signing secret saved. Replace it (leave blank to keep)' : 'Webhook signing secret'}
+              <input type="password" autoComplete="off" placeholder="whsec_..." value={form.webhookSecret} onChange={(e) => setForm({ ...form, webhookSecret: e.target.value })} />
+            </label>
+          </>
+        )}
         <button className="primary" type="submit">Save</button>
         {email?.set && <button type="button" className="danger" onClick={() => void remove()}>Turn off</button>}
       </form>

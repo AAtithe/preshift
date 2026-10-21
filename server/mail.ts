@@ -7,6 +7,8 @@ export interface EmailSettings {
   from: string;
   /** Where people open the app, such as https://rota.example.co.uk. Reset links are built from this, never the request. */
   appUrl: string;
+  /** Resend's webhook signing secret (whsec_...), once the webhook is set up there. Reports are refused without it. */
+  webhookSecret?: string;
 }
 
 export interface Mail {
@@ -28,19 +30,26 @@ export function parseEmailSettings(value: string | null): EmailSettings | null {
   }
 }
 
-/** True when Resend accepted the email. Failures are logged, never shown to the person asking. */
-export async function sendMail(settings: EmailSettings, mail: Mail): Promise<boolean> {
+/**
+ * Resend's id for the email when Resend accepted it (an empty string if it gave none), else null.
+ * Failures are logged, never shown to the person asking.
+ */
+export async function sendMail(settings: EmailSettings, mail: Mail): Promise<string | null> {
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { authorization: `Bearer ${settings.resendApiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({ from: settings.from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
     });
-    if (!res.ok) console.error(`Reset email not sent: Resend returned ${res.status} ${await res.text()}`);
-    return res.ok;
+    if (!res.ok) {
+      console.error(`Email not sent: Resend returned ${res.status} ${await res.text()}`);
+      return null;
+    }
+    const body = (await res.json().catch(() => ({}))) as { id?: unknown };
+    return typeof body.id === 'string' ? body.id : '';
   } catch (err) {
-    console.error('Reset email not sent:', err);
-    return false;
+    console.error('Email not sent:', err);
+    return null;
   }
 }
 
