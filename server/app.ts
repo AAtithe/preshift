@@ -15,6 +15,7 @@ import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
+import { clockingRoutes } from './routes/clocking';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
 
@@ -167,6 +168,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
     timeRoutes(api, ctx);
+    clockingRoutes(api, ctx);
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
     authenticatorRoutes(api, ctx);

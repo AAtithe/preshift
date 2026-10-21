@@ -124,6 +124,27 @@ describe('access on the team and pay', () => {
   });
 });
 
+describe('access on clocking', () => {
+  it('keeps the clocking area a site setting, and cards to the team at the home site', async () => {
+    const call = await setup();
+    const fence = { lat: 51.52, lng: -0.15, radiusMetres: 100 };
+    // A wider fence would let people clock in from home: not a GM's to move.
+    expect((await call('PUT', '/v1/sites/mar/geofence', fence, 'priya')).status).toBe(403);
+    expect((await call('PUT', '/v1/sites/mar/geofence', fence, 'owner')).status).toBe(200);
+    expect((await call('DELETE', '/v1/sites/mar/geofence', undefined, 'priya')).status).toBe(403);
+    expect((await call('PUT', '/v1/employees/mar-8/badge', { badgeId: 'A1B2C3D4' }, 'priya')).status).toBe(200);
+    expect((await call('PUT', '/v1/employees/shd-2/badge', { badgeId: 'E5F6A7B8' }, 'priya')).status).toBe(403);
+    expect((await call('PUT', '/v1/employees/mar-7/badge', { badgeId: 'C0FFEE01' }, 'grace')).status).toBe(403);
+  });
+
+  it('takes a card tap only where the caller records time', async () => {
+    const call = await setup();
+    await call('PUT', '/v1/employees/mar-8/badge', { badgeId: 'A1B2C3D4' });
+    expect((await call('POST', '/v1/time-entries/tap', { badgeId: 'A1B2C3D4', siteId: 'shd' }, 'grace')).status).toBe(403);
+    expect((await call('POST', '/v1/time-entries/tap', { badgeId: 'A1B2C3D4', siteId: 'mar' }, 'grace')).status).toBe(201);
+  });
+});
+
 describe('access on time and payroll', () => {
   it('stops a manager approving their own hours, and keeps them to their site', async () => {
     const call = await setup();

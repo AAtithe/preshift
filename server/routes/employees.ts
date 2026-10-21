@@ -28,7 +28,7 @@ function visible(g: Guard, e: Employee) {
 }
 
 /** What a reader receives: pay withheld unless they see labour cost or set pay where the person works. */
-function forReader(g: Guard, e: Employee): Employee {
+export function forReader(g: Guard, e: Employee): Employee {
   if (sitesOfPerson(e).some((s) => g.can('costs.view', s) || g.can('pay.edit', s))) return e;
   return { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
 }

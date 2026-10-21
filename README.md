@@ -28,6 +28,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
 | Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
+| Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 
 ## Running it
 
@@ -103,7 +104,7 @@ covers the Vercel deployment.
 | `/` | Marketing site, from `site/` |
 | `/login` | Sign-in page, from `site/login.html` |
 | `/app/` | Web app, served only to signed-in users by the gate function (`server/appGate.ts`) |
-| `/api/auth/login`, `/logout`, `/me` | Sign-in functions, from `api/auth/*.js` (need `APP_USERS` and `SESSION_SECRET`) |
+| `/api/auth/login`, `/logout`, `/me` | Sign-in, one function from `server/signin.ts`, reached by its own route (needs `APP_USERS` and `SESSION_SECRET`) |
 | `/v1`, `/docs`, `/health` | The API, bundled into one Node function from `server/vercel.ts` |
 | `/api/anthropic/v1/messages` | Rota assistant proxy, from `api/anthropic/v1/messages.js` (needs `ANTHROPIC_API_KEY`) |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |

@@ -50,7 +50,9 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Forecast upload | `demand.manage` at every site in the upload |
 | Rota week's cost, staff pay rates | `costs.view` or `pay.edit`; otherwise `metrics` is null and pay reads nought with `payHidden` |
 | Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record |
-| Clocking, manual entries, edits | `time.record` |
+| Clocking, card taps, manual entries, edits | `time.record` |
+| Site clocking area (geofence) | `settings.manage`: a wider fence lets people clock in from elsewhere |
+| RFID cards | `team.manage` at the person's home site |
 | Time entries and rota against clock | `time.record`, `time.approve` or `payroll.view` |
 | Approval | `time.approve`; your own hours are skipped by range (`ownSkipped`) and refused by id |
 | Payroll status, submissions, runs, outbox | `payroll.view` |
@@ -102,6 +104,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve`, `GET /compare` |
+| Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. Card taps are not location checked, as the reader is fixed on site. |
 | Payroll | `GET /v1/integrations/payroll`, `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions`, `GET /v1/payroll/runs` |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |

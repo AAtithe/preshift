@@ -5,6 +5,7 @@ import { scopeMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
 import { newEmployee } from '../engine/employees';
 import type { Employee, Shift } from '../engine/types';
+import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { AccessView } from './access/AccessView';
@@ -26,7 +27,7 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'access';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 type AtAll = Allow;
@@ -37,6 +38,7 @@ const ACCESS: Offered = (all, a) => a('users.manage') || all('users.sites') || a
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string; offered: Offered }[] = [
   { id: 'rota', label: 'Rota', offered: () => true },
+  { id: 'clock', label: 'Clock in', offered: (all) => all('time.record') },
   { id: 'demand', label: 'Demand', offered: () => true },
   { id: 'team', label: 'Team', offered: () => true },
   { id: 'people', label: 'People', offered: (all) => all('team.manage') || all('costs.view') },
@@ -233,6 +235,17 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
             issues={issues}
             showCost={showCost}
             onEdit={canEdit ? setEditing : undefined}
+          />
+        )}
+        {activeTab === 'clock' && single && (
+          <ClockView
+            state={state}
+            siteId={single.id}
+            today={today}
+            onSetGeofence={actions.setGeofence}
+            onSetBadge={actions.setBadge}
+            canSetFence={allow('settings.manage')}
+            canEnrolCards={allow('team.manage', single.id)}
           />
         )}
         {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
