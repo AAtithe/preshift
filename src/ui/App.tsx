@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
-import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
+import { addDays, formatMinute, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
@@ -30,10 +30,29 @@ export function App() {
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [preview, setPreview] = useState<Shift | null>(null);
+  const [lastChange, setLastChange] = useState<{ before: Shift; after: Shift } | null>(null);
 
+  // While a shift is being dragged every figure on the page is worked from the previewed rota.
+  const view = useMemo(
+    () => (preview ? { ...state, shifts: state.shifts.map((s) => (s.id === preview.id ? preview : s)) } : state),
+    [state, preview],
+  );
   const site = state.sites.find((s) => s.id === siteId)!;
-  const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
-  const issues = useMemo(() => checkWeek(state, week, siteId), [state, siteId, week]);
+  const baseMetrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
+  const metrics = useMemo(() => (preview ? weekMetrics(view, siteId, week) : baseMetrics), [view, preview, baseMetrics, siteId, week]);
+  const issues = useMemo(() => checkWeek(view, week, siteId), [view, siteId, week]);
+
+  useEffect(() => {
+    if (!lastChange) return;
+    const t = setTimeout(() => setLastChange(null), 8000);
+    return () => clearTimeout(t);
+  }, [lastChange]);
+
+  function commitChange(after: Shift, before: Shift) {
+    dispatch({ type: 'upsertShift', shift: after });
+    setLastChange({ before, after });
+  }
   const dates = weekDates(week);
   const blocks = issues.filter((i) => i.severity === 'block').length;
   const weekShifts = state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
@@ -158,15 +177,18 @@ export function App() {
         )}
 
         <main>
-          {tab === 'rota' && <WeekOverview state={state} siteId={siteId} dates={dates} metrics={metrics} />}
+          {tab === 'rota' && <WeekOverview state={view} siteId={siteId} dates={dates} metrics={metrics} />}
           {tab === 'rota' && (
             <RotaGrid
-              state={state}
+              state={view}
               site={site}
               dates={dates}
               metrics={metrics}
               issues={issues}
               onEdit={setEditing}
+              onPreview={setPreview}
+              onCommit={commitChange}
+              baseLabourCost={baseMetrics.labourCost}
             />
           )}
           {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
@@ -181,6 +203,23 @@ export function App() {
           </button>
         </footer>
 
+        {lastChange && (
+          <div className="toast" role="status">
+            <span>
+              {describeChange(lastChange.before, lastChange.after, state)}
+            </span>
+            <button
+              className="ghost"
+              onClick={() => {
+                dispatch({ type: 'upsertShift', shift: lastChange.before });
+                setLastChange(null);
+              }}
+            >
+              Undo
+            </button>
+          </div>
+        )}
+
         {editing && (
           <ShiftEditor
             state={state}
@@ -193,4 +232,12 @@ export function App() {
       </div>
     </>
   );
+}
+
+function describeChange(before: Shift, after: Shift, state: { employees: { id: string; name: string }[] }) {
+  const name = (id: string) => state.employees.find((e) => e.id === id)?.name.split(' ')[0] ?? '';
+  const when = (s: Shift) => `${dayLabel(s.date).short} ${formatMinute(s.startMinute)}-${formatMinute(s.endMinute)}`;
+  if (before.employeeId !== after.employeeId) return `Moved ${name(before.employeeId)}'s shift to ${name(after.employeeId)}, ${when(after)}`;
+  if (before.date !== after.date) return `Moved ${name(after.employeeId)} to ${when(after)}`;
+  return `${name(after.employeeId)} now ${when(after)}`;
 }

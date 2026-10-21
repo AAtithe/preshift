@@ -453,3 +453,37 @@ td:hover .add, .add:focus { opacity: 1; }
 .rota tfoot tr:first-child th, .rota tfoot tr:first-child td { bottom: 38px; }
 .rota tfoot tr:last-child th, .rota tfoot tr:last-child td { bottom: 0; }
 .person .strong, .person .name { white-space: nowrap; }
+
+/* Drag to move and resize */
+.chip { touch-action: none; cursor: grab; }
+.chip.elsewhere { cursor: pointer; }
+.chip-edge { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 1; cursor: ew-resize; }
+.chip-edge.start { left: 0; }
+.chip-edge.end { right: 0; }
+.chip-edge::after { content: ''; position: absolute; top: 50%; width: 2px; height: 14px; margin-top: -7px; border-radius: 1px; background: var(--dept); opacity: 0; transition: opacity 0.12s; }
+.chip-edge.start::after { left: 4px; }
+.chip-edge.end::after { right: 3px; }
+.chip:hover .chip-edge::after { opacity: 0.55; }
+.chip-edge:hover::after { opacity: 1 !important; }
+.chip.is-dragging { box-shadow: 0 10px 24px -8px rgb(10 25 18 / 0.35), 0 0 0 2px var(--dept); transform: scale(1.02); z-index: 2; }
+body.dragging-move, body.dragging-move * { cursor: grabbing !important; user-select: none; }
+body.dragging-resize, body.dragging-resize * { cursor: ew-resize !important; user-select: none; }
+body.dragging-move .add, body.dragging-resize .add { opacity: 0 !important; }
+.rota td.drop-target { background: var(--accent-wash) !important; box-shadow: inset 0 0 0 2px var(--accent); }
+.drag-readout {
+  position: fixed; z-index: 20; pointer-events: none; min-width: 210px;
+  background: var(--text); color: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 12px; box-shadow: var(--shadow-lg);
+}
+.drag-readout .tip-row span:last-child { font-weight: 600; }
+.drag-readout .up { color: #ff9b91; }
+.drag-readout .down { color: #7fdca6; }
+.drag-flag { margin-top: 8px; padding: 5px 8px; border-radius: 6px; font-size: 11px; white-space: normal; max-width: 260px; }
+.drag-flag.warn { background: #f0b45a; color: #231703; }
+.drag-flag.block { background: #ff8a80; color: #2a0805; }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 15;
+  display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px;
+  background: var(--text); color: var(--bg); box-shadow: var(--shadow-lg); font-size: 13px; animation: rise 0.2s ease-out;
+}
+.toast button.ghost { color: var(--bg); font-weight: 600; }
+.toast button.ghost:hover:not(:disabled) { background: rgb(255 255 255 / 0.12); color: var(--bg); }

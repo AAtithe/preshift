@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Issue } from '../engine/compliance';
 import type { WeekMetrics } from '../engine/metrics';
-import { ageOn, formatMinute, toISODate, weekday } from '../engine/time';
+import { addDays, ageOn, formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
+import { type Edge, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
 import { dayLabel, hours, money, pct } from './format';
 import { Avatar, Bullet, DEPT_COLOR } from './viz';
 
@@ -16,9 +17,111 @@ interface Props {
   metrics: WeekMetrics;
   issues: Issue[];
   onEdit: (shift: Shift) => void;
+  /** A shift being dragged, shown live across the grid and the KPIs; null when the drag ends. */
+  onPreview: (shift: Shift | null) => void;
+  onCommit: (shift: Shift, before: Shift) => void;
+  /** Week labour cost before the drag started, for the live delta. */
+  baseLabourCost: number;
 }
 
-export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props) {
+interface Drag {
+  mode: 'move' | Edge;
+  original: Shift;
+  x: number;
+  y: number;
+  started: boolean;
+  current: Shift;
+}
+
+/** Pointer travel before a press becomes a drag, so a plain click still opens the editor. */
+const DRAG_THRESHOLD = 4;
+
+export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPreview, onCommit, baseLabourCost }: Props) {
+  const drag = useRef<Drag | null>(null);
+  const justDragged = useRef(false);
+  const [pointer, setPointer] = useState<{ x: number; y: number; mode: Drag['mode'] } | null>(null);
+  const callbacks = useRef({ onPreview, onCommit });
+  callbacks.current = { onPreview, onCommit };
+  const employees = useRef(state.employees);
+  employees.current = state.employees;
+
+  useEffect(() => {
+    function move(e: PointerEvent) {
+      const d = drag.current;
+      if (!d) return;
+      const dx = e.clientX - d.x;
+      const dy = e.clientY - d.y;
+      if (!d.started) {
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        d.started = true;
+        document.body.classList.add(d.mode === 'move' ? 'dragging-move' : 'dragging-resize');
+      }
+      let next = d.current;
+      if (d.mode === 'move') {
+        const cell = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('td[data-emp]');
+        const to = cell && employees.current.find((x) => x.id === cell.dataset.emp);
+        if (to && cell.dataset.date) next = moveShift(d.original, to, cell.dataset.date);
+      } else {
+        next = resizeShift(d.original, d.mode, pixelsToMinutes(dx));
+      }
+      if (!sameShift(next, d.current)) {
+        d.current = next;
+        callbacks.current.onPreview(next);
+      }
+      setPointer({ x: e.clientX, y: e.clientY, mode: d.mode });
+    }
+    function end(commit: boolean) {
+      const d = drag.current;
+      if (!d) return;
+      drag.current = null;
+      document.body.classList.remove('dragging-move', 'dragging-resize');
+      setPointer(null);
+      if (!d.started) return;
+      justDragged.current = true;
+      setTimeout(() => (justDragged.current = false), 0);
+      callbacks.current.onPreview(null);
+      if (commit && !sameShift(d.current, d.original)) callbacks.current.onCommit(d.current, d.original);
+    }
+    const up = () => end(true);
+    const key = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && end(false);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('keydown', key);
+    };
+  }, []);
+
+  function startDrag(e: ReactPointerEvent<HTMLElement>, shift: Shift) {
+    if (e.button !== 0) return;
+    const edge = (e.target as HTMLElement).closest<HTMLElement>('[data-edge]')?.dataset.edge as Edge | undefined;
+    drag.current = { mode: edge ?? 'move', original: shift, current: shift, x: e.clientX, y: e.clientY, started: false };
+    if (edge) e.preventDefault();
+  }
+
+  // Keyboard equivalent: Alt+Left/Right moves a day, Alt+Up/Down moves 15 minutes,
+  // Alt+Shift+Up/Down changes the finish time.
+  function keyMove(e: KeyboardEvent, shift: Shift) {
+    if (!e.altKey) return;
+    let next: Shift | null = null;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const date = addDays(shift.date, e.key === 'ArrowLeft' ? -1 : 1);
+      if (dates.includes(date)) next = { ...shift, date };
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const step = e.key === 'ArrowUp' ? -15 : 15;
+      next = e.shiftKey ? resizeShift(shift, 'end', step) : nudgeShift(shift, step);
+    }
+    if (next && !sameShift(next, shift)) {
+      e.preventDefault();
+      onCommit(next, shift);
+    }
+  }
+
+  const dragging = drag.current?.started ? drag.current : null;
   const roleOf = (id: string) => state.roles.find((r) => r.id === id);
   const deptOf = (e: Employee) => roleOf(e.roleIds[0])?.department ?? 'FOH';
   const people = state.employees.filter(
@@ -58,7 +161,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
           <tr>
             <th className="who">
               <div className="panel-title">Team</div>
-              <div className="muted small" style={{ fontWeight: 400 }}>{people.length} people</div>
+              <div className="muted small" style={{ fontWeight: 400 }}>{people.length} people · drag to move, edges to resize</div>
             </th>
             {dates.map((d, i) => {
               const l = dayLabel(d);
@@ -117,7 +220,14 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
                         const shifts = state.shifts.filter((s) => s.employeeId === e.id && s.date === date);
                         const onLeave = e.leave.includes(date);
                         return (
-                          <td key={date} className={`${onLeave ? 'leave' : ''} ${isWeekend(date) ? 'weekend' : ''}`}>
+                          <td
+                            key={date}
+                            data-emp={e.id}
+                            data-date={date}
+                            className={`${onLeave ? 'leave' : ''} ${isWeekend(date) ? 'weekend' : ''} ${
+                              dragging?.mode === 'move' && dragging.current.employeeId === e.id && dragging.current.date === date ? 'drop-target' : ''
+                            }`}
+                          >
                             {shifts.map((s) => {
                               const sc = metrics.cost.shifts.get(s.id);
                               const flagged = personIssues.filter((i) => i.shiftId === s.id);
@@ -127,10 +237,16 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
                               return (
                                 <button
                                   key={s.id}
-                                  className={`chip dept-${role?.department ?? 'FOH'} ${level} ${elsewhere ? 'elsewhere' : ''}`}
-                                  onClick={() => onEdit(s)}
-                                  title={flagged.map((i) => i.message).join('\n') || undefined}
+                                  className={`chip dept-${role?.department ?? 'FOH'} ${level} ${elsewhere ? 'elsewhere' : ''} ${
+                                    dragging?.original.id === s.id ? 'is-dragging' : ''
+                                  }`}
+                                  onClick={() => !justDragged.current && onEdit(s)}
+                                  onPointerDown={elsewhere ? undefined : (ev) => startDrag(ev, s)}
+                                  onKeyDown={elsewhere ? undefined : (ev) => keyMove(ev, s)}
+                                  title={flagged.map((i) => i.message).join('\n') || 'Drag to move. Drag either edge to change the hours. Alt and arrow keys also work.'}
                                 >
+                                  {!elsewhere && <span className="chip-edge start" data-edge="start" aria-hidden />}
+                                  {!elsewhere && <span className="chip-edge end" data-edge="end" aria-hidden />}
                                   <span className="chip-top">
                                     <span className="chip-time">
                                       {formatMinute(s.startMinute)}-{formatMinute(s.endMinute)}
@@ -201,6 +317,69 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit }: Props)
           </tr>
         </tfoot>
       </table>
+      {pointer && dragging && (
+        <DragReadout
+          x={pointer.x}
+          y={pointer.y}
+          shift={dragging.current}
+          name={state.employees.find((x) => x.id === dragging.current.employeeId)?.name ?? ''}
+          shiftCost={metrics.cost.shifts.get(dragging.current.id)?.total ?? 0}
+          delta={metrics.labourCost - baseLabourCost}
+          labourPct={metrics.labourPct}
+          over={metrics.labourPct > metrics.targetPct}
+          flags={issues.filter((i) => i.shiftId === dragging.current.id || (!i.shiftId && i.employeeId === dragging.current.employeeId))}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ReadoutProps {
+  x: number;
+  y: number;
+  shift: Shift;
+  name: string;
+  shiftCost: number;
+  delta: number;
+  labourPct: number;
+  over: boolean;
+  flags: Issue[];
+}
+
+/** Follows the pointer during a drag: where the shift lands and what it does to the week. */
+function DragReadout({ x, y, shift, name, shiftCost, delta, labourPct, over, flags }: ReadoutProps) {
+  const l = dayLabel(shift.date);
+  const blocked = flags.some((f) => f.severity === 'block');
+  const sign = delta > 0.5 ? '+' : delta < -0.5 ? '-' : '';
+  return (
+    <div className="drag-readout" style={{ left: x + 16, top: y + 18 }} role="status">
+      <div className="tip-title">
+        {name} · {l.short} {l.date}
+      </div>
+      <div className="tip-row">
+        <span>Hours</span>
+        <span>
+          {formatMinute(shift.startMinute)}-{formatMinute(shift.endMinute)} · {hours((shift.endMinute - shift.startMinute - shift.breakMinutes) / 60)}
+        </span>
+      </div>
+      <div className="tip-row">
+        <span>This shift</span>
+        <span>{money(shiftCost)}</span>
+      </div>
+      <div className="tip-row">
+        <span>Week labour</span>
+        <span className={sign === '+' ? 'up' : sign === '-' ? 'down' : ''}>
+          {sign}
+          {money(Math.abs(delta))}
+        </span>
+      </div>
+      <div className="tip-row">
+        <span>Labour %</span>
+        <span className={over ? 'up' : 'down'}>{pct(labourPct)}</span>
+      </div>
+      {flags.length > 0 && (
+        <div className={`drag-flag ${blocked ? 'block' : 'warn'}`}>{flags[0].message}{flags.length > 1 ? ` (+${flags.length - 1} more)` : ''}</div>
+      )}
     </div>
   );
 }
