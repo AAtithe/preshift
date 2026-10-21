@@ -18,6 +18,7 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { HowToView } from './HowToView';
 import { AbsenceView } from './AbsenceView';
 import { HrFile, type HrSection } from './HrFile';
 import { HrOverview } from './HrOverview';
@@ -39,7 +40,7 @@ import { Timeline } from './Timeline';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 type AtAll = Allow;
@@ -97,6 +98,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'settings', label: 'Settings' },
     ],
   },
+  { heading: 'Help', items: [{ id: 'howto', label: 'How to' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
@@ -143,6 +145,8 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('sites');
+  const [guide, setGuide] = useState<string | null>(null);
+  const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -351,7 +355,8 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               <span className={`stamp ${status}`}>{statusLabel}</span>
             </div>
           </div>
-          <div className="sections">
+          {/* How to is for reading: no week actions and no P&L beside it, so the guide gets the width. */}
+          {activeTab !== 'howto' && <div className="sections">
             <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {single && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
@@ -362,12 +367,12 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                 {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
               </button>
             </div>
-          </div>
+          </div>}
         </header>
 
         <AuthenticatorBar me={me} />
 
-        <div className="shell">
+        <div className={`shell${activeTab === 'howto' ? ' no-rail' : ''}`}>
           <div className="main">
             {account?.demo && (
               <div className="notice demo-banner">
@@ -504,7 +509,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} />}
+              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} singleSite={!!single} today={today} onOpen={setTab} />
@@ -512,13 +517,14 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {activeTab === 'access' && <AccessView state={state} />}
               {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} />}
+              {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
             <footer className="foot">
               <span>UK rates 2026/27. Running on the Preshift API.</span>
             </footer>
           </div>
-          <PnlRail
+          {activeTab !== 'howto' && <PnlRail
             state={view}
             metrics={metrics}
             issues={issues}
@@ -528,7 +534,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
             blocks={blocks}
             onPublish={() => void actions.publish(siteIds, week)}
             showCost={showCost}
-          />
+          />}
         </div>
       </div>
 
