@@ -11,6 +11,7 @@ export default defineConfig(() => {
     '/docs': api,
     '/auth': api,
     '/login': api,
+    '/demo': api,
     '/api': api,
   };
 

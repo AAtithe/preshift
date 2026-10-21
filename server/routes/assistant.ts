@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { sessionUser } from '../auth';
+import { ASSISTANT_CALLS, assistantCallsSetting, isSandbox } from '../demo';
 import type { Store } from '../store';
 import { claudeKeySetting } from './access';
 
@@ -12,16 +13,32 @@ const FORWARDED_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type'
 
 const error = (type: string, message: string) => ({ type: 'error', error: { type, message } });
 
-export function assistantRoutes(app: FastifyInstance, store: Store) {
+/**
+ * In the public demo, sandboxes share demoKey (PRESHIFT_DEMO_CLAUDE_KEY) up to ASSISTANT_CALLS each;
+ * without it the assistant says it is not switched on in the demo.
+ */
+export function assistantRoutes(app: FastifyInstance, store: Store, options: { demoKey?: string } = {}) {
   app.post('/api/anthropic/v1/messages', { schema: { hide: true } }, async (req, reply) => {
     const user = await sessionUser(req.headers.cookie, store);
     if (!user) return reply.code(401).send(error('session_expired', 'Sign in to use the rota assistant.'));
-    const apiKey = await store.getSetting(claudeKeySetting(user.orgId));
-    if (!apiKey) return reply.code(403).send(error('not_configured', 'An admin needs to add the Claude API key in Settings.'));
+    const sandbox = isSandbox(user.orgId);
+    const apiKey = sandbox ? options.demoKey : await store.getSetting(claudeKeySetting(user.orgId));
+    if (!apiKey) {
+      return reply.code(403).send(sandbox
+        ? error('demo', 'The rota assistant is not switched on in this demo. Book a demo to see it working on your own sites.')
+        : error('not_configured', 'An admin needs to add the Claude API key in Settings.'));
+    }
 
     const params = (req.body ?? {}) as { model?: string; max_tokens?: number; stream?: boolean };
     if (params.model !== MODEL || !(Number(params.max_tokens) <= MAX_TOKENS) || params.stream) {
       return reply.code(400).send(error('proxy_error', 'Only rota assistant requests are accepted.'));
+    }
+    if (sandbox) {
+      const used = Number((await store.getSetting(assistantCallsSetting(user.orgId))) ?? 0);
+      if (used >= ASSISTANT_CALLS) {
+        return reply.code(403).send(error('demo', 'This demo has used its share of the rota assistant. Book a demo to see more of it.'));
+      }
+      await store.setSetting(assistantCallsSetting(user.orgId), String(used + 1));
     }
 
     const headers = new Headers({ 'x-api-key': apiKey });
