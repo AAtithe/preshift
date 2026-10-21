@@ -167,7 +167,9 @@ export const anonymousName = (employeeId: string) => `Former employee ${employee
 /** Clears what a contact item covers. Staff logins live outside the rota and are closed by the caller. */
 export function stripContact(e: Employee): Employee {
   const { email: _email, phone: _phone, badgeId: _badge, ...rest } = e;
-  return { ...rest, availability: [] };
+  if (!rest.hr) return { ...rest, availability: [] };
+  const { address: _address, postcode: _postcode, emergencyContact: _contact, ...hr } = rest.hr;
+  return { ...rest, hr, availability: [] };
 }
 
 export function stripRightToWork(e: Employee): Employee {
@@ -180,8 +182,12 @@ export function stripRightToWork(e: Employee): Employee {
  */
 export function anonymise(e: Employee, today: string): Employee {
   const plain = stripRightToWork(stripContact(e));
+  // Absence dates stay with the pay record; why someone was off, and their NI number, do not.
+  const { niNumber: _ni, ...hr } = plain.hr ?? {};
   return {
     ...plain,
+    ...(plain.hr ? { hr } : {}),
+    ...(plain.absences ? { absences: plain.absences.map(({ id, type, from, to }) => ({ id, type, from, to })) } : {}),
     name: anonymousName(e.id),
     dateOfBirth: e.dateOfBirth ? `${e.dateOfBirth.slice(0, 4)}-01-01` : '',
     anonymisedOn: today,
@@ -355,6 +361,26 @@ export function processingRegister(
       recipients: 'None',
       retention: `Employment plus ${policy.rightToWorkYearsAfterLeaving} years`,
       held: live.filter(hasRightToWorkDetail).length,
+    },
+    {
+      activity: 'Personnel files',
+      purpose: 'Managing employment: contracts, probation, reviews, training, disciplinary and grievance cases',
+      lawfulBasis: 'Contract (6(1)(b)); legal obligation (6(1)(c)) for the written statement and NI number; legitimate interests (6(1)(f)) for reviews and cases',
+      categories: 'NI number, address, emergency contact, line manager, contract dates, training certificates, reviews, cases and notes',
+      recipients: 'None. Cases are visible to admins only',
+      retention: `Contact details ${policy.contactMonthsAfterLeaving} months after leaving; the rest until the person is anonymised`,
+      held: live.filter((e) => e.hr).length,
+    },
+    {
+      activity: 'Sickness and absence',
+      purpose: 'Managing attendance, fit notes, return to work and statutory sick pay',
+      lawfulBasis:
+        'Contract (6(1)(b)); health data under Article 9(2)(b) and DPA 2018 Schedule 1 paragraph 1 (employment law). ' +
+        'Needs an appropriate policy document. Reasons are never shared with rota or payroll keys',
+      categories: 'Absence dates and type, reason, fit note seen, return to work date',
+      recipients: 'None',
+      retention: `Dates with the payroll record; reasons removed when the person is anonymised`,
+      held: live.reduce((n, e) => n + (e.absences?.length ?? 0), 0),
     },
     {
       activity: 'Rota and working time',
