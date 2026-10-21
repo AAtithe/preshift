@@ -435,7 +435,8 @@ describe('employment allowance', () => {
 
 describe('employees', () => {
   const TODAY = '2026-10-21';
-  const ok = { rightToWork: { checked: true } };
+  const copy = { id: 'd1', fileName: 'passport.pdf', contentType: 'application/pdf' as const, bytes: 1, sha256: '', uploadedAt: '', uploadedBy: '' };
+  const ok = { rightToWork: { checked: true, checkedOn: '2026-01-05', documents: [copy] } };
   const codes = (e: Employee) => reviewEmployee(e, TODAY).map((c) => c.code);
 
   it('passes a complete, lawful record', () => {
@@ -446,6 +447,11 @@ describe('employees', () => {
     expect(codes(person())).toContain('right-to-work');
     expect(codes(person({ rightToWork: { checked: true, expiry: '2026-10-01' } }))).toContain('right-to-work');
     expect(codes(person({ rightToWork: { checked: true, expiry: '2026-11-30' } }))).toContain('right-to-work-expiring');
+  });
+
+  it('warns when a check has no copy or no date', () => {
+    expect(codes(person({ rightToWork: { ...ok.rightToWork, documents: [] } }))).toContain('right-to-work-copy');
+    expect(codes(person({ rightToWork: { ...ok.rightToWork, checkedOn: undefined } }))).toContain('right-to-work-date');
   });
 
   it('warns ahead of a birthday that moves the minimum wage band', () => {

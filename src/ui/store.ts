@@ -4,6 +4,15 @@ import type { Issue } from '../engine/compliance';
 import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RestOverride, RotaState, Shift, Site } from '../engine/types';
 import { api } from './api';
 
+/** One entry in a stored copy's access log, as the API returns it. */
+export interface DocumentAccess {
+  action: 'added' | 'viewed' | 'deleted';
+  at: string;
+  actor: string;
+  via: 'session' | 'api key';
+  ip?: string;
+}
+
 /**
  * Loads the organisation from the API and writes every change back through it.
  * The engine also runs in the browser on the same data, so costs and
@@ -115,7 +124,10 @@ export function useRotaStore() {
     saveEmployee: (employee: Employee, isNew: boolean) =>
       guard(async () => {
         // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
-        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _a, ...body } = employee;
+        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _a, ...rest } = employee;
+        // Right to work copies are added and removed through their own routes.
+        const { documents: _d, ...rightToWork } = rest.rightToWork ?? { checked: false };
+        const body = rest.rightToWork ? { ...rest, rightToWork } : rest;
         const saved = isNew
           ? await api.post<Employee>('/v1/employees', body)
           : await api.patch<Employee>(`/v1/employees/${id}`, body);
@@ -147,6 +159,24 @@ export function useRotaStore() {
       setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
       return employee;
     },
+    /** Stores a copy of a right to work document. Errors are left to the caller to show. */
+    addRightToWorkDocument: async (employeeId: string, file: Blob, fileName: string) => {
+      const employee = await api.upload<Employee>(
+        `/v1/employees/${employeeId}/right-to-work/documents?fileName=${encodeURIComponent(fileName)}`,
+        file,
+      );
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+      return employee;
+    },
+    /** Deletes a stored copy (admins only). Errors are left to the caller to show. */
+    deleteRightToWorkDocument: async (employeeId: string, documentId: string) => {
+      const employee = await api.del<Employee>(`/v1/employees/${employeeId}/right-to-work/documents/${documentId}`);
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+      return employee;
+    },
+    /** Who added, viewed and deleted a copy (admins only). Errors are left to the caller to show. */
+    rightToWorkDocumentHistory: (employeeId: string, documentId: string) =>
+      api.get<DocumentAccess[]>(`/v1/employees/${employeeId}/right-to-work/documents/${documentId}/access`),
     /** Sets the first day of a company's leave year (MM-DD); every holiday balance in it moves with it. */
     setLeaveYearStart: (entityId: string, leaveYearStart: string) =>
       guard(async () => {
