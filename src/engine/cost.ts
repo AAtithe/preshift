@@ -1,6 +1,7 @@
 import type { Employee, RotaState, Shift } from './types';
 import { UK_RATES_2026_27, type UkRates } from './ukRates';
 import { weekDates } from './time';
+import { employedShare } from './employees';
 
 export function shiftPaidMinutes(shift: Shift): number {
   return Math.max(0, shift.endMinute - shift.startMinute - shift.breakMinutes);
@@ -52,13 +53,15 @@ export function employeeWeekCost(
   employee: Employee,
   shifts: Shift[],
   rates: UkRates = UK_RATES_2026_27,
+  /** Share of the week they are employed; starters and leavers are paid pro rata. */
+  share = 1,
 ): EmployeeWeekCost {
   const paidHours = shifts.reduce((sum, s) => sum + shiftPaidHours(s), 0);
   // Guaranteed contracted hours are paid whether or not they are rostered.
   const gross =
     employee.payBasis === 'salaried'
-      ? employee.annualSalary / 52
-      : Math.max(paidHours, employee.contractedHours) * employee.hourlyRate;
+      ? (employee.annualSalary / 52) * share
+      : Math.max(paidHours, employee.contractedHours * share) * employee.hourlyRate;
   // Salaried pay already includes paid holiday; hourly staff accrue it on top.
   const holiday = employee.payBasis === 'hourly' ? gross * rates.holidayAccrualRate : 0;
   const earnings = gross + holiday;
@@ -98,8 +101,9 @@ export function weekCost(
   for (const employee of state.employees) {
     // On-costs depend on everything the person works that week, at any site.
     const own = weekShifts.filter((s) => s.employeeId === employee.id);
-    if (own.length === 0 && employee.payBasis === 'hourly' && employee.contractedHours === 0) continue;
-    const cost = employeeWeekCost(employee, own, rates);
+    const share = employedShare(employee, start);
+    if (own.length === 0 && (share === 0 || (employee.payBasis === 'hourly' && employee.contractedHours === 0))) continue;
+    const cost = employeeWeekCost(employee, own, rates, share);
     const scoped = siteId ? own.filter((s) => s.siteId === siteId) : own;
     const unrostered = own.length === 0; // salaried or guaranteed-hours staff with no shifts
     if (siteId && scoped.length === 0 && !(unrostered && employee.siteId === siteId)) continue;

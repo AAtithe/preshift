@@ -14,6 +14,10 @@ export interface UkRates {
   pensionLowerWeekly: number;
   pensionUpperWeekly: number;
   employerPensionRate: number;
+  /** Auto-enrolment earnings trigger, per week, and the age band it applies to. */
+  pensionTriggerWeekly: number;
+  pensionMinAge: number;
+  pensionMaxAge: number;
   /** Holiday accrual on hours worked for irregular-hours and hourly staff (5.6 / 46.4). */
   holidayAccrualRate: number;
   /** Annual Employment Allowance, offset against the employer NI bill at entity level. */
@@ -33,6 +37,9 @@ export const UK_RATES_2026_27: UkRates = {
   pensionLowerWeekly: 120,
   pensionUpperWeekly: 967,
   employerPensionRate: 0.03,
+  pensionTriggerWeekly: 192,
+  pensionMinAge: 22,
+  pensionMaxAge: 66,
   holidayAccrualRate: 0.1207,
   employmentAllowance: 10_500,
 };

@@ -1,4 +1,5 @@
 import type { Issue } from '../engine/compliance';
+import { isEmployedOn } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { ageOn } from '../engine/time';
 import type { RotaState } from '../engine/types';
@@ -9,10 +10,13 @@ interface Props {
   siteId: string;
   metrics: WeekMetrics;
   issues: Issue[];
+  dates: string[];
 }
 
-export function TeamView({ state, siteId, metrics, issues }: Props) {
-  const people = state.employees.filter((e) => e.siteId === siteId);
+export function TeamView({ state, siteId, metrics, issues, dates }: Props) {
+  const people = state.employees.filter(
+    (e) => e.siteId === siteId && (dates.some((d) => isEmployedOn(e, d)) || metrics.cost.employees.has(e.id)),
+  );
   const totals = { gross: 0, holiday: 0, ni: 0, pension: 0, total: 0 };
   return (
     <div className="grid-wrap">
