@@ -9,7 +9,26 @@ and is it legal". It builds the rota from the sales forecast, costs every shift 
 will, blocks anything that breaks UK employment law, and hands finance a ready-to-post labour
 accrual so the P&L carries true labour before payroll has even run.
 
-## What is in this first build
+## What's new: week of 19 October 2026
+
+A one-page card for the team. Read it in two minutes, then open the app and try each item once.
+Past cards live in `docs/WHATS_NEW.md`.
+
+| For | What changed | Why it matters |
+| --- | --- | --- |
+| GMs | Left-hand management bar groups the app into Overview, Rota, People, Finance and Admin. Site-only sections stay visible at group level and ask for a site. | The map never moves, so nobody hunts for a tab when they switch from group to site. |
+| GMs | Clock in tab for a tablet at the door: RFID card tap (USB reader or Android NFC) or sign in by name inside the site's geofence. | Hours come from the door, not from memory, so the accrual and payroll start from evidence. |
+| Staff | Staff app at `/staff/`: clock in and out on their own phone, record breaks, see their own shifts and hours. Invite link from Clock in setup, valid 7 days. | Breaks are recorded when taken, so unpaid minutes are a fact at clock-out, not an argument at payroll. |
+| Finance | Payroll runs per PAYE scheme: one TeamPay employer per company, one batch of hours per company, each pay run reconciled to its own company's accrual. | Group structures with a central employer or sister-company cover now post and reconcile correctly. |
+| Finance | Employment Allowance applied to the claiming entity week by week, posted to its books only, resetting each tax year. | Employer NI in the accrual matches what payroll actually charges. |
+| Admin | Accounts, roles, passwords and the Claude key are managed in Settings. Forgot password by email through Resend, or a 24 hour link an admin hands over. | No access settings live in Vercel. Removing someone takes effect on their next click. |
+| Everyone | CI typechecks and runs the full suite (123 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+
+The test for this week: take one site through a full cycle. Build the week, publish it, clock two
+people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
+accrual. If any step needs an explanation, that is the next thing to fix.
+
+## Feature list
 
 | Area | What it does | Where |
 | --- | --- | --- |
@@ -31,12 +50,104 @@ accrual so the P&L carries true labour before payroll has even run.
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 | Staff app | Staff clock in and out on their own phones at `/staff/`, record their breaks, and see their own published shifts and hours. Breaks are not location checked (they only lower paid time); recorded breaks set the entry's unpaid minutes at clock-out, the phone shows the legal minimum for the shift, and a card tap during a break ends the break. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
 
+## Specification
+
+The detail behind the feature list. Every figure here is in the code; if they disagree, the code
+is right and this section is out of date.
+
+### Labour costing (`src/engine/cost.ts`, `src/engine/ukRates.ts`)
+
+| Parameter | 2026/27 value |
+| --- | --- |
+| National Living Wage (21+) | £12.71 an hour |
+| NMW 18 to 20 | £10.85 an hour |
+| NMW 16 to 17 and apprentice rate | £8.00 an hour |
+| Employer NI | 15% above £96 a week (secondary threshold) |
+| Auto-enrolment pension | 3% employer on qualifying earnings £120 to £967 a week; trigger £192 a week; ages 22 to 66 |
+| Holiday accrual | 12.07% of hours worked for hourly and irregular-hours staff (5.6 / 46.4) |
+| Employment Allowance | £10,500 a year, one claim per connected group |
+
+On-costs are calculated on the whole week, then spread across that week's shifts, so the rota
+total reconciles to payroll. The shift editor shows marginal cost: what the shift adds to the week.
+
+### Compliance rules (`src/engine/compliance.ts`)
+
+Blocking issues stop publication and are refused by the assistant. Warnings are shown and allowed.
+
+| Rule | Severity |
+| --- | --- |
+| Minimum wage for the person's age band | Block |
+| Rest breaks under the Working Time Regulations; 30 minutes over 4.5 hours for under 18s | Block |
+| Under 18s: 8 hours a day, 40 hours a week | Block |
+| Double booking across any site, on leave, outside employment dates, right to work missing or expired | Block |
+| 11 hours daily rest, checked across week boundaries; 12 hours for under 18s | Warn |
+| Weekly rest: one clear day, two for under 18s | Warn |
+| Under 18 working between 22:00 and 06:00 (check the hospitality exemption) | Warn |
+| Outside stated availability, or not trained for the role | Warn |
+| Over 48 hours without an opt-out (must average 48 or less over 17 weeks) | Warn |
+| Over the person's own maximum weekly hours | Warn |
+| Below contracted hours on a full week (the gap is paid regardless) | Warn |
+
+### Demand-led build (`src/engine/demand.ts`, `src/engine/autoschedule.ts`)
+
+- Input: hourly forecast net sales and covers per site, from `PUT /v1/forecast`.
+- Per role and site: sales per labour hour or covers per person per hour, a floor while open and a cap.
+- Fill order: peak hours first, cheapest legal person first, own-site team before cross-site cover.
+- Edges trimmed where overstaffed. Unfillable gaps are reported as a hiring or cross-training signal.
+
+### Rota assistant (`src/ai/`, `server/routes/assistant.ts`)
+
+- Claude drafts changes by calling the engine's own tools; it never writes shifts directly.
+- The server route accepts one fixed model, caps output at 16,000 tokens and refuses streaming.
+- The organisation's key is held server side, shown only by its last four characters.
+- The GM sees labour % before and after, the changes and the trade-offs, then applies or discards.
+
+### Finance outputs (`src/engine/journal.ts`)
+
+- Labour accrual journal per entity, by role nominal and site tracking category.
+- Basis: approved actuals when available, otherwise the rota (`basis=rota|actual|auto`).
+- Format: JSON or Xero manual journal CSV.
+- Intercompany recharge posted on both sides where a person works at another company's site,
+  checked to agree before posting.
+
+### Time, clocking and the staff app
+
+| Item | Specification |
+| --- | --- |
+| Geofence | Per site. Fix accuracy is allowed on top of the radius, up to the radius again. Fixes worse than 250 m are refused. |
+| Card taps | Not location checked, as the reader is fixed on site. Repeat reads of one tap are ignored. A tap during a break ends the break. |
+| Phone clocking | Requires the site's geofence, for clock-in and clock-out. Refused at a site with no fence. |
+| Breaks | Not location checked. Recorded as `{start, end}` and set unpaid minutes at clock-out. Clocking out ends a running break. |
+| Approval | Manager approval, rota against clock by person, period locked once sent to payroll. |
+
+### Access and security
+
+| Item | Specification |
+| --- | --- |
+| Manager sessions | 12 hours, HttpOnly cookie, checked against the database on every request. |
+| Staff sessions | 30 days, separate signing key, never accepted by the manager API. |
+| Passwords | scrypt hashes. Five wrong attempts lock the account for 15 minutes. |
+| Password reset | Single-use email link valid 30 minutes, at most three emails an hour per account, token after `#`. Admin-issued link valid 24 hours. |
+| Staff invite | One-time link valid 7 days; a new invite resets a forgotten staff password. |
+| Roles | Admin and member. At least one admin per organisation; nobody can remove themselves. |
+| API | Scoped API keys, per-organisation tenancy, OpenAPI docs at `/docs`. TeamPay webhooks HMAC signed. |
+
+### Platform
+
+| Item | Specification |
+| --- | --- |
+| Stack | TypeScript throughout. React 18 and Vite for the web and staff apps; Fastify 4 for the API. |
+| Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
+| Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
+| Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
+| Quality | 123 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
+
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests (103 across 7 files)
+npm test         # engine and API tests (123 across 9 files)
 npm run build    # typecheck and production build
 ```
 
