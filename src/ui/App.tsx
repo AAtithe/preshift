@@ -12,6 +12,7 @@ import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
+import { WeekOverview } from './WeekOverview';
 
 type Tab = 'rota' | 'demand' | 'team' | 'close';
 
@@ -44,100 +45,152 @@ export function App() {
     setUnfilled(result.unfilled);
   }
 
+  const status = blocks > 0 ? 'blocked' : published ? 'published' : 'draft';
+  const statusLabel = blocks > 0 ? `${blocks} blocking issue${blocks > 1 ? 's' : ''}` : published ? 'Published to team' : weekShifts.length ? 'Draft' : 'Not started';
+  const gapGroups = unfilled
+    ? Array.from(
+        unfilled.reduce((m, g) => {
+          const name = state.roles.find((r) => r.id === g.roleId)?.name ?? g.roleId;
+          m.set(name, [...(m.get(name) ?? []), g]);
+          return m;
+        }, new Map<string, UnfilledGap[]>()),
+      )
+    : [];
+  const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden>P</span>
-          <div>
-            <div className="brand-name">Preshift</div>
-            <div className="brand-sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
+    <>
+      <div className="masthead">
+        <div className="masthead-inner">
+          <header className="topbar">
+            <div className="brand">
+              <span className="brand-mark" aria-hidden>
+                <svg width="20" height="20" viewBox="0 0 32 32">
+                  <path d="M11 23V9h6.2a4.6 4.6 0 0 1 0 9.2H11" fill="none" stroke="#c9e6d5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <div>
+                <div className="brand-name">Preshift</div>
+                <div className="brand-sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
+              </div>
+            </div>
+            <div className="controls">
+              <div className="seg" role="tablist" aria-label="Site">
+                {state.sites.map((s) => (
+                  <button key={s.id} className={s.id === siteId ? 'active' : ''} onClick={() => setSiteId(s.id)}>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+              <div className="week-nav">
+                <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&lsaquo;</button>
+                <span className="week-label">
+                  {dayLabel(week).date} <span className="muted">to</span> {dayLabel(dates[6]).date}
+                </span>
+                <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rsaquo;</button>
+              </div>
+            </div>
+          </header>
+          <div className="headline">
+            <div>
+              <h1>{site.name}, week commencing {dayLabel(week).date}</h1>
+              <p>Built from the forecast, costed the way payroll will cost it, checked against UK employment law.</p>
+            </div>
+            <span className={`status-pill ${status}`}>
+              <span className="dot" />
+              {statusLabel}
+            </span>
           </div>
         </div>
-        <div className="controls">
-          <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Site">
-            {state.sites.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
+      </div>
+
+      <div className="app">
+        <KpiBar metrics={metrics} issues={issues} />
+
+        <nav className="toolbar">
+          <div className="tabs">
+            {TABS.map((t) => (
+              <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+                {t.label}
+                {t.id === 'demand' && unfilled && unfilled.length > 0 && <span className="count">{unfilled.length}</span>}
+              </button>
             ))}
-          </select>
-          <div className="week-nav">
-            <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&lsaquo;</button>
-            <span>w/c {dayLabel(week).date}</span>
-            <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rsaquo;</button>
           </div>
-        </div>
-      </header>
+          <div className="tab-actions">
+            <button
+              className="ghost"
+              onClick={() => { dispatch({ type: 'clearWeek', siteId, weekStart: week }); setUnfilled(null); }}
+            >
+              Clear week
+            </button>
+            <button
+              disabled={blocks > 0 || weekShifts.length === 0 || published}
+              title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
+              onClick={() => dispatch({ type: 'publishWeek', siteId, weekStart: week })}
+            >
+              {published ? 'Published' : 'Publish to team'}
+            </button>
+            <button onClick={runAutoBuild} className="primary">Build from forecast</button>
+          </div>
+        </nav>
 
-      <KpiBar metrics={metrics} issues={issues} />
+        {unfilled && unfilled.length > 0 && (
+          <div className="gaps" role="status">
+            <span className="gaps-icon" aria-hidden>!</span>
+            <div>
+              <div className="gaps-title">{unfilled.length} gaps could not be filled legally with the current team</div>
+              <div className="gaps-sub">That is a hiring or cross-training signal, not a rota problem.</div>
+              <div className="gap-groups">
+                {gapGroups.map(([role, gaps]) => (
+                  <div className="gap-group" key={role}>
+                    <b>{role}</b>
+                    {gaps.map((g, i) => (
+                      <span className="gap-chip" key={i}>
+                        {dayLabel(g.date).short} {clock(g.fromHour)}-{clock(g.toHour)}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button className="ghost" onClick={() => setUnfilled(null)}>Dismiss</button>
+          </div>
+        )}
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
-            {t.label}
+        <main>
+          {tab === 'rota' && <WeekOverview state={state} siteId={siteId} dates={dates} metrics={metrics} />}
+          {tab === 'rota' && (
+            <RotaGrid
+              state={state}
+              site={site}
+              dates={dates}
+              metrics={metrics}
+              issues={issues}
+              onEdit={setEditing}
+            />
+          )}
+          {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
+          {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
+          {tab === 'close' && <CloseView state={state} week={week} />}
+        </main>
+
+        <footer className="foot">
+          <span>UK rates 2026/27. Demo data is held in this browser only.</span>
+          <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
+            Reset demo
           </button>
-        ))}
-        <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">Build from forecast</button>
-          <button onClick={() => { dispatch({ type: 'clearWeek', siteId, weekStart: week }); setUnfilled(null); }}>Clear week</button>
-          <button
-            disabled={blocks > 0 || weekShifts.length === 0 || published}
-            title={blocks > 0 ? 'Resolve blocking issues before publishing' : undefined}
-            onClick={() => dispatch({ type: 'publishWeek', siteId, weekStart: week })}
-          >
-            {published ? 'Published' : 'Publish'}
-          </button>
-        </div>
-      </nav>
+        </footer>
 
-      {unfilled && unfilled.length > 0 && (
-        <div className="notice">
-          <strong>{unfilled.length} gaps could not be filled legally with the current team.</strong>{' '}
-          That is a hiring or cross-training signal, not a rota problem.
-          <ul>
-            {unfilled.slice(0, 6).map((g, i) => (
-              <li key={i}>
-                {dayLabel(g.date).short} {state.roles.find((r) => r.id === g.roleId)?.name}{' '}
-                {String(g.fromHour).padStart(2, '0')}:00 to {String(g.toHour % 24).padStart(2, '0')}:00
-              </li>
-            ))}
-            {unfilled.length > 6 && <li>and {unfilled.length - 6} more</li>}
-          </ul>
-          <button className="link" onClick={() => setUnfilled(null)}>Dismiss</button>
-        </div>
-      )}
-
-      <main>
-        {tab === 'rota' && (
-          <RotaGrid
+        {editing && (
+          <ShiftEditor
             state={state}
-            site={site}
-            dates={dates}
-            metrics={metrics}
-            issues={issues}
-            onEdit={setEditing}
+            shift={editing}
+            onSave={(shift) => { dispatch({ type: 'upsertShift', shift }); setEditing(null); }}
+            onDelete={(id) => { dispatch({ type: 'deleteShift', id }); setEditing(null); }}
+            onClose={() => setEditing(null)}
           />
         )}
-        {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
-        {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
-        {tab === 'close' && <CloseView state={state} week={week} />}
-      </main>
-
-      <footer className="foot">
-        <span>UK rates 2026/27. Demo data is held in this browser only.</span>
-        <button className="link" onClick={() => { if (confirm('Reset to demo data?')) dispatch({ type: 'reset' }); }}>
-          Reset demo
-        </button>
-      </footer>
-
-      {editing && (
-        <ShiftEditor
-          state={state}
-          shift={editing}
-          onSave={(shift) => { dispatch({ type: 'upsertShift', shift }); setEditing(null); }}
-          onDelete={(id) => { dispatch({ type: 'deleteShift', id }); setEditing(null); }}
-          onClose={() => setEditing(null)}
-        />
-      )}
-    </div>
+      </div>
+    </>
   );
 }
