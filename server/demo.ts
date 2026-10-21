@@ -48,12 +48,14 @@ export const assistantCallsSetting = (orgId: string) => `demo_assistant_calls:${
 
 /**
  * Requests a sandbox visitor may not make: managing access, saving a Claude key or email settings,
- * passwords and resets, owner setup. Staff app logins stay open: they live inside the sandbox.
+ * passwords and resets, owner setup, API keys and webhooks. Staff app logins stay open: they live inside the sandbox.
  */
 export function demoRefuses(method: string, url: string): boolean {
   const path = url.split('?')[0];
   if (method === 'POST' && ['/auth/setup', '/auth/password', '/auth/forgot', '/auth/reset'].includes(path)) return true;
   if (method !== 'GET' && (path === '/v1/settings/claude-api-key' || path === '/v1/settings/email')) return true;
+  // Keys and webhooks would let an anonymous visitor make Preshift call any address; the API docs stay open.
+  if (method !== 'GET' && (path.startsWith('/v1/api-keys') || path.startsWith('/v1/webhooks'))) return true;
   return method !== 'GET' && (path === '/v1/users' || path.startsWith('/v1/users/'));
 }
 

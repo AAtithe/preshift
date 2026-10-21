@@ -28,6 +28,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Employment Allowance | One claim per connected group, set on the claiming entity with what the last payroll left unused. Used against that entity's employer NI week by week until it runs out, as payroll applies it, and posted to its books only (Cr employer NI, Dr wages accrual) split across its sites. Resets each tax year. Site labour % stays before the allowance. | `src/engine/allowance.ts`, `src/engine/journal.ts` |
 | Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
+| Open API and webhooks | Any system can plug in without Preshift issuing anything. An admin makes a key per system under Settings, ticks what it may do, sees it once (only its hash is kept), sees when it was last used and revokes it at once. Keys are rate limited. Webhooks post signed, thin events (ids, never pay or personal data) to a partner's https endpoint the moment a rota is published, a shift or starter changes, hours are approved or a pay run reconciles, raised in the same save as the change and retried in order if the partner is down. A partner can register its own endpoint with a `webhooks:write` key. | `server/routes/developers.ts`, `server/webhooks.ts`, `src/ui/DeveloperSettings.tsx` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
@@ -48,7 +49,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (162 across 14 files)
+npm test         # engine, UI rules and API tests (179 across 16 files)
 npm run build    # typecheck and production build
 ```
 
@@ -134,7 +135,7 @@ Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the 
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when
 the function cold starts: fine for a demo, not for customers. Preshift never reads the generic
 `DATABASE_URL`, so it cannot write into another system's database by accident. The hosted API has
-no public key: people reach it by signing in, and integrations need a key from `PRESHIFT_API_KEYS`.
+no public key: people reach it by signing in, and integrations use a key an admin makes under Settings.
 
 ## Structure
 

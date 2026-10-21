@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
+import { ApiKeys, Webhooks } from './DeveloperSettings';
 
 export interface Me {
   email: string;
@@ -38,7 +39,7 @@ export function SettingsView({ me }: { me: Me }) {
           <h2>Settings in the demo</h2>
           <p className="small muted">
             In the live product this is where an admin adds the people who can sign in, sets their roles, resets
-            passwords and saves the organisation's Claude API key and email settings. The demo has no accounts to manage: you are the
+            passwords, saves the organisation's Claude API key and email settings, and makes API keys and webhooks for other systems to plug in. The demo has no accounts to manage: you are the
             admin of your own copy of the demo group, and it is deleted after a day.
           </p>
           <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
@@ -51,6 +52,8 @@ export function SettingsView({ me }: { me: Me }) {
       {me.role === 'admin' && <People me={me} />}
       {me.role === 'admin' && <ClaudeKey />}
       {me.role === 'admin' && <EmailSetup />}
+      {me.role === 'admin' && <ApiKeys />}
+      {me.role === 'admin' && <Webhooks />}
       <OwnPassword />
     </div>
   );

@@ -362,10 +362,19 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
           name="Preshift API"
           kind="Build your own"
           health={null}
-          purpose="The REST API the web app itself runs on, with scoped API keys per organisation. Anything this app does, an EPOS, BI tool or in-house system can do too."
-          action={<button onClick={() => window.open('/docs', '_blank', 'noopener')}>Open API docs</button>}
+          purpose="The open REST API the web app itself runs on. Anything this app does, an EPOS, BI tool or in-house system can do too, and webhooks tell it the moment a rota is published, a starter is added or hours are approved."
+          action={
+            <>
+              <button onClick={() => window.open('/docs', '_blank', 'noopener')}>Open API docs</button>
+              {admin && <button onClick={() => onOpen('settings')}>Manage keys and webhooks</button>}
+            </>
+          }
         >
-          <p className="small muted">API keys are issued by Preshift for your organisation, each limited to the scopes it needs.</p>
+          <p className="small muted">
+            {admin
+              ? 'Make a key for each system under Settings, limited to the scopes it needs, and revoke it when the system is retired.'
+              : 'An admin makes API keys and webhooks under Settings.'}
+          </p>
         </Card>
       </div>
 

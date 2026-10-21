@@ -33,10 +33,68 @@ locally. Set these to connect to real TeamPay:
 People in the web app authenticate with the session cookie from signing in; accounts are managed
 in the app under Settings (see the README). A signed-in person works across their own organisation,
 and only admins can manage people (`/v1/users`) and settings (`/v1/settings`); integration keys never
-can. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
+can. Integrations use bearer API keys, each bound to one organisation with scopes (see Plugging in, below). A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
+
+## Plugging in: API keys
+
+The API is open to any system a customer wants to connect: an EPOS pushing sales, a BI tool reading
+labour, an in-house app, a partner product. Nobody at Preshift has to issue anything.
+
+1. An admin opens Settings, API keys, names the key after the system that will use it and ticks
+   what it may do. The key (`psk_...`) is shown once. Only its SHA-256 is stored, in its own table,
+   so no data endpoint can return it and a database leak gives nobody a working key.
+2. The system sends `Authorization: Bearer psk_...` on every request. It reaches that organisation
+   only, and only the scopes ticked. A key can never make, list or revoke keys, or manage people
+   or settings: that needs a signed-in admin.
+3. Revoking a key under Settings stops it on the next request. Each key shows when it was last used,
+   so keys nobody uses any more are easy to find and remove.
+
+Each key may make 300 requests a minute (`x-ratelimit-*` headers; `429` with `retry-after` beyond
+that). The limit is held per server instance, so it guards against a runaway loop rather than
+acting as a billing quota. Keys from `PRESHIFT_API_KEYS` still work, for keys set by deployment.
+
+| Scope | Allows |
+| --- | --- |
+| `rota:read` | Read sites, roles, people, shifts, forecast, time, payroll status and journals |
+| `rota:write` | Change shifts and people, build and publish rotas, load the forecast |
+| `time:write` | Clock in and out, enter or edit time |
+| `time:approve` | Approve clocked time for payroll |
+| `payroll:write` | Send people and approved hours to payroll |
+| `webhooks:write` | Register and remove webhook endpoints |
+| `*` | All of the above |
+
+## Plugging in: webhooks
+
+Polling tells a partner too late. Webhooks tell it the moment something changes.
+
+- Register an https endpoint and the events it wants under Settings, Webhooks, or with
+  `POST /v1/webhooks` from a key with `webhooks:write`. The signing secret (`whsec_...`) is
+  returned once. `GET /v1/webhooks/events` lists every event and what its data holds.
+- Each event is a POST of `{id, type, createdAt, orgId, data}` with headers `preshift-event-id`,
+  `preshift-event-type` and `preshift-signature: t=<unix seconds>,v1=<hex>`, where `v1` is the
+  HMAC-SHA256 of `<t>.<raw body>` with the secret. Check the signature, refuse a `t` more than five
+  minutes old, and treat `id` as the idempotency key: an event can arrive twice.
+- Events are thin. They carry what changed and its ids (`data.id`, `data.siteIds`, field names),
+  never pay, dates of birth or other personal data. The receiver fetches the detail with its key,
+  so what it can see is still governed by that key's scopes.
+- Events are raised from the audit trail, in the same save as the change, so one is never sent for
+  a change that failed and never lost for one that was saved. They are sent inside the request
+  that raised them (three second timeout, endpoints in parallel), and anything not answered 2xx
+  is retried with backoff up to eight times, on later changes and on the daily cron. An endpoint's
+  events go in order; a failing one holds back only its own.
+- Settings shows events not yet delivered, with the error and a Retry now button. Send test
+  posts a `webhook.test` event and reports what the endpoint answered.
+- Addresses must be public https. Private, link-local and cloud metadata addresses are refused, so
+  a webhook cannot be used to reach Preshift's own network. `http://localhost` is allowed outside
+  production for building a receiver on a laptop.
+- The public demo refuses keys and webhooks (anyone could otherwise make Preshift call any
+  address); its API docs stay open.
+
+Webhook endpoints: `GET /v1/webhooks/events`, `GET/POST /v1/webhooks`, `PATCH/DELETE /v1/webhooks/:id`,
+`POST /v1/webhooks/:id/test`, `POST /v1/webhooks/:id/rotate-secret`, `GET /v1/webhooks/deliveries`,
+`POST /v1/webhooks/deliveries/:id/retry`.
 
 ## Endpoints
 
