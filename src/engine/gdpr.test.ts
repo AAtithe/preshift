@@ -104,7 +104,12 @@ describe('retention', () => {
   });
 
   it('applies only what is due, keeping pay data and the birth year when anonymising', () => {
-    const leaver = person({ leaveDate: '2019-03-01', status: 'leaver' });
+    const leaver = person({
+      leaveDate: '2019-03-01',
+      status: 'leaver',
+      hr: { niNumber: 'QQ123456C', address: '1 High St', emergencyContact: { name: 'Kin', phone: '07700 900001' }, contractType: 'casual' },
+      absences: [{ id: 'a1', type: 'sickness', from: '2018-05-01', to: '2018-05-02', reason: 'Back injury', notes: 'Physio' }],
+    });
     const entries = [entry('t1', '2019-02-01'), entry('t2', TODAY)];
     const items = retentionSchedule(stateWith([leaver]), entries, TODAY);
     const result = applyRetention([leaver], entries, items, TODAY);
@@ -112,6 +117,8 @@ describe('retention', () => {
     expect(after).toMatchObject({ name: 'Former employee 123456', dateOfBirth: '1995-01-01', hourlyRate: 13, anonymisedOn: TODAY, availability: [] });
     expect(after.email).toBeUndefined();
     expect(after.badgeId).toBeUndefined();
+    expect(after.hr).toEqual({ contractType: 'casual' });
+    expect(after.absences).toEqual([{ id: 'a1', type: 'sickness', from: '2018-05-01', to: '2018-05-02' }]);
     expect(after.rightToWork).toEqual({ checked: true });
     expect(result.timeEntries[0].clockInLocation).toBeUndefined();
     expect(result.timeEntries[0].clockOut).toBe(900);

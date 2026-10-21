@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { seedState } from '../src/engine/seed';
+import { seedHrRecords, seedState } from '../src/engine/seed';
 import { sessionUser } from './auth';
 import { hashPassword } from './passwords';
 import { createSession, sessionCookie } from './session';
@@ -83,6 +83,7 @@ export function demoRoutes(app: FastifyInstance, store: Store, options: { appPat
     const orgId = `${PREFIX}${Date.now().toString(36)}-${randomBytes(6).toString('hex')}`;
     const org = await store.load(orgId);
     org.state = seedState();
+    org.hrRecords = seedHrRecords();
     const email = `visitor@${orgId}.demo`;
     // Nobody ever types this password: the visitor is signed in by the cookie set below.
     const user = {

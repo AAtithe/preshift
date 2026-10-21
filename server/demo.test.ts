@@ -43,6 +43,9 @@ describe('public demo', () => {
 
     const sites = (await t.call('GET', '/v1/sites', a)).json();
     expect(sites.length).toBe(3);
+    // The HR screens have the same demo files as the seeded organisation, cases included for the visitor admin.
+    const cases = (await t.call('GET', '/v1/hr/records?kind=case', a)).json();
+    expect(cases.length).toBe(3);
 
     // What one visitor does stays in their sandbox. Sandboxes are seeded around today's week.
     const week = weekStart(toISODate(new Date()));

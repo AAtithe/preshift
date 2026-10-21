@@ -1,7 +1,9 @@
 import type { Employee, RotaState, Shift } from './types';
 import { shiftPaidMinutes } from './cost';
 import { isEmployedOn } from './employees';
+import { isAbsentOn } from './hr';
 import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { travelIssues } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
 export type Severity = 'block' | 'warn';
@@ -95,6 +97,9 @@ export function checkEmployeeWeek(
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
     }
+    if (isAbsentOn(employee, shift.date)) {
+      push({ ...base, code: 'absent', severity: 'block', message: 'Recorded as absent that day. Re-cover the shift.' });
+    }
     if (!isAvailable(employee, shift)) {
       push({ ...base, code: 'availability', severity: 'warn', message: 'Outside stated availability.' });
     }
@@ -182,5 +187,5 @@ export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: str
   const scope = siteIds === undefined ? null : new Set(typeof siteIds === 'string' ? [siteIds] : siteIds);
   return state.employees
     .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
-    .flatMap((e) => checkEmployeeWeek(e, weekStartDate, context));
+    .flatMap((e) => [...checkEmployeeWeek(e, weekStartDate, context), ...travelIssues(e, context, state.sites)]);
 }

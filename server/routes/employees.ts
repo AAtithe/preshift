@@ -6,6 +6,7 @@ import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { enqueue } from '../outbox';
 import { employeeBody, idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { employeeView } from './hr';
 
 // Fields payroll holds a copy of; changing any of them is synced to TeamPay.
 const PAYROLL_FIELDS: (keyof Employee)[] = [
@@ -35,12 +36,12 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('employees:read') };
   const write = { preHandler: requireScope('rota:write') };
 
-  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => orgOf(req).state.employees);
+  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => orgOf(req).state.employees.map((e) => employeeView(req, e)));
 
   app.get<{ Params: { id: string } }>('/v1/employees/:id', { ...read, schema: { tags: ['Employees'], params: idParam } }, async (req) => {
     const e = orgOf(req).state.employees.find((x) => x.id === req.params.id);
     if (!e) throw notFound(`Employee ${req.params.id}`);
-    return e;
+    return employeeView(req, e);
   });
 
   app.post<{ Body: Partial<Employee> }>(
@@ -81,7 +82,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       queueUpsert(org, e);
       audit(org, req.principal.name, 'employee.created', { id: e.id });
       await kick(ctx, org);
-      return reply.code(201).send(e);
+      return reply.code(201).send(employeeView(req, e));
     },
   );
 
@@ -110,7 +111,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (PAYROLL_FIELDS.some((f) => before[f] !== after[f])) queueUpsert(org, after);
       audit(org, req.principal.name, 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
       await kick(ctx, org);
-      return after;
+      return employeeView(req, after);
     },
   );
 
@@ -137,7 +138,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       enqueue(org, { type: 'employee.leaver', payload: { employeeId: e.id }, idempotencyKey: `leaver:${e.id}:${req.body.leaveDate}` });
       audit(org, req.principal.name, 'employee.leaver', { id: e.id, leaveDate: req.body.leaveDate, shiftsRemoved: removed });
       await kick(ctx, org);
-      return { employee: e, shiftsRemoved: removed };
+      return { employee: employeeView(req, e), shiftsRemoved: removed };
     },
   );
 }

@@ -2,7 +2,8 @@ import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from '../engine/c
 import { employeeWeekCost, shiftsInWeek, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
 import { isEmployedOn } from '../engine/employees';
-import { addDays, absoluteMinute, ageOn, formatMinute, weekStart } from '../engine/time';
+import { addDays, ageOn, weekStart } from '../engine/time';
+import { journeyBetween, travelIssues, type Journey } from '../engine/travel';
 import type { Employee, RotaState, Shift } from '../engine/types';
 import { dropBlocker, MIN_SHIFT_MINUTES, SNAP_MINUTES } from './drag';
 
@@ -27,6 +28,8 @@ export interface Candidate {
   homeSite: string;
   /** Employed by a different company from the host site's, so the shift is an intercompany recharge. */
   intercompany: boolean;
+  /** The journey from their home site, for someone borrowed. */
+  journey: Journey | null;
   trained: boolean;
   /** Why this person cannot take the shift, or null when they can. */
   blocker: string | null;
@@ -81,9 +84,6 @@ export function openingForGap(state: RotaState, siteId: string, date: string, ho
   return { siteId, roleId, date, startMinute: hour * 60, endMinute: hour * 60 + length };
 }
 
-/** A gap shorter than this between shifts at two sites is flagged as too tight to travel. */
-export const TRAVEL_MINUTES = 60;
-
 /**
  * Everyone who could work an opening, cheapest legal person first: the site's own team, then
  * people who could be borrowed from other sites. Cost is the change to the person's whole loaded
@@ -114,7 +114,9 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
       const marginal = employeeWeekCost(employee, [...week, shift]).total - employeeWeekCost(employee, week).total;
       const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts }, ws, opening.siteId).total;
       const siteCost = atSite([...week, shift]) - atSite(week);
-      const issues = checkEmployeeWeek(employee, ws, [...context, shift]).filter((i) => i.shiftId === shift.id);
+      const issues = [...checkEmployeeWeek(employee, ws, [...context, shift]), ...travelIssues(employee, [...context, shift], state.sites)].filter(
+        (i) => i.shiftId === shift.id,
+      );
       const trained = employee.roleIds.includes(opening.roleId);
       const borrowed = employee.siteId !== opening.siteId;
       // Cover is set up person by person on their People record, the same rule the auto-build uses.
@@ -123,36 +125,13 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
         : null;
       const blocker = dropBlocker(employee, shift) ?? notCover ?? issues.find((i) => i.severity === 'block')?.message ?? null;
       const warnings = issues.filter((i) => i.severity === 'warn' && i.code !== 'not-trained');
-      const travel = travelWarning(employee, shift, context, siteName);
-      if (travel) warnings.unshift(travel);
+      // Travel issues lead: a borrowed person's journey is the first thing to know about them.
+      warnings.sort((x, y) => Number(y.code.startsWith('travel')) - Number(x.code.startsWith('travel')));
       const intercompany = borrowed && !!host && employee.entityId !== host.entityId;
-      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId), intercompany };
+      const journey = borrowed ? journeyBetween(state.sites, employee.siteId, opening.siteId) : null;
+      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId), intercompany, journey };
     })
     .sort((a, b) => rank(a) - rank(b) || a.marginal - b.marginal || a.employee.name.localeCompare(b.employee.name));
-}
-
-/** Flags a same-day shift at another site that leaves too little time to get between them. */
-export function travelWarning(employee: Employee, shift: Shift, shifts: Shift[], siteName: (id: string) => string): Issue | null {
-  const anchor = shift.date;
-  const start = absoluteMinute(anchor, shift.date, shift.startMinute);
-  const end = absoluteMinute(anchor, shift.date, shift.endMinute);
-  for (const other of shifts) {
-    if (other.employeeId !== employee.id || other.siteId === shift.siteId || other.id === shift.id) continue;
-    const oStart = absoluteMinute(anchor, other.date, other.startMinute);
-    const oEnd = absoluteMinute(anchor, other.date, other.endMinute);
-    const gap = Math.max(start - oEnd, oStart - end);
-    if (gap >= 0 && gap < TRAVEL_MINUTES) {
-      return {
-        code: 'travel',
-        severity: 'warn',
-        employeeId: employee.id,
-        shiftId: shift.id,
-        date: shift.date,
-        message: `Also at ${siteName(other.siteId)} ${formatMinute(other.startMinute)}-${formatMinute(other.endMinute)}, ${gap} minutes to get across.`,
-      };
-    }
-  }
-  return null;
 }
 
 /** Trained and clear first, then trained with something to review, then the rest. */

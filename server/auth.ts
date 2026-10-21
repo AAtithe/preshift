@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { cookieFrom, readSession } from './session';
 import type { ApiKeyStore, UserRecord, UserStore } from './store';
 
-export type Scope = 'rota:read' | 'employees:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'webhooks:write' | '*';
+export type Scope = 'rota:read' | 'employees:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'hr:read' | 'hr:write' | 'webhooks:write' | '*';
 
 /** What each scope allows, as shown to an admin choosing them for a new key. */
 export const SCOPES: Record<Exclude<Scope, '*'>, string> = {
@@ -13,6 +13,8 @@ export const SCOPES: Record<Exclude<Scope, '*'>, string> = {
   'time:write': 'Clock in and out, and enter or edit time',
   'time:approve': 'Approve clocked time for payroll',
   'payroll:write': 'Send people and approved hours to payroll',
+  'hr:read': 'Read personnel files: contracts, training, reviews, absence reasons and documents (includes staff records)',
+  'hr:write': 'Change personnel files and record absence (includes reading them, and staff records)',
   'webhooks:write': 'Register and remove webhook endpoints',
 };
 
@@ -59,10 +61,13 @@ function keepEmployeeAccess(k: ApiKey): ApiKey {
   return k.scopes.includes('rota:read') && !k.scopes.includes('employees:read') ? { ...k, scopes: [...k.scopes, 'employees:read'] } : k;
 }
 
-/** Whether the caller holds the scope, or every scope. */
+/** Scopes that carry another with them: personnel files are no use without the staff record they belong to. */
+const IMPLIED_BY: Partial<Record<Scope, Scope[]>> = { 'employees:read': ['hr:read', 'hr:write'] };
+
+/** Whether the caller holds the scope, one that implies it, or every scope. */
 export function hasScope(req: FastifyRequest, scope: Scope) {
   const scopes = req.principal?.scopes ?? [];
-  return scopes.includes('*') || scopes.includes(scope);
+  return scopes.includes('*') || scopes.includes(scope) || (IMPLIED_BY[scope] ?? []).some((s) => scopes.includes(s));
 }
 
 /**
