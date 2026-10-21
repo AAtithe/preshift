@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { weekCost } from '../../src/engine/cost';
-import { rotaJournal, toXeroCsv } from '../../src/engine/journal';
-import { addDays } from '../../src/engine/time';
+import { employmentAllowanceIssues, employmentAllowanceWeek } from '../../src/engine/allowance';
+import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/journal';
+import { addDays, weekDates } from '../../src/engine/time';
 import { entriesAsShifts, payrollHours, payrollVariance } from '../../src/engine/timesheet';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -14,13 +15,20 @@ function approvedIn(org: OrgData, from: string, to: string) {
   return org.timeEntries.filter((t) => t.status === 'approved' && t.date >= from && t.date <= to);
 }
 
-/** The labour basis for a week: approved actuals once there are any, otherwise the rota. */
+/**
+ * The labour basis for a week: approved actuals once there are any, otherwise
+ * the rota. Only the week itself is swapped for actuals; other weeks keep their
+ * rota, which is what Employment Allowance rolls forward through.
+ */
 export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'actual' | 'auto' = 'auto') {
   const actual = approvedIn(org, weekStart, addDays(weekStart, 6));
   const useActual = basis === 'actual' || (basis === 'auto' && actual.length > 0);
+  const dates = new Set(weekDates(weekStart));
   return {
     basis: useActual ? ('actual' as const) : ('rota' as const),
-    state: useActual ? { ...org.state, shifts: entriesAsShifts(actual) } : org.state,
+    state: useActual
+      ? { ...org.state, shifts: [...org.state.shifts.filter((s) => !dates.has(s.date)), ...entriesAsShifts(actual)] }
+      : org.state,
   };
 }
 
@@ -141,13 +149,15 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     orgOf(req).payRuns.slice().reverse(),
   );
 
-  app.get<{ Querystring: { weekStart: string; basis?: 'rota' | 'actual' | 'auto'; format?: 'json' | 'xero-csv' } }>(
+  app.get<{ Querystring: { weekStart: string; basis?: 'rota' | 'actual' | 'auto'; format?: 'json' | 'xero-csv'; entityId?: string } }>(
     '/v1/journal',
     {
       ...read,
       schema: {
         tags: ['Finance'],
-        description: 'Labour accrual journal by role nominal and site. Basis is approved actuals once there are any, otherwise the rota.',
+        description:
+          'Labour accrual journals by role nominal and site, one per company, with intercompany recharges and Employment Allowance. ' +
+          'Basis is approved actuals once there are any, otherwise the rota. Pass entityId for one company, which is what a Xero file needs.',
         querystring: {
           type: 'object',
           required: ['weekStart'],
@@ -155,6 +165,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
             weekStart: isoDate,
             basis: { type: 'string', enum: ['rota', 'actual', 'auto'], default: 'auto' },
             format: { type: 'string', enum: ['json', 'xero-csv'], default: 'json' },
+            entityId: { type: 'string' },
           },
         },
       },
@@ -162,14 +173,25 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       const { basis, state } = labourBasis(org, req.query.weekStart, req.query.basis);
-      const lines = rotaJournal(state, req.query.weekStart);
+      const { entityId, weekStart: ws } = req.query;
+      if (entityId && !org.state.entities.some((e) => e.id === entityId)) throw notFound(`Entity ${entityId}`);
+      const all = rotaJournal(state, ws);
+      const lines = entityId ? all.filter((l) => l.entityId === entityId) : all;
       if (req.query.format === 'xero-csv') {
+        // A Xero organisation is one company, so a file holding several would post them all into one set of books.
+        if (!entityId && org.state.entities.length > 1) throw new HttpError(400, 'entity_required', 'Pass entityId: each company needs its own Xero file');
         return reply
           .header('content-type', 'text/csv; charset=utf-8')
-          .header('content-disposition', `attachment; filename="preshift-journal-${req.query.weekStart}.csv"`)
+          .header('content-disposition', `attachment; filename="preshift-journal-${entityId ? `${entityId}-` : ''}${ws}.csv"`)
           .send(toXeroCsv(lines));
       }
-      return { basis, lines };
+      return {
+        basis,
+        lines,
+        intercompany: intercompanyBalances(state, all),
+        employmentAllowance: employmentAllowanceWeek(state, ws),
+        employmentAllowanceIssues: employmentAllowanceIssues(state),
+      };
     },
   );
 

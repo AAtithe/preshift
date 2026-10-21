@@ -22,6 +22,14 @@ function queueUpsert(org: OrgData, e: Employee) {
   });
 }
 
+/** The employer must exist, and the home and cover sites must be real sites. */
+function validateEmployment(org: OrgData, e: Employee) {
+  if (!org.state.sites.some((s) => s.id === e.siteId)) throw notFound(`Site ${e.siteId}`);
+  if (!org.state.entities.some((x) => x.id === e.entityId)) throw notFound(`Entity ${e.entityId}`);
+  const unknown = e.coverSiteIds.filter((id) => !org.state.sites.some((s) => s.id === id));
+  if (unknown.length) throw notFound(`Site ${unknown.join(', ')}`);
+}
+
 export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
@@ -46,8 +54,11 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      if (!org.state.sites.some((s) => s.id === req.body.siteId)) throw notFound(`Site ${req.body.siteId}`);
+      const home = org.state.sites.find((s) => s.id === req.body.siteId);
+      if (!home) throw notFound(`Site ${req.body.siteId}`);
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
+        entityId: home.entityId,
+        coverSiteIds: [],
         hourlyRate: 0,
         annualSalary: 0,
         contractedHours: 0,
@@ -64,6 +75,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         id: `emp_${randomUUID().slice(0, 12)}`,
         status: 'active',
       };
+      validateEmployment(org, e);
       org.state.employees.push(e);
       queueUpsert(org, e);
       audit(org, req.principal.name, 'employee.created', { id: e.id });
@@ -81,6 +93,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (i < 0) throw notFound(`Employee ${req.params.id}`);
       const before = org.state.employees[i];
       const after: Employee = { ...before, ...req.body, id: before.id };
+      validateEmployment(org, after);
       org.state.employees[i] = after;
       if (after.startDate && after.startDate !== before.startDate) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
