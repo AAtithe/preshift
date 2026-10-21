@@ -15,6 +15,7 @@ import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { RotaGrid } from './RotaGrid';
+import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -22,7 +23,7 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'settings';
 
 // One site gets the rota and demand detail; several get the side-by-side view.
 const SITE_TABS: { id: Tab; label: string }[] = [
@@ -33,11 +34,13 @@ const SITE_TABS: { id: Tab; label: string }[] = [
   { id: 'people', label: 'People' },
   { id: 'payroll', label: 'Payroll' },
   { id: 'close', label: 'Close' },
+  { id: 'settings', label: 'Settings' },
 ];
 const GROUP_TABS: { id: Tab; label: string }[] = [
   { id: 'sites', label: 'Sites' },
   { id: 'team', label: 'Team' },
   { id: 'close', label: 'Close' },
+  { id: 'settings', label: 'Settings' },
 ];
 const ALL = '';
 
@@ -67,14 +70,13 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const today = toISODate(new Date());
-  const [user, setUser] = useState<string | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
-    // No session endpoint (sign-in off locally) simply leaves the footer without a user.
-    fetch('/api/auth/me')
+    fetch('/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: { email?: string } | null) => setUser(body?.email ?? null))
-      .catch(() => setUser(null));
+      .then((body: Me | null) => setMe(body))
+      .catch(() => setMe(null));
   }, []);
 
   const scopeSites = state.sites.filter((s) => !entityId || s.entityId === entityId);
@@ -229,16 +231,17 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         )}
         {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
         {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+        {activeTab === 'settings' && me && <SettingsView me={me} />}
       </main>
 
       <footer className="foot">
         <span>UK rates 2026/27. Running on the Preshift API.</span>
         <span>
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {user && (
+          {me && (
             <>
-              {' '}Signed in as {user}{' '}
-              <a className="link" href="/api/auth/logout">Sign out</a>
+              {' '}Signed in as {me.email}{' '}
+              <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
         </span>
