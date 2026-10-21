@@ -38,6 +38,8 @@ export interface Entity {
    * runs its own payroll, so starters, hours and pay runs are routed by it.
    */
   payrollEmployerId?: string;
+  /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
+  leaveYearStart?: string;
 }
 
 export interface Site {
@@ -102,6 +104,19 @@ export interface RightToWork {
   expiry?: string;
 }
 
+/** Holiday position that is not derived from shifts and leave dates. All figures in hours. */
+export interface HolidayRecord {
+  /** Contractual entitlement in weeks a year, for people on fixed hours. Statutory minimum 5.6. */
+  entitlementWeeks?: number;
+  /** Untaken leave carried in from the previous leave year. */
+  carriedOverHours?: number;
+  /** Opening position when records began part way through the leave year. Accrued applies to accrual staff only. */
+  openingAccruedHours?: number;
+  openingTakenHours?: number;
+  /** Hours a leave date counts for, where it is not a normal day. */
+  dayHours?: Record<string, number>;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -128,6 +143,7 @@ export interface Employee {
   availability: Availability[];
   /** ISO dates the person is on approved leave. */
   leave: string[];
+  holiday?: HolidayRecord;
   email?: string;
   phone?: string;
   /** First day of employment. Absent means employed before records began. */
@@ -142,6 +158,96 @@ export interface Employee {
   leaveDate?: string;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
+  hr?: HrProfile;
+  /** Sickness and other absence. A shift on an absence day is blocked like leave. */
+  absences?: Absence[];
+  /** Set when the retention period ended and the record was anonymised under UK GDPR. */
+  anonymisedOn?: string;
+}
+
+export type ContractType = 'permanent' | 'fixed-term' | 'casual' | 'apprentice';
+
+export interface EmergencyContact {
+  name: string;
+  relationship?: string;
+  phone: string;
+}
+
+/** The parts of a personnel file that are about the person and their contract, not the rota. */
+export interface HrProfile {
+  jobTitle?: string;
+  contractType?: ContractType;
+  /** Last day of a fixed-term contract. */
+  fixedTermEnd?: string;
+  /** Last day of probation, and the day it was confirmed as passed. */
+  probationEnd?: string;
+  probationPassedOn?: string;
+  /** Notice the employer must give, in weeks, where the contract gives more than statutory. */
+  noticeWeeks?: number;
+  /** Written statement of employment particulars: due on or before the first day. */
+  contractIssuedOn?: string;
+  contractSignedOn?: string;
+  handbookAcknowledgedOn?: string;
+  /** National Insurance number. Without it payroll runs on an emergency basis. */
+  niNumber?: string;
+  address?: string;
+  postcode?: string;
+  emergencyContact?: EmergencyContact;
+  /** Line manager's employee id. */
+  managerId?: string;
+}
+
+export type AbsenceType = 'sickness' | 'unauthorised' | 'compassionate' | 'dependants' | 'family' | 'unpaid' | 'other';
+
+/** A spell of absence other than holiday, which lives on `leave`. Dates are inclusive. */
+export interface Absence {
+  id: string;
+  type: AbsenceType;
+  from: string;
+  /** Last day off. Absent while the person is still off. */
+  to?: string;
+  reason?: string;
+  /** Fit note seen. Needed after seven calendar days of sickness. */
+  fitNote?: boolean;
+  /** Day the return to work conversation was held. */
+  returnToWorkOn?: string;
+  /** Disability or pregnancy related: kept out of absence triggers, as the Equality Act requires. */
+  excludeFromTriggers?: boolean;
+  notes?: string;
+}
+
+export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';
+export type ReviewType = 'probation' | 'appraisal' | 'one-to-one';
+export type CaseType = 'investigation' | 'disciplinary' | 'grievance' | 'capability';
+
+/**
+ * One dated entry on a personnel file: a course passed, a review held, a disciplinary
+ * or grievance case, a document on file or a note. Kept apart from the rota state so
+ * that rota and payroll keys never read it.
+ */
+export interface HrRecord {
+  id: string;
+  employeeId: string;
+  kind: HrRecordKind;
+  /** When it happened: the course date, review date, case opened, document signed. */
+  date: string;
+  /** Course name, review or case summary, document name. */
+  title: string;
+  /** Training: certificate expiry. */
+  expiresOn?: string;
+  reviewType?: ReviewType;
+  /** Review: when the next one is due. */
+  nextDue?: string;
+  caseType?: CaseType;
+  caseStatus?: 'open' | 'closed';
+  /** Review or case outcome, e.g. 'Passed', 'First written warning'. */
+  outcome?: string;
+  /** Case: the day a warning stops being live. */
+  warningExpires?: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
 }
 
 export interface Shift {

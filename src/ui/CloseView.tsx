@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { AllowanceWeek } from '../engine/allowance';
 import type { IntercompanyBalance, JournalLine } from '../engine/journal';
+import { shiftPaidHours, weekCost } from '../engine/cost';
+import { weekDates } from '../engine/time';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
-import { download, money2 } from './format';
+import { download, hours, money2 } from './format';
 
 interface Journal {
   basis: 'rota' | 'actual';
@@ -37,6 +39,15 @@ export function CloseView({ state, week, entityIds }: Props) {
     .filter((l) => l.lines.length > 0);
   const ic = (data?.intercompany ?? []).filter((b) => entityIds.includes(b.entityId) || entityIds.includes(b.counterpartyId));
   const ea = data?.employmentAllowance;
+  const borrowed = crossSite(state, week).filter((r) => entityIds.includes(r.workedAtEntityId) || entityIds.includes(r.homeEntityId));
+
+  function borrowedCsv() {
+    const header = 'Worked at,Home site,Employer,Type,People,Paid hours,Loaded cost';
+    const rows = borrowed.map((r) =>
+      [r.workedAt, r.home, nameOf(r.homeEntityId), r.intercompany ? 'Intercompany' : 'Same company', r.people.length, r.hours.toFixed(2), r.cost.toFixed(2)].join(','),
+    );
+    download(`preshift-cross-site-${week}.csv`, [header, ...rows].join('\n'));
+  }
   const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   async function downloadCsv(entityId: string) {
@@ -151,6 +162,45 @@ export function CloseView({ state, week, entityIds }: Props) {
             </div>
           )}
 
+          {borrowed.length > 0 && (
+            <div className="grid-wrap entity-journal">
+              <div className="entity-journal-head">
+                <div>
+                  <h3>Cross-site labour</h3>
+                  <span className="muted small">
+                    Who worked away from their home site, costed to the site that used them. Between two companies it
+                    is behind the recharge above; within one company it moves cost between sites' tracking only.
+                  </span>
+                </div>
+                <button onClick={borrowedCsv}>Download schedule</button>
+              </div>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Worked at</th>
+                    <th>Home site</th>
+                    <th>People</th>
+                    <th>Type</th>
+                    <th className="num">Paid hours</th>
+                    <th className="num">Loaded cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {borrowed.map((r) => (
+                    <tr key={`${r.workedAt}-${r.home}`}>
+                      <td className="strong">{r.workedAt}</td>
+                      <td>{r.home}</td>
+                      <td className="muted">{r.people.join(', ')}</td>
+                      <td>{r.intercompany ? <span className="tag">Intercompany</span> : <span className="muted">Same company</span>}</td>
+                      <td className="num">{hours(r.hours)}</td>
+                      <td className="num">{money2(r.cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {ledgers.length === 0 && <p className="muted">No labour for this week yet.</p>}
 
           {ledgers.map(({ entity, lines }) => {
@@ -201,4 +251,34 @@ export function CloseView({ state, week, entityIds }: Props) {
       )}
     </div>
   );
+}
+
+/** Labour one site used from another site's team this week, by pair of sites, on the rota basis. */
+export function crossSite(state: RotaState, week: string) {
+  const dates = weekDates(week);
+  const site = (id: string) => state.sites.find((x) => x.id === id);
+  const costs = new Map(state.sites.map((x) => [x.id, weekCost(state, week, x.id)]));
+  type Row = { workedAt: string; home: string; workedAtEntityId: string; homeEntityId: string; intercompany: boolean; people: string[]; hours: number; cost: number };
+  const pairs = new Map<string, Row>();
+  for (const shift of state.shifts) {
+    const person = state.employees.find((e) => e.id === shift.employeeId);
+    if (!person || person.siteId === shift.siteId || !dates.includes(shift.date)) continue;
+    const workedAtEntityId = site(shift.siteId)?.entityId ?? '';
+    const key = `${shift.siteId}>${person.siteId}`;
+    const row = pairs.get(key) ?? {
+      workedAt: site(shift.siteId)?.name ?? shift.siteId,
+      home: site(person.siteId)?.name ?? person.siteId,
+      workedAtEntityId,
+      homeEntityId: person.entityId,
+      intercompany: person.entityId !== workedAtEntityId,
+      people: [],
+      hours: 0,
+      cost: 0,
+    };
+    if (!row.people.includes(person.name)) row.people.push(person.name);
+    row.hours += shiftPaidHours(shift);
+    row.cost += costs.get(shift.siteId)?.shifts.get(shift.id)?.total ?? 0;
+    pairs.set(key, row);
+  }
+  return [...pairs.values()];
 }

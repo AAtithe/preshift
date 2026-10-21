@@ -3,6 +3,7 @@ import { allowanceClaimant, employmentAllowanceIssues, employmentAllowanceWeek }
 import { autoSchedule, autoScheduleSites } from './autoschedule';
 import { checkEmployeeWeek, checkWeek, overrideTrend, requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, weekCost } from './cost';
+import { holidayBalance, holidayHourlyRate, leaveYear, workedShifts } from './holiday';
 import { employedShare, employeeStatus, newEmployee, reviewEmployee } from './employees';
 import { dayDemand, headcountAt } from './demand';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from './journal';
@@ -516,5 +517,95 @@ describe('starters in a group', () => {
     // Control: the same person already on the books does get used, so the start date is what kept them out.
     const onBooks = autoScheduleSites({ ...state, employees: [...state.employees, { ...starter, startDate: '2026-01-05' }] }, ['mar', 'shd'], WEEK);
     expect(onBooks.shifts.some((s) => s.employeeId === starter.id)).toBe(true);
+  });
+});
+
+describe('holiday', () => {
+  const TODAY = '2026-07-01'; // day 182 of a calendar leave year
+  const fixed = (over: Partial<Employee> = {}) => person({ contractedHours: 40, irregularHours: false, hourlyRate: 15, ...over });
+
+  it('finds the leave year for any start day', () => {
+    expect(leaveYear('2026-07-01')).toEqual({ start: '2026-01-01', end: '2026-12-31' });
+    expect(leaveYear('2026-03-31', '04-01')).toEqual({ start: '2025-04-01', end: '2026-03-31' });
+    expect(leaveYear('2026-04-01', '04-01')).toEqual({ start: '2026-04-01', end: '2027-03-31' });
+  });
+
+  it('gives fixed hours staff 5.6 weeks, earned evenly through the year', () => {
+    const b = holidayBalance(fixed(), [], TODAY);
+    expect(b.basis).toBe('fixed');
+    expect(b.entitlementHours).toBe(224);
+    expect(b.accruedHours).toBeCloseTo((224 * 182) / 365, 1);
+    expect(b.dayHours).toBe(8);
+  });
+
+  it('pro-rates a starter part way through the year', () => {
+    const b = holidayBalance(fixed({ startDate: '2026-07-02' }), [], TODAY);
+    expect(b.entitlementHours).toBeCloseTo((224 * 183) / 365, 1);
+    expect(b.accruedHours).toBe(0);
+  });
+
+  it('accrues 12.07% of hours worked for irregular hours staff', () => {
+    const worked = [shift('2026-06-01', 10, 20, 0), shift('2026-06-02', 10, 20, 0), shift('2026-07-10', 10, 20, 0)];
+    const b = holidayBalance(person(), worked, TODAY);
+    expect(b.basis).toBe('accrual');
+    // Only the 20 hours worked by today count.
+    expect(b.accruedHours).toBeCloseTo(20 * 0.1207, 2);
+    expect(b.dayHours).toBe(10);
+  });
+
+  it('takes leave days off the balance, past as taken and future as booked', () => {
+    const b = holidayBalance(fixed({ leave: ['2026-03-02', '2026-03-03', '2026-08-03'], holiday: { dayHours: { '2026-03-03': 4 } } }), [], TODAY);
+    expect(b.takenHours).toBe(12);
+    expect(b.bookedHours).toBe(8);
+    expect(b.remainingHours).toBe(204);
+  });
+
+  it('values untaken holiday as a provision, with employer NI', () => {
+    const b = holidayBalance(fixed({ holiday: { carriedOverHours: 16 } }), [], TODAY);
+    expect(b.untakenHours).toBeCloseTo(b.accruedHours + 16, 2);
+    expect(b.liability).toBeCloseTo(b.untakenHours * 15, 0);
+    expect(b.liabilityWithNi).toBeCloseTo(b.liability * 1.15, 1);
+  });
+
+  it('prices salaried holiday at salary over contracted hours', () => {
+    expect(holidayHourlyRate(person({ payBasis: 'salaried', annualSalary: 52_000, contractedHours: 50 }))).toBe(20);
+  });
+
+  it('warns about overbooking, unused leave near year end, and leavers', () => {
+    const codes = (e: Employee, today = TODAY) => holidayBalance(e, [], today).checks.map((c) => c.code);
+    const lots = Array.from({ length: 30 }, (_, i) => addDays('2026-08-03', i));
+    expect(codes(fixed({ leave: lots }))).toContain('holiday-overbooked');
+    expect(codes(fixed(), '2026-11-15')).toContain('holiday-unused');
+    expect(codes(fixed({ leaveDate: '2026-07-31' }))).toContain('holiday-final-pay');
+    expect(codes(fixed({ leaveDate: '2026-01-31', leave: lots.map((d) => d.replace('2026-08', '2026-01').replace('2026-09', '2026-01')).slice(0, 25) }), '2026-01-31'))
+      .toContain('holiday-overtaken');
+  });
+
+  it('prefers clocked time to the rota for the same day', () => {
+    const rota = [shift('2026-06-01', 10, 20), shift('2026-06-02', 10, 20)];
+    const actual = [{ ...shift('2026-06-01', 10, 14), id: 'te:1' }];
+    expect(workedShifts(rota, actual).map((s) => s.endMinute)).toEqual([14 * 60, 20 * 60]);
+  });
+});
+
+describe('cross-site cost', () => {
+  it('splits a person working at two sites by hours, and the parts tie to each site total', () => {
+    const state = seedState(WEEK);
+    const borrowed = state.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours === 0)!;
+    const at = (id: string, siteId: string, start: number) =>
+      ({ id, employeeId: borrowed.id, roleId: borrowed.roleIds[0], siteId, date: WEEK, startMinute: start * 60, endMinute: (start + 4) * 60, breakMinutes: 0 }) as Shift;
+    state.shifts = [at('home', 'shd', 12), at('away', 'mar', 18)];
+    const mar = weekCost(state, WEEK, 'mar');
+    const shd = weekCost(state, WEEK, 'shd');
+    const whole = employeeWeekCost(borrowed, state.shifts).total;
+    expect(mar.shifts.get('away')!.total + shd.shifts.get('home')!.total).toBeCloseTo(whole, 1);
+    for (const c of [mar, shd]) {
+      const sum = c.parts.gross + c.parts.holiday + c.parts.employerNi + c.parts.pension;
+      expect(sum).toBeCloseTo(c.total, 0);
+    }
+    // Marylebone carries half of the borrowed person's week, not all of it.
+    const p = mar.parts;
+    const marOwn = weekCost({ ...state, shifts: [] }, WEEK, 'mar').total;
+    expect(p.gross + p.holiday + p.employerNi + p.pension - marOwn).toBeCloseTo(whole / 2, 0);
   });
 });

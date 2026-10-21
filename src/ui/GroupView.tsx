@@ -27,9 +27,6 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
   const weekShifts = state.shifts.filter((s) => dates.includes(s.date) && metrics.sites.some((m) => m.siteId === s.siteId));
   const at = (siteId: string, i: Issue) => issueSiteId(state, i) === siteId;
   const blocksAt = (siteId: string) => issues.filter((i) => i.severity === 'block' && at(siteId, i)).length;
-  // Rest breaches a manager chose to publish through. One every week at a site is a staffing problem, not an exception.
-  const overridesAt = (siteId: string) => issues.filter((i) => i.overridden && at(siteId, i));
-  const overrideCount = (sites: SiteWeekMetrics[]) => sites.reduce((n, m) => n + overridesAt(m.siteId).length, 0);
   const personName = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
   const trend = useMemo(() => overrideTrend(state, dates[0], metrics.sites.map((m) => m.siteId)), [state, dates, metrics.sites]);
   const trendOf = (sites: SiteWeekMetrics[]) =>
@@ -60,20 +57,16 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
               <th className="num">Vs target</th>
               <th className="num">SPLH</th>
               <th className="num">Paid hours</th>
-              <th className="num" title="Rest breaches published with a manager's reason this week">Overrides</th>
-              <th className="num" title="Overrides each week, oldest first, ending with this week">Last 4 weeks</th>
               <th>Rota</th>
             </tr>
           </thead>
           <tbody>
             {entities.map(({ entity, sites }) => (
-              <EntityRows key={entity.id} label={entity.name} sites={sites} total={sum(sites)} overrides={overrideCount(sites)} trend={<Trend weeks={trend.weekStarts} counts={trendOf(sites)} />}>
+              <EntityRows key={entity.id} label={entity.name} sites={sites} total={sum(sites)}>
                 {sites.map((m) => {
                   const site = siteOf(state, m.siteId)!;
                   const shifts = weekShifts.filter((s) => s.siteId === m.siteId);
                   const blocks = blocksAt(m.siteId);
-                  const overridden = overridesAt(m.siteId);
-                  const weekly = trend.bySite.get(m.siteId) ?? [];
                   const status =
                     shifts.length === 0 ? 'Not built' : shifts.every((s) => s.published) ? 'Published' : 'Draft';
                   return (
@@ -82,21 +75,9 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
                         <button className="link site-link" onClick={() => onOpenSite(m.siteId)}>{site.name}</button>
                       </td>
                       <Figures m={m} />
-                      <td
-                        className={`num ${overridden.length ? 'warn-text' : 'muted'}`}
-                        title={overridden.map((i) => `${personName(i.employeeId)}: ${i.overridden!.reason} (${i.overridden!.by})`).join('\n') || undefined}
-                      >
-                        {overridden.length}
-                      </td>
-                      <td className="num">
-                        <Trend weeks={trend.weekStarts} counts={weekly} />
-                      </td>
                       <td>
                         {status}
                         {blocks > 0 && <span className="tag bad">{blocks} blocking</span>}
-                        {recurring(weekly) && (
-                          <span className="tag bad" title="Rest overrides in three or more of the last four weeks">Recurring overrides</span>
-                        )}
                       </td>
                     </tr>
                   );
@@ -109,13 +90,70 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
               <tr>
                 <th>Group</th>
                 <Figures m={metrics} strong />
-                <td className="num strong">{overrideCount(metrics.sites)}</td>
-                <td className="num strong"><Trend weeks={trend.weekStarts} counts={trendOf(metrics.sites)} /></td>
                 <td />
               </tr>
             </tfoot>
           )}
         </table>
+      </div>
+
+      <div className="cover-summary">
+        <h3>Rest overrides, last four weeks</h3>
+        {trendOf(metrics.sites).every((c) => c === 0) ? (
+          <p className="muted">No rest breach has been published with an override in the last four weeks.</p>
+        ) : (
+          <>
+            <p className="muted">
+              Rest breaches published with a manager's reason, by the site where the short rest was worked. One is an exception;
+              overrides in three of four weeks mean the site is covering a shortage of people or cross-training.
+            </p>
+            <div className="grid-wrap">
+              <table className="table trend-table">
+                <thead>
+                  <tr>
+                    <th>Site</th>
+                    {trend.weekStarts.map((w, n) => (
+                      <th key={w} className="num">{n === trend.weekStarts.length - 1 ? 'This week' : `w/c ${dayLabel(w).date}`}</th>
+                    ))}
+                    <th className="num">Total</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.sites.map((m) => {
+                    const counts = trend.bySite.get(m.siteId) ?? [];
+                    return (
+                      <tr key={m.siteId}>
+                        <td>{siteOf(state, m.siteId)?.name}</td>
+                        <TrendCells counts={counts} />
+                        <td>{recurring(counts) && <span className="tag bad">Recurring</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {metrics.sites.length > 1 && (
+                  <tfoot>
+                    <tr>
+                      <th>Group</th>
+                      <TrendCells counts={trendOf(metrics.sites)} strong />
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            {issues.some((i) => i.overridden) && (
+              <ul className="cover-list">
+                {issues.filter((i) => i.overridden).map((i) => (
+                  <li key={i.overrideKey}>
+                    {siteOf(state, issueSiteId(state, i) ?? '')?.name}, {personName(i.employeeId)}
+                    {i.date ? ` ${dayLabel(i.date).short}` : ', week'}: {i.overridden!.reason} ({i.overridden!.by})
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </div>
 
       <div className="cover-summary">
@@ -147,19 +185,17 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
   );
 }
 
-function EntityRows({ label, sites, total, overrides, trend, children }: { label: string; sites: SiteWeekMetrics[]; total: Totals; overrides: number; trend: ReactNode; children: ReactNode }) {
+function EntityRows({ label, sites, total, children }: { label: string; sites: SiteWeekMetrics[]; total: Totals; children: ReactNode }) {
   return (
     <>
       <tr className="entity-head">
-        <th colSpan={11}>{label}</th>
+        <th colSpan={9}>{label}</th>
       </tr>
       {children}
       {sites.length > 1 && (
         <tr className="subtotal">
           <td>Total {label}</td>
           <Figures m={total} />
-          <td className="num">{overrides}</td>
-          <td className="num">{trend}</td>
           <td />
         </tr>
       )}
@@ -215,14 +251,14 @@ function Figures({ m, strong = false }: { m: Totals; strong?: boolean }) {
 const recurring = (counts: number[]) => counts.filter((c) => c > 0).length >= 3;
 
 /** Four weekly counts, oldest first, then their total. */
-function Trend({ weeks, counts }: { weeks: string[]; counts: number[] }) {
+function TrendCells({ counts, strong = false }: { counts: number[]; strong?: boolean }) {
+  const cls = (c: number) => `num ${strong ? 'strong' : ''} ${c > 0 ? 'warn-text' : 'muted'}`;
+  const total = counts.reduce((a, b) => a + b, 0);
   return (
-    <span className="trend" title={weeks.map((w, n) => `w/c ${dayLabel(w).date}: ${counts[n] ?? 0}`).join('\n')}>
-      {counts.map((c, n) => (
-        <span key={weeks[n]} className={c > 0 ? 'warn-text' : 'muted'}>{c}</span>
-      ))}
-      <span className="trend-total">{counts.reduce((a, b) => a + b, 0)}</span>
-    </span>
+    <>
+      {counts.map((c, n) => <td key={n} className={cls(c)}>{c}</td>)}
+      <td className={cls(total)}>{total}</td>
+    </>
   );
 }
 

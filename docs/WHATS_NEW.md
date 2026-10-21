@@ -14,4 +14,7 @@ How to write a card:
 
 First build. See the README for the full card: management bar, Clock in tab with RFID and
 geofencing, staff phone app with breaks, payroll per PAYE scheme, Employment Allowance, in-app
-access management with forgot password, and CI on every pull request.
+access management with forgot password, rest rules that block publication with a manager override
+and a four week override trend per site, the redesigned timeline rota with drag and drop and the
+rota P&L, HR files, holiday balances, the break check, GDPR, Integrations, the public demo, and CI on
+every pull request.

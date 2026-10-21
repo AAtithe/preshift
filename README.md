@@ -24,9 +24,11 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Admin | Accounts, roles, passwords and the Claude key are managed in Settings. Forgot password by email through Resend, or a 24 hour link an admin hands over. | No access settings live in Vercel. Removing someone takes effect on their next click. |
 | GMs | Short daily rest (under 11 hours, 12 for under 18s) and no clear day off in the week now block publication instead of warning. The auto-build and the assistant will not create either. | The rota cannot be published in breach of the Working Time Regulations rest rules, which is the promise we sell. |
 | GMs | Rest breaches can be overridden from the Rota tab with a written reason and the compensatory rest given. The breach then publishes as a warning with the manager's name on it; moving either shift voids the override. | Real exceptions (sickness cover, a swap the person asked for) do not stop the week going out, and every one is on record. |
-| Operators | The Sites view counts rest overrides per site for the week, with entity and group totals. Hover a site's count for who was overridden, why and by whom. | A site overriding every week has a staffing problem, not a run of exceptions. It now shows next to labour % where the operator already looks. |
-| Operators | A rolling four week override trend per site (oldest week first, then the total), with entity and group totals. A site with overrides in three of the four weeks is tagged "Recurring overrides". | One week is noise. Four weeks shows whether a site is managing exceptions or covering a headcount gap with a manager's signature. |
-| Everyone | CI typechecks and runs the full suite (131 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Operators | The Sites view has a "Rest overrides, last four weeks" section: each site's overrides week by week, the total and the group total, a "Recurring" tag on any site with overrides in three of the four weeks, and this week's reasons with who gave them. | One week is noise. Four weeks shows whether a site is managing exceptions or covering a headcount gap with a manager's signature. |
+| GMs | Redesigned rota in WS colours: a service timeline drawn over each day's sales curve, drag to move or resize shifts, draw a shift on empty space, borrow cover from sister sites, and a rota P&L beside every screen. | Every edit shows its cost and legality as it is made, so the GM sees labour % move before they commit, not after. |
+| People | HR file per person, holiday entitlement balances per leave year, and a break check on finished shifts. | The records an employment tribunal or HMRC would ask for are kept where the rota is made. |
+| Admin | GDPR request log for staff data, an Integrations page showing every connection's health, and a public demo with a private sandbox per visitor. | Compliance and prospects are handled in the product, not in spreadsheets and screen shares. |
+| Everyone | CI typechecks and runs the full suite (210 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -42,17 +44,31 @@ accrual. If any step needs an explanation, that is the next thing to fix.
 | UK compliance | Working Time Regulations breaks, 11 hour daily rest (across week boundaries), weekly rest, 48 hour average without opt-out, young worker limits (8h/day, 40h/week, 30 minute break, 12h rest, night work), minimum wage by age, double booking, leave, availability, training. Blocking issues stop publication. | `src/engine/compliance.ts` |
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
 | People | Employee records: details, employment dates, roles, contract and pay, right to work, availability and leave. Each record is checked before it reaches the rota: right to work missing or expired, pay below the legal minimum, upcoming birthdays that move the minimum wage band, salaried pay that falls below minimum wage at maximum hours, under 18 opt-outs, auto-enrolment eligibility. Starters and leavers are pro-rated in cost, kept off the auto-build outside their dates, and exported for payroll. | `src/engine/employees.ts`, `src/ui/PeopleView.tsx`, `src/ui/EmployeeEditor.tsx` |
+| Holiday | Entitlement balances per person for each company's leave year: 5.6 weeks (or the contract) earned evenly for fixed hours staff, 12.07% of hours worked for irregular hours staff, from approved clocked time where it exists and the rota otherwise. Taken and booked leave, carry over, opening balances at go-live, and per-day hours. Flags overbooking, unused leave near year end, and leavers' final holiday pay. The untaken balance is valued as the holiday pay provision, with employer NI, to match the balance sheet accrual. | `src/engine/holiday.ts`, `src/ui/HolidayView.tsx` |
+| HR | The personnel file behind every person, with everything a GM must act on in one list. Contract type, written statement issued and signed (a day one right), probation dates and outcome, fixed-term end, notice (contract against statutory: a week after a month, then a week a year to twelve), NI number, address, emergency contact and line manager. Sickness and other absence with fit notes after seven days, return to work conversations and the Bradford factor over 52 weeks; disability or pregnancy related absence is kept out of triggers. A shift on an absence day is blocked like leave, and the auto-build steers round it. A training matrix of the certificates an EHO, licensing officer or insurer asks for, required by role (food hygiene, allergens, Challenge 25, personal licence), with expiry warnings. Probation and appraisal tracking, and disciplinary, grievance and capability cases with outcomes and live warnings, visible to admins only. Headcount, turnover, average service and sick days per head across any scope, with directory, absence and training CSVs. Rota and payroll keys never see the file: they get absence dates only, without reasons. Subject access exports include the HR records; contact erasure removes address and emergency contact; anonymisation removes the NI number, sickness reasons and every HR record; the record of processing lists personnel files and health data. | `src/engine/hr.ts`, `server/routes/hr.ts`, `src/ui/HrOverview.tsx`, `src/ui/HrFile.tsx`, `src/ui/AbsenceView.tsx`, `src/ui/TrainingView.tsx`, `src/ui/ReviewsView.tsx` |
 | Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools. Every shift it proposes is costed by the payroll model and checked by the compliance engine; anything with a blocking issue is refused, so it cannot roster illegally. The GM sees labour % before and after, the changes, and a short note on gaps and trade-offs, then applies or discards the draft. | `src/ai/rotaTools.ts`, `src/ai/rotaAgent.ts`, `src/ui/AssistantPanel.tsx` |
 | Close | Labour accrual journals by role nominal and site tracking category, one per entity, from approved actuals once available, otherwise the rota, exported in Xero manual journal format. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
 | Multi-site | Group and entity views put every site side by side with entity subtotals and a sales-weighted group target. One press builds every site in scope: each site's own team first, then cover from people who have agreed to work other sites. Cross-site cover is reported each week. | `src/engine/metrics.ts`, `src/engine/autoschedule.ts`, `src/ui/GroupView.tsx` |
 | Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
 | Payroll per PAYE scheme | Each company has its own TeamPay employer. Starters, leavers and approved hours go to the scheme of the company that employs the person, wherever they worked; hours go as one batch per company, and each pay run comes back to its company and is reconciled against that company's accrual only. Nothing is sent until every company with hours has an employer, and moving a synced person between schemes is refused because it is a leaver and a starter. | `server/payrollEmployers.ts`, `server/routes/payroll.ts`, `server/outbox.ts` |
 | Employment Allowance | One claim per connected group, set on the claiming entity with what the last payroll left unused. Used against that entity's employer NI week by week until it runs out, as payroll applies it, and posted to its books only (Cr employer NI, Dr wages accrual) split across its sites. Resets each tax year. Site labour % stays before the allowance. | `src/engine/allowance.ts`, `src/engine/journal.ts` |
+| Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 | Staff app | Staff clock in and out on their own phones at `/staff/`, record their breaks, and see their own published shifts and hours. Breaks are not location checked (they only lower paid time); recorded breaks set the entry's unpaid minutes at clock-out, the phone shows the legal minimum for the shift, and a card tap during a break ends the break. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
+| Break check | Finished shifts with less rest break than the Working Time Regulations give (20 minutes in one block over 6 hours of work; 30 over 4.5 hours for under 18s) are flagged on the Payroll tab before approval, as too short or split. A manager can enter a break that was taken but not recorded; nothing is changed automatically, and approval is never blocked but is recorded against the flagged shifts. | `src/engine/breaks.ts`, `src/ui/BreakShortfalls.tsx` |
+| Drag to move and resize | Drag a shift to another person or day, or drag either edge to change the hours in 15 minute steps. Labour cost, labour %, compliance flags and every chart recalculate live while you drag, and a readout beside the pointer shows the change to the week. Drops on approved leave or outside stated availability are refused with the reason, and resizes stop at the edge of availability (the shift editor remains the place for an agreed exception). On a tablet, press and hold a shift to lift it, so a swipe still scrolls; the edge grips work straight away. The grid scrolls when a shift is held near its edge. A first-use hint explains the gestures. Escape cancels, Undo reverses, and Alt with the arrow keys does the same from the keyboard. | `src/ui/RotaGrid.tsx`, `src/ui/drag.ts` |
+| Service timeline | The default rota view. Each day is drawn over its own forecast sales curve, with shifts as bars grouped front of house, bar and back of house, and a strip under each day reading hours short or over against demand. Bars drag along the day, by their ends, or up and down to another day, with the same live costing and leave and availability rules as the person grid, which stays one click away. | `src/ui/Timeline.tsx`, `src/ui/useShiftDrag.ts` |
+| Add a shift | On the timeline, drag across empty space on a day to draw a shift, click or tap for a four hour block, or click a red short hour to fill that gap with the role that is shortest. A picker asks who should work it: the site's team ranked trained and clear first, then cheapest, where cost is what the shift adds to that person's loaded week (nothing for guaranteed hours, more for anyone over the NI threshold). Leave, availability, double booking and other blocks are shown with the reason. Hovering a name previews them across the whole page, including the P&L. | `src/ui/assign.ts`, `src/ui/AssignPanel.tsx` |
+| Borrow across sites | The picker also offers people from the group's other sites who are set up to cover this one, under their own heading, with the reason anyone cannot take it. Cost is shown twice: what the shift adds to the group, and what it puts on the host site's labour, because cost follows the work. It says when borrowing is cheaper for the group or the only option, flags a same-day shift at another site with under an hour to get across, and rest and hours rules count the person's whole week at every site. Borrowed people are tagged on the timeline and grid. Borrowing follows each person's cover sites from their People record, and anyone employed by another company is marked as an intercompany recharge. Close lists cross-site labour by pair of sites, with a CSV, beside the intercompany recharges the journal books. | `src/ui/assign.ts`, `src/ui/AssignPanel.tsx`, `src/ui/CloseView.tsx` |
+| Rota P&L | Beside every screen: forecast sales, wages, holiday, employer NI and pension in brackets, labour cost tied to the journal, contribution after labour, labour % against target, day by day, compliance, and sign-off to publish. | `src/ui/PnlRail.tsx` |
+| GDPR | UK GDPR for staff data under Admin. A request log for access, erasure, rectification, restriction, portability and objection, with the one calendar month deadline (three when extended) and overdue flags. One-click subject access export of everything held on a person, with how it is used and their rights. Erasure for leavers only, keeping what the law requires (Article 17(3)). A retention schedule that strips clocking locations after 3 months, contact details, card and staff login 3 months after leaving, right to work detail 2 years after leaving, and anonymises the person 6 years after the tax year they left, keeping shifts and pay for the accounts; statutory floors cannot be undercut. An Article 30 record of processing built from what is held, with lawful basis, retention and processors (TeamPay, Anthropic, Resend, hosting), exportable as CSV. Acting on personal data is admin only and audited by id. | `src/engine/gdpr.ts`, `server/routes/privacy.ts`, `src/ui/PrivacyView.tsx` |
+
+## Design
+
+The product is meant to read like management accounts, not like a rota app, in Williams, Stanley & Co. colours: WS navy (#003359) on white over a pale blue gradient, ledger rules and double rules under totals, set in Geist with Geist Mono for figures and labels. Beyond the navy, colour is reserved for money and the law: teal inside budget, coral over budget or blocked, gold to review, each checked for colour-blind separation and always shown with a label or mark. Roles and departments are told apart by position and label, never by colour, so anything coloured on screen is something to act on.
 
 ## Specification
 
@@ -97,11 +113,10 @@ least 15 characters (why, and the compensatory rest the person gets). The breach
 warning carrying the manager's name and reason. An override covers that breach exactly as it stood:
 move either shift, or change the days worked, and it blocks again. API keys cannot override, the
 auto-build and the rota assistant never rely on one, and every override, withdrawal and publish
-through one is in the audit log. The Sites view counts each week's overrides per site, with entity and
-group totals: a daily rest override counts at the site of the shift worked short of rest, a weekly
-one at the person's home site. Beside it, the last four weeks per site, oldest first, with a
-"Recurring overrides" tag on any site that overrode in three of those four weeks (`overrideTrend` in
-`src/engine/compliance.ts`). Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
+through one is in the audit log. The Sites view shows overrides per site for the selected week and the
+three before it, with a group total and a "Recurring" tag on any site that overrode in three of those
+four weeks (`overrideTrend` in `src/engine/compliance.ts`). A daily rest override counts at the site
+of the shift worked short of rest, a weekly one at the person's home site. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
 
 ### Demand-led build (`src/engine/demand.ts`, `src/engine/autoschedule.ts`)
 
@@ -155,14 +170,14 @@ one at the person's home site. Beside it, the last four weeks per site, oldest f
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 131 tests across 9 files (engine, assistant, API, access, clocking, staff, payroll, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
+| Quality | 210 tests across 19 files (engine, HR, GDPR, UI rules, assistant, API, access, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine and API tests (131 across 9 files)
+npm test         # engine, UI rules and API tests (210 across 19 files)
 npm run build    # typecheck and production build
 ```
 
@@ -205,6 +220,31 @@ one site, so they appear once a single site is selected. On the Payroll tab: set
 TeamPay, simulate clocking, approve, send hours, run payroll. Set the `TEAMPAY_*` variables to
 connect to real TeamPay and `PRESHIFT_DATABASE_URL` for Postgres; see `docs/API.md`, which also
 covers the Vercel deployment.
+
+## Public demo for prospects
+
+A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
+an account. The marketing site's "Try the live demo" button opens `/demo`, which gives the visitor
+their own private copy of the demo group and signs them in as its admin. Everything works as it
+does for a customer: build from forecast, edit shifts, compliance, people, clock in, payroll
+against the TeamPay simulator, the Close journals and the API docs.
+
+- Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
+  Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
+- Guard rails. Accounts, passwords and resets, the Claude key, email settings and owner setup
+  cannot be changed. Staff app logins work inside the sandbox. Payroll
+  always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
+  are deleted after 24 hours (on the daily cron and as new visitors arrive).
+- Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
+  sandbox. Put a monthly spend limit on that key in the Claude Console.
+- Where it runs. A separate Vercel project from the same repository, with its own Neon database
+  (`PRESHIFT_DATABASE_URL`), never the database that holds customer data. Without a database the
+  demo still works on one instance but sandboxes do not survive a cold start. Set `CRON_SECRET` for
+  the daily clean-up.
+- Linking from the live system. Set `PRESHIFT_DEMO_URL` on the live deployment (for example
+  `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
+
+Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 
 ## Deployment (Vercel)
 

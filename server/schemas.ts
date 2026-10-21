@@ -71,6 +71,17 @@ export const employeeBody = {
       },
     },
     leave: { type: 'array', items: isoDate },
+    holiday: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        entitlementWeeks: { type: 'number', minimum: 5.6, maximum: 52 },
+        carriedOverHours: { type: 'number', minimum: 0 },
+        openingAccruedHours: { type: 'number', minimum: 0 },
+        openingTakenHours: { type: 'number', minimum: 0 },
+        dayHours: { type: 'object', additionalProperties: { type: 'number', minimum: 0, maximum: 24 } },
+      },
+    },
     email: { type: 'string' },
     phone: { type: 'string' },
     startDate: isoDate,
