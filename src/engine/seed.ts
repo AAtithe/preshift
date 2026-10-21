@@ -14,7 +14,7 @@ const roles: Role[] = [
 // site sits in its own company (separate lease, separate investors).
 const entities: Entity[] = [
   { id: 'wdl', name: 'West End Dining Ltd', companyNumber: '09876543', payeReference: '120/WE12345', intercompanyCode: '1351' },
-  { id: 'eck', name: 'East Canteen & Kitchen Ltd', companyNumber: '13579246', payeReference: '120/EC67890', intercompanyCode: '1352' },
+  { id: 'eck', name: 'East Canteen & Kitchen Ltd', companyNumber: '13579246', payeReference: '120/EC67890', intercompanyCode: '1352', leaveYearStart: '04-01' },
 ];
 
 const sites: Site[] = [
@@ -50,6 +50,10 @@ function team(siteId: string, people: Seed[]): Employee[] {
     leave: [],
     startDate: '2024-01-08',
     rightToWork: { checked: true, checkedOn: '2024-01-02', evidence: 'British passport' },
+    // Opening holiday position from before the rota went live, so balances are realistic on day one.
+    holiday: contracted === 0
+      ? { openingAccruedHours: 40 + (i % 5) * 12, openingTakenHours: (i % 3) * 8 }
+      : { openingTakenHours: 24 + (i % 4) * 8, carriedOverHours: i % 3 === 0 ? 8 : 0 },
     ...extra,
   }));
 }
@@ -57,7 +61,7 @@ function team(siteId: string, people: Seed[]): Employee[] {
 function employees(today: string): Employee[] {
   return [
     ...team('mar', [
-      ['Priya Shah', ['gm'], 0, '1986-03-14', 0, { payBasis: 'salaried', annualSalary: 52_000, maxWeeklyHours: 55, optedOutOf48: true }],
+      ['Priya Shah', ['gm'], 0, '1986-03-14', 45, { payBasis: 'salaried', annualSalary: 52_000, maxWeeklyHours: 55, optedOutOf48: true }],
       ['Marco Bianchi', ['chef'], 16.5, '1990-07-02', 40],
       ['Aisha Okafor', ['chef'], 15.0, '1995-11-20', 40],
       ['Tom Reilly', ['chef', 'kp'], 13.5, '2001-02-09', 0, { coverSiteIds: ['fitz'] }],
@@ -80,7 +84,7 @@ function employees(today: string): Employee[] {
       ['Nadia Haddad', ['server', 'host'], 12.71, '2000-01-15', 0, { startDate: addDays(today, 5), rightToWork: { checked: false } }],
     ]),
     ...team('shd', [
-      ['Hannah Lee', ['gm'], 0, '1988-09-01', 0, { payBasis: 'salaried', annualSalary: 48_000, maxWeeklyHours: 55, optedOutOf48: true }],
+      ['Hannah Lee', ['gm'], 0, '1988-09-01', 45, { payBasis: 'salaried', annualSalary: 48_000, maxWeeklyHours: 55, optedOutOf48: true }],
       ['Kwame Asante', ['chef'], 16.0, '1991-04-04', 40],
       ['Nina Petrova', ['chef', 'kp'], 14.0, '1996-02-14', 0],
       ['Sam Oduya', ['kp'], 12.71, '2000-12-12', 0],
@@ -96,7 +100,7 @@ function employees(today: string): Employee[] {
       ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0, { status: 'leaver', leaveDate: addDays(today, 3) }],
     ]),
     ...team('fitz', [
-      ['Rachel Adams', ['gm'], 0, '1989-12-02', 0, { payBasis: 'salaried', annualSalary: 46_000, maxWeeklyHours: 55, optedOutOf48: true }],
+      ['Rachel Adams', ['gm'], 0, '1989-12-02', 45, { payBasis: 'salaried', annualSalary: 46_000, maxWeeklyHours: 55, optedOutOf48: true }],
       ['Pedro Alves', ['chef'], 15.5, '1992-05-17', 40],
       ['Yusuf Demir', ['chef', 'kp'], 13.75, '1998-08-30', 0, { coverSiteIds: ['mar'] }],
       ['Joe Bennett', ['kp'], 12.71, '2001-01-12', 0],
