@@ -5,7 +5,7 @@ import type { PayrollVariance } from '../src/engine/timesheet';
 import type { RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
-import { seedUsers } from './seedUsers';
+import { demoAuthenticators, seedUsers } from './seedUsers';
 
 export interface PayrollSubmission {
   id: string;
@@ -37,6 +37,27 @@ export interface AuditEvent {
   detail?: Record<string, unknown>;
 }
 
+/**
+ * One person's authenticator. Kept apart from their access record so no response that
+ * returns people can ever carry it. The secret is sealed; recovery codes are hashes.
+ */
+export interface AuthenticatorRecord {
+  /** Changes on every enrolment: a session's proof names it, so a reset ends older proofs. */
+  id: string;
+  /** The confirmed secret, sealed. */
+  secret?: string;
+  /** A secret shown but not yet confirmed with a code, sealed. */
+  pending?: string;
+  enrolledAt?: string;
+  /** The last time step accepted, so no code works twice. */
+  lastStep: number;
+  /** SHA-256 of each unused recovery code. */
+  recovery: string[];
+  /** Recent wrong codes, for the lockout. */
+  failures: string[];
+  lockedUntil?: string;
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -52,6 +73,8 @@ export interface OrgData {
   inviteTokens: Record<string, { userId: string; expiresAt: string }>;
   /** When each person's invitation was last sent, to stop resend floods. */
   inviteSends: Record<string, string[]>;
+  /** Authenticators by user id. */
+  authenticators: Record<string, AuthenticatorRecord>;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
@@ -86,6 +109,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     accessReviews: people.reviews,
     inviteTokens: {},
     inviteSends: {},
+    authenticators: seeded ? demoAuthenticators(people.users) : {},
   };
 }
 
@@ -255,6 +279,7 @@ function deserialise(data: unknown, version: number): OrgData {
     accessReviews: raw.accessReviews ?? [],
     inviteTokens: raw.inviteTokens ?? {},
     inviteSends: raw.inviteSends ?? {},
+    authenticators: raw.authenticators ?? {},
     processedWebhookIds: new Set(raw.processedWebhookIds),
     version,
   };

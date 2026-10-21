@@ -26,7 +26,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Employment Allowance | One claim per connected group, set on the claiming entity with what the last payroll left unused. Used against that entity's employer NI week by week until it runs out, as payroll applies it, and posted to its books only (Cr employer NI, Dr wages accrual) split across its sites. Resets each tax year. Site labour % stays before the allowance. | `src/engine/allowance.ts`, `src/engine/journal.ts` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
-| Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator. The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/` |
+| Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 
 ## Running it
@@ -65,13 +65,24 @@ The organisation defaults to `demo`; each person only ever sees their own organi
 Add the printed line to `APP_USERS` (several people separated by commas). In production also set
 `SESSION_SECRET` to a random string of at least 32 characters (`openssl rand -hex 32`); changing it
 signs everyone out. Without both, the live app stays locked. To remove someone, delete their line.
+Also set `PRESHIFT_SECRET_KEY` to 64 hex characters (`openssl rand -hex 32`): it encrypts
+authenticator secrets, and without it nobody can set one up, so roles that need one keep their pay,
+payroll and access rights switched off. Never change it once people have enrolled: their
+authenticators would stop working and each would need a reset.
+
+Roles that touch pay, payroll, the journal, settings or access need an authenticator app. After
+signing in, the app asks for its 6-digit code before switching those rights on for the session, and
+walks anyone without one through setting it up (QR code, then ten single-use recovery codes, shown
+once). The demo's enrolled people share the published secret `JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP`
+locally, never in production.
 
 Sessions last 12 hours in an HttpOnly cookie, and the session is what the web app uses to call the
 API: the browser carries no API key in production. On Vercel the app's files sit inside a gate
 function (`server/appGate.ts`) rather than in public static output, so nothing under `/app` is served
 without a session; the API and the assistant check the session themselves. Locally, sign-in is off
-unless `APP_USERS` is set in `.env.local`, and the web app uses the local API's development key. Known limits until Phase 2: no self-service password reset, no
-roles, and failed attempts are slowed but not locked out.
+unless `APP_USERS` is set in `.env.local`, and the web app uses the local API's development key. Known limits until Phase 2: no self-service password reset, and failed
+password attempts are slowed but not locked out (wrong authenticator codes are: five in 15 minutes
+lock it for 15 minutes).
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.

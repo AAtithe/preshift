@@ -7,6 +7,7 @@ import {
 import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
 import { actorOf, withoutRecord } from '../guard';
+import { authenticatorState } from './authenticator';
 import { parseUsers } from '../passwords';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
@@ -14,7 +15,7 @@ import { audit, type OrgData } from '../store';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESENDS_PER_HOUR = 3;
-const ACCESS_ACTIONS = ['user.', 'membership.', 'access.', 'invite.'];
+const ACCESS_ACTIONS = ['user.', 'membership.', 'access.', 'invite.', 'authenticator.'];
 
 const grantFields = {
   roleId: { type: 'string' },
@@ -125,6 +126,8 @@ function accountAction(org: OrgData, actor: Actor, target: User, action: Account
       if (!target.mfaEnrolled) throw new HttpError(409, 'conflict', `${target.name} has no authenticator set up`);
       refuse(checkAuthority(actor, target, org.users, today, { removesAccess: true }));
       target.mfaEnrolled = false;
+      // The record goes with it: its id is what verified sessions name, so every one of them ends here.
+      delete org.authenticators[target.id];
       audit(org, nameOf(actor), 'user.authenticator_reset', { userId: target.id });
       return { user: target };
     }
@@ -153,7 +156,10 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       key: req.principal.name,
       scopes: req.principal.scopes,
       withoutRecord: withoutRecord(req, org),
+      // Payroll runs against the TeamPay simulator: the screens offer its demo controls.
+      simulator: !!ctx.simulator,
       user,
+      authenticator: user ? authenticatorState(req, org, org.users.find((u) => u.id === user.id)!, today()) : undefined,
       permissions: user ? ALL_PERMISSIONS.filter((p) => can(user, p, today())) : ALL_PERMISSIONS,
     };
   });

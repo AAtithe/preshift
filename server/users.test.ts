@@ -5,8 +5,8 @@ import { MemoryStore } from './store';
 
 const KEYS = [
   { key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] },
-  { key: 'owner', orgId: 'demo', name: 'Owner key', scopes: ['*' as const], userId: 'usr_owner' },
-  { key: 'gm', orgId: 'demo', name: 'Priya key', scopes: ['users:manage' as const], userId: 'usr_gm_mar' },
+  { key: 'owner', orgId: 'demo', name: 'Owner key', scopes: ['*' as const], userId: 'usr_owner', mfa: true },
+  { key: 'gm', orgId: 'demo', name: 'Priya key', scopes: ['users:manage' as const], userId: 'usr_gm_mar', mfa: true },
   { key: 'rota', orgId: 'demo', name: 'Rota only', scopes: ['rota:read' as const] },
   { key: 'other', orgId: 'acme', name: 'Other org', scopes: ['*' as const] },
 ];

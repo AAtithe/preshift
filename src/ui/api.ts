@@ -16,6 +16,9 @@ function storedKey(): string | null {
 // In development the demo can sign in as any seeded person; the choice is this browser's own.
 const DEV_KEY = env.DEV ? storedKey() ?? String(env.VITE_PRESHIFT_API_KEY ?? 'dev-key') : null;
 
+/** Only a development build signs in with a key, so only it can switch demo person. */
+export const canSwitchDemo = Boolean(DEV_KEY);
+
 export function signInAsDemo(userId: string | null) {
   try {
     if (userId) localStorage.setItem(DEMO_KEY, `dev-${userId}`);

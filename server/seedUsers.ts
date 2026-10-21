@@ -1,4 +1,6 @@
 import type { AccessReview, Membership, User } from '../src/engine/access';
+import { sealingKey, seal } from './secrets';
+import type { AuthenticatorRecord } from './store';
 import { addDays } from '../src/engine/time';
 
 // Demo people for the two London sites. Chosen so the Access overview has real
@@ -56,4 +58,20 @@ export function seedUsers(today: string): { users: User[]; reviews: AccessReview
 
   const reviews: AccessReview[] = [{ id: 'rev_1', at: at(-104), by: 'Olivia Grant', note: 'Quarterly review. Removed two leavers.', people: 13, attention: 4 }];
   return { users, reviews };
+}
+
+/**
+ * The demo's enrolled people share one published secret, so anyone trying the demo locally
+ * can add it to an authenticator app and sign in as them. Never seeded where a real sealing
+ * key is set or in production: the secret is public.
+ */
+export const DEMO_TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+
+export function demoAuthenticators(users: User[], env: Record<string, string | undefined> = process.env): Record<string, AuthenticatorRecord> {
+  if (env.PRESHIFT_SECRET_KEY || env.NODE_ENV === 'production' || env.VERCEL === '1') return {};
+  const key = sealingKey(env);
+  if (!key) return {};
+  return Object.fromEntries(
+    users.filter((u) => u.mfaEnrolled).map((u) => [u.id, { id: `demo-${u.id}`, secret: seal(DEMO_TOTP_SECRET, key), enrolledAt: u.activatedAt, lastStep: -1, recovery: [], failures: [] }]),
+  );
 }

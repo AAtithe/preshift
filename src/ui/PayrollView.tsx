@@ -21,10 +21,11 @@ interface Props {
   siteId: string;
   week: string;
   allow: Allow;
+  simulator: boolean;
   onChanged: () => Promise<void>;
 }
 
-export function PayrollView({ state, siteId, week, allow, onChanged }: Props) {
+export function PayrollView({ state, siteId, week, allow, simulator, onChanged }: Props) {
   const [status, setStatus] = useState<Status | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [compare, setCompare] = useState<RosterVsActual[]>([]);
@@ -34,12 +35,8 @@ export function PayrollView({ state, siteId, week, allow, onChanged }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const end = addDays(week, 6);
-  // Demo controls depend on running against the simulator, which people without payroll rights learn from the demo routes.
-  const [demo, setDemo] = useState(false);
-  useEffect(() => {
-    void api.get('/v1/dev/people').then(() => setDemo(true)).catch(() => setDemo(false));
-  }, []);
-  const isSimulator = status ? status.provider.includes('simulator') : demo;
+  // Demo controls depend on running against the simulator, which /v1/me says for those who cannot read payroll.
+  const isSimulator = status ? status.provider.includes('simulator') : simulator;
 
   const seesTime = allow('time.record', siteId) || allow('time.approve', siteId) || allow('payroll.view');
   const seesPayroll = allow('payroll.view');

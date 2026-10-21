@@ -8,8 +8,9 @@ import type { Employee, Shift } from '../engine/types';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { AccessView } from './access/AccessView';
+import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
-import { api, signInAsDemo } from './api';
+import { api, canSwitchDemo, signInAsDemo } from './api';
 import { GroupView } from './GroupView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
@@ -169,6 +170,7 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
         </div>
       </header>
 
+      <AuthenticatorBar me={me} />
       <KpiBar metrics={metrics} issues={issues} showCost={showCost} />
 
       <nav className="tabs">
@@ -244,7 +246,7 @@ function Workspace({ state, me, error, clearError, actions }: { state: NonNullab
             onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
           />
         )}
-        {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} onChanged={actions.refreshShifts} />}
+        {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} />}
         {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
         {activeTab === 'access' && <AccessView state={state} />}
       </main>
@@ -313,7 +315,7 @@ interface DemoPerson { id: string; name: string; jobTitle?: string; status: stri
 function DemoSwitch({ me }: { me: Me | null }) {
   const [people, setPeople] = useState<DemoPerson[] | null>(null);
   useEffect(() => {
-    void api.get<DemoPerson[]>('/v1/dev/people').then(setPeople).catch(() => setPeople(null));
+    if (canSwitchDemo) void api.get<DemoPerson[]>('/v1/dev/people').then(setPeople).catch(() => setPeople(null));
   }, []);
   if (!people || !me?.user) return null;
   return (

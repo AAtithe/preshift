@@ -22,6 +22,7 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_EMPLOYER_ID` | The client company's employer in TeamPay |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
+| `PRESHIFT_SECRET_KEY` | 64 hex characters. Encrypts authenticator secrets (AES-256-GCM). Required in production before anyone can enrol; outside production a fixed development key is used. Never rotate it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
@@ -68,7 +69,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Site managers | A GM or area manager grants site roles at their own sites only, and sees only the people at those sites. |
 | Sides | Operator roles are granted by the operator, WS roles by the WS client partner, outside roles always carry an end date. |
 | Paired duties | Checked across every role a person holds. Pay rates with sending payroll is refused. Starters with payroll, approving hours with pay rates, and access management with payroll need an accepted reason, which is kept on the grant. |
-| Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until one is set up. |
+| Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until the session has entered a code from it. The session cookie then names the enrolment it proved, so a reset or a new enrolment ends every older proof. A personal API key counts only if issued with `"mfa": true`. |
 | Yourself | Nobody changes their own access. |
 | Last administrator | Nothing removes, suspends or resets the last person who can manage access for the organisation. |
 | Invitations | Single-use token, stored hashed, valid seven days, at most three sends an hour. Signing in with the invited email accepts it; passwords still come from `APP_USERS`. |
@@ -85,6 +86,10 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | `GET /v1/access/health` | What needs attention, and who covers each duty at each site |
 | `GET/POST /v1/access/reviews` | Quarterly access reviews |
 | `GET /v1/access/audit` | Every access change, newest first |
+| `GET /v1/me/authenticator` | Whether your roles need one, whether it is set up, whether this session has entered a code, recovery codes left |
+| `POST /v1/me/authenticator/start`, `/confirm` | A new secret and its QR code, then confirmation with a code from the app, which returns ten recovery codes once. Replacing one needs a session that has proved the current one |
+| `POST /v1/me/authenticator/verify` | A 6-digit code or a recovery code for this session. Each code works once; five wrong in 15 minutes lock it for 15 minutes |
+| `POST /v1/me/authenticator/recovery-codes` | Ten new recovery codes, replacing the old ones |
 | `POST /v1/invites/accept` | Public; the token is the proof. Signing in with the invited email also accepts it |
 
 ## Endpoints
@@ -172,5 +177,6 @@ net, not the main path.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
 - Split the JSONB document into tables when cross-organisation reporting needs SQL.
-- People in the database, not `APP_USERS`: passwords set by invitation, TOTP enrolment that sets `mfaEnrolled`, sessions ended on
-  suspend, revoke and authenticator reset, and invitation emails instead of returning the link.
+- People in the database, not `APP_USERS`: passwords set by invitation, sessions ended on suspend
+  and revoke (an authenticator reset already ends their strong rights), and invitation emails
+  instead of returning the link.

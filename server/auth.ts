@@ -16,6 +16,13 @@ export interface ApiKey {
   userId?: string;
   /** Set for a signed-in session: the person is found by this email in their organisation's access records. */
   email?: string;
+  /** A session's verified enrolment id, from the cookie. */
+  sessionMfa?: string;
+  /**
+   * A personal key counts as having passed the authenticator only when its issuer says so.
+   * Keys are long-lived secrets, not people at a keyboard, so the default is no.
+   */
+  mfa?: boolean;
 }
 
 declare module 'fastify' {
@@ -35,8 +42,9 @@ export function loadApiKeys(env = process.env): ApiKey[] {
   // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
   const people = seedUsers(new Date().toISOString().slice(0, 10)).users;
   return [
-    { key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: DEMO_OWNER_ID },
-    ...people.map((u) => ({ key: `dev-${u.id}`, orgId: 'demo', name: `${u.name} (demo)`, scopes: ['*' as const], userId: u.id })),
+    // Demo keys stand in for people who have entered their code, so the demo shows roles as they work.
+    { key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: DEMO_OWNER_ID, mfa: true },
+    ...people.map((u) => ({ key: `dev-${u.id}`, orgId: 'demo', name: `${u.name} (demo)`, scopes: ['*' as const], userId: u.id, mfa: true })),
   ];
 }
 
@@ -57,7 +65,7 @@ export function authenticate(keys: ApiKey[], sessionSecret: string | null = null
     const user = await readSession(cookieFrom(req.headers.cookie), sessionSecret);
     if (!user) return reply.code(401).send({ error: 'unauthorised', message: 'Sign in, or send a valid API key' });
     // The scopes let a session reach every route; the person's access record then decides (server/guard.ts).
-    req.principal = { key: `session:${user.email}`, orgId: user.orgId, name: user.email, scopes: ['*'], email: user.email };
+    req.principal = { key: `session:${user.email}`, orgId: user.orgId, name: user.email, scopes: ['*'], email: user.email, sessionMfa: user.mfa };
   };
 }
 

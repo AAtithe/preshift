@@ -20,10 +20,13 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
   if (!simulator) return;
   const write = { preHandler: requireScope('*') };
 
-  // Who the demo can sign in as. Each has a dev-<id> key outside production.
-  app.get('/v1/dev/people', { schema: { tags: ['Demo'] } }, async (req) =>
-    orgOf(req).users.map((u) => ({ id: u.id, name: u.name, jobTitle: u.jobTitle, status: u.status })),
-  );
+  // Who the demo can sign in as. Each has a dev-<id> key outside production. It lists everyone,
+  // past the site rules, so it answers only those demo keys, never a session or a deployment.
+  app.get('/v1/dev/people', { schema: { tags: ['Demo'] } }, async (req) => {
+    const deployed = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+    if (deployed || !/^dev-/.test(req.principal.key)) throw new HttpError(404, 'not_found', 'Not found');
+    return orgOf(req).users.map((u) => ({ id: u.id, name: u.name, jobTitle: u.jobTitle, status: u.status }));
+  });
 
   app.post<{ Body: { siteId: string; weekStart: string } }>(
     '/v1/dev/simulate-clocking',

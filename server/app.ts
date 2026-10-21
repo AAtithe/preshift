@@ -13,6 +13,7 @@ import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
+import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
@@ -72,6 +73,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor),
     autoDispatch: options.autoDispatch ?? true,
+    sessionSecret: sessionSecret(env),
   };
 
   // Keep the raw body: webhook signatures are computed over the exact bytes sent.
@@ -167,6 +169,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     timeRoutes(api, ctx);
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
+    authenticatorRoutes(api, ctx);
     devRoutes(api, ctx);
   });
 

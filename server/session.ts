@@ -7,6 +7,11 @@ export const SESSION_SECONDS = 12 * 60 * 60; // one working day; GMs sign in onc
 export interface SessionUser {
   email: string;
   orgId: string;
+  /**
+   * Set once this session has entered an authenticator code: the id of the enrolment it was
+   * checked against. A reset or a new enrolment changes the id, so older sessions lose it.
+   */
+  mfa?: string;
 }
 
 const encoder = new TextEncoder();
@@ -26,7 +31,7 @@ export function sessionSecret(env: Record<string, string | undefined> = process.
 }
 
 export async function createSession(user: SessionUser, secret: string, now = Date.now()): Promise<string> {
-  const claims = { sub: user.email, org: user.orgId, exp: Math.floor(now / 1000) + SESSION_SECONDS };
+  const claims = { sub: user.email, org: user.orgId, exp: Math.floor(now / 1000) + SESSION_SECONDS, ...(user.mfa ? { mfa: user.mfa } : {}) };
   const payload = b64url(encoder.encode(JSON.stringify(claims)));
   const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), encoder.encode(payload));
   return `${payload}.${b64url(sig)}`;
@@ -40,9 +45,9 @@ export async function readSession(token: string | null | undefined, secret: stri
   try {
     const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), fromB64url(sig), encoder.encode(payload));
     if (!ok) return null;
-    const { sub, org, exp } = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
+    const { sub, org, exp, mfa } = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
     if (typeof sub !== 'string' || typeof org !== 'string' || typeof exp !== 'number' || exp * 1000 <= now) return null;
-    return { email: sub, orgId: org };
+    return typeof mfa === 'string' ? { email: sub, orgId: org, mfa } : { email: sub, orgId: org };
   } catch {
     return null;
   }

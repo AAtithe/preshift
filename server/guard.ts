@@ -41,7 +41,20 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
     user.lastSeenAt = now.toISOString();
     req.orgTouched = true;
   }
-  return { kind: 'user', user };
+  // The rules read mfaEnrolled; for this request it means enrolled and proved in this session.
+  return { kind: 'user', user: { ...user, mfaEnrolled: user.mfaEnrolled && verified(req, org, user) } };
+}
+
+/**
+ * Whether this request has passed the authenticator. A session carries the enrolment id it
+ * entered a code against, so a reset or re-enrolment ends it. A personal key passes only
+ * when its issuer marked it so.
+ */
+export function verified(req: FastifyRequest, org: OrgData, user: User): boolean {
+  const { userId, sessionMfa, mfa } = req.principal;
+  if (userId) return mfa === true;
+  const record = org.authenticators[user.id];
+  return !!sessionMfa && !!record?.secret && sessionMfa === record.id;
 }
 
 /** A signed-in person with no access record: still organisation-wide, and a finding until they have one. */

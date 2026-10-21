@@ -12,6 +12,8 @@ export interface AppContext {
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
+  /** Signs session cookies: an authenticator code re-issues the session with its proof. */
+  sessionSecret: string | null;
 }
 
 declare module 'fastify' {

@@ -2,6 +2,7 @@ import {
   accessHealth, AUDIENCE_LABEL, live, PERMISSIONS, roleOf, ukDate, type AccessReview, type Actor, type Attention, type Permission, type User,
 } from '../../engine/access';
 import { addDays, toISODate } from '../../engine/time';
+import type { AuthenticatorState } from './Authenticator';
 import type { RotaState } from '../../engine/types';
 
 export interface Me {
@@ -10,6 +11,8 @@ export interface Me {
   permissions: Permission[];
   /** Signed in with no access record: organisation-wide, as before roles existed. */
   withoutRecord?: boolean;
+  authenticator?: AuthenticatorState;
+  simulator?: boolean;
 }
 
 export interface AuditRow {
@@ -81,6 +84,11 @@ const ACTION_TEXT: Record<string, string> = {
   'invite.revoked': 'Withdrew invitation',
   'invite.accepted': 'Accepted invitation',
   'access.reviewed': 'Recorded an access review',
+  'authenticator.enrolled': 'Set up an authenticator',
+  'authenticator.verified': 'Entered an authenticator code',
+  'authenticator.recovery_used': 'Used a recovery code',
+  'authenticator.recovery_replaced': 'Made new recovery codes',
+  'authenticator.locked': 'Locked out after wrong codes',
 };
 
 export function describeEvent(e: AuditRow, users: User[], state: RotaState): { what: string; whom: string; detail: string } {

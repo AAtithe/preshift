@@ -7,7 +7,8 @@ import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
 
 const WEEK = '2026-10-19';
-const person = (key: string, userId: string) => ({ key, orgId: 'demo', name: `${key} key`, scopes: ['*' as const], userId });
+// Each key stands for its person having entered their authenticator code.
+const person = (key: string, userId: string) => ({ key, orgId: 'demo', name: `${key} key`, scopes: ['*' as const], userId, mfa: true });
 const KEYS = [
   { key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] },
   person('owner', 'usr_owner'),

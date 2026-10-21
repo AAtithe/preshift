@@ -10,12 +10,15 @@ import { MemoryStore, PgStore, type Query, type Store } from './store';
 
 const SECRET = 'x'.repeat(48);
 const WEEK = '2026-10-19';
-const SYSTEM = [{ key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] }];
+const SYSTEM = [
+  { key: 'system', orgId: 'demo', name: 'System', scopes: ['*' as const] },
+  { key: 'dev-usr_owner', orgId: 'demo', name: 'Demo owner', scopes: ['*' as const], userId: 'usr_owner', mfa: true },
+];
 
 async function boot(store: Store = new MemoryStore(['demo'], '2026-10-21')) {
   const { app } = await buildApp({ apiKeys: SYSTEM, store, provider: new TeamPaySimulator(), autoDispatch: false, env: { SESSION_SECRET: SECRET } });
   const call = async (method: string, url: string, as: string | null, body?: unknown) => {
-    const auth = as === 'system' ? { authorization: 'Bearer system' } : as ? { cookie: `${COOKIE}=${await createSession({ email: as, orgId: 'demo' }, SECRET)}` } : {};
+    const auth = as === 'system' || as?.startsWith('dev-') ? { authorization: `Bearer ${as}` } : as ? { cookie: `${COOKIE}=${await createSession({ email: as, orgId: 'demo' }, SECRET)}` } : {};
     const res = await app.inject({
       method: method as 'GET',
       url,
@@ -51,6 +54,19 @@ describe('sessions and access records', () => {
     expect((await call('GET', '/v1/sites', 'founder@example.com')).body).toHaveLength(seedState('2026-10-21').sites.length);
     const health = await call('GET', '/v1/access/health', 'system');
     expect(health.body.signInsWithoutRecord).toEqual(['founder@example.com']);
+  });
+
+  it('lists demo people only to a demo key, never to a session or a deployment', async () => {
+    const call = await boot();
+    expect((await call('GET', '/v1/dev/people', 'priya@marylebonegroup.example')).status).toBe(404);
+    expect((await call('GET', '/v1/dev/people', 'system')).status).toBe(404);
+    expect((await call('GET', '/v1/dev/people', 'dev-usr_owner')).status).toBe(200);
+    process.env.VERCEL = '1';
+    try {
+      expect((await call('GET', '/v1/dev/people', 'dev-usr_owner')).status).toBe(404);
+    } finally {
+      delete process.env.VERCEL;
+    }
   });
 
   it('refuses a suspended person who signs in', async () => {
