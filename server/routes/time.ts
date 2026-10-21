@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { rosterVsActual } from '../../src/engine/timesheet';
 import { weekDates } from '../../src/engine/time';
+import { breakShortfalls } from '../../src/engine/breaks';
 import { checkFence } from '../../src/engine/clocking';
 import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -27,7 +28,7 @@ function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>)
 }
 
 interface ClockOptions {
-  method: 'card' | 'device';
+  method: 'card' | 'device' | 'phone';
   at?: string;
   roleId?: string;
   breakMinutes?: number;
@@ -49,7 +50,7 @@ function locate(org: OrgData, siteId: string, opts: ClockOptions): ClockLocation
     throw new HttpError(422, 'location_required', `${site.name} checks location when clocking. Allow location on this device and try again.`);
   }
   const check = checkFence(site.geofence, fix);
-  if (!check.ok && opts.method === 'device') {
+  if (!check.ok && opts.method !== 'card') {
     throw new HttpError(
       422,
       check.reason,
@@ -88,14 +89,42 @@ export function clockIn(org: OrgData, employee: Employee, siteId: string, opts: 
   return entry;
 }
 
+/** The minute of `at` counted from the entry's own date, so times past midnight carry on (24:30 is 1470). */
+function minuteOf(entry: TimeEntry, at?: string): number {
+  const { date, minute } = londonParts(at ? new Date(at) : new Date());
+  const dayOffset = Math.round((Date.parse(date) - Date.parse(entry.date)) / 86_400_000);
+  return minute + dayOffset * 1440;
+}
+
+export const onBreak = (entry: TimeEntry) => entry.breaks?.some((b) => b.end === undefined) ?? false;
+
+/** Minutes of break the person recorded, counting only finished breaks. */
+export const recordedBreakMinutes = (entry: TimeEntry) =>
+  (entry.breaks ?? []).reduce((sum, b) => sum + (b.end !== undefined ? b.end - b.start : 0), 0);
+
+export function startBreak(entry: TimeEntry, at?: string): TimeEntry {
+  if (entry.status !== 'open') throw new HttpError(409, 'not_open', 'You are not clocked in.');
+  if (onBreak(entry)) throw new HttpError(409, 'already_on_break', 'You are already on a break.');
+  const start = Math.max(minuteOf(entry, at), entry.clockIn);
+  entry.breaks = [...(entry.breaks ?? []), { start }];
+  return entry;
+}
+
+export function endBreak(entry: TimeEntry, at?: string): TimeEntry {
+  const current = entry.breaks?.find((b) => b.end === undefined);
+  if (entry.status !== 'open' || !current) throw new HttpError(409, 'not_on_break', 'You are not on a break.');
+  current.end = Math.max(minuteOf(entry, at), current.start);
+  return entry;
+}
+
 export function clockOut(org: OrgData, entry: TimeEntry, opts: ClockOptions): TimeEntry {
   if (entry.status !== 'open') throw new HttpError(409, 'not_open', 'Already clocked out');
   const location = locate(org, entry.siteId, opts);
-  const { date, minute } = londonParts(opts.at ? new Date(opts.at) : new Date());
-  // Past midnight the clock-out minute is carried on from the shift's start date.
-  const dayOffset = Math.round((Date.parse(date) - Date.parse(entry.date)) / 86_400_000);
-  entry.clockOut = minute + dayOffset * 1440;
-  entry.breakMinutes = opts.breakMinutes ?? entry.breakMinutes;
+  entry.clockOut = minuteOf(entry, opts.at);
+  // Clocking out ends a break still running, rather than leaving it open with no end.
+  if (onBreak(entry)) endBreak(entry, opts.at);
+  // Breaks the person recorded set the unpaid time. A manager can still correct it before approval.
+  entry.breakMinutes = opts.breakMinutes ?? (entry.breaks?.length ? recordedBreakMinutes(entry) : entry.breakMinutes);
   entry.status = 'submitted';
   if (location) entry.clockOutLocation = location;
   return entry;
@@ -253,8 +282,34 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       const ownSkipped = candidates.filter(own).length;
       const stillOpen = org.timeEntries.filter((t) => t.status === 'open' && match(t)).length;
-      audit(org, actorName(g), 'time.approved', { approved: approvable.length, ownSkipped });
-      return { approved: approvable.length, ownSkipped, stillOpen };
+      // Approving is never blocked: the hours were worked and are owed. The shortfall is recorded with the approval.
+      const short = breakShortfalls(approvable, org.state.employees);
+      audit(org, actorName(g), 'time.approved', {
+        approved: approvable.length,
+        ownSkipped,
+        ...(short.length ? { belowBreakMinimum: short.map((b) => b.entryId) } : {}),
+      });
+      return { approved: approvable.length, ownSkipped, stillOpen, belowBreakMinimum: short.length };
+    },
+  );
+
+  app.get<{ Querystring: Range }>(
+    '/v1/time-entries/break-check',
+    {
+      ...read,
+      schema: {
+        tags: ['Time'],
+        description:
+          'Finished shifts with less rest break than the Working Time Regulations give: 20 minutes in one block when working time ' +
+          'is over 6 hours, 30 minutes over 4.5 hours for under 18s. "short" is too little in total; "split" is enough in total ' +
+          'but no single break long enough.',
+        querystring: rangeQuery,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      // Who may see the hours sees their breaks: the same sites as the time entries themselves.
+      return breakShortfalls(org.timeEntries.filter(inRange(req.query)).filter(guard(ctx, req, org).at(...TIME_READERS)), org.state.employees);
     },
   );
 

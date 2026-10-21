@@ -107,13 +107,6 @@ export function authenticate(keys: ApiKey[], users: UserStore) {
   };
 }
 
-/** For managing people and settings: a signed-in admin only, never an integration key. */
-export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
-  if (req.principal?.user?.role !== 'admin') {
-    return reply.code(403).send({ error: 'forbidden', message: 'Only an admin can manage access and settings' });
-  }
-}
-
 export function requireScope(scope: Scope) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const scopes = req.principal?.scopes ?? [];

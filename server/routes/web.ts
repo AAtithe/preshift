@@ -14,6 +14,7 @@ const TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.json': 'application/json',
   '.woff2': 'font/woff2',
+  '.webmanifest': 'application/manifest+json',
 };
 
 const notFound = (reply: FastifyReply) => reply.code(404).type('text/plain').send('Not found');
@@ -22,38 +23,52 @@ const notFound = (reply: FastifyReply) => reply.code(404).type('text/plain').sen
  * The sign-in page and, when appDir is given (the hosted build), the web app itself. The app's
  * files are served only to signed-in people: no session, no HTML, scripts or styles.
  */
-export function webRoutes(app: FastifyInstance, store: Store, options: { loginPage: string; appDir?: string }) {
+export function webRoutes(app: FastifyInstance, store: Store, options: { loginPage: string; appDir?: string; staffDir?: string }) {
   app.get('/login', { schema: { hide: true } }, async (_req, reply) =>
     reply.type('text/html; charset=utf-8').header('cache-control', 'no-store').send(await readFile(options.loginPage)),
   );
 
+  if (options.staffDir) {
+    // The staff app is public: it holds nothing until someone signs in, and its API checks every call.
+    const staffDir = options.staffDir;
+    const serveStaff = (url: string, reply: FastifyReply) => serveFile(staffDir, '/staff', url, reply);
+    app.get('/staff', { schema: { hide: true } }, (req, reply) => serveStaff(req.url, reply));
+    app.get('/staff/*', { schema: { hide: true } }, (req, reply) => serveStaff(req.url, reply));
+  }
+
   if (!options.appDir) return;
-  const base = path.resolve(options.appDir);
+  const appDir = options.appDir;
 
   const serve = async (url: string, cookie: string | undefined, reply: FastifyReply) => {
-    const pathname = url.split('?')[0];
     if (!(await sessionUser(cookie, store))) {
       return reply.code(303).header('location', `/login?${new URLSearchParams({ next: url })}`).send();
     }
-    if (pathname === '/app') return reply.code(308).header('location', '/app/').send();
-    let relative: string;
-    try {
-      relative = decodeURIComponent(pathname.replace(/^\/app\/?/, '')) || 'index.html';
-    } catch {
-      return notFound(reply);
-    }
-    const file = path.resolve(base, relative);
-    if (file !== base && !file.startsWith(base + path.sep)) return notFound(reply);
-    try {
-      const body = await readFile(file);
-      // Built assets carry a content hash in their names; the HTML that points at them must not be cached.
-      const cache = relative.startsWith('assets/') ? 'private, max-age=31536000, immutable' : 'private, no-store';
-      return reply.type(TYPES[path.extname(file)] ?? 'application/octet-stream').header('cache-control', cache).send(body);
-    } catch {
-      return notFound(reply);
-    }
+    return serveFile(appDir, '/app', url, reply);
   };
 
   app.get('/app', { schema: { hide: true } }, (req, reply) => serve(req.url, req.headers.cookie, reply));
   app.get('/app/*', { schema: { hide: true } }, (req, reply) => serve(req.url, req.headers.cookie, reply));
+}
+
+/** One file of a built Vite app mounted at prefix, never from outside its folder. */
+async function serveFile(dir: string, prefix: string, url: string, reply: FastifyReply) {
+  const base = path.resolve(dir);
+  const pathname = url.split('?')[0];
+  if (pathname === prefix) return reply.code(308).header('location', `${prefix}/${url.slice(prefix.length)}`).send();
+  let relative: string;
+  try {
+    relative = decodeURIComponent(pathname.slice(prefix.length + 1)) || 'index.html';
+  } catch {
+    return notFound(reply);
+  }
+  const file = path.resolve(base, relative);
+  if (file !== base && !file.startsWith(base + path.sep)) return notFound(reply);
+  try {
+    const body = await readFile(file);
+    // Built assets carry a content hash in their names; the HTML that points at them must not be cached.
+    const cache = relative.startsWith('assets/') ? 'private, max-age=31536000, immutable' : 'private, no-store';
+    return reply.type(TYPES[path.extname(file)] ?? 'application/octet-stream').header('cache-control', cache).send(body);
+  } catch {
+    return notFound(reply);
+  }
 }

@@ -7,13 +7,14 @@ import { actorName, guard } from '../guard';
 import { forReader } from './employees';
 import { geofenceBody, geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
-import { clockIn, clockOut } from './time';
+import { clockIn, clockOut, endBreak, onBreak } from './time';
 
 const REPEAT_TAP_MINUTES = 2;
 
 /** Minutes from a fixed epoch, so clocks on different dates compare. */
 const minutesSince = (date: string, minute: number) => Date.parse(date) / 60_000 + minute;
-const latest = (t: TimeEntry) => minutesSince(t.date, t.clockOut ?? t.clockIn);
+const latest = (t: TimeEntry) =>
+  minutesSince(t.date, Math.max(t.clockIn, t.clockOut ?? 0, ...(t.breaks ?? []).flatMap((b) => [b.start, b.end ?? 0])));
 
 /** Sites are replaced, not edited in place: the demo seed shares its site records between organisations. */
 function replaceSite(org: OrgData, id: string, change: (site: Site) => Site): Site {
@@ -140,6 +141,10 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
         .reduce<TimeEntry | undefined>((a, t) => (!a || latest(t) > latest(a) ? t : a), undefined);
       if (last && now - latest(last) < REPEAT_TAP_MINUTES) {
         return { action: last.status === 'open' ? 'already_clocked_in' : 'already_clocked_out', employee: person, entry: last };
+      }
+      // Someone tapping while on a break is coming back from it, not leaving for the day.
+      if (open && onBreak(open)) {
+        return { action: 'break_end', employee: person, entry: endBreak(open, req.body.at) };
       }
       if (open) {
         // A tap at another site closes the shift where it was opened, so hours are never left running.

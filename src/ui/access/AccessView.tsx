@@ -203,16 +203,16 @@ export function AccessView({ state }: Props) {
       {error && <div className="notice error">{error}</div>}
 
       <div className="access-layout">
-        <nav className="side-nav" aria-label="Access">
+        <nav className="access-nav" aria-label="Access">
           {NAV.map((g) => (
             <div key={g.group}>
-              <div className="side-group">{g.group}</div>
+              <div className="access-group">{g.group}</div>
               {g.pages.filter((p) => auditor || !['trail', 'reviews'].includes(p.id)).map((p) => (
                 <button key={p.id} className={page === p.id ? 'active' : ''} onClick={() => setPage(p.id)}>
                   {p.label}
-                  {p.id === 'overview' && blocks + warns > 0 && <span className={`badge ${blocks ? 'bad' : 'warn'}`}>{blocks + warns}</span>}
-                  {p.id === 'coverage' && attention.some((a) => a.kind === 'no_coverage') && <span className="badge warn">{attention.filter((a) => a.kind === 'no_coverage').length}</span>}
-                  {p.id === 'reviews' && attention.some((a) => a.kind === 'review_due') && <span className="badge warn">Due</span>}
+                  {p.id === 'overview' && blocks + warns > 0 && <span className={`count-badge ${blocks ? 'bad' : 'warn'}`}>{blocks + warns}</span>}
+                  {p.id === 'coverage' && attention.some((a) => a.kind === 'no_coverage') && <span className="count-badge warn">{attention.filter((a) => a.kind === 'no_coverage').length}</span>}
+                  {p.id === 'reviews' && attention.some((a) => a.kind === 'review_due') && <span className="count-badge warn">Due</span>}
                 </button>
               ))}
             </div>
@@ -395,7 +395,7 @@ export function AccessView({ state }: Props) {
                           <td className="muted">{lastSeen(u)}</td>
                           <td>
                             {flags.length === 0 ? <span className="muted">None</span> : (
-                              <span className={`badge ${flags.some((f) => f.severity === 'block') ? 'bad' : 'warn'}`} title={flags.map((f) => f.message).join('\n')}>
+                              <span className={`count-badge ${flags.some((f) => f.severity === 'block') ? 'bad' : 'warn'}`} title={flags.map((f) => f.message).join('\n')}>
                                 {flags.length}
                               </span>
                             )}

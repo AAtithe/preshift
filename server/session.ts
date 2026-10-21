@@ -70,3 +70,44 @@ export function safeNext(value: unknown, fallback: string): string {
     ? value
     : fallback;
 }
+
+// Staff sessions, for the staff app on a person's own phone. A different cookie, a longer life,
+// and a signing key derived for staff only, so a staff token can never pass as a manager's.
+export const STAFF_COOKIE = 'ps_staff';
+export const STAFF_SESSION_SECONDS = 30 * 24 * 60 * 60;
+
+export interface StaffClaims {
+  orgId: string;
+  employeeId: string;
+  issuedAt: number;
+}
+
+const staffSecret = (secret: string) => `${secret}:staff`;
+
+export async function createStaffSession(login: { orgId: string; employeeId: string }, secret: string, now = Date.now()): Promise<string> {
+  const payload = b64url(
+    encoder.encode(JSON.stringify({ sub: login.employeeId, org: login.orgId, iat: now, exp: Math.floor(now / 1000) + STAFF_SESSION_SECONDS, typ: 'staff' })),
+  );
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(staffSecret(secret)), encoder.encode(payload));
+  return `${payload}.${b64url(sig)}`;
+}
+
+export async function readStaffSession(token: string | null | undefined, secret: string, now = Date.now()): Promise<StaffClaims | null> {
+  if (!token) return null;
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig) return null;
+  try {
+    const ok = await crypto.subtle.verify('HMAC', await hmacKey(staffSecret(secret)), fromB64url(sig), encoder.encode(payload));
+    if (!ok) return null;
+    const { sub, org, iat, exp, typ } = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
+    if (typ !== 'staff' || typeof sub !== 'string' || typeof org !== 'string' || typeof iat !== 'number' || typeof exp !== 'number') return null;
+    if (exp * 1000 <= now) return null;
+    return { orgId: org, employeeId: sub, issuedAt: iat };
+  } catch {
+    return null;
+  }
+}
+
+export function staffCookie(token: string, secure: boolean, maxAge = STAFF_SESSION_SECONDS): string {
+  return `${STAFF_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
+}

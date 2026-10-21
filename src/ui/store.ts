@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { Employee, GeoFence, RotaState, Shift, Site } from '../engine/types';
+import type { Employee, Entity, GeoFence, RotaState, Shift, Site } from '../engine/types';
 import type { Me } from './access/model';
 import { api } from './api';
 
@@ -126,6 +126,13 @@ export function useRotaStore() {
       setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
       return employee;
     },
+    /** Sets the first day of a company's leave year (MM-DD); every holiday balance in it moves with it. */
+    setLeaveYearStart: (entityId: string, leaveYearStart: string) =>
+      guard(async () => {
+        const entity = await api.patch<Entity>(`/v1/entities/${entityId}`, { leaveYearStart });
+        setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
+        return entity;
+      }),
     /** Writes the assistant's draft through the API: removals first, so moved shifts never clash. */
     applyDraft: (current: Shift[], draft: Shift[]) =>
       guard(async () => {

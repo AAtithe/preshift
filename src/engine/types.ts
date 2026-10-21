@@ -38,6 +38,8 @@ export interface Entity {
    * runs its own payroll, so starters, hours and pay runs are routed by it.
    */
   payrollEmployerId?: string;
+  /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
+  leaveYearStart?: string;
 }
 
 export interface Site {
@@ -60,6 +62,12 @@ export interface GeoFence {
   lat: number;
   lng: number;
   radiusMetres: number;
+}
+
+/** One break, as the person recorded it. */
+export interface BreakPeriod {
+  start: number;
+  end?: number;
 }
 
 /** A device's position when someone clocked, as the browser reported it. */
@@ -96,6 +104,19 @@ export interface RightToWork {
   expiry?: string;
 }
 
+/** Holiday position that is not derived from shifts and leave dates. All figures in hours. */
+export interface HolidayRecord {
+  /** Contractual entitlement in weeks a year, for people on fixed hours. Statutory minimum 5.6. */
+  entitlementWeeks?: number;
+  /** Untaken leave carried in from the previous leave year. */
+  carriedOverHours?: number;
+  /** Opening position when records began part way through the leave year. Accrued applies to accrual staff only. */
+  openingAccruedHours?: number;
+  openingTakenHours?: number;
+  /** Hours a leave date counts for, where it is not a normal day. */
+  dayHours?: Record<string, number>;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -122,6 +143,7 @@ export interface Employee {
   availability: Availability[];
   /** ISO dates the person is on approved leave. */
   leave: string[];
+  holiday?: HolidayRecord;
   email?: string;
   phone?: string;
   /** First day of employment. Absent means employed before records began. */
@@ -190,10 +212,12 @@ export interface TimeEntry {
   breakMinutes: number;
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
-  /** How a clock was made: a card tapped on a site reader, or a person signing in on a device. */
-  method?: 'card' | 'device';
+  /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
+  method?: 'card' | 'device' | 'phone';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
+  /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */
+  breaks?: BreakPeriod[];
   approvedBy?: string;
   approvedAt?: string;
 }

@@ -185,3 +185,18 @@ describe('access on time and payroll', () => {
     expect((await call('GET', `/v1/journal?weekStart=${WEEK}`, undefined, 'leah')).status).toBe(200);
   });
 });
+
+describe('access to staff app logins', () => {
+  it("lets a GM issue and see staff logins for their own site's people only", async () => {
+    const call = await setup();
+    // Priya manages Marylebone's team, not Shoreditch's.
+    expect((await call('POST', '/v1/staff-logins/mar-2/invite', undefined, 'priya')).status).toBe(201);
+    expect((await call('POST', '/v1/staff-logins/shd-2/invite', undefined, 'priya')).status).toBe(403);
+    expect((await call('POST', '/v1/staff-logins/shd-2/invite', undefined, 'owner')).status).toBe(201);
+    const seen = (await call('GET', '/v1/staff-logins', undefined, 'priya')).body.map((l: { employeeId: string }) => l.employeeId);
+    expect(seen).toEqual(['mar-2']);
+    expect((await call('DELETE', '/v1/staff-logins/shd-2', undefined, 'priya')).status).toBe(403);
+    // A supervisor runs shifts, not the team: no logins at all.
+    expect((await call('POST', '/v1/staff-logins/mar-2/invite', undefined, 'grace')).status).toBe(403);
+  });
+});

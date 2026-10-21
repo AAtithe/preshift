@@ -11,10 +11,10 @@ import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail'
 import { addEvent, fromWebhook, recordSent, verifyWebhook, webhookPath } from '../maillog';
 import { hashToken } from './users';
 
-const MAX_FAILURES = 5;
-const LOCK_SECONDS = 15 * 60;
+export const MAX_FAILURES = 5;
+export const LOCK_SECONDS = 15 * 60;
 const FIRST_ORG = 'demo';
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const RESET_MINUTES = 30;
 /** Links an admin hands over themselves last a working day. */
@@ -24,8 +24,8 @@ const MAX_RESETS_PER_HOUR = 3;
 /** The forgot form always takes at least this long, so its timing does not show whether an account exists. */
 const FORGOT_MIN_MS = 1200;
 
-const now = () => Math.floor(Date.now() / 1000);
-const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
+export const now = () => Math.floor(Date.now() / 1000);
+export const normalise = (email: unknown) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
 
 /**
  * An account is how a person signs in: their email, password hash and lockout. What they may do
@@ -52,7 +52,7 @@ export async function issueReset(store: Store, user: UserRecord, seconds: number
   return token;
 }
 
-function secure(req: FastifyRequest) {
+export function secure(req: FastifyRequest) {
   return req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 }
 

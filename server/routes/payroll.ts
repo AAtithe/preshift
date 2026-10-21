@@ -196,18 +196,22 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { payrollEmployerId?: string | null; payeReference?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { payrollEmployerId?: string | null; payeReference?: string; leaveYearStart?: string } }>(
     '/v1/entities/:id',
     {
       ...write,
       schema: {
         tags: ['Payroll'],
-        description: "Sets a company's PAYE reference and the TeamPay employer its PAYE scheme is set up as.",
+        description: "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, and its leave year start (MM-DD).",
         params: idParam,
         body: {
           type: 'object',
           additionalProperties: false,
-          properties: { payrollEmployerId: { type: ['string', 'null'] }, payeReference: { type: 'string' } },
+          properties: {
+            payrollEmployerId: { type: ['string', 'null'] },
+            payeReference: { type: 'string' },
+            leaveYearStart: { type: 'string', pattern: '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' },
+          },
         },
       },
     },
@@ -236,6 +240,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         entity.payrollEmployerId = next;
       }
       if (req.body.payeReference !== undefined) entity.payeReference = req.body.payeReference;
+      if (req.body.leaveYearStart !== undefined) entity.leaveYearStart = req.body.leaveYearStart;
       audit(org, actorName(g), 'entity.updated', { id: entity.id, fields: Object.keys(req.body) });
       return entity;
     },

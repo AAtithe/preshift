@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { employeeWeekCost } from '../engine/cost';
 import { isEmployedOn, reviewEmployee } from '../engine/employees';
+import { holidayBalance, STATUTORY_WEEKS } from '../engine/holiday';
 import { formatMinute, parseClock } from '../engine/time';
-import type { Availability, Employee, RotaState } from '../engine/types';
+import type { Availability, Employee, HolidayRecord, RotaState } from '../engine/types';
 import { money } from './format';
 
 interface Props {
@@ -36,6 +37,15 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
   const dropped = shifts.filter((s) => !isEmployedOn(draft, s.date)).length;
   const homeEntity = state.sites.find((x) => x.id === draft.siteId)?.entityId;
   const siteName = (id: string) => state.sites.find((x) => x.id === id)?.name ?? id;
+  const holiday = draft.holiday ?? {};
+  const setHoliday = (patch: Partial<HolidayRecord>) => set('holiday', { ...holiday, ...patch });
+  const leaveYearStart = state.entities.find((x) => x.id === draft.entityId)?.leaveYearStart;
+  // The editor has the rota only; the Holiday tab also counts clocked time.
+  const balance = useMemo(
+    () => holidayBalance(draft, state.shifts.filter((s) => s.date <= today), today, leaveYearStart),
+    [draft, state.shifts, today, leaveYearStart],
+  );
+  const numberOrUndefined = (v: string) => (v === '' ? undefined : Number(v));
 
   function toggleRole(roleId: string) {
     const has = draft.roleIds.includes(roleId);
@@ -293,6 +303,49 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
           </>
         )}
 
+        <h3 className="section">Holiday</h3>
+        <div className="cost-box holiday-box">
+          <div>
+            <div className="muted small">Remaining this leave year</div>
+            <div className={`big${balance.remainingHours < 0 ? ' bad-text' : ''}`}>{balance.remainingHours.toFixed(1)}h</div>
+          </div>
+          <div className="muted small">
+            {balance.year.start} to {balance.year.end}.{' '}
+            {balance.basis === 'fixed'
+              ? `${balance.entitlementHours.toFixed(1)}h entitlement`
+              : `${balance.accruedHours.toFixed(1)}h accrued at 12.07% of hours worked`}
+            {balance.carriedOverHours > 0 && `, ${balance.carriedOverHours.toFixed(1)}h carried over`}
+            , {balance.takenHours.toFixed(1)}h taken, {balance.bookedHours.toFixed(1)}h booked. A normal day counts as {balance.dayHours.toFixed(1)}h.
+          </div>
+        </div>
+        <div className="form">
+          {balance.basis === 'fixed' ? (
+            <label>
+              Entitlement (weeks a year, statutory {STATUTORY_WEEKS})
+              <input
+                type="number"
+                min={STATUTORY_WEEKS}
+                step={0.2}
+                value={holiday.entitlementWeeks ?? STATUTORY_WEEKS}
+                onChange={(e) => setHoliday({ entitlementWeeks: Math.max(STATUTORY_WEEKS, Number(e.target.value)) })}
+              />
+            </label>
+          ) : (
+            <label>
+              Accrued before records began (hours)
+              <input type="number" min={0} step={0.5} value={holiday.openingAccruedHours ?? ''} onChange={(e) => setHoliday({ openingAccruedHours: numberOrUndefined(e.target.value) })} />
+            </label>
+          )}
+          <label>
+            Taken before records began (hours)
+            <input type="number" min={0} step={0.5} value={holiday.openingTakenHours ?? ''} onChange={(e) => setHoliday({ openingTakenHours: numberOrUndefined(e.target.value) })} />
+          </label>
+          <label>
+            Carried over from last year (hours)
+            <input type="number" min={0} step={0.5} value={holiday.carriedOverHours ?? ''} onChange={(e) => setHoliday({ carriedOverHours: numberOrUndefined(e.target.value) })} />
+          </label>
+        </div>
+
         <h3 className="section">Approved leave</h3>
         <div className="leave-add">
           <input type="date" value={leaveDay} onChange={(e) => setLeaveDay(e.target.value)} />
@@ -303,15 +356,30 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
             {draft.leave.map((d) => (
               <span key={d} className="leave-chip">
                 {d}
+                <input
+                  type="number"
+                  className="day-hours"
+                  min={0}
+                  max={24}
+                  step={0.5}
+                  value={holiday.dayHours?.[d] ?? balance.dayHours}
+                  aria-label={`Hours of leave on ${d}`}
+                  onChange={(e) => {
+                    const { [d]: _old, ...rest } = holiday.dayHours ?? {};
+                    const v = Number(e.target.value);
+                    setHoliday({ dayHours: v === balance.dayHours ? rest : { ...rest, [d]: v } });
+                  }}
+                />
+                h
                 <button className="link" aria-label={`Remove ${d}`} onClick={() => set('leave', draft.leave.filter((x) => x !== d))}>Remove</button>
               </span>
             ))}
           </div>
         )}
 
-        {checks.length > 0 && (
+        {checks.length + balance.checks.length > 0 && (
           <ul className="issues">
-            {checks.map((c) => <li key={c.code} className={c.severity}>{c.message}</li>)}
+            {[...checks, ...balance.checks].map((c) => <li key={c.code} className={c.severity}>{c.message}</li>)}
           </ul>
         )}
 

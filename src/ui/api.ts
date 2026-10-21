@@ -47,7 +47,11 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
+    headers: {
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      // Development only, and only once someone has chosen a demo person: that person's key.
+      ...(DEV_KEY ? { authorization: `Bearer ${DEV_KEY}` } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {

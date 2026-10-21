@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
+import { breakShortfalls } from '../engine/breaks';
 import { addDays } from '../engine/time';
 import type { PayrollVariance, RosterVsActual } from '../engine/timesheet';
 import type { RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
+import { BreakShortfalls } from './BreakShortfalls';
 import { hours, money, money2, pct } from './format';
 import { NOT_YOURS, type Allow } from './permissions';
 
@@ -97,6 +99,8 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged }
   const name = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
   const count = (s: TimeEntry['status']) => entries.filter((e) => e.status === s).length;
   const unapproved = count('open') + count('submitted');
+  const shortBreaks = breakShortfalls(entries, state.employees);
+  const shortWaiting = shortBreaks.filter((b) => entries.find((t) => t.id === b.entryId)?.status === 'submitted').length;
   // Each company is its own PAYE scheme: its latest batch and pay run this week, newest first from the API.
   const only = state.entities.length === 1 ? state.entities[0].id : undefined;
   const companyOf = (x: { entityId?: string }) => x.entityId ?? only;
@@ -135,8 +139,9 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged }
         </Step>
         <Step n={3} title="Manager approval" done={entries.length > 0 && unapproved === 0}>
           <div>{count('approved')} approved, {unapproved} waiting</div>
+          {shortBreaks.length > 0 && <div className="warn-text">{shortBreaks.length} below the legal break minimum</div>}
           <button disabled={busy || !approves || count('submitted') === 0} title={approves ? 'Your own hours are left for someone else to approve' : NOT_YOURS} onClick={() => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }))}>
-            Approve all
+            {shortWaiting ? `Approve all (${shortWaiting} short of break)` : 'Approve all'}
           </button>
         </Step>
         <Step n={4} title="Hours to TeamPay" done={allSent}>
@@ -187,6 +192,13 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged }
         {status && status.outbox.pending > 0 && ` ${status.outbox.pending} change(s) on their way.`}
       </p>
       {message && <div className="notice">{message}</div>}
+      <BreakShortfalls
+        shortfalls={shortBreaks}
+        entries={entries}
+        name={name}
+        busy={busy}
+        onCorrect={(id, breakMinutes) => void step('Correct break', () => api.patch(`/v1/time-entries/${id}`, { breakMinutes }))}
+      />
       {missingEmployer.length > 0 && (
         <div className="notice error">
           <strong>Each company runs its own PAYE scheme, so each needs its own TeamPay employer.</strong> Nothing is sent
@@ -317,13 +329,14 @@ const WORDS: Record<string, string> = {
   approved: 'approved',
   ownSkipped: 'your own, left for someone else to approve',
   stillOpen: 'still clocked in',
+  belowBreakMinimum: 'below the legal break minimum',
   created: 'created',
   queued: 'queued',
 };
 
 function summarise(res: object) {
   return Object.entries(res)
-    .filter(([k, v]) => typeof v === 'number' && !(k === 'ownSkipped' && v === 0))
+    .filter(([k, v]) => typeof v === 'number' && !((k === 'ownSkipped' || k === 'belowBreakMinimum') && v === 0))
     .map(([k, v]) => `${v} ${WORDS[k] ?? k}`)
     .join(', ');
 }
