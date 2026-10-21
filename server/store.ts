@@ -150,6 +150,8 @@ export interface Store extends UserStore, StaffStore {
   load(orgId: string): Promise<OrgData>;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
+  /** Removes the organisation's data for good. Used only to clear away expired demo sandboxes. */
+  deleteOrg(orgId: string): Promise<void>;
 }
 
 const newSecret = () => randomBytes(32).toString('hex');
@@ -210,6 +212,10 @@ export class MemoryStore implements Store {
 
   async orgIds() {
     return [...this.orgs.keys()];
+  }
+
+  async deleteOrg(orgId: string) {
+    this.orgs.delete(orgId);
   }
 
   async sessionSecret() {
@@ -405,6 +411,11 @@ export class PgStore implements Store {
     await this.init();
     const rows = await this.query('select org_id from preshift.orgs', []);
     return rows.map((r) => String(r.org_id));
+  }
+
+  async deleteOrg(orgId: string) {
+    await this.init();
+    await this.query('delete from preshift.orgs where org_id = $1', [orgId]);
   }
 
   private secretCache: string | null = null;

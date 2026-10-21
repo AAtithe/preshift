@@ -276,7 +276,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
         </nav>
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {me && (
+          {me && !me.demo && (
             <>
               <span className="small">Signed in as {me.email}</span>
               <a className="link" href="/auth/logout">Sign out</a>
@@ -332,6 +332,20 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
 
         <div className="shell">
           <div className="main">
+            {me?.demo && (
+              <div className="notice demo-banner">
+                <span>
+                  <strong>Live demo.</strong> This is your own copy of a sample group of three London sites, so change anything:
+                  build the week, edit shifts, add people, run payroll against the TeamPay simulator, post the accrual. Nobody
+                  else sees it, and it is deleted after a day.
+                </span>
+                <span className="demo-actions">
+                  <a className="link" href="/demo?fresh=1">Start again</a>
+                  <a className="button primary" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>
+                </span>
+              </div>
+            )}
+
             {error && (
               <div className="notice error">
                 {error} <button className="link" onClick={() => setError(null)}>Dismiss</button>

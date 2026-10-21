@@ -33,6 +33,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 | Staff app | Staff clock in and out on their own phones at `/staff/`, record their breaks, and see their own published shifts and hours. Breaks are not location checked (they only lower paid time); recorded breaks set the entry's unpaid minutes at clock-out, the phone shows the legal minimum for the shift, and a card tap during a break ends the break. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
+| Break check | Finished shifts with less rest break than the Working Time Regulations give (20 minutes in one block over 6 hours of work; 30 over 4.5 hours for under 18s) are flagged on the Payroll tab before approval, as too short or split. A manager can enter a break that was taken but not recorded; nothing is changed automatically, and approval is never blocked but is recorded against the flagged shifts. | `src/engine/breaks.ts`, `src/ui/BreakShortfalls.tsx` |
 | Drag to move and resize | Drag a shift to another person or day, or drag either edge to change the hours in 15 minute steps. Labour cost, labour %, compliance flags and every chart recalculate live while you drag, and a readout beside the pointer shows the change to the week. Drops on approved leave or outside stated availability are refused with the reason, and resizes stop at the edge of availability (the shift editor remains the place for an agreed exception). On a tablet, press and hold a shift to lift it, so a swipe still scrolls; the edge grips work straight away. The grid scrolls when a shift is held near its edge. A first-use hint explains the gestures. Escape cancels, Undo reverses, and Alt with the arrow keys does the same from the keyboard. | `src/ui/RotaGrid.tsx`, `src/ui/drag.ts` |
 | Service timeline | The default rota view. Each day is drawn over its own forecast sales curve, with shifts as bars grouped front of house, bar and back of house, and a strip under each day reading hours short or over against demand. Bars drag along the day, by their ends, or up and down to another day, with the same live costing and leave and availability rules as the person grid, which stays one click away. | `src/ui/Timeline.tsx`, `src/ui/useShiftDrag.ts` |
 | Add a shift | On the timeline, drag across empty space on a day to draw a shift, click or tap for a four hour block, or click a red short hour to fill that gap with the role that is shortest. A picker asks who should work it: the site's team ranked trained and clear first, then cheapest, where cost is what the shift adds to that person's loaded week (nothing for guaranteed hours, more for anyone over the NI threshold). Leave, availability, double booking and other blocks are shown with the reason. Hovering a name previews them across the whole page, including the P&L. | `src/ui/assign.ts`, `src/ui/AssignPanel.tsx` |
@@ -48,7 +49,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (175 across 15 files)
+npm test         # engine, UI rules and API tests (187 across 17 files)
 npm run build    # typecheck and production build
 ```
 
@@ -91,6 +92,31 @@ one site, so they appear once a single site is selected. On the Payroll tab: set
 TeamPay, simulate clocking, approve, send hours, run payroll. Set the `TEAMPAY_*` variables to
 connect to real TeamPay and `PRESHIFT_DATABASE_URL` for Postgres; see `docs/API.md`, which also
 covers the Vercel deployment.
+
+## Public demo for prospects
+
+A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
+an account. The marketing site's "Try the live demo" button opens `/demo`, which gives the visitor
+their own private copy of the demo group and signs them in as its admin. Everything works as it
+does for a customer: build from forecast, edit shifts, compliance, people, clock in, payroll
+against the TeamPay simulator, the Close journals and the API docs.
+
+- Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
+  Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
+- Guard rails. Accounts, passwords and resets, the Claude key, email settings and owner setup
+  cannot be changed. Staff app logins work inside the sandbox. Payroll
+  always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
+  are deleted after 24 hours (on the daily cron and as new visitors arrive).
+- Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
+  sandbox. Put a monthly spend limit on that key in the Claude Console.
+- Where it runs. A separate Vercel project from the same repository, with its own Neon database
+  (`PRESHIFT_DATABASE_URL`), never the database that holds customer data. Without a database the
+  demo still works on one instance but sandboxes do not survive a cold start. Set `CRON_SECRET` for
+  the daily clean-up.
+- Linking from the live system. Set `PRESHIFT_DEMO_URL` on the live deployment (for example
+  `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
+
+Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 
 ## Deployment (Vercel)
 
