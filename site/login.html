@@ -38,6 +38,7 @@
       .msg.bad { background: var(--bad-bg); color: var(--bad); }
       .msg.ok { background: var(--good-bg); }
       .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+      .foot.intro { margin: -6px 0 16px; }
       [hidden] { display: none; }
     </style>
   </head>
@@ -50,25 +51,56 @@
           <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
         </div>
       </div>
-      <h1>Sign in</h1>
       <p class="msg bad" id="invalid" role="alert" hidden>That email and password do not match. Check both and try again.</p>
-      <p class="msg bad" id="setup" role="alert" hidden>Sign-in is not set up on this deployment yet. Ask your administrator to add users.</p>
+      <p class="msg bad" id="locked" role="alert" hidden>Too many attempts. Sign-in for this account is paused for 15 minutes, or ask an admin to reset your password.</p>
+      <p class="msg bad" id="taken" role="alert" hidden>The owner account has already been created. Sign in instead.</p>
+      <p class="msg bad" id="email" role="alert" hidden>Enter a valid email address.</p>
+      <p class="msg bad" id="weak" role="alert" hidden>Use a password of at least 12 characters.</p>
+      <p class="msg bad" id="mismatch" role="alert" hidden>The two passwords do not match.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
-      <form method="post" action="/api/auth/login">
-        <input type="hidden" name="next" id="next" value="/app/" />
-        <label>Email <input type="email" name="email" autocomplete="username" required autofocus /></label>
-        <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
-        <button type="submit">Sign in</button>
-      </form>
-      <p class="foot">Access is set up by your Williams, Stanley &amp; Co. or Preshift contact.</p>
+
+      <section id="signin">
+        <h1>Sign in</h1>
+        <form method="post" action="/auth/login">
+          <input type="hidden" name="next" value="/app/" />
+          <label>Email <input type="email" name="email" autocomplete="username" required autofocus /></label>
+          <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+          <button type="submit">Sign in</button>
+        </form>
+        <p class="foot">Access is set up by an admin in your organisation, under Settings in the app.</p>
+      </section>
+
+      <section id="setup" hidden>
+        <h1>Create the owner account</h1>
+        <p class="foot intro">This is the first sign-in on this system. The account you create here becomes the owner, and can add everyone else from Settings.</p>
+        <form method="post" action="/auth/setup">
+          <input type="hidden" name="next" value="/app/" />
+          <label>Your email <input type="email" name="email" autocomplete="username" required /></label>
+          <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Create owner account</button>
+        </form>
+      </section>
     </main>
     <script>
       const params = new URLSearchParams(location.search);
       const next = params.get('next');
-      if (next && next.startsWith('/') && !next.startsWith('//')) document.getElementById('next').value = next;
-      for (const id of ['invalid', 'setup', 'signedout']) {
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
+      }
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'signedout']) {
         if (params.get('error') === id || params.has(id)) document.getElementById(id).hidden = false;
       }
+      // On a fresh system there is nobody to sign in as yet, so offer the owner set-up instead.
+      fetch('/auth/status')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((status) => {
+          if (!status?.setupNeeded) return;
+          document.getElementById('signin').hidden = true;
+          document.getElementById('setup').hidden = false;
+          document.querySelector('#setup input[name=email]').focus();
+        })
+        .catch(() => {});
     </script>
   </body>
 </html>

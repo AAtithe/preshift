@@ -12,8 +12,7 @@
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite",
     "start": "tsx server/index.ts",
-    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
-    "hash-password": "tsx scripts/hash-password.js"
+    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
