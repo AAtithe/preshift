@@ -57,15 +57,21 @@ These are decisions for the founders, with the trade-offs.
 
 ## Roadmap
 
-Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal.
+Phase 1, done: engine, costing, compliance, forecast build, accrual journal.
+
+Phase 1b, done: the actuals loop. Geofenced clocking against the rota, the cut call on live
+trading pace, rota-to-payroll variance by cause with manager approval, the labour flash on closed
+days, Working Time checks on clocked hours, and the accrual built from clocked hours. Engine and
+UI only; the clock-ins and sales are simulated in the demo.
 
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
-- Staff mobile app: see rota, swap shifts, set availability, request leave, clock in.
-- Time and attendance with geofenced clocking, so actual hours replace rostered hours in the
-  accrual and the rota-to-actual variance is reported daily.
-- Live sales feed from Preshift Reports so labour % updates through the day.
-- Payroll exports for the payrolls WS clients run.
+- Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
+  device's location against the clocking rules already in the engine.
+- Live sales feed from Preshift Reports into the hourly actuals, so the cut call and labour %
+  run on real trading through the day.
+- Payroll exports for the payrolls WS clients run, carrying approved clocked hours only.
+- Salaried minimum wage test on clocked hours for each pay reference period.
 
 Phase 3:
 - Forecasting model trained on each site's actuals, weather and local events.

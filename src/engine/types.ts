@@ -20,6 +20,15 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** Where staff must be to clock in. */
+  location?: GeoPoint;
+  /** Clock-in radius around `location`, in metres. */
+  geofenceMetres?: number;
+}
+
+export interface GeoPoint {
+  lat: number;
+  lng: number;
 }
 
 export type PayBasis = 'hourly' | 'salaried';
@@ -89,6 +98,37 @@ export interface DemandRule {
   maximum: number;
 }
 
+/**
+ * What actually happened: one clock-in to clock-out. Times use the same
+ * minutes-from-midnight convention as shifts, on the date the person clocked in.
+ */
+export interface ClockRecord {
+  id: string;
+  employeeId: string;
+  siteId: string;
+  roleId: string;
+  /** The rostered shift this clocking is against; absent when the person was not on the rota. */
+  shiftId?: string;
+  date: string;
+  clockIn: number;
+  /** Absent while the person is still on shift. */
+  clockOut?: number;
+  /** Unpaid break actually taken, in minutes. */
+  breakMinutes: number;
+  /** A manager has reviewed the difference to the rota and signed it off for payroll. */
+  approved?: boolean;
+  source: 'geofence' | 'manager';
+}
+
+/** Net sales and covers actually taken in one trading hour. */
+export interface HourActual {
+  siteId: string;
+  date: string;
+  hour: number;
+  sales: number;
+  covers: number;
+}
+
 export interface RotaState {
   sites: Site[];
   roles: Role[];
@@ -96,4 +136,6 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  clocks: ClockRecord[];
+  actuals: HourActual[];
 }

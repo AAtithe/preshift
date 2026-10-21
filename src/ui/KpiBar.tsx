@@ -34,7 +34,7 @@ export function KpiBar({ metrics, issues }: { metrics: WeekMetrics; issues: Issu
   );
 }
 
-function Kpi({ label, value, hint, tone = '' }: { label: string; value: string; hint: string; tone?: string }) {
+export function Kpi({ label, value, hint, tone = '' }: { label: string; value: string; hint: string; tone?: string }) {
   return (
     <div className={`kpi ${tone}`}>
       <div className="kpi-label">{label}</div>

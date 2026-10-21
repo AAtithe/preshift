@@ -3,29 +3,35 @@ import { autoSchedule, type UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
 import { addDays, toISODate, weekDates, weekStart } from '../engine/time';
+import { DEMO_MINUTE } from '../engine/simulate';
 import type { Shift } from '../engine/types';
+import { ActualsView } from './ActualsView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
+import { LiveView } from './LiveView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'today' | 'actuals' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
   { id: 'demand', label: 'Demand' },
   { id: 'team', label: 'Team' },
+  { id: 'today', label: 'Today' },
+  { id: 'actuals', label: 'Actuals' },
   { id: 'close', label: 'Close' },
 ];
 
 export function App() {
   const [state, dispatch] = useRotaStore();
   const [siteId, setSiteId] = useState(state.sites[0].id);
-  const [week, setWeek] = useState(weekStart(toISODate(new Date())));
+  const today = toISODate(new Date());
+  const [week, setWeek] = useState(weekStart(today));
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
@@ -119,7 +125,9 @@ export function App() {
         )}
         {tab === 'demand' && <DemandView state={state} siteId={siteId} dates={dates} />}
         {tab === 'team' && <TeamView state={state} siteId={siteId} metrics={metrics} issues={issues} />}
-        {tab === 'close' && <CloseView state={state} week={week} />}
+        {tab === 'today' && <LiveView state={state} siteId={siteId} today={today} initialMinute={DEMO_MINUTE} dispatch={dispatch} />}
+        {tab === 'actuals' && <ActualsView state={state} siteId={siteId} week={week} asOf={today} dispatch={dispatch} />}
+        {tab === 'close' && <CloseView state={state} week={week} asOf={today} />}
       </main>
 
       <footer className="foot">

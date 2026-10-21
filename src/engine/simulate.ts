@@ -1,0 +1,113 @@
+import type { ClockRecord, HourActual, RotaState } from './types';
+import { autoSchedule } from './autoschedule';
+import { addDays, toISODate, weekStart } from './time';
+import { seedState } from './seed';
+
+/** Small deterministic generator so the demo week looks the same on every load. */
+function random(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface TradeUntil {
+  date: string;
+  minute: number;
+}
+
+/**
+ * Plays the rota forward into clockings and sales, with the habits that open
+ * the gap between rota and payroll on a real floor: early clock-ins, closers
+ * running over, skipped breaks, the odd no-show and an unrostered shift.
+ * Trading stops at `until`; anyone still on shift then is left clocked in.
+ */
+export function simulateTrading(state: RotaState, until: TradeUntil, seed = 15, slowToday = 0.68): RotaState {
+  const rnd = random(seed);
+  const between = (lo: number, hi: number) => Math.round(lo + rnd() * (hi - lo));
+  const traded = (date: string, minute: number) => date < until.date || (date === until.date && minute <= until.minute);
+  const clocks: ClockRecord[] = [];
+
+  const shifts = state.shifts
+    .filter((s) => traded(s.date, s.startMinute))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute || a.employeeId.localeCompare(b.employeeId));
+  for (const shift of shifts) {
+    if (rnd() < 0.02) continue; // no-show
+    const site = state.sites.find((s) => s.id === shift.siteId)!;
+    const r = rnd();
+    const clockIn = shift.startMinute + (r < 0.45 ? -between(3, 10) : r < 0.6 ? between(2, 20) : 0);
+    const closer = shift.endMinute >= site.closeMinute;
+    const o = rnd();
+    const clockOut =
+      shift.endMinute +
+      (o < (closer ? 0.6 : 0.25) ? between(5, closer ? 45 : 25) : o > 0.96 ? -between(30, 90) : 0);
+    const breakMinutes = shift.breakMinutes > 0 && rnd() < 0.2 ? 0 : shift.breakMinutes;
+    const open = shift.date === until.date && clockOut > until.minute;
+    clocks.push({
+      id: `c-${shift.id}`,
+      employeeId: shift.employeeId,
+      siteId: shift.siteId,
+      roleId: shift.roleId,
+      shiftId: shift.id,
+      date: shift.date,
+      clockIn,
+      clockOut: open ? undefined : clockOut,
+      breakMinutes: open ? 0 : breakMinutes,
+      approved: !open && rnd() < 0.3,
+      source: 'geofence',
+    });
+  }
+
+  // Someone covers a busy Friday evening without being on the rota.
+  for (const site of state.sites) {
+    const friday = addDays(weekStart(addDays(until.date, -7)), 4);
+    const busy = new Set(state.shifts.filter((s) => s.date === friday).map((s) => s.employeeId));
+    const spare = state.employees.find((e) => e.siteId === site.id && e.payBasis === 'hourly' && !busy.has(e.id) && !e.leave.includes(friday));
+    if (spare && traded(friday, 22 * 60)) {
+      clocks.push({
+        id: `c-extra-${site.id}`,
+        employeeId: spare.id,
+        siteId: site.id,
+        roleId: spare.roleIds[0],
+        date: friday,
+        clockIn: 18 * 60,
+        clockOut: 22 * 60,
+        breakMinutes: 0,
+        source: 'manager',
+      });
+    }
+  }
+
+  // Trade lands around forecast, with today running quiet so there is a call to make.
+  const dayFactor = new Map<string, number>();
+  const actuals: HourActual[] = [];
+  for (const f of state.forecast) {
+    if (!traded(f.date, (f.hour + 1) * 60)) continue;
+    const key = `${f.siteId}|${f.date}`;
+    if (!dayFactor.has(key)) dayFactor.set(key, f.date === until.date ? slowToday : 0.88 + rnd() * 0.24);
+    const factor = dayFactor.get(key)! * (0.9 + rnd() * 0.2);
+    const sales = Math.round(f.sales * factor);
+    actuals.push({ siteId: f.siteId, date: f.date, hour: f.hour, sales, covers: Math.round(f.covers * factor) });
+  }
+
+  return { ...state, clocks, actuals };
+}
+
+/** Where the demo's trading day has got to. */
+export const DEMO_MINUTE = 18 * 60;
+
+/** The demo: last week and this week built from forecast, traded up to `minute` today. */
+export function seedDemo(today = toISODate(new Date()), minute = DEMO_MINUTE): RotaState {
+  let state = seedState(today);
+  const thisWeek = weekStart(today);
+  for (const week of [addDays(thisWeek, -7), thisWeek]) {
+    for (const site of state.sites) {
+      state = { ...state, shifts: autoSchedule(state, site.id, week).shifts.map((s) => ({ ...s, published: true })) };
+    }
+  }
+  return simulateTrading(state, { date: today, minute });
+}

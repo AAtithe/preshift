@@ -1,4 +1,5 @@
-import type { RotaState } from './types';
+import type { RotaState, Shift } from './types';
+import { blendedShifts } from './actuals';
 import { weekCost } from './cost';
 import { addDays } from './time';
 
@@ -41,12 +42,36 @@ export function rotaJournal(
   weekStartDate: string,
   accounts: JournalAccounts = DEFAULT_ACCOUNTS,
 ): JournalLine[] {
+  return labourJournal(state, state.shifts, weekStartDate, 'Preshift labour accrual', accounts);
+}
+
+/**
+ * The same accrual built from clocked hours for the days that have traded and
+ * the rota for any that have not. Once the week is closed this is what payroll
+ * will pay, so the payroll posting should land on it to within pennies.
+ */
+export function actualsJournal(
+  state: RotaState,
+  weekStartDate: string,
+  asOf: string,
+  accounts: JournalAccounts = DEFAULT_ACCOUNTS,
+): JournalLine[] {
+  return labourJournal(state, blendedShifts(state, asOf), weekStartDate, 'Preshift labour accrual (clocked)', accounts);
+}
+
+function labourJournal(
+  state: RotaState,
+  shifts: Shift[],
+  weekStartDate: string,
+  label: string,
+  accounts: JournalAccounts,
+): JournalLine[] {
   const date = addDays(weekStartDate, 6);
-  const narration = `Preshift labour accrual w/e ${date}`;
+  const narration = `${label} w/e ${date}`;
   const lines: JournalLine[] = [];
 
   for (const site of state.sites) {
-    const cost = weekCost(state, weekStartDate, site.id);
+    const cost = weekCost({ employees: state.employees, shifts }, weekStartDate, site.id);
     const byAccount = new Map<string, { description: string; amount: number }>();
     const add = (code: string, description: string, amount: number) => {
       const cur = byAccount.get(code) ?? { description, amount: 0 };
@@ -54,7 +79,7 @@ export function rotaJournal(
       byAccount.set(code, cur);
     };
 
-    for (const shift of state.shifts) {
+    for (const shift of shifts) {
       const sc = cost.shifts.get(shift.id);
       if (!sc) continue;
       const role = state.roles.find((r) => r.id === shift.roleId);
@@ -67,7 +92,7 @@ export function rotaJournal(
     // Paid but not rostered: post to their primary role.
     for (const employee of state.employees) {
       const ec = cost.employees.get(employee.id);
-      if (!ec || state.shifts.some((s) => s.employeeId === employee.id && cost.shifts.has(s.id))) continue;
+      if (!ec || shifts.some((s) => s.employeeId === employee.id && cost.shifts.has(s.id))) continue;
       const role = state.roles.find((r) => r.id === employee.roleIds[0]);
       if (!role) continue;
       add(role.nominalCode, `Wages - ${role.name}`, ec.gross);

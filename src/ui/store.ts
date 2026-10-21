@@ -1,6 +1,6 @@
 import { useEffect, useReducer } from 'react';
-import type { RotaState, Shift } from '../engine/types';
-import { seedState } from '../engine/seed';
+import type { ClockRecord, RotaState, Shift } from '../engine/types';
+import { seedDemo } from '../engine/simulate';
 import { weekDates } from '../engine/time';
 
 export type Action =
@@ -9,9 +9,14 @@ export type Action =
   | { type: 'setShifts'; shifts: Shift[] }
   | { type: 'clearWeek'; siteId: string; weekStart: string }
   | { type: 'publishWeek'; siteId: string; weekStart: string }
+  | { type: 'applyCut'; shiftId: string; endMinute: number; breakMinutes: number }
+  | { type: 'clockIn'; clock: ClockRecord }
+  | { type: 'clockOut'; clock: ClockRecord }
+  | { type: 'approveClocks'; ids: string[] }
   | { type: 'reset' };
 
-const KEY = 'preshift.rota.v1';
+// v2 adds clockings and sales actuals; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v2';
 
 function load(): RotaState {
   try {
@@ -20,7 +25,7 @@ function load(): RotaState {
   } catch {
     // Storage blocked or corrupt: fall back to the demo data.
   }
-  return seedState();
+  return seedDemo();
 }
 
 function inWeek(shift: Shift, siteId: string, weekStart: string) {
@@ -48,8 +53,24 @@ function reducer(state: RotaState, action: Action): RotaState {
         ...state,
         shifts: state.shifts.map((s) => (inWeek(s, action.siteId, action.weekStart) ? { ...s, published: true } : s)),
       };
+    case 'applyCut':
+      // A live change to a published rota: it stays published, the person is told on the floor.
+      return {
+        ...state,
+        shifts: state.shifts.map((s) =>
+          s.id === action.shiftId ? { ...s, endMinute: action.endMinute, breakMinutes: action.breakMinutes } : s,
+        ),
+      };
+    case 'clockIn':
+      return { ...state, clocks: [...state.clocks, action.clock] };
+    case 'clockOut':
+      return { ...state, clocks: state.clocks.map((c) => (c.id === action.clock.id ? action.clock : c)) };
+    case 'approveClocks': {
+      const ids = new Set(action.ids);
+      return { ...state, clocks: state.clocks.map((c) => (ids.has(c.id) ? { ...c, approved: true } : c)) };
+    }
     case 'reset':
-      return seedState();
+      return seedDemo();
   }
 }
 
