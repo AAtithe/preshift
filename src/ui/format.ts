@@ -22,3 +22,8 @@ export function download(filename: string, content: string, type = 'text/csv') {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** One CSV row, quoting cells that hold a comma, quote or line break. */
+export function csvLine(cells: (string | number)[]) {
+  return cells.map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v))).join(',');
+}

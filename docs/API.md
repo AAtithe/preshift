@@ -31,7 +31,7 @@ People in the web app authenticate with the session cookie from signing in; acco
 in the app under Settings (see the README). A signed-in person works across their own organisation,
 and only admins can manage people (`/v1/users`) and settings (`/v1/settings`); integration keys never
 can. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, or `*`. A GM key can build rotas and approve
+`time:write`, `time:approve`, `payroll:write`, `hr:read`, `hr:write`, or `*`. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -41,6 +41,7 @@ confined to its key's organisation.
 | --- | --- |
 | Reference | `GET /v1/sites`, `/v1/roles`, `/v1/demand-rules` |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
+| HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, type, from, to}`. Cases are returned to signed-in admins only, never to members. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |

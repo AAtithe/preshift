@@ -1,6 +1,7 @@
 import type { Employee, RotaState, Shift } from './types';
 import { shiftPaidMinutes } from './cost';
 import { isEmployedOn } from './employees';
+import { isAbsentOn } from './hr';
 import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
@@ -94,6 +95,9 @@ export function checkEmployeeWeek(
     }
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
+    }
+    if (isAbsentOn(employee, shift.date)) {
+      push({ ...base, code: 'absent', severity: 'block', message: 'Recorded as absent that day. Re-cover the shift.' });
     }
     if (!isAvailable(employee, shift)) {
       push({ ...base, code: 'availability', severity: 'warn', message: 'Outside stated availability.' });
