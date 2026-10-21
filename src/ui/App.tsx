@@ -11,6 +11,7 @@ import { DemandView } from './DemandView';
 import { GroupView } from './GroupView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel } from './format';
+import { HolidayView } from './HolidayView';
 import { KpiBar } from './KpiBar';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
@@ -23,7 +24,7 @@ import { TeamView } from './TeamView';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'payroll' | 'close' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'settings';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
@@ -43,6 +44,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     items: [
       { id: 'team', label: 'Team' },
       { id: 'people', label: 'People', siteOnly: true },
+      { id: 'holiday', label: 'Holiday' },
     ],
   },
   {
@@ -271,6 +273,15 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
               today={today}
               onEdit={setEditingPerson}
               onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
+            />
+          )}
+          {activeTab === 'holiday' && (
+            <HolidayView
+              state={state}
+              siteIds={siteIds}
+              today={today}
+              onEdit={setEditingPerson}
+              onSetLeaveYear={actions.setLeaveYearStart}
             />
           )}
           {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}

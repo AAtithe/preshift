@@ -318,3 +318,7 @@ button.link.danger { color: var(--bad); }
 .nowrap { white-space: nowrap; }
 .employer-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .employer-row span { min-width: 220px; }
+.leave-years { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.check-inline { display: inline-flex; gap: 6px; align-items: center; }
+.leave-chip .day-hours { width: 56px; padding: 1px 4px; font-size: 12px; }
+.holiday-box { margin-top: 8px; }
