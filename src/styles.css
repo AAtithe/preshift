@@ -731,3 +731,4 @@ button.link.danger { color: var(--bad); }
 .asked { margin: 8px 0 0; padding: 8px 8px 8px 28px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: var(--radius); }
 .refine { display: flex; gap: 8px; margin-top: 12px; }
 .refine input { flex: 1; min-width: 0; }
+.settings-sub { margin: 14px 0 4px; font-size: 13px; }

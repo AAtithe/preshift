@@ -2,14 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { LondonNow } from '../engine/rotaWeek';
 import type { RotaState } from '../engine/types';
 import { formatMinute } from '../engine/time';
+import { usageCostUsd } from './pricing';
 import { executeRotaTool, ROTA_TOOLS, type RotaDraft } from './rotaTools';
 
 export const ROTA_MODEL = 'claude-opus-5-5';
 const MAX_TURNS = 40;
 
-// Claude Opus 5.5 list prices per million tokens, for the running cost shown to the manager.
-// Approximate: a request a fallback model finishes is billed at that model's rates.
-const PRICE_PER_MTOK = { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 };
 
 const SYSTEM_PROMPT = `You write weekly rotas for UK hospitality sites on behalf of the general manager.
 
@@ -68,20 +66,13 @@ export class RotaAgentError extends Error {}
 const noUsage = (): RotaUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 });
 
 function addUsage(total: RotaUsage, u: Anthropic.Beta.BetaUsage): RotaUsage {
-  const next = {
+  return {
     inputTokens: total.inputTokens + (u.input_tokens ?? 0),
     outputTokens: total.outputTokens + (u.output_tokens ?? 0),
     cacheReadTokens: total.cacheReadTokens + (u.cache_read_input_tokens ?? 0),
     cacheWriteTokens: total.cacheWriteTokens + (u.cache_creation_input_tokens ?? 0),
-    costUsd: 0,
+    costUsd: total.costUsd + usageCostUsd(u),
   };
-  next.costUsd =
-    (next.inputTokens * PRICE_PER_MTOK.input +
-      next.outputTokens * PRICE_PER_MTOK.output +
-      next.cacheWriteTokens * PRICE_PER_MTOK.cacheWrite +
-      next.cacheReadTokens * PRICE_PER_MTOK.cacheRead) /
-    1_000_000;
-  return next;
 }
 
 /**
@@ -185,6 +176,10 @@ export function describeAgentError(err: unknown): string {
   if (err instanceof Anthropic.APIUserAbortError) return 'Stopped.';
   if (err instanceof Anthropic.AuthenticationError && JSON.stringify(err.error).includes('session_expired')) {
     return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
+  }
+  if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('spend_limit')) {
+    const body = err.error as { error?: { message?: string } } | undefined;
+    return body?.error?.message ?? 'The rota assistant has reached its spending limit.';
   }
   if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('not_configured')) {
     return 'The assistant is not set up yet. An admin needs to add the Claude API key under Settings.';

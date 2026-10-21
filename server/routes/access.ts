@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { getLimits, setLimits, spend } from '../assistantLimits';
 import { requireAdmin, sessionUser } from '../auth';
 import { HttpError, notFound } from '../context';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
@@ -248,7 +249,27 @@ export function accessRoutes(app: FastifyInstance, store: Store) {
 
   app.get('/v1/settings', admin, async (req) => {
     const key = await store.getSetting(claudeKeySetting(orgId(req)));
-    return { claudeApiKey: key ? { set: true, endsWith: key.slice(-4) } : { set: false }, email: await emailView(req) };
+    return {
+      claudeApiKey: key ? { set: true, endsWith: key.slice(-4) } : { set: false },
+      claudeLimits: await getLimits(store, orgId(req)),
+      claudeSpend: await spend(store, orgId(req), req.principal.user?.email ?? null),
+      email: await emailView(req),
+    };
+  });
+
+  app.put<{ Body: { monthlyUsd?: number; dailyPerPersonUsd?: number } }>('/v1/settings/claude-limits', admin, async (req) => {
+    const current = await getLimits(store, orgId(req));
+    const pick = (v: unknown, fallback: number) => (v === undefined ? fallback : Number(v));
+    const next = {
+      monthlyUsd: pick(req.body?.monthlyUsd, current.monthlyUsd),
+      dailyPerPersonUsd: pick(req.body?.dailyPerPersonUsd, current.dailyPerPersonUsd),
+    };
+    for (const v of Object.values(next)) {
+      if (!Number.isFinite(v) || v < 0 || v > 100_000) throw new HttpError(400, 'invalid_limit', 'Limits are dollar amounts between 0 and 100,000.');
+    }
+    await setLimits(store, orgId(req), next);
+    audit(req.org!, actor(req), 'settings.claude_limits_set', next);
+    return { claudeLimits: next };
   });
 
   // Saving without a key keeps the one already saved, so the address can change without re-entering it.

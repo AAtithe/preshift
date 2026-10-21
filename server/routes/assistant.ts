@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { usageCostUsd, type TokenUsage } from '../../src/ai/pricing';
+import { overLimit, recordSpend } from '../assistantLimits';
 import { sessionUser } from '../auth';
 import type { Store } from '../store';
 import { claudeKeySetting } from './access';
@@ -18,6 +20,9 @@ export function assistantRoutes(app: FastifyInstance, store: Store) {
     if (!user) return reply.code(401).send(error('session_expired', 'Sign in to use the rota assistant.'));
     const apiKey = await store.getSetting(claudeKeySetting(user.orgId));
     if (!apiKey) return reply.code(403).send(error('not_configured', 'An admin needs to add the Claude API key in Settings.'));
+    // 403 rather than 429, so the client does not retry a limit that will not lift for hours.
+    const limited = await overLimit(store, user.orgId, user.email);
+    if (limited) return reply.code(403).send(error('spend_limit', limited));
 
     const params = (req.body ?? {}) as { model?: string; max_tokens?: number; stream?: boolean };
     if (params.model !== MODEL || !(Number(params.max_tokens) <= MAX_TOKENS) || params.stream) {
@@ -35,9 +40,15 @@ export function assistantRoutes(app: FastifyInstance, store: Store) {
       headers,
       body: (req as unknown as { rawBody: string }).rawBody,
     });
-    return reply
-      .code(upstream.status)
-      .header('content-type', upstream.headers.get('content-type') ?? 'application/json')
-      .send(await upstream.text());
+    const text = await upstream.text();
+    if (upstream.ok) {
+      try {
+        const usage = (JSON.parse(text) as { usage?: TokenUsage }).usage;
+        if (usage) await recordSpend(store, user.orgId, user.email, usageCostUsd(usage));
+      } catch {
+        // An unreadable body still goes back to the client; it just is not metered.
+      }
+    }
+    return reply.code(upstream.status).header('content-type', upstream.headers.get('content-type') ?? 'application/json').send(text);
   });
 }
