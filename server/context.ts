@@ -15,6 +15,10 @@ export interface AppContext {
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
+  /** Outbound HTTP for postcode lookups and TfL journey times. Replaced in tests. */
+  fetch: typeof fetch;
+  /** Optional TfL app key; the journey planner works without one at low volume. */
+  tflAppKey?: string;
 }
 
 declare module 'fastify' {

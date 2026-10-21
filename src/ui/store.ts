@@ -154,6 +154,31 @@ export function useRotaStore() {
         await refreshShifts();
       }
     },
+    /** Sets where a site is from its postcode; journeys to and from it are looked up again on refresh. */
+    setSiteLocation: (siteId: string, postcode: string) =>
+      guard(async () => {
+        await api.put<Site>(`/v1/sites/${siteId}/location`, { postcode });
+        const sites = await api.get<Site[]>('/v1/sites');
+        setState((s) => s && { ...s, sites });
+        return sites;
+      }),
+    /** Plans journeys between every pair of sites with TfL, keeping times set by hand. */
+    refreshTravel: () =>
+      guard(async () => {
+        const res = await api.post<{ sites: Site[]; fromTfl: number; estimated: number; failures: string[] }>('/v1/sites/travel/refresh');
+        setState((s) => s && { ...s, sites: res.sites });
+        return res;
+      }),
+    /** Sets a journey time between two sites by hand, both ways, or clears it when minutes is null. */
+    setTravel: (siteId: string, toId: string, minutes: number | null) =>
+      guard(async () => {
+        const sites =
+          minutes === null
+            ? await api.del<Site[]>(`/v1/sites/${siteId}/travel/${toId}`)
+            : await api.put<Site[]>(`/v1/sites/${siteId}/travel/${toId}`, { minutes });
+        setState((s) => s && { ...s, sites });
+        return sites;
+      }),
     /** Replaces a person's personnel file details. */
     saveHrProfile: (employeeId: string, profile: HrProfile) =>
       guard(async () => {
