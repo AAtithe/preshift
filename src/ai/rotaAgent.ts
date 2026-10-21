@@ -130,7 +130,7 @@ export function describeAgentError(err: unknown): string {
   if (err instanceof RotaAgentError) return err.message;
   if (err instanceof Anthropic.APIUserAbortError) return 'Stopped.';
   if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-    return 'The assistant is not connected. Set ANTHROPIC_API_KEY in .env.local and restart the dev server.';
+    return 'The assistant is not connected. Set ANTHROPIC_API_KEY in .env.local for local use, or in the Vercel project settings for the live site.';
   }
   if (err instanceof Anthropic.RateLimitError) return 'The assistant is busy. Wait a minute and try again.';
   if (err instanceof Anthropic.APIConnectionError) return 'Could not reach the assistant. Check the connection and that the dev server is running.';

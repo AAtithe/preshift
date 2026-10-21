@@ -38,7 +38,11 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 The browser never sees the key: it calls `/api/anthropic` on the dev or preview server, which adds the
 key and forwards to the Claude API (`vite.config.ts`). When the app moves to its own backend, that proxy
-moves with it. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
+moves with it. On Vercel the same route is served by `api/anthropic/v1/messages.js`; set
+`ANTHROPIC_API_KEY` in the Vercel project's environment variables to switch the assistant on. That
+function only forwards the assistant's own requests (one model, capped output), but until the app has
+logins anyone who can open /app can spend against the key, so put a monthly spend limit on it in the
+Claude Console. The assistant uses Claude Opus 5.5 with the server-side refusal fallback enabled.
 
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
 forecasts. Press "Build from forecast" to generate the week. Data is held in the browser only.
