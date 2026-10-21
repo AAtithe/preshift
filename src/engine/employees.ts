@@ -114,11 +114,14 @@ export function reviewEmployee(
   return checks;
 }
 
-export function newEmployee(siteId: string, roleId: string, today: string): Employee {
+/** A blank starter at a site, employed by that site's company unless changed. */
+export function newEmployee(siteId: string, entityId: string, roleId: string, today: string): Employee {
   return {
     id: `e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     name: '',
     siteId,
+    entityId,
+    coverSiteIds: [],
     roleIds: [roleId],
     payBasis: 'hourly',
     hourlyRate: UK_RATES_2026_27.minimumWage[0].hourly,

@@ -3,7 +3,7 @@ import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { signHmac, TeamPayProvider } from './integrations/payroll/teampay';
 import { PayrollError } from './integrations/payroll/provider';
-import { MemoryStore } from './store';
+import { MemoryStore, upgradeState } from './store';
 
 const WEEK = '2026-10-19';
 const KEYS = [
@@ -124,8 +124,11 @@ describe('rota to TeamPay, end to end', () => {
     // Accrual journal now uses approved actuals.
     const journal = await call('GET', `/v1/journal?weekStart=${WEEK}`);
     expect(journal.body.basis).toBe('actual');
-    const csv = await call('GET', `/v1/journal?weekStart=${WEEK}&format=xero-csv`);
+    // A Xero file is one company's books, so the group has to ask per company.
+    expect((await call('GET', `/v1/journal?weekStart=${WEEK}&format=xero-csv`)).status).toBe(400);
+    const csv = await call('GET', `/v1/journal?weekStart=${WEEK}&format=xero-csv&entityId=wdl`);
     expect(csv.body).toContain('*AccountCode');
+    expect(journal.body.lines.every((l: { entityId: string }) => ['wdl', 'eck'].includes(l.entityId))).toBe(true);
   });
 
   it('survives a TeamPay outage and delivers in order once it recovers', async () => {
@@ -199,5 +202,53 @@ describe('TeamPay client', () => {
     status = 422;
     await expect(tp.getPayRun('r1')).rejects.toBeInstanceOf(PayrollError);
     await expect(tp.getPayRun('r1')).rejects.toMatchObject({ retryable: false });
+  });
+});
+
+describe('multi-site and multi-entity', () => {
+  it('serves the group, builds several sites in one call and publishes them together', async () => {
+    const { call } = await setup();
+    const entities = (await call('GET', '/v1/entities')).body;
+    expect(entities.map((e: { id: string }) => e.id)).toEqual(['wdl', 'eck']);
+    const build = await call('POST', '/v1/rota/build', { siteIds: ['mar', 'fitz', 'shd'], weekStart: WEEK });
+    expect(build.status).toBe(200);
+    const shifts = (await call('GET', `/v1/shifts?from=${WEEK}&to=2026-10-25`)).body as { siteId: string; published?: boolean }[];
+    expect(new Set(shifts.map((s) => s.siteId))).toEqual(new Set(['mar', 'fitz', 'shd']));
+    expect((await call('POST', '/v1/rota/build', { weekStart: WEEK })).status).toBe(400);
+    expect((await call('POST', '/v1/rota/build', { siteIds: ['mar', 'nowhere'], weekStart: WEEK })).status).toBe(404);
+    expect((await call('POST', '/v1/rota/publish', { siteIds: ['mar', 'fitz'], weekStart: WEEK })).status).toBe(200);
+    const after = (await call('GET', `/v1/shifts?from=${WEEK}&to=2026-10-25`)).body as { siteId: string; published?: boolean }[];
+    expect(after.filter((s) => s.siteId !== 'shd').every((s) => s.published)).toBe(true);
+    expect(after.filter((s) => s.siteId === 'shd').some((s) => s.published)).toBe(false);
+  });
+
+  it('journals per company with the allowance, and checks employers on starters', async () => {
+    const { call } = await setup();
+    await call('POST', '/v1/rota/build', { siteIds: ['mar', 'fitz', 'shd'], weekStart: WEEK });
+    const journal = (await call('GET', `/v1/journal?weekStart=${WEEK}`)).body;
+    expect(journal.employmentAllowance).toMatchObject({ entityId: 'wdl', available: 1850 });
+    expect(journal.lines.some((l: { description: string }) => l.description === 'Employment Allowance')).toBe(true);
+    const eck = (await call('GET', `/v1/journal?weekStart=${WEEK}&entityId=eck`)).body;
+    expect(eck.lines.every((l: { entityId: string }) => l.entityId === 'eck')).toBe(true);
+    expect((await call('GET', `/v1/journal?weekStart=${WEEK}&entityId=ghost`)).status).toBe(404);
+
+    const starter = { name: 'Cover Bar', siteId: 'shd', roleIds: ['bar'], payBasis: 'hourly', hourlyRate: 13, dateOfBirth: '1999-01-01' };
+    const made = await call('POST', '/v1/employees', starter);
+    expect(made.body).toMatchObject({ entityId: 'eck', coverSiteIds: [] });
+    expect((await call('POST', '/v1/employees', { ...starter, entityId: 'ghost' })).status).toBe(404);
+    expect((await call('PATCH', `/v1/employees/${made.body.id}`, { coverSiteIds: ['nowhere'] })).status).toBe(404);
+  });
+
+  it('upgrades data saved before entities existed to one company, without changing its costs', () => {
+    const legacy = {
+      sites: [{ id: 'a', name: 'A', labourTargetPct: 0.3, trackingCode: 'A', openMinute: 600, closeMinute: 1380 }],
+      employees: [{ id: 'e1', siteId: 'a' }],
+      roles: [], shifts: [], forecast: [], demandRules: [],
+    } as unknown as Parameters<typeof upgradeState>[0];
+    const up = upgradeState(legacy);
+    expect(up.entities).toHaveLength(1);
+    expect(up.sites[0].entityId).toBe(up.entities[0].id);
+    expect(up.employees[0]).toMatchObject({ entityId: up.entities[0].id, coverSiteIds: [] });
+    expect(up.entities[0].employmentAllowance).toBeUndefined();
   });
 });

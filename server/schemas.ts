@@ -15,6 +15,17 @@ export const rangeQuery = {
   properties: { siteId: { type: 'string' }, from: isoDate, to: isoDate },
 } as const;
 
+/** One site (`siteId`) or several (`siteIds`) for a week, so a group can be built or published in one call. */
+export const sitesWeekBody = {
+  type: 'object',
+  required: ['weekStart'],
+  properties: {
+    siteId: { type: 'string' },
+    siteIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 500 },
+    weekStart: isoDate,
+  },
+} as const;
+
 export const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } as const;
 
 export const shiftBody = {
@@ -39,6 +50,8 @@ export const employeeBody = {
   properties: {
     name: { type: 'string', minLength: 1 },
     siteId: { type: 'string' },
+    entityId: { type: 'string', description: 'Employing company. Defaults to the company of their home site.' },
+    coverSiteIds: { type: 'array', items: { type: 'string' }, description: 'Other sites they will cover.' },
     roleIds: { type: 'array', items: { type: 'string' }, minItems: 1 },
     payBasis: { type: 'string', enum: ['hourly', 'salaried'] },
     hourlyRate: { type: 'number', minimum: 0 },
