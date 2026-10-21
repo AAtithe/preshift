@@ -1,7 +1,8 @@
 // Builds one Vercel deployment (Build Output API v3):
 //   /            marketing site (site/)
 //   /app         the rota web app
-//   /v1, /docs   the Preshift API as a Node function
+//   /v1, /docs   the Preshift API as a Node function, which also serves the
+//                rota assistant's Claude route at /api/anthropic
 import { execSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { build } from 'esbuild';
@@ -28,7 +29,8 @@ await build({
 writeFileSync(`${fn}/package.json`, JSON.stringify({ type: 'commonjs' }));
 writeFileSync(
   `${fn}/.vc-config.json`,
-  JSON.stringify({ runtime: 'nodejs20.x', handler: 'index.js', launcherType: 'Nodejs', shouldAddHelpers: false }, null, 2),
+    // The rota assistant runs a multi-turn Claude loop through this function, so allow long requests.
+  JSON.stringify({ runtime: 'nodejs20.x', handler: 'index.js', launcherType: 'Nodejs', shouldAddHelpers: false, maxDuration: 300 }, null, 2),
 );
 
 writeFileSync(
@@ -37,7 +39,7 @@ writeFileSync(
     {
       version: 3,
       routes: [
-        { src: '^/(v1/.*|docs|docs/json|health|internal/dispatch)$', dest: '/api' },
+        { src: '^/(v1/.*|docs|docs/json|health|internal/dispatch|api/anthropic/.*)$', dest: '/api' },
         { handle: 'filesystem' },
         { src: '^/app(/.*)?$', dest: '/app/index.html' },
       ],

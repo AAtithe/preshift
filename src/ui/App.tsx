@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekMetrics } from '../engine/metrics';
@@ -13,6 +13,9 @@ import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
 import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
+
+// Loaded on first use so the Claude SDK stays out of the main bundle.
+const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
 type Tab = 'rota' | 'demand' | 'team' | 'payroll' | 'close';
 
@@ -45,6 +48,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [tab, setTab] = useState<Tab>('rota');
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const site = state.sites.find((s) => s.id === siteId)!;
   const metrics = useMemo(() => weekMetrics(state, siteId, week), [state, siteId, week]);
@@ -92,7 +96,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
           </button>
         ))}
         <div className="tab-actions">
-          <button onClick={runAutoBuild} className="primary">Build from forecast</button>
+          <button onClick={() => setAssistantOpen(true)} className="primary">Ask the assistant</button>
+          <button onClick={runAutoBuild}>Build from forecast</button>
           <button onClick={() => { void actions.clear(siteId, week); setUnfilled(null); }}>Clear week</button>
           <button
             disabled={blocks > 0 || weekShifts.length === 0 || published}
@@ -148,6 +153,24 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
         <span>UK rates 2026/27. Running on the Preshift API.</span>
         <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
       </footer>
+
+      {assistantOpen && (
+        <Suspense fallback={null}>
+          <AssistantPanel
+            state={state}
+            siteId={siteId}
+            week={week}
+            onApply={async (shifts) => {
+              const draft = shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
+              if (await actions.applyWeek(siteId, week, draft)) {
+                setUnfilled(null);
+                setAssistantOpen(false);
+              }
+            }}
+            onClose={() => setAssistantOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {editing && (
         <ShiftEditor

@@ -212,3 +212,12 @@ a.link { color: var(--muted); }
 @media (max-width: 900px) {
   .pipeline, .split { grid-template-columns: 1fr; }
 }
+.modal.assistant { width: min(680px, 100%); }
+.assistant textarea { width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); resize: vertical; }
+.examples { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; }
+.examples button.link { text-align: left; }
+.steps { margin: 12px 0 0; padding: 8px 8px 8px 28px; background: var(--surface-2); border-radius: var(--radius); max-height: 180px; overflow: auto; }
+.preview { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.preview-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.preview .summary { white-space: pre-wrap; margin: 12px 0 4px; }
+@media (max-width: 600px) { .preview-kpis { grid-template-columns: 1fr; } }

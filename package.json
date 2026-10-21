@@ -15,6 +15,7 @@
     "build:vercel": "node scripts/build-vercel.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0",
     "@fastify/swagger": "^8.15.0",
     "@neondatabase/serverless": "^0.10.4",
     "fastify": "^4.28.1",

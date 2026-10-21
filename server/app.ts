@@ -6,6 +6,7 @@ import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
+import { anthropicRoutes } from './routes/anthropic';
 import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
@@ -117,6 +118,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     await ctx.dispatcher.processDue();
     return { ok: true };
   });
+
+  anthropicRoutes(app, env);
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys);

@@ -78,6 +78,18 @@ export function useRotaStore() {
         await api.post('/v1/rota/clear', { siteId, weekStart });
         await refreshShifts();
       }),
+    applyWeek: (siteId: string, weekStart: string, shifts: Shift[]) =>
+      guard(async () => {
+        await api.put('/v1/rota/week', {
+          siteId,
+          weekStart,
+          shifts: shifts.map(({ id, employeeId, roleId, siteId: s, date, startMinute, endMinute, breakMinutes }) => ({
+            id, employeeId, roleId, siteId: s, date, startMinute, endMinute, breakMinutes,
+          })),
+        });
+        await refreshShifts();
+        return true;
+      }),
     publish: (siteId: string, weekStart: string) =>
       guard(async () => {
         await api.post('/v1/rota/publish', { siteId, weekStart });

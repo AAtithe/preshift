@@ -117,6 +117,40 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     return { added: result.added, unfilled: result.unfilled };
   });
 
+  // Replaces a site's week in one go: how an accepted rota assistant draft is saved.
+  app.put<{ Body: SiteWeek & { shifts: Shift[] } }>(
+    '/v1/rota/week',
+    {
+      ...write,
+      schema: {
+        tags: ['Rota'],
+        description: "Replaces every shift in the site's week with the shifts given, after validating each.",
+        body: {
+          type: 'object',
+          required: ['siteId', 'weekStart', 'shifts'],
+          properties: { ...siteWeekQuery.properties, shifts: { type: 'array', maxItems: 2000, items: shiftBody } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const { siteId, weekStart: ws } = req.body;
+      requireSite(org, siteId);
+      const dates = weekDates(ws);
+      const incoming: Shift[] = req.body.shifts.map((s) => ({ ...s, id: s.id ?? `s_${randomUUID()}`, published: false }));
+      for (const s of incoming) {
+        if (s.siteId !== siteId || !dates.includes(s.date)) {
+          throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
+        }
+        validateShift(org, s);
+      }
+      const keep = org.state.shifts.filter((s) => !(s.siteId === siteId && dates.includes(s.date)));
+      org.state.shifts = [...keep, ...incoming];
+      audit(org, req.principal.name, 'rota.replaced', { siteId, weekStart: ws, shifts: incoming.length });
+      return { shifts: incoming, issues: checkWeek(org.state, ws, siteId) };
+    },
+  );
+
   app.post<{ Body: SiteWeek }>('/v1/rota/clear', { ...write, schema: { tags: ['Rota'], body: siteWeekQuery } }, async (req) => {
     const org = orgOf(req);
     const dates = weekDates(req.body.weekStart);
