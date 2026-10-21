@@ -1,66 +1,90 @@
-import { useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { UnfilledGap } from '../engine/autoschedule';
+import type { Issue } from '../engine/compliance';
 import type { RotaState, Shift } from '../engine/types';
-import { seedState } from '../engine/seed';
-import { weekDates } from '../engine/time';
+import { api } from './api';
 
-export type Action =
-  | { type: 'upsertShift'; shift: Shift }
-  | { type: 'deleteShift'; id: string }
-  | { type: 'setShifts'; shifts: Shift[] }
-  | { type: 'clearWeek'; siteId: string; weekStart: string }
-  | { type: 'publishWeek'; siteId: string; weekStart: string }
-  | { type: 'reset' };
-
-const KEY = 'preshift.rota.v1';
-
-function load(): RotaState {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as RotaState;
-  } catch {
-    // Storage blocked or corrupt: fall back to the demo data.
-  }
-  return seedState();
-}
-
-function inWeek(shift: Shift, siteId: string, weekStart: string) {
-  return shift.siteId === siteId && weekDates(weekStart).includes(shift.date);
-}
-
-function reducer(state: RotaState, action: Action): RotaState {
-  switch (action.type) {
-    case 'upsertShift': {
-      const exists = state.shifts.some((s) => s.id === action.shift.id);
-      const shift = { ...action.shift, published: false };
-      return {
-        ...state,
-        shifts: exists ? state.shifts.map((s) => (s.id === shift.id ? shift : s)) : [...state.shifts, shift],
-      };
-    }
-    case 'deleteShift':
-      return { ...state, shifts: state.shifts.filter((s) => s.id !== action.id) };
-    case 'setShifts':
-      return { ...state, shifts: action.shifts };
-    case 'clearWeek':
-      return { ...state, shifts: state.shifts.filter((s) => !inWeek(s, action.siteId, action.weekStart)) };
-    case 'publishWeek':
-      return {
-        ...state,
-        shifts: state.shifts.map((s) => (inWeek(s, action.siteId, action.weekStart) ? { ...s, published: true } : s)),
-      };
-    case 'reset':
-      return seedState();
-  }
-}
-
+/**
+ * Loads the organisation from the API and writes every change back through it.
+ * The engine also runs in the browser on the same data, so costs and
+ * compliance update as you type, and the server re-checks on save.
+ */
 export function useRotaStore() {
-  const [state, dispatch] = useReducer(reducer, undefined, load);
-  useEffect(() => {
+  const [state, setState] = useState<RotaState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch {
-      // Non-fatal: the rota still works for this session.
+      const [sites, roles, demandRules, employees, shifts, forecast] = await Promise.all([
+        api.get<RotaState['sites']>('/v1/sites'),
+        api.get<RotaState['roles']>('/v1/roles'),
+        api.get<RotaState['demandRules']>('/v1/demand-rules'),
+        api.get<RotaState['employees']>('/v1/employees'),
+        api.get<Shift[]>('/v1/shifts'),
+        api.get<RotaState['forecast']>('/v1/forecast'),
+      ]);
+      setState({ sites, roles, demandRules, employees, shifts, forecast });
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
     }
-  }, [state]);
-  return [state, dispatch] as const;
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const refreshShifts = useCallback(async () => {
+    const shifts = await api.get<Shift[]>('/v1/shifts');
+    setState((s) => (s ? { ...s, shifts } : s));
+  }, []);
+
+  const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      setError(null);
+      return await fn();
+    } catch (e) {
+      setError((e as Error).message);
+      return undefined;
+    }
+  }, []);
+
+  const actions = {
+    reload: load,
+    refreshShifts,
+    saveShift: (shift: Shift, isNew: boolean) =>
+      guard(async () => {
+        const { id, employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = shift;
+        const body = { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes };
+        const res = isNew
+          ? await api.post<{ shift: Shift; issues: Issue[] }>('/v1/shifts', { id, ...body })
+          : await api.patch<{ shift: Shift; issues: Issue[] }>(`/v1/shifts/${id}`, body);
+        setState((s) => s && { ...s, shifts: isNew ? [...s.shifts, res.shift] : s.shifts.map((x) => (x.id === id ? res.shift : x)) });
+        return res;
+      }),
+    deleteShift: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/shifts/${id}`);
+        setState((s) => s && { ...s, shifts: s.shifts.filter((x) => x.id !== id) });
+      }),
+    build: (siteId: string, weekStart: string) =>
+      guard(async () => {
+        const res = await api.post<{ unfilled: UnfilledGap[] }>('/v1/rota/build', { siteId, weekStart });
+        await refreshShifts();
+        return res.unfilled;
+      }),
+    clear: (siteId: string, weekStart: string) =>
+      guard(async () => {
+        await api.post('/v1/rota/clear', { siteId, weekStart });
+        await refreshShifts();
+      }),
+    publish: (siteId: string, weekStart: string) =>
+      guard(async () => {
+        await api.post('/v1/rota/publish', { siteId, weekStart });
+        await refreshShifts();
+      }),
+    guard,
+  };
+
+  return { state, error, setError, actions };
 }

@@ -1,24 +1,24 @@
-import { rotaJournal, toXeroCsv } from '../engine/journal';
-import { weekCost } from '../engine/cost';
-import type { RotaState } from '../engine/types';
+import { useEffect, useState } from 'react';
+import type { JournalLine } from '../engine/journal';
+import { api } from './api';
 import { download, money2 } from './format';
 
-export function CloseView({ state, week }: { state: RotaState; week: string }) {
-  const lines = rotaJournal(state, week);
+export function CloseView({ week }: { week: string }) {
+  const [data, setData] = useState<{ basis: 'rota' | 'actual'; lines: JournalLine[] } | null>(null);
+  const [basis, setBasis] = useState<'auto' | 'rota' | 'actual'>('auto');
+
+  useEffect(() => {
+    setData(null);
+    void api.get<{ basis: 'rota' | 'actual'; lines: JournalLine[] }>(`/v1/journal?weekStart=${week}&basis=${basis}`).then(setData);
+  }, [week, basis]);
+
+  const lines = data?.lines ?? [];
   const debits = lines.filter((l) => l.amount > 0).reduce((s, l) => s + l.amount, 0);
   const credits = lines.filter((l) => l.amount < 0).reduce((s, l) => s + l.amount, 0);
 
-  function payrollCsv() {
-    const cost = weekCost(state, week);
-    const header = 'Employee,Site,Paid hours,Gross,Holiday,Employer NI,Pension,Loaded cost';
-    const rows = state.employees
-      .filter((e) => cost.employees.has(e.id))
-      .map((e) => {
-        const c = cost.employees.get(e.id)!;
-        const site = state.sites.find((s) => s.id === e.siteId)?.name ?? '';
-        return [e.name, site, c.paidHours, c.gross, c.holiday, c.employerNi, c.pension, c.total].join(',');
-      });
-    download(`preshift-hours-${week}.csv`, [header, ...rows].join('\n'));
+  async function downloadCsv() {
+    const csv = await api.get<string>(`/v1/journal?weekStart=${week}&basis=${basis}&format=xero-csv`);
+    download(`preshift-journal-${week}.csv`, csv);
   }
 
   return (
@@ -26,19 +26,26 @@ export function CloseView({ state, week }: { state: RotaState; week: string }) {
       <div className="close-intro">
         <h2>Labour accrual journal</h2>
         <p className="muted">
-          The rota is the best estimate of labour you will have before payroll runs. Post this accrual and the
-          week's P&amp;L carries true labour on day one, which is what makes a 3-day close possible. Reverse it when
-          payroll posts the actuals; the difference is your rota-to-payroll variance, and it should be small.
+          Post this at week end and the P&amp;L carries true labour on day one, which is what makes a 3-day close possible.
+          It is built from approved clocked hours once the week has them, and from the rota before that. When TeamPay
+          completes the pay run, the Payroll tab shows how far the accrual was from what payroll actually cost.
         </p>
         <div className="close-actions">
-          <button className="primary" disabled={lines.length === 0} onClick={() => download(`preshift-journal-${week}.csv`, toXeroCsv(lines))}>
+          <select value={basis} onChange={(e) => setBasis(e.target.value as typeof basis)} aria-label="Basis">
+            <option value="auto">Best available</option>
+            <option value="rota">Rota</option>
+            <option value="actual">Approved actuals</option>
+          </select>
+          <button className="primary" disabled={lines.length === 0} onClick={() => void downloadCsv()}>
             Download Xero journal
           </button>
-          <button disabled={lines.length === 0} onClick={payrollCsv}>Download hours for payroll</button>
+          {data && <span className="muted small">Basis: {data.basis === 'actual' ? 'approved actuals' : 'rota'}</span>}
         </div>
       </div>
-      {lines.length === 0 ? (
-        <p className="muted">No rostered labour this week yet.</p>
+      {!data ? (
+        <p className="muted">Loading</p>
+      ) : lines.length === 0 ? (
+        <p className="muted">No labour for this week yet.</p>
       ) : (
         <div className="grid-wrap">
           <table className="table">
