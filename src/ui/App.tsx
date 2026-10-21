@@ -14,6 +14,7 @@ import { EmployeeEditor } from './EmployeeEditor';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
+import { HowToView } from './HowToView';
 import { IntegrationsView } from './IntegrationsView';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
@@ -28,7 +29,7 @@ import { Timeline } from './Timeline';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'settings';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'integrations' | 'settings' | 'howto';
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
@@ -65,6 +66,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'settings', label: 'Settings' },
     ],
   },
+  { heading: 'Help', items: [{ id: 'howto', label: 'How to' }] },
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items);
 const ALL = '';
@@ -103,6 +105,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
   const [siteId, setSiteId] = useState(ALL);
   const [week, setWeek] = useState(weekStart(toISODate(new Date())));
   const [tab, setTab] = useState<Tab>('sites');
+  const [guide, setGuide] = useState<string | null>(null);
+  const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -297,7 +301,8 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
               <span className={`stamp ${status}`}>{statusLabel}</span>
             </div>
           </div>
-          <div className="sections">
+          {/* How to is for reading: no week actions and no P&L beside it, so the guide gets the width. */}
+          {activeTab !== 'howto' && <div className="sections">
             <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {single && <button onClick={() => setAssistantOpen(true)}>Ask the assistant</button>}
@@ -308,10 +313,10 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
                 {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
               </button>
             </div>
-          </div>
+          </div>}
         </header>
 
-        <div className="shell">
+        <div className={`shell${activeTab === 'howto' ? ' no-rail' : ''}`}>
           <div className="main">
             {error && (
               <div className="notice error">
@@ -422,19 +427,20 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
                   onSetLeaveYear={actions.setLeaveYearStart}
                 />
               )}
-              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
               {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
             <footer className="foot">
               <span>UK rates 2026/27. Running on the Preshift API.</span>
             </footer>
           </div>
-          <PnlRail
+          {activeTab !== 'howto' && <PnlRail
             state={view}
             metrics={metrics}
             issues={issues}
@@ -442,7 +448,7 @@ function Workspace({ state, error, clearError, actions }: { state: NonNullable<S
             published={published}
             blocks={blocks}
             onPublish={() => void actions.publish(siteIds, week)}
-          />
+          />}
         </div>
       </div>
 
