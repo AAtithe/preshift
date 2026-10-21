@@ -23,6 +23,9 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes}`. Outside production a `dev-key` exists. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
+| `PRESHIFT_DEMO` | `1` makes the deployment the public demo: a sandbox per visitor at `/demo`, no account changes, simulator payroll. See the README |
+| `PRESHIFT_DEMO_CLAUDE_KEY` | Demo only. Claude API key the sandboxes share for the rota assistant, capped per sandbox. Unset means the assistant is off in the demo |
+| `PRESHIFT_DEMO_URL` | Live system only. Where its `/demo` sends visitors, the demo deployment's `/demo` |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
 
 ## Authentication and tenancy

@@ -9,6 +9,7 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { accessRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
+import { demoRoutes, sweepSandboxes } from './demo';
 import { devRoutes } from './routes/dev';
 import { employeeRoutes } from './routes/employees';
 import { payrollRoutes } from './routes/payroll';
@@ -37,10 +38,13 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
+  demo?: boolean;
 }
 
-function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
-  if (env.TEAMPAY_API_KEY) {
+function payrollFromEnv(env: NodeJS.ProcessEnv, demo: boolean): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
+  // The demo never reaches real payroll, whatever keys the deployment carries.
+  if (env.TEAMPAY_API_KEY && !demo) {
     return {
       provider: new TeamPayProvider({
         baseUrl: env.TEAMPAY_BASE_URL ?? 'https://api.team-pay.co.uk/v1',
@@ -70,11 +74,12 @@ export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
 
 export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const env = options.env ?? process.env;
+  const demo = options.demo ?? env.PRESHIFT_DEMO === '1';
   const app = Fastify({ logger: options.logger ?? false });
   const store = options.store ?? storeFromEnv(env);
   const payroll = options.provider
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
-    : payrollFromEnv(env);
+    : payrollFromEnv(env, demo);
   const providerFor = () => payroll.provider;
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
@@ -134,6 +139,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     const ok = database === 'ok' || database === 'not configured';
     return reply.code(ok ? 200 : 503).send({
       ok,
+      ...(demo ? { demo: true } : {}),
       payroll: payroll.provider.name,
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
@@ -144,15 +150,28 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    if (demo) await sweepSandboxes(store);
     return { ok: true };
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store);
-  signInRoutes(app, store);
+  const appPath = '/app/';
+  if (demo) demoRoutes(app, store, { appPath });
+  else {
+    // The marketing site links to /demo; on the live system it goes to the demo deployment.
+    app.get('/demo', { schema: { hide: true } }, async (_req, reply) =>
+      reply.code(302).header('location', env.PRESHIFT_DEMO_URL || '/login').send(),
+    );
+  }
+  signInRoutes(app, store, { demo });
   staffRoutes(app, store);
-  assistantRoutes(app, store);
-  webRoutes(app, store, { loginPage: options.loginPage ?? path.resolve('site/login.html'), appDir: options.appDir, staffDir: options.staffDir });
+  assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
+  webRoutes(app, store, {
+    loginPage: options.loginPage ?? path.resolve(demo ? 'site/demo.html' : 'site/login.html'),
+    appDir: options.appDir,
+    staffDir: options.staffDir,
+  });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
     api.addHook('onRequest', async (req, reply) => {
