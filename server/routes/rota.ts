@@ -9,6 +9,7 @@ import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { travelIssues } from '../../src/engine/travel';
 
 type SiteWeek = { siteId: string; weekStart: string };
 type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
@@ -58,7 +59,7 @@ function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-  return checkEmployeeWeek(employee, ws, context);
+  return [...checkEmployeeWeek(employee, ws, context), ...travelIssues(employee, context, org.state.sites)];
 }
 
 export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
