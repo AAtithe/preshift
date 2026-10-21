@@ -11,8 +11,8 @@ export type Action =
   | { type: 'publishWeek'; siteIds: string[]; weekStart: string }
   | { type: 'reset' };
 
-// v2 added entities; older saved data has no entity links, so it is left behind for the demo.
-const KEY = 'preshift.rota.v2';
+// v2 added entities, v3 the Employment Allowance claim; older saved data is left behind for the demo.
+const KEY = 'preshift.rota.v3';
 
 function load(): RotaState {
   try {

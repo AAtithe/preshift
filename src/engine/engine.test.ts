@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { allowanceClaimant, employmentAllowanceIssues, employmentAllowanceWeek } from './allowance';
 import { autoSchedule, autoScheduleSites } from './autoschedule';
 import { checkEmployeeWeek, checkWeek, requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, weekCost } from './cost';
@@ -6,8 +7,8 @@ import { dayDemand, headcountAt } from './demand';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from './journal';
 import { scopeMetrics, weekMetrics } from './metrics';
 import { seedState } from './seed';
-import { addDays, ageOn, weekStart } from './time';
-import type { Employee, Shift } from './types';
+import { addDays, ageOn, taxYearOf, weekStart } from './time';
+import type { Employee, Entity, RotaState, Shift } from './types';
 
 const WEEK = '2026-10-19'; // a Monday
 
@@ -201,10 +202,10 @@ describe('journal', () => {
   it('posts cost to the site it was worked at, so labour per site matches the rota', () => {
     for (const site of state.sites) {
       const costLines = (l: (typeof lines)[number]) =>
-        l.trackingOption === site.trackingCode && l.amount > 0 && l.entityId === site.entityId;
+        l.trackingOption === site.trackingCode && l.amount > 0 && l.entityId === site.entityId && l.description !== 'Employment Allowance';
       expect(total(costLines)).toBeCloseTo(weekCost(filled, WEEK, site.id).total, 0);
     }
-    const debitsInSites = total((l) => l.amount > 0 && l.trackingOption !== '');
+    const debitsInSites = total((l) => l.amount > 0 && l.trackingOption !== '' && l.description !== 'Employment Allowance');
     // Each shift's cost is rounded by component, so a few pence of drift across a group's week is expected.
     expect(Math.abs(debitsInSites - weekCost(filled, WEEK).total)).toBeLessThan(1);
   });
@@ -281,5 +282,76 @@ describe('multi-site', () => {
     expect(group.targetPct).toBeLessThan(0.29);
     const wdl = scopeMetrics(next, ['mar', 'fitz'], WEEK);
     expect(wdl.sites.map((m) => m.siteId)).toEqual(['mar', 'fitz']);
+  });
+});
+
+describe('employment allowance', () => {
+  const base = seedState('2026-10-21');
+  const built = { ...base, shifts: autoScheduleSites(base, ['mar', 'fitz', 'shd'], WEEK).shifts };
+  const claiming = (state: RotaState, remaining: number, asAt: string): RotaState => ({
+    ...state,
+    entities: state.entities.map((e): Entity => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining, asAt } } : { ...e, employmentAllowance: undefined })),
+  });
+  const sum = (lines: ReturnType<typeof rotaJournal>, pred: (l: ReturnType<typeof rotaJournal>[number]) => boolean) =>
+    lines.filter(pred).reduce((s, l) => s + l.amount, 0);
+
+  it('places weeks in the right tax year', () => {
+    expect(taxYearOf('2026-04-05')).toBe('2025/26');
+    expect(taxYearOf('2026-04-06')).toBe('2026/27');
+    expect(taxYearOf('2027-01-10')).toBe('2026/27');
+  });
+
+  it('caps the week at what is left and posts it to the claimant only', () => {
+    const state = claiming(built, 500, addDays(WEEK, -1));
+    const ea = employmentAllowanceWeek(state, WEEK)!;
+    expect(ea.employerNi).toBeGreaterThan(500);
+    expect(ea.used).toBe(500);
+    expect(ea.remainingAfter).toBe(0);
+    const lines = rotaJournal(state, WEEK);
+    expect(sum(lines, (l) => l.description === 'Employment Allowance' && l.accountCode === '7006')).toBeCloseTo(-500, 2);
+    expect(lines.filter((l) => l.description === 'Employment Allowance').every((l) => l.entityId === 'wdl')).toBe(true);
+    for (const entity of state.entities) expect(Math.abs(sum(lines, (l) => l.entityId === entity.id))).toBeLessThan(0.005);
+    // Employer NI in the claimant's books falls by exactly the allowance used.
+    const gross = rotaJournal(claiming(built, 0, addDays(WEEK, -1)), WEEK);
+    const ni = (ls: typeof lines) => sum(ls, (l) => l.entityId === 'wdl' && l.accountCode === '7006');
+    expect(ni(gross) - ni(lines)).toBeCloseTo(500, 2);
+  });
+
+  it('uses only this week’s NI when plenty is left, split across the claimant’s sites', () => {
+    const state = claiming(built, 10_500, addDays(WEEK, -1));
+    const ea = employmentAllowanceWeek(state, WEEK)!;
+    expect(ea.used).toBe(ea.employerNi);
+    const lines = rotaJournal(state, WEEK).filter((l) => l.description === 'Employment Allowance' && l.accountCode === '7006');
+    expect(new Set(lines.map((l) => l.trackingOption))).toEqual(new Set(['Marylebone', 'Fitzrovia']));
+    // Every penny of the claimant's NI is cleared, not left behind by rounding.
+    const all = rotaJournal(state, WEEK);
+    expect(Math.abs(sum(all, (l) => l.entityId === 'wdl' && l.accountCode === '7006'))).toBeLessThan(0.005);
+  });
+
+  it('carries usage forward through the rota from the last payroll', () => {
+    const state = claiming(built, 10_500, addDays(WEEK, -1));
+    const thisWeek = employmentAllowanceWeek(state, WEEK)!;
+    const nextWeek = employmentAllowanceWeek(state, addDays(WEEK, 7))!;
+    expect(nextWeek.available).toBeCloseTo(10_500 - thisWeek.used, 2);
+  });
+
+  it('leaves weeks payroll has already run alone', () => {
+    const state = claiming(built, 500, addDays(WEEK, 6));
+    expect(employmentAllowanceWeek(state, WEEK)!.coveredByPayroll).toBe(true);
+    expect(rotaJournal(state, WEEK).some((l) => l.description === 'Employment Allowance')).toBe(false);
+  });
+
+  it('starts again from the full allowance in a new tax year', () => {
+    const state = claiming(built, 0, '2026-03-29');
+    const april = employmentAllowanceWeek(state, '2026-04-06')!;
+    expect(april.taxYear).toBe('2026/27');
+    expect(april.available).toBe(10_500);
+  });
+
+  it('applies one claim per group and flags a second', () => {
+    const two = { ...base, entities: base.entities.map((e) => ({ ...e, employmentAllowance: { remaining: 10_500, asAt: addDays(WEEK, -1) } })) };
+    expect(allowanceClaimant(two)!.id).toBe('wdl');
+    expect(employmentAllowanceIssues(two)[0]).toContain('one claim');
+    expect(employmentAllowanceIssues(base)).toEqual([]);
   });
 });

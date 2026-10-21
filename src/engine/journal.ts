@@ -1,4 +1,5 @@
 import type { RotaState } from './types';
+import { employmentAllowanceWeek } from './allowance';
 import { weekCost } from './cost';
 import { addDays } from './time';
 
@@ -131,12 +132,57 @@ export function rotaJournal(
     }
     lines.push(...credits);
   }
+  lines.push(...allowanceLines(state, weekStartDate, lines, accounts, date, narration));
   // Keep each entity's journal together, in the order the entities are listed.
   const order = new Map(state.entities.map((e, i) => [e.id, i]));
   return lines
     .map((l, i) => ({ l, i }))
     .sort((a, b) => (order.get(a.l.entityId) ?? 0) - (order.get(b.l.entityId) ?? 0) || a.i - b.i)
     .map(({ l }) => l);
+}
+
+/**
+ * Employment Allowance used this week, in the claiming company's books only: it
+ * is that company's relief against its own PAYE bill. It reduces employer NI
+ * and the amount payroll will owe HMRC, so Cr employer NI, Dr wages accrual.
+ * Split across the company's sites by their share of the NI it carries; a
+ * company with no sites of its own (a central employer) takes it untracked.
+ * Recharges to sister companies stay gross: the relief belongs to the claimant.
+ */
+function allowanceLines(
+  state: RotaState,
+  weekStartDate: string,
+  lines: JournalLine[],
+  accounts: JournalAccounts,
+  date: string,
+  narration: string,
+): JournalLine[] {
+  const ea = employmentAllowanceWeek(state, weekStartDate);
+  if (!ea || ea.used <= 0) return [];
+  const ni = new Map<string, number>();
+  for (const l of lines) {
+    if (l.entityId === ea.entityId && l.accountCode === accounts.employerNi && l.trackingOption) {
+      ni.set(l.trackingOption, (ni.get(l.trackingOption) ?? 0) + l.amount);
+    }
+  }
+  const totalNi = [...ni.values()].reduce((s, v) => s + v, 0);
+  const shares: [string, number][] = totalNi > 0 ? [...ni.entries()].map(([tag, v]) => [tag, v / totalNi]) : [['', 1]];
+  // When the allowance covers the whole week, clear each site's NI exactly rather than leave
+  // pennies of per-shift rounding behind; the difference to payroll's figure is a few pence.
+  const absorbsAll = totalNi > 0 && ea.used >= ea.employerNi;
+  const out: JournalLine[] = [];
+  let left = ea.used;
+  shares.forEach(([tag, share], i) => {
+    // Otherwise the last site takes the rounding, so the split adds back to the allowance exactly.
+    const amount = absorbsAll ? round2(ni.get(tag)!) : i === shares.length - 1 ? round2(left) : round2(ea.used * share);
+    left = round2(left - amount);
+    const tracking = { trackingName: tag ? 'Site' : '', trackingOption: tag };
+    out.push(
+      { entityId: ea.entityId, date, narration, description: 'Employment Allowance', accountCode: accounts.employerNi, amount: -amount, ...tracking },
+      { entityId: ea.entityId, date, narration, description: 'Employment Allowance', accountCode: accounts.wagesAccrual, amount, ...tracking },
+    );
+  });
+  return out;
 }
 
 export interface IntercompanyBalance {

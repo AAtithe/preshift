@@ -1,3 +1,4 @@
+import { employmentAllowanceIssues, employmentAllowanceWeek } from '../engine/allowance';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from '../engine/journal';
 import { weekCost } from '../engine/cost';
 import type { RotaState } from '../engine/types';
@@ -40,6 +41,8 @@ export function CloseView({ state, week, entityIds }: Props) {
   }
 
   const hasLines = ledgers.some((l) => l.lines.length > 0);
+  const ea = employmentAllowanceWeek(state, week);
+  const eaIssues = employmentAllowanceIssues(state);
 
   return (
     <div className="close">
@@ -59,6 +62,48 @@ export function CloseView({ state, week, entityIds }: Props) {
           <button disabled={!hasLines} onClick={payrollCsv}>Download hours for payroll</button>
         </div>
       </div>
+
+      {ea && entityIds.includes(ea.entityId) && (
+        <div className="grid-wrap entity-journal">
+          <div className="entity-journal-head">
+            <h3>Employment Allowance {ea.taxYear}</h3>
+            <span className="muted small">
+              Claimed by {nameOf(ea.entityId)} for the group. Used against employer NI week by week until it runs
+              out, the way payroll applies it, so the accrual reverses cleanly. Site labour % stays before the
+              allowance: it is tax relief, not site performance.
+            </span>
+          </div>
+          {ea.coveredByPayroll ? (
+            <p className="muted small ea-note">Payroll has already run for this week; its actuals carry the allowance.</p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="num">Available at start of week</th>
+                  <th className="num">Employer NI this week</th>
+                  <th className="num">Used this week</th>
+                  <th className="num">Remaining</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="num">{money2(ea.available)}</td>
+                  <td className="num">{money2(ea.employerNi)}</td>
+                  <td className="num strong">{money2(ea.used)}</td>
+                  <td className={`num ${ea.remainingAfter === 0 ? 'warn-text' : ''}`}>
+                    {ea.remainingAfter === 0 && ea.used > 0 ? 'Used up this week' : ea.remainingAfter === 0 ? 'Used up' : money2(ea.remainingAfter)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+          {eaIssues.length > 0 && (
+            <ul className="issues compact ea-note">
+              {eaIssues.map((m, i) => <li key={i} className="warn">{m}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       {ic.length > 0 && (
         <div className="grid-wrap entity-journal">

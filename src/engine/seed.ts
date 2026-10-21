@@ -147,7 +147,8 @@ function forecast(start: string): HourForecast[] {
 export function seedState(today = toISODate(new Date())): RotaState {
   const start = weekStart(today);
   return {
-    entities,
+    // West End Dining claims for the group. Payroll to last Sunday left £1,850, so it runs out this week or next.
+    entities: entities.map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
     sites,
     roles,
     employees: employees(today),

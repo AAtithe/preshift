@@ -211,3 +211,4 @@ button.link.site-link { padding: 0; color: var(--text); font-weight: 600; }
 .entity-journal h3 { margin: 0; font-size: 15px; }
 .entity-journal-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 8px; }
 @media (max-width: 720px) { .cover-list { columns: 1; } }
+.ea-note { padding: 0 8px 10px; }

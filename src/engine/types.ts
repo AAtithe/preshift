@@ -27,6 +27,12 @@ export interface Entity {
    * entity, so both sides of an intercompany recharge reconcile code for code.
    */
   intercompanyCode: string;
+  /**
+   * Set on the one company in a connected group that claims Employment
+   * Allowance. `remaining` is what the last payroll left unused, and `asAt` is
+   * the last day that payroll covered (the end of a pay week).
+   */
+  employmentAllowance?: { remaining: number; asAt: string };
 }
 
 export interface Site {
