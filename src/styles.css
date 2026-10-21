@@ -815,3 +815,5 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .form { grid-template-columns: 1fr; }
 }
 .table tr.clickable { cursor: pointer; }
+.statement tr.memo th, .statement tr.memo td { padding-top: 0; font-size: 11px; color: var(--muted); font-style: italic; }
+.statement tr.memo th { padding-left: 28px; }

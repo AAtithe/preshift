@@ -65,6 +65,12 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
             <th>Wages</th>
             <td className="tnum">{ledger(-rGross)}</td>
           </tr>
+          {metrics.cost.travel.cost >= 0.5 && (
+            <tr className="memo">
+              <th>of which paid travel between sites ({metrics.cost.travel.hours.toFixed(1)}h)</th>
+              <td className="tnum">{ledger(-Math.round(metrics.cost.travel.cost))}</td>
+            </tr>
+          )}
           <tr>
             <th>Holiday accrual</th>
             <td className="tnum">{ledger(-rHoliday)}</td>
