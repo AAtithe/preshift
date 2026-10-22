@@ -188,6 +188,11 @@ test('a supervisor sees only their sections, and the API refuses the rest', asyn
   for (const hidden of ['Sites', 'Labour cost', 'Staff', 'HR overview', 'Cases', 'Reports', 'Close', 'Access', 'GDPR']) {
     expect(shown).not.toContain(hidden);
   }
+  // Actions their roles do not include are not shown greyed out; they are not shown.
+  await go(page, 'Rota');
+  for (const action of ['Clear week', 'Build from forecast', 'Ask the assistant', 'Sign off and publish']) {
+    await expect(page.getByRole('button', { name: action })).toHaveCount(0);
+  }
   // Hiding is a courtesy; the control is the API. Ask it directly, as the supervisor.
   const status = await page.evaluate(async () => {
     const r = await fetch('/v1/users', { headers: { authorization: 'Bearer dev-usr_sup' } });

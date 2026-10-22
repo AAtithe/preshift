@@ -391,7 +391,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             )}
           </div>
           <div className="sections">
-            {section.plans && !needsSite && !notHere && <div className="section-actions">
+            {section.plans && canEdit && !needsSite && !notHere && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
               <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
