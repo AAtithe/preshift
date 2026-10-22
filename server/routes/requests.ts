@@ -503,10 +503,12 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
 
   app.get('/v1/staff/notifications', { schema: hidden }, async (req) => {
     const { org, employee } = await signedIn(req);
+    // Newest first. Two written in the same millisecond keep the order they were written in, newest first too.
     return (org.notifications ?? [])
-      .filter((n) => n.employeeId === employee.id)
-      .sort((a, b) => b.at.localeCompare(a.at))
-      .map(({ id, kind, at, title, body, read }) => ({ id, kind, at, title, body, read: Boolean(read) }));
+      .map((n, i) => ({ n, i }))
+      .filter(({ n }) => n.employeeId === employee.id)
+      .sort((a, b) => b.n.at.localeCompare(a.n.at) || b.i - a.i)
+      .map(({ n: { id, kind, at, title, body, read } }) => ({ id, kind, at, title, body, read: Boolean(read) }));
   });
 
   app.post<{ Body: { ids?: string[] } | null }>(
