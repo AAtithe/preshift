@@ -211,6 +211,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/api-keys': false,
   'POST /v1/api-keys': false,
   'DELETE /v1/api-keys/:id': false,
+  'GET /v1/api-keys/:id/calls': false,
   'GET /v1/webhooks/events': false,
   'GET /v1/webhooks': false,
   'POST /v1/webhooks': false,

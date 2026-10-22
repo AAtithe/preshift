@@ -10,7 +10,25 @@ import { checkWebhookUrl, deliverWebhooks, isHrEvent, MAX_ENDPOINTS, newWebhookS
 const MAX_KEYS = 25;
 
 /** What anyone sees about a key after it is made: never the key or its hash. */
-const keyView = (k: ApiKeyRecord) => ({ id: k.id, name: k.name, scopes: k.scopes, endsWith: k.endsWith, createdAt: k.createdAt, createdBy: k.createdBy, lastUsedAt: k.lastUsedAt ?? null });
+const keyView = (k: ApiKeyRecord) => ({
+  id: k.id,
+  name: k.name,
+  scopes: k.scopes,
+  endsWith: k.endsWith,
+  createdAt: k.createdAt,
+  createdBy: k.createdBy,
+  lastUsedAt: k.lastUsedAt ?? null,
+  revokedAt: k.revokedAt ?? null,
+  revokedBy: k.revokedBy ?? null,
+});
+
+const MAX_CALLS = 1000;
+const csvCell = (v: unknown) => {
+  const t = v === undefined || v === null ? '' : String(v);
+  // A leading = + - or @ would run as a formula when the file is opened in a spreadsheet.
+  const safe = /^[=+\-@]/.test(t) ? `'${t}` : t;
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
 
 /** What anyone sees about an endpoint after it is made: never the secret. */
 const endpointView = (e: WebhookEndpoint) => ({ id: e.id, url: e.url, events: e.events, description: e.description ?? '', active: e.active, createdAt: e.createdAt, createdBy: e.createdBy });
@@ -132,7 +150,7 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
     const name = req.body?.name?.trim() ?? '';
     if (!name || name.length > 80) throw new HttpError(400, 'invalid_name', 'Name the key after the system that will use it, for example "Tevalis EPOS".');
     const scopes = checkScopes(req.body?.scopes, g, store.todayISO());
-    const existing = await store.listApiKeys(req.principal.orgId);
+    const existing = (await store.listApiKeys(req.principal.orgId)).filter((k) => !k.revokedAt);
     if (existing.length >= MAX_KEYS) throw new HttpError(409, 'too_many_keys', `An organisation can have ${MAX_KEYS} keys. Revoke one you no longer use.`);
     const key = `${KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
     const record: ApiKeyRecord = {
@@ -152,12 +170,48 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
     return reply.code(201).send({ ...keyView(record), key });
   });
 
+  // Revoking keeps the key's record, so any later attempt to use it is refused and logged against it.
   app.delete<{ Params: { id: string } }>('/v1/api-keys/:id', hidden, async (req, reply) => {
-    keyManager(ctx, req);
-    if (!(await store.deleteApiKey(req.principal.orgId, req.params.id))) throw notFound(`API key ${req.params.id}`);
-    audit(orgOf(req), actor(req), 'access.api_key_revoked', { id: req.params.id });
+    const g = keyManager(ctx, req);
+    if (!(await store.revokeApiKey(req.principal.orgId, req.params.id, actorName(g)))) throw notFound(`API key ${req.params.id}`);
+    audit(orgOf(req), actorName(g), 'access.api_key_revoked', { id: req.params.id });
     return reply.code(204).send();
   });
+
+  // Every call a key made, newest first: for checking a partner's use and for breach investigation.
+  // Works for revoked keys and for deployment keys (env:<name>). Downloading the log is itself audited.
+  app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string; limit?: number; format?: 'json' | 'csv' } }>(
+    '/v1/api-keys/:id/calls',
+    {
+      schema: {
+        hide: true,
+        querystring: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', format: 'date-time' },
+            to: { type: 'string', format: 'date-time' },
+            limit: { type: 'integer', minimum: 1, maximum: MAX_CALLS, default: 200 },
+            format: { type: 'string', enum: ['json', 'csv'], default: 'json' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const g = keyManager(ctx, req);
+      const orgId = req.principal.orgId;
+      const { id } = req.params;
+      if (!id.startsWith('env:') && !(await store.listApiKeys(orgId)).some((k) => k.id === id)) throw notFound(`API key ${id}`);
+      const calls = await store.listApiCalls(orgId, id, { from: req.query.from, to: req.query.to, limit: req.query.limit ?? 200 });
+      if (req.query.format !== 'csv') return { keyId: id, calls: calls.map(({ orgId: _o, keyId: _k, ...c }) => c) };
+      audit(orgOf(req), actorName(g), 'access.api_calls_exported', { id, count: calls.length, from: req.query.from, to: req.query.to });
+      req.orgChanged = true;
+      const rows = [['at', 'method', 'path', 'status', 'refused', 'ip', 'ms'], ...calls.map((c) => [c.at, c.method, c.path, c.status, c.refused, c.ip, c.ms])];
+      return reply
+        .header('content-type', 'text/csv; charset=utf-8')
+        .header('content-disposition', `attachment; filename="api-calls-${id.replace(/[^\w-]/g, '_')}.csv"`)
+        .send(rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n');
+    },
+  );
 
   app.get('/v1/webhooks/events', { schema: { tags: ['Webhooks'], description: "Every event a webhook endpoint can subscribe to, with what its data holds. HR events are never part of '*' and need hr:read to subscribe." } }, async () =>
     Object.entries(WEBHOOK_EVENTS).map(([type, description]) => ({ type, description, hr: isHrEvent(type) })),
