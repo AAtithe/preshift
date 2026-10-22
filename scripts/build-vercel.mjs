@@ -1,8 +1,9 @@
 // Builds the Vercel deployment with the Build Output API (.vercel/output):
 //   /         marketing site (site/)
 //   /v1, /docs, /health   Preshift API as one bundled Node function, which also serves:
+//   /mcp                  the MCP connector for Claude and other MCP clients (server/mcp.ts)
 //   /login, /auth/*       sign-in, first-run owner setup and sign-out
-//   /demo                 the public demo's sandbox per visitor (PRESHIFT_DEMO=1), else a redirect
+//   /demo, /demo/start    the public demo's start page and a sandbox per visitor (PRESHIFT_DEMO=1)
 //   /app/                 the rota web app (Vite build), only to signed-in people
 //   /staff/               the staff app for clocking on their own phones (public page, own sign-in)
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
@@ -70,16 +71,19 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/dispatch|internal/webhooks|login|demo|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|internal/(?:dispatch|webhooks|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },
       ],
       // Safety nets (need CRON_SECRET): payroll changes TeamPay has not confirmed, daily; webhook
-      // retries every 15 minutes, which needs a Vercel plan that runs cron jobs more than daily.
+      // retries every 15 minutes, which needs a Vercel plan that runs cron jobs more than daily;
+      // the demo's midnight reset, 23:05 UTC in summer and 00:05 UTC in winter (00:05 UK time).
       crons: [
         { path: '/internal/dispatch', schedule: '0 6 * * *' },
         { path: '/internal/webhooks', schedule: '*/15 * * * *' },
+        { path: '/internal/demo-reset?run=summer', schedule: '5 23 * * *' },
+        { path: '/internal/demo-reset?run=winter', schedule: '5 0 * * *' },
       ],
     },
     null,

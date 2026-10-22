@@ -453,6 +453,8 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<{ people: PastedPerson[]; errors: string[]; warnings: string[] } | null>(null);
   const [results, setResults] = useState<Result[]>([]);
+  // Rates a person pastes in are proposals: they wait for the finance director like any pay change.
+  const [awaitingPay, setAwaitingPay] = useState(0);
   const [busy, setBusy] = useState(false);
   const today = toISODate(new Date());
   const site = state.sites.find((s) => s.id === siteId);
@@ -468,13 +470,15 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
     if (!parsed || !site) return;
     setBusy(true);
     const done: Result[] = [];
+    let awaiting = 0;
     // One at a time through the starter route, so each person is set up in payroll exactly as from People.
     for (const { person } of parsed.people) {
       const base = newEmployee(site.id, site.entityId, person.roleIds[0], today);
       const { id: _id, startDate: _start, ...rest } = { ...base, ...person };
       const body: Partial<Employee> = { ...rest, ...(person.startDate ? { startDate: person.startDate } : {}) };
       try {
-        await api.post('/v1/employees', body);
+        const saved = await api.post<Employee>('/v1/employees', body);
+        if (saved.pendingPay) awaiting++;
         done.push({ name: person.name, ok: true });
       } catch (e) {
         done.push({ name: person.name, ok: false, message: problem(e) });
@@ -482,6 +486,7 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
       setResults([...done]);
     }
     await onAdded();
+    setAwaitingPay(awaiting);
     setBusy(false);
     if (done.every((r) => r.ok)) {
       setText('');
@@ -572,6 +577,12 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
             </ul>
           )}
         </>
+      )}
+      {awaitingPay > 0 && (
+        <p className="notice">
+          {awaitingPay} {awaitingPay === 1 ? 'rate is' : 'rates are'} waiting for the finance director under Pay approvals. Until approved,
+          those people are on nought and cannot be costed or paid.
+        </p>
       )}
     </>
   );

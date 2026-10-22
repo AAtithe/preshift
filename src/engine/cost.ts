@@ -83,6 +83,15 @@ export function employeeWeekCost(
     employee.payBasis === 'salaried'
       ? (employee.annualSalary / 52) * share
       : Math.max(workedHours * employee.hourlyRate + travelPay, employee.contractedHours * share * employee.hourlyRate);
+  return { employeeId: employee.id, paidHours: round2(paidHours), travelHours: round2(travelHours), ...weekOnCosts(employee, gross, rates) };
+}
+
+/**
+ * Holiday, employer NI and pension on a week's gross pay, worked on the whole week as HMRC and
+ * the pension band do. Shared by the cost engine and anything that prices pay it did not build,
+ * such as the payroll simulator pricing the hours lines it is sent.
+ */
+export function weekOnCosts(employee: Employee, gross: number, rates: UkRates = UK_RATES_2026_27) {
   // Salaried pay already includes paid holiday; hourly staff accrue it on top.
   const holiday = employee.payBasis === 'hourly' ? gross * rates.holidayAccrualRate : 0;
   const earnings = gross + holiday;
@@ -92,9 +101,6 @@ export function employeeWeekCost(
       rates.employerPensionRate
     : 0;
   return {
-    employeeId: employee.id,
-    paidHours: round2(paidHours),
-    travelHours: round2(travelHours),
     gross: round2(gross),
     holiday: round2(holiday),
     employerNi: round2(employerNi),

@@ -1,5 +1,6 @@
 import type { Entity } from '../src/engine/types';
 import { PayrollError } from './integrations/payroll/provider';
+import { isSandbox } from './sandbox';
 import type { OrgData } from './store';
 
 /** How the payroll employer for each company is found. */
@@ -28,7 +29,7 @@ export interface EmployerStatus {
 export function employerStatus(org: OrgData, entity: Entity, config: EmployerConfig): EmployerStatus {
   const base = { entityId: entity.id, name: entity.name, payeReference: entity.payeReference };
   if (entity.payrollEmployerId) return { ...base, employerId: entity.payrollEmployerId, problem: null };
-  if (config.simulated) return { ...base, employerId: `sim_er_${entity.id}`, problem: null };
+  if (config.simulated || isSandbox(org.orgId)) return { ...base, employerId: `sim_er_${entity.id}`, problem: null };
   if (org.state.entities.length <= 1 && config.defaultEmployerId) return { ...base, employerId: config.defaultEmployerId, problem: null };
   return {
     ...base,

@@ -1,8 +1,8 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Issue } from '../engine/compliance';
-import { isEmployedOn } from '../engine/employees';
+import { isEmployedOn, ruleAge } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
-import { ageOn, formatMinute, toISODate, weekday } from '../engine/time';
+import { formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
 import { dropBlocker, keyChange, moveShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
 import { DragReadout } from './DragReadout';
@@ -199,7 +199,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                           <div>
                             <div className="name">
                               {e.name}
-                              {ageOn(e.dateOfBirth, dates[0]) < 18 && <span className="tag">Under 18</span>}
+                              {ruleAge(e, dates[0]) < 18 && <span className="tag">Under 18</span>}
                             </div>
                             <div className="meta">
                               {e.siteId !== site.id && <span className="tag borrowed">Cover from {state.sites.find((x) => x.id === e.siteId)?.name}</span>}
@@ -325,9 +325,9 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
           <tr>
             <th className="who">Labour %</th>
             {metrics.days.map((d) => (
-              <td key={d.date} className={`tnum ${d.labourPct > metrics.targetPct ? 'over' : 'under'}`}>{pct(d.labourPct)}</td>
+              <td key={d.date} className={`tnum ${d.forecastSales === 0 ? 'muted' : d.labourPct > metrics.targetPct ? 'over' : 'under'}`}>{d.forecastSales === 0 ? 'No forecast' : pct(d.labourPct)}</td>
             ))}
-            <td className={`tot tnum ${metrics.labourPct > metrics.targetPct ? 'over' : 'under'}`}>{pct(metrics.labourPct)}</td>
+            <td className={`tot tnum ${metrics.forecastSales === 0 ? 'muted' : metrics.labourPct > metrics.targetPct ? 'over' : 'under'}`}>{metrics.forecastSales === 0 ? 'No forecast' : pct(metrics.labourPct)}</td>
           </tr>
         </tfoot>}
       </table>

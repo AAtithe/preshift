@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { addDays, weekDates } from '../../src/engine/time';
 import type { TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -15,11 +15,16 @@ function jitter(seed: string, min: number, max: number) {
   return min + (Math.abs(h) % (max - min + 1));
 }
 
-/** Demo-only routes, registered only when running against the TeamPay simulator. */
+/**
+ * Demo-only routes, for organisations whose payroll runs on the TeamPay simulator: every demo
+ * sandbox, and everyone when no TeamPay keys are configured. A customer on real TeamPay gets a
+ * 404, so nobody can fake clocking or a pay run on live payroll.
+ */
 export function devRoutes(app: FastifyInstance, ctx: AppContext) {
-  const simulator = ctx.simulator;
-  if (!simulator) return;
-  const write = { preHandler: requireScope('*') };
+  const simulated = async (req: FastifyRequest) => {
+    if (!ctx.simulatorFor(req.principal.orgId)) throw new HttpError(404, 'not_found', 'Only available on the TeamPay simulator');
+  };
+  const write = { preHandler: [requireScope('*'), simulated] };
 
   // Who the demo can sign in as. Each has a dev-<id> key outside production. It lists everyone,
   // past the site rules, so it answers only those demo keys, never a session or a deployment.
@@ -47,7 +52,7 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
       const people = org.state.employees.filter((e) => e.siteId === req.body.siteId && !e.payrollId && e.status !== 'leaver');
       people.forEach((e, i) => {
         const twist = i % 3 === 1 ? 'rate' : i % 3 === 2 ? 'name' : null;
-        simulator.addExisting(employerFor(org, e.entityId, ctx.employers), {
+        ctx.simulatorFor(org.orgId)!.addExisting(employerFor(org, e.entityId, ctx.employers), {
           name: twist === 'name' ? e.name.replace(/^(\S+)/, (first) => `${first[0]}.`) : e.name,
           dateOfBirth: e.dateOfBirth,
           payBasis: e.payBasis,
@@ -119,7 +124,7 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
         const item = org.outbox.find((i) => i.type === 'hours.submit' && i.payload.submissionId === sent.id);
         if (!item || item.type !== 'hours.submit') throw new HttpError(409, 'no_hours_sent', 'Send this week\'s hours to TeamPay first');
         const people = org.state.employees.filter((e) => e.entityId === entityId);
-        return simulator.runPayroll(sent.employerId!, req.body.weekStart, addDays(req.body.weekStart, 6), people, item.payload.batch);
+        return ctx.simulatorFor(org.orgId)!.runPayroll(sent.employerId!, req.body.weekStart, addDays(req.body.weekStart, 6), people, item.payload.batch);
       });
       // Each webhook is its own request with its own load and save, exactly as when TeamPay calls in.
       await ctx.store.save(org);

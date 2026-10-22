@@ -1,5 +1,5 @@
 import { autoSchedule, autoScheduleSites, coverDistance, type AutoScheduleResult } from '../engine/autoschedule';
-import { checkWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
+import { breakFor, checkWeek, complianceOptions, type Issue } from '../engine/compliance';
 import { shiftPaidHours, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
 import { isEmployedOn } from '../engine/employees';
@@ -220,8 +220,9 @@ function siteCost(d: RotaDraft): number {
 
 const siteName = (d: RotaDraft, id: string) => d.state.sites.find((x) => x.id === id)?.name ?? id;
 
+// Severity is part of the key: moving a shift a manager overrode turns its warning back into a block.
 function issueKey(i: Issue) {
-  return `${i.employeeId}|${i.code}|${i.shiftId ?? ''}|${i.date ?? ''}`;
+  return `${i.employeeId}|${i.code}|${i.shiftId ?? ''}|${i.date ?? ''}|${i.severity}`;
 }
 
 /**
@@ -424,7 +425,7 @@ function makeShift(d: RotaDraft, base: Omit<Shift, 'breakMinutes'>): Shift {
   const length = base.endMinute - base.startMinute;
   if (length <= 0) throw new ToolInputError('Shift must end after it starts.');
   if (length > 16 * 60) throw new ToolInputError('Shift is longer than 16 hours.');
-  return { ...base, breakMinutes: requiredBreakMinutes(length, ageOn(employee.dateOfBirth, base.date)) };
+  return { ...base, breakMinutes: breakFor(employee, base.date, length, complianceOptions(d.state, employee).nation) };
 }
 
 function endAfter(start: number, end: number) {

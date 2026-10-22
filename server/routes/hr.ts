@@ -77,7 +77,7 @@ const absenceParams = {
   properties: { id: { type: 'string' }, absenceId: { type: 'string' } },
 } as const;
 
-type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>;
+type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt' | 'history'>;
 
 /** Whether the key's scopes reach personnel files: an HR scope, or every scope. */
 function hrScoped(req: FastifyRequest): boolean {
@@ -99,9 +99,10 @@ export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
  * Disciplinary, grievance and capability cases are confidential: hr.cases, which needs the
  * authenticator. Without it nobody learns that a case exists, from the records or the checks.
  * Nobody sees or handles a case about themselves, whatever they hold: someone else runs it.
+ * Cases are for people, never a system: a key, however it was scoped, gets none, as webhooks do not.
  */
 function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
-  return hrScoped(req) && g.can('hr.cases') && (!employeeId || g.user?.employeeId !== employeeId);
+  return hrScoped(req) && Boolean(g.user) && g.can('hr.cases') && (!employeeId || g.behind?.employeeId !== employeeId);
 }
 
 /**
@@ -171,7 +172,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Changing a file is hr.manage where the person is based, and never on your own file. */
   const mayManage = (g: Guard, e: Employee) => {
     g.allow('hr.manage', e.siteId);
-    if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own personnel file.');
+    if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own personnel file.');
   };
   /** What an answer carries back: the file as the caller may read it, pay as they may see it. */
   const shown = (req: FastifyRequest, g: Guard, e: Employee) => forReader(g, employeeView(req, e, g));
@@ -231,7 +232,10 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const g = guardOf(req);
       mayManage(g, findEmployee(org, req.body.employeeId));
-      if (req.body.kind === 'case') g.allow('hr.cases');
+      if (req.body.kind === 'case') {
+        g.allow('hr.cases');
+        if (!g.user) throw new HttpError(403, 'forbidden', 'Cases are recorded by a person, not an API key.');
+      }
       if (req.body.kind === 'case' && !seesCases(req, g, req.body.employeeId)) throw new HttpError(403, 'forbidden', 'Somebody else records a case about you.');
       validateRecord(org, req.body);
       const record: HrRecord = {
@@ -257,9 +261,16 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guardOf(req);
       if (!before || (before.kind === 'case' && !seesCases(req, g, before.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, before.employeeId));
-      if (req.body.employeeId && req.body.employeeId !== before.employeeId) mayManage(g, findEmployee(org, req.body.employeeId));
+      // Moving a case onto someone else would leave one person with an allegation and the other without its record.
+      if (req.body.employeeId && req.body.employeeId !== before.employeeId) {
+        throw new HttpError(422, 'person_fixed', 'A record stays with the person it is about. Add it to the right person instead.');
+      }
       if (req.body.kind && req.body.kind !== before.kind) throw new HttpError(422, 'kind_fixed', 'A record cannot change kind; add a new one');
-      const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt };
+      const changed = (Object.keys(req.body) as (keyof RecordInput)[]).filter((f) => req.body[f] !== before[f]);
+      // What each change replaced is kept with the record, so a case can be shown as it stood on any day.
+      const replaced = Object.fromEntries(changed.map((f) => [f, before[f]]));
+      const history = changed.length ? [...(before.history ?? []), { at: new Date().toISOString(), by: actorName(g), before: replaced }] : before.history;
+      const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt, ...(history ? { history } : {}) };
       validateRecord(org, after);
       org.hrRecords[i] = after;
       audit(org, actorName(g), 'hr.record.updated', { id: after.id, employeeId: after.employeeId, kind: after.kind, fields: Object.keys(req.body) });
@@ -276,6 +287,8 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guardOf(req);
       if (!record || (record.kind === 'case' && !seesCases(req, g, record.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, record.employeeId));
+      // A case is evidence of how a complaint or a warning was handled: closed, never deleted. Retention removes it with the file.
+      if (record.kind === 'case') throw new HttpError(409, 'case_kept', 'A case is closed, not deleted. It is removed with the rest of the file when its retention period ends.');
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
       audit(org, actorName(g), 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(204).send();

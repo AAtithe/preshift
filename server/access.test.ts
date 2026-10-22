@@ -208,6 +208,21 @@ describe('managing people', () => {
     expect((await t.call('POST', '/v1/users', { key: 'integration' }, { email: 'x@ws.example', name: 'X', audience: 'operator', roleId: 'owner' })).status).toBe(403);
   });
 
+  it('lets a viewer see the forecast and calendar but not change them or take moves', async () => {
+    // The sample group, for its sites.
+    const k = await fresh(new MemoryStore(['demo'], TODAY));
+    const boss = await owner(k);
+    const t = { ...k, boss, gm: await invite(k, boss, 'gm@ws.example', 'gm password long') };
+    expect((await t.call('GET', '/v1/calendar?siteId=mar', t.gm.cookie)).status).toBe(200);
+    expect((await t.call('GET', '/v1/forecast/adjustments', t.gm.cookie)).status).toBe(200);
+    expect((await t.call('POST', '/v1/forecast/adjustments', t.gm.cookie, { siteId: 'mar', date: '2026-10-30', factor: 1.2, reason: 'event' })).status).toBe(403);
+    expect((await t.call('POST', '/v1/forecast/model', t.gm.cookie, { siteId: 'mar', weekStart: '2026-10-26' })).status).toBe(403);
+    expect((await t.call('POST', '/v1/coach/moves', t.gm.cookie, { siteId: 'mar', weekStart: '2026-10-26' })).status).toBe(403);
+    expect((await t.call('POST', '/v1/local-events', t.gm.cookie, { siteId: 'mar', date: '2026-10-30', name: 'Street party' })).status).toBe(403);
+    expect((await t.call('PUT', '/v1/settings/benchmarking', t.gm.cookie, { benchmarking: true })).status).toBe(403);
+    expect((await t.call('POST', '/v1/forecast/adjustments', t.boss, { siteId: 'mar', date: '2026-10-30', factor: 1.2, reason: 'event' })).status).toBe(201);
+  });
+
   it('ends access at once when someone is suspended', async () => {
     const t = await withTeam();
     expect((await t.call('POST', `/v1/users/${t.gm.id}/suspend`, t.boss)).status).toBe(200);
@@ -331,5 +346,40 @@ describe('the hosted app', () => {
   it('has no public key: the old demo key is refused', async () => {
     const k = await fresh();
     expect((await k.call('GET', '/v1/sites', { key: 'dev-key' })).status).toBe(401);
+  });
+});
+
+describe('the WS lead', () => {
+  it('is the WS client partner, appointed by WS alone, and only they sign off the programme', async () => {
+    // A deployment key Williams, Stanley & Co. holds: the only key that may appoint the partner.
+    const ws = { key: 'ws', orgId: 'demo', name: 'WS', scopes: ['programme:lead', 'users:manage', 'rota:write'] as unknown as ['*'] };
+    const k = await kit({ store: new MemoryStore(['demo'], TODAY), accounts: false, keys: [...INTEGRATION, ws] });
+    const boss = await owner(k);
+    const partner = { email: 'partner@ws.example', name: 'Partner', audience: 'ws', roleId: 'ws_partner' };
+
+    // Neither the operator's owner, a sign-in from before roles, nor the operator's own full-access key can appoint one.
+    expect((await k.call('POST', '/v1/users', boss, partner)).status).toBe(422);
+    await k.store.createUser(account('norecord@ws.example'));
+    const norecord = await k.as('norecord@ws.example');
+    const legacy = await k.call('POST', '/v1/users', norecord, partner);
+    expect(legacy.status).toBe(422);
+    expect(legacy.body.message).toMatch(/granted by the WS client partner, or by WS itself/);
+    expect((await k.call('POST', '/v1/users', { key: 'integration' }, partner)).status).toBe(403);
+    // WS's key appoints WS people only, never inside the client business.
+    expect((await k.call('POST', '/v1/users', { key: 'ws' }, { email: 'x@ws.example', name: 'X', audience: 'operator', roleId: 'viewer' })).status).toBe(422);
+    const sent = await k.call('POST', '/v1/users', { key: 'ws' }, partner);
+    expect(sent.status).toBe(201);
+    const accepted = await k.form('/auth/accept', { token: tokenOf(sent.body.inviteUrl), password: 'partner password long', confirm: 'partner password long' });
+
+    const start = (who: Parameters<Kit['call']>[2]) => k.call('PUT', '/v1/programmes/mar', who, { startWeek: '2026-10-26' });
+    // The sign-off moves money, so the partner needs their authenticator first.
+    expect((await start(accepted.cookie!)).status).toBe(403);
+    const signedIn = (await enrol(k, accepted.cookie!)).cookie;
+    expect((await start(signedIn)).status).toBe(200);
+    for (const who of [boss, norecord, { key: 'integration' }]) expect((await start(who)).status).toBe(403);
+    expect((await start({ key: 'ws' })).status).toBe(200);
+    // And the operator can never take the partner's account over.
+    expect((await k.call('POST', `/v1/users/${sent.body.user.id}/reset-password`, boss)).status).toBe(403);
+    expect((await k.call('POST', '/v1/api-keys', boss, { name: 'Mine', scopes: ['programme:lead'] })).status).toBe(400);
   });
 });

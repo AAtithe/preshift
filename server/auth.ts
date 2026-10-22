@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isSandbox, sandboxExpired } from './sandbox';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
 import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
@@ -15,13 +16,15 @@ export type Scope =
   | 'hr:write'
   | 'webhooks:write'
   | 'users:manage'
+  /** Never implied by `*` and never offered for an app-made key: it belongs to Williams, Stanley & Co. alone. */
+  | 'programme:lead'
   | '*';
 
 /**
  * What each scope allows, as shown to a person choosing them for a new key. users:manage is never
- * offered: access is managed by people, never by a key.
+ * offered: access is managed by people, never by a key. Nor is programme:lead: only a key WS holds carries it.
  */
-export const SCOPES: Record<Exclude<Scope, '*' | 'users:manage'>, string> = {
+export const SCOPES: Record<Exclude<Scope, '*' | 'users:manage' | 'programme:lead'>, string> = {
   'rota:read': 'Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals',
   'employees:read': 'Read staff records and pay: names, dates of birth, rates, right to work, cost and pay by person, clock locations',
   'rota:write': 'Change shifts and people, build and publish rotas, load the forecast',
@@ -47,6 +50,8 @@ export interface ApiKey {
   scopes: Scope[];
   /** Set for a key made in the app, so it can be revoked by id. */
   keyId?: string;
+  /** For a key made in the app: who made it, by id where recorded and always by name. */
+  madeBy?: { id?: string; name: string };
   /** Set when the caller is a signed-in person rather than an integration key. */
   user?: { email: string; role: UserRecord['role'] };
   /**
@@ -72,6 +77,8 @@ export interface ApiKey {
 declare module 'fastify' {
   interface FastifyRequest {
     principal: ApiKey;
+    /** Set whenever a key is presented and recognised, refused or not, so the call can be logged. */
+    apiCall?: { orgId: string; keyId: string; refused?: 'revoked' | 'rate_limited'; started: number };
   }
 }
 
@@ -80,7 +87,12 @@ declare module 'fastify' {
  * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
-  if (env.PRESHIFT_API_KEYS) return (JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[]).map(keepEmployeeAccess);
+  if (env.PRESHIFT_API_KEYS) {
+    const keys = JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
+    // Integration keys belong to customers. A key aimed at a demo sandbox is a mistake, so refuse to start.
+    if (keys.some((k) => isSandbox(k.orgId))) throw new Error('PRESHIFT_API_KEYS names a demo sandbox; keys are for customer organisations only');
+    return keys.map(keepEmployeeAccess);
+  }
   if (env.NODE_ENV === 'production') return [];
   // The demo acts as the seeded owner, so access rules apply locally as they would to a person.
   // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
@@ -127,6 +139,13 @@ export async function signedIn(cookieHeader: string | undefined, users: UserStor
   const user = await users.getUser(claims.email);
   // A session works in one organisation at a time, which must be one the account has joined.
   if (!user || !orgsOfAccount(user).includes(claims.orgId) || claims.issuedAt < user.sessionsValidFrom) return null;
+  // Sandboxes and customers never share an account. A sandbox is reached only by its own visitor
+  // account, which works nowhere else; a customer account never reaches a sandbox, whatever its
+  // memberships say, and keeps working in its own organisations.
+  if (isSandbox(claims.orgId) && claims.orgId !== user.orgId) return null;
+  if (isSandbox(user.orgId) && claims.orgId !== user.orgId) return null;
+  // A demo sandbox ends at midnight UK time, whether or not the reset has deleted it yet.
+  if (isSandbox(claims.orgId) && sandboxExpired(claims.orgId, Date.now())) return null;
   return { user, claims };
 }
 
@@ -161,17 +180,32 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
     let keyed = byKey.get(token);
     if (!keyed && token.startsWith(KEY_PREFIX)) {
       const stored = await users.getApiKeyByHash(hashKey(token));
+      if (stored?.revokedAt) {
+        // Still recognised, so the attempt is logged against the key it used.
+        req.apiCall = { orgId: stored.orgId, keyId: stored.id, refused: 'revoked', started: Date.now() };
+        return reply.code(401).send({ error: 'unauthorised', message: 'That API key is not valid. It may have been revoked.' });
+      }
       if (stored) {
-        keyed = { key: `key:${stored.id}`, keyId: stored.id, orgId: stored.orgId, name: `API key ${stored.name}`, scopes: stored.scopes as Scope[] };
+        keyed = {
+          key: `key:${stored.id}`,
+          keyId: stored.id,
+          orgId: stored.orgId,
+          // Named with its maker, so the audit says who stands behind each change the key makes.
+          name: `API key ${stored.name}, made by ${stored.createdBy}`,
+          madeBy: { ...(stored.createdById ? { id: stored.createdById } : {}), name: stored.createdBy },
+          scopes: stored.scopes as Scope[],
+        };
         if (!stored.lastUsedAt || Date.now() - Date.parse(stored.lastUsedAt) > USED_EVERY_MS) {
           await users.putApiKey({ ...stored, lastUsedAt: new Date().toISOString() });
         }
       }
     }
     if (keyed) {
+      req.apiCall = { orgId: keyed.orgId, keyId: keyed.keyId ?? `env:${keyed.name}`, started: Date.now() };
       const rate = limit(keyed.key);
       reply.header('x-ratelimit-limit', options.rateLimit ?? RATE_LIMIT).header('x-ratelimit-remaining', rate.remaining).header('x-ratelimit-reset', rate.resetSeconds);
       if (!rate.allowed) {
+        req.apiCall.refused = 'rate_limited';
         return reply.code(429).header('retry-after', rate.resetSeconds).send({ error: 'rate_limited', message: `Slow down: this key has made more than ${options.rateLimit ?? RATE_LIMIT} requests this minute` });
       }
       req.principal = keyed;

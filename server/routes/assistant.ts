@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { usageCostUsd, type TokenUsage } from '../../src/ai/pricing';
 import { overLimit, recordSpend } from '../assistantLimits';
 import { sessionUser } from '../auth';
-import { ASSISTANT_CALLS, assistantCallsSetting, isSandbox } from '../demo';
+import { takeAssistantCall } from '../demo';
+import { isSandbox } from '../sandbox';
 import type { Store } from '../store';
 import { claudeKeySetting } from './access';
 
@@ -16,9 +17,10 @@ const FORWARDED_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type'
 const error = (type: string, message: string) => ({ type: 'error', error: { type, message } });
 
 /**
- * In the public demo, sandboxes share demoKey (PRESHIFT_DEMO_CLAUDE_KEY) up to ASSISTANT_CALLS each;
- * without it the assistant says it is not switched on in the demo. Real organisations use their own
- * key from Settings, within the spend limits an admin sets there. Every response is metered.
+ * Demo sandboxes never use a customer's key. They share demoKey (PRESHIFT_DEMO_CLAUDE_KEY), capped per
+ * sandbox and per day; without it the assistant says it is not switched on in the demo. Real
+ * organisations use their own key from Settings, within the spend limits an admin sets there. Every
+ * response is metered.
  */
 export function assistantRoutes(app: FastifyInstance, store: Store, options: { demoKey?: string } = {}) {
   app.post('/api/anthropic/v1/messages', { schema: { hide: true } }, async (req, reply) => {
@@ -37,11 +39,8 @@ export function assistantRoutes(app: FastifyInstance, store: Store, options: { d
       return reply.code(400).send(error('proxy_error', 'Only rota assistant requests are accepted.'));
     }
     if (sandbox) {
-      // Counted atomically, so calls arriving together cannot slip past the share between them.
-      const used = await store.addToSetting(assistantCallsSetting(user.orgId), 1);
-      if (used > ASSISTANT_CALLS) {
-        return reply.code(403).send(error('demo', 'This demo has used its share of the rota assistant. Book a demo to see more of it.'));
-      }
+      const limit = await takeAssistantCall(store, user.orgId);
+      if (limit) return reply.code(403).send(error('demo', limit));
     } else {
       // 403 rather than 429, so the client does not retry a limit that will not lift for hours.
       const limited = await overLimit(store, user.orgId, user.email);

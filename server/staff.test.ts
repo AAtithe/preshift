@@ -1,8 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { weekStart } from '../src/engine/time';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
+import { emailSetting } from './mail';
 import { COOKIE, STAFF_COOKIE } from './session';
 import { MemoryStore, PgStore, type Query, type Store } from './store';
 
@@ -119,7 +120,7 @@ describe('staff logins', () => {
     expect((await t.call('GET', '/v1/staff-logins', undefined, staff)).status).toBe(401);
   });
 
-  it('signs in, locks after five wrong passwords, and a new invite resets the password', async () => {
+  it('signs in, locks after five wrong passwords, and never hands over a link to a login someone has set up', async () => {
     const t = await boot();
     const first = (await t.join('mar-1', 'priya@example.com')).cookie;
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: 'wrong password!' })).status).toBe(401);
@@ -130,11 +131,13 @@ describe('staff logins', () => {
     for (let i = 0; i < 5; i++) await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: 'wrong password!' });
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: PASSWORD })).body.error).toBe('locked');
 
-    // Forgotten password: the manager sends a new invite. Old sessions end once it is used.
-    const reset = await t.call('POST', '/v1/staff/join', { ...(await t.invite('mar-1')), email: 'priya@example.com', password: 'a brand new password' });
-    expect(reset.status).toBe(200);
-    expect((await t.call('GET', '/v1/staff/me', undefined, first)).status).toBe(401);
-    expect((await t.call('GET', '/v1/staff/me', undefined, reset.cookie)).status).toBe(200);
+    // Forgotten password: a new link opens her clocking, so it only ever goes to her own email.
+    // Without email set up it is refused, and no link is made.
+    const refused = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('email_only');
+    expect(JSON.stringify(refused.body)).not.toMatch(/invite=/);
+    expect((await t.call('GET', '/v1/staff/me', undefined, first)).status).toBe(200);
   }, 60_000);
 
   it('ends access when the login is closed or the person leaves', async () => {
@@ -182,5 +185,116 @@ describe('staff logins', () => {
 
     const out = await t.call('POST', '/v1/staff/clock-out', { location: AT_SITE }, me);
     expect(out.body.recent[0].breaks).toHaveLength(1);
+  });
+});
+
+describe('staff app invitation emails', () => {
+  const EMAIL = { resendApiKey: 're_test_abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+  let sent: { to: string[]; subject: string; text: string; html: string }[] = [];
+  let refuse = false;
+  afterEach(() => vi.unstubAllGlobals());
+  function stubResend() {
+    sent = [];
+    refuse = false;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url !== 'https://api.resend.com/emails') throw new Error(`unexpected fetch ${url}`);
+      if (refuse) return new Response('{"message":"domain not verified"}', { status: 403 });
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ id: `mail-${sent.length}` }), { status: 200 });
+    });
+  }
+  async function withEmail(address?: string) {
+    stubResend();
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    await store.setSetting(emailSetting('demo'), JSON.stringify(EMAIL));
+    const org = await store.load('demo');
+    org.state.employees.find((e) => e.id === 'mar-1')!.email = address;
+    return { ...(await boot(store)), store };
+  }
+  const linkIn = (text: string) => text.match(/https:\/\/rota\.ws\.example\/staff\/#\S+/)![0];
+
+  it("emails the invite to the person's own address and keeps the link out of the answer", async () => {
+    const t = await withEmail('Priya@Example.com');
+    const res = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
+    expect(JSON.stringify(res.body)).not.toMatch(/invite=/);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(['priya@example.com']);
+    expect(sent[0].subject).toBe('GM invited you to the Preshift staff app');
+    expect(sent[0].text).toMatch(/Marylebone/);
+
+    // The emailed link is the one that works.
+    const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
+    expect((await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD })).status).toBe(200);
+
+    // The list says what became of the email; a bounce reported later shows against the person.
+    const listed = (await t.manager('GET', '/v1/staff-logins')).body[0];
+    expect(listed.lastEmail).toMatchObject({ kind: 'staff_invite', to: 'priya@example.com', status: 'sent', employeeId: 'mar-1' });
+    const org = await t.store.load('demo');
+    org.mail['mail-1'].events.push({ id: 'evt-1', type: 'bounced', at: new Date().toISOString(), detail: 'Mailbox does not exist' });
+    expect((await t.manager('GET', '/v1/staff-logins')).body[0].lastEmail).toMatchObject({ status: 'bounced', detail: 'Mailbox does not exist' });
+  });
+
+  it('sends a reset only to the address the person signed up with, never to the manager', async () => {
+    const t = await withEmail('old@example.com');
+    const first = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(first.body.emailed).toBe(true);
+    const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
+    const joined = await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD });
+
+    // Asking to hand it over is refused, and makes no link.
+    const handed = await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true });
+    expect(handed.status).toBe(409);
+    expect(handed.body.error).toBe('email_only');
+    expect(handed.body.message).toContain('priya@example.com');
+    expect(sent).toHaveLength(1);
+
+    // The reset goes to her own address. Old sessions end once she uses it.
+    const again = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(again.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
+    expect(sent[1].subject).toBe('Your new Preshift staff app link');
+    const resetLink = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[1].text)).hash.slice(1)));
+    const reset = await t.call('POST', '/v1/staff/join', { ...resetLink, email: 'priya@example.com', password: 'a brand new password' });
+    expect(reset.status).toBe(200);
+    expect((await t.call('GET', '/v1/staff/me', undefined, joined.cookie)).status).toBe(401);
+    expect((await t.call('GET', '/v1/staff/me', undefined, reset.cookie)).status).toBe(200);
+
+    // When Resend refuses, the link still never comes back.
+    refuse = true;
+    const failed = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(failed.body).toMatchObject({ emailed: false, reason: 'send_failed' });
+    expect(failed.body.path).toBeUndefined();
+  }, 60_000);
+
+  it('lets a manager start again by closing the login, which signs the person out everywhere', async () => {
+    const t = await withEmail();
+    const link = (await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body;
+    const params = Object.fromEntries(new URLSearchParams(link.path.split('#')[1]));
+    const me = (await t.call('POST', '/v1/staff/join', { ...params, email: 'priya@example.com', password: PASSWORD })).cookie;
+    expect((await t.manager('DELETE', '/v1/staff-logins/mar-1')).status).toBe(204);
+    expect((await t.call('GET', '/v1/staff/me', undefined, me)).status).toBe(401);
+    // A fresh login, which the person sets up anew, may be handed over like any first invite.
+    expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true })).body).toMatchObject({ emailed: false, reason: 'handed_over' });
+  });
+
+  it('hands the link back when asked, with no address, or when Resend refuses', async () => {
+    const t = await withEmail('priya@example.com');
+    const handed = await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true });
+    expect(handed.body).toMatchObject({ emailed: false, reason: 'handed_over' });
+    expect(handed.body.path).toMatch(/^\/staff\/#/);
+    expect(sent).toHaveLength(0);
+
+    expect((await t.manager('POST', '/v1/staff-logins/mar-2/invite')).body).toMatchObject({ emailed: false, reason: 'no_address' });
+
+    refuse = true;
+    const failed = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(failed.body).toMatchObject({ emailed: false, reason: 'send_failed' });
+    expect(failed.body.path).toMatch(/^\/staff\/#/);
+  });
+
+  it('hands the link back where email is not set up, as before', async () => {
+    const t = await boot();
+    expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body).toMatchObject({ emailed: false, reason: 'email_not_set_up' });
   });
 });

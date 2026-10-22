@@ -9,6 +9,61 @@ interface ApiKeyView {
   createdAt: string;
   createdBy: string;
   lastUsedAt: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+}
+
+interface ApiCallView {
+  at: string;
+  method: string;
+  path: string;
+  status: number;
+  ip: string;
+  ms: number;
+  refused?: 'revoked' | 'rate_limited';
+}
+
+const REFUSED: Record<NonNullable<ApiCallView['refused']>, string> = { revoked: 'Revoked key', rate_limited: 'Over rate limit' };
+
+/** The last 200 calls a key made, with the full log as a CSV download. */
+function KeyCalls({ k, onClose }: { k: ApiKeyView; onClose: () => void }) {
+  const [calls, setCalls] = useState<ApiCallView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<{ calls: ApiCallView[] }>(`/v1/api-keys/${k.id}/calls?limit=200`).then((r) => setCalls(r.calls)).catch((e) => setError(problem(e)));
+  }, [k.id]);
+  return (
+    <div className="small">
+      <h3 className="small">Calls made with {k.name}{k.revokedAt ? ' (revoked)' : ''}</h3>
+      <p className="muted">
+        Every request this key has made in the last 13 months, refused ones included, newest first. The download is recorded in
+        the audit trail.
+      </p>
+      {error && <p className="bad-text">{error}</p>}
+      {calls && calls.length === 0 && <p className="muted">No calls yet.</p>}
+      {calls && calls.length > 0 && (
+        <table className="table">
+          <thead>
+            <tr><th>When</th><th>Request</th><th>Result</th><th>From</th></tr>
+          </thead>
+          <tbody>
+            {calls.map((c, i) => (
+              <tr key={i}>
+                <td className="small">{new Date(c.at).toLocaleString('en-GB')}</td>
+                <td className="small" style={{ wordBreak: 'break-all' }}>{c.method} {c.path}</td>
+                <td className={`small ${c.status >= 400 ? 'bad-text' : ''}`}>{c.refused ? REFUSED[c.refused] : c.status}</td>
+                <td className="small">{c.ip}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p>
+        <a className="link" href={`/v1/api-keys/${encodeURIComponent(k.id)}/calls?format=csv&limit=1000`}>Download CSV</a>
+        <button className="link" onClick={onClose}>Close</button>
+      </p>
+    </div>
+  );
 }
 
 interface Endpoint {
@@ -55,7 +110,10 @@ export function ApiKeys() {
   const [scopes, setScopes] = useState<Record<string, string>>({});
   const [form, setForm] = useState<{ name: string; scopes: string[] }>({ name: '', scopes: ['rota:read'] });
   const [made, setMade] = useState<{ name: string; key: string } | null>(null);
+  const [viewing, setViewing] = useState<ApiKeyView | null>(null);
   const [message, setMessage] = useState<Message>(null);
+  const live = keys.filter((k) => !k.revokedAt);
+  const revoked = keys.filter((k) => k.revokedAt);
 
   const load = useCallback(async () => {
     try {
@@ -103,24 +161,45 @@ export function ApiKeys() {
         system, give it only what it needs, and revoke it when the system is retired. Each key reaches this organisation only.
         The full reference is in the <a className="link" href="/docs" target="_blank" rel="noopener">API docs</a>.
       </p>
-      {keys.length > 0 && (
+      {live.length > 0 && (
         <table className="table">
           <thead>
             <tr><th>Name</th><th>Can</th><th>Key</th><th>Last used</th><th /></tr>
           </thead>
           <tbody>
-            {keys.map((k) => (
+            {live.map((k) => (
               <tr key={k.id}>
                 <td>{k.name}<div className="muted small">Made by {k.createdBy}, {when(k.createdAt)}</div></td>
                 <td className="small">{k.scopes.includes('*') ? 'Everything' : k.scopes.join(', ')}</td>
                 <td className="num small">...{k.endsWith}</td>
                 <td className="small">{when(k.lastUsedAt)}</td>
-                <td className="num"><button className="link danger" onClick={() => void revoke(k)}>Revoke</button></td>
+                <td className="num">
+                  <button className="link" onClick={() => setViewing(k)}>Calls</button>
+                  <button className="link danger" onClick={() => void revoke(k)}>Revoke</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+      {revoked.length > 0 && (
+        <details className="small">
+          <summary>Revoked keys ({revoked.length})</summary>
+          <p className="muted">Kept so their calls stay on record, including any attempt to use them after revocation.</p>
+          <table className="table">
+            <tbody>
+              {revoked.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name} <span className="muted">...{k.endsWith}</span></td>
+                  <td className="small">Revoked by {k.revokedBy}, {when(k.revokedAt)}</td>
+                  <td className="num"><button className="link" onClick={() => setViewing(k)}>Calls</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+      {viewing && <KeyCalls k={viewing} onClose={() => setViewing(null)} />}
       {made ? (
         <Reveal label={`The key for ${made.name}.`} value={made.key} onDone={() => setMade(null)} />
       ) : (

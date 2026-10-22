@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
+import { describeSync, syncedAt, type EposStatus } from './EposSetup';
 import type { Account } from './SettingsView';
 
 // One page that answers "what is Preshift connected to, and is each connection healthy".
@@ -55,11 +56,13 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
   const [payrollError, setPayrollError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [logins, setLogins] = useState<StaffLogin[] | null>(null);
+  const [epos, setEpos] = useState<EposStatus | null>(null);
   const admin = canSettings;
 
   useEffect(() => {
     api.get<PayrollStatus>('/v1/integrations/payroll').then(setPayroll).catch((e) => setPayrollError(e instanceof Error ? e.message : String(e)));
     api.get<StaffLogin[]>('/v1/staff-logins').then(setLogins).catch(() => setLogins(null));
+    api.get<EposStatus>('/v1/integrations/epos').then(setEpos).catch(() => setEpos(null));
   }, []);
   // Keys are admin only; members see that a connection exists but not its details.
   useEffect(() => {
@@ -101,7 +104,19 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
   const rtwExpiring = active.filter((e) => e.rightToWork?.checked && e.rightToWork.expiry && e.rightToWork.expiry <= soon).length;
   const starters = active.filter((e) => e.startDate && e.startDate > today).length;
 
-  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth].filter((h): h is Health => h !== null);
+  // EPOS
+  const eposConn = epos?.connection;
+  const eposMatched = epos?.sites.filter((s) => s.locationId).length ?? 0;
+  const eposHealth: Health | null = !epos
+    ? null
+    : !eposConn
+      ? 'off'
+      : eposConn.lastSync?.ok === false || eposMatched === 0
+        ? 'attention'
+        : eposConn.environment === 'simulator' ? 'partial' : eposMatched < epos.sites.length ? 'attention' : 'live';
+  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
+
+  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth, eposHealth].filter((h): h is Health => h !== null);
   const connected = known.filter((h) => h === 'live').length;
   const attention = known.filter((h) => h === 'attention').length;
 
@@ -115,25 +130,48 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         <span><strong>{connected}</strong> connected</span>
         <span className={attention ? 'bad-text' : 'muted'}><strong>{attention}</strong> need attention</span>
         <span className="muted"><strong>{known.length - connected - attention}</strong> not set up or simulated</span>
-        <span className="muted"><strong>4</strong> not connected yet</span>
+        <span className="muted"><strong>3</strong> not connected yet</span>
       </div>
 
       <h2 className="integrations-group">Sales</h2>
       <div className="integrations-grid">
         <Card
           name="EPOS"
-          kind="Lightspeed, Square, Tevalis, Zonal and others"
-          health="planned"
-          purpose="Hourly net sales and covers from the till, both as history to forecast from and as actuals. Actual sales are what turn forecast labour % into true labour %, and what tells a GM mid-week that they are overstaffed for the trade they are really doing."
-          action={<a className="button" href={REQUEST('EPOS')}>Ask for your EPOS</a>}
+          kind={eposConn ? (eposConn.environment === 'simulator' ? 'Square, simulated till' : eposConn.environment === 'sandbox' ? 'Square sandbox' : 'Square') : 'Square today; Lightspeed, Tevalis, Zonal and others on request'}
+          health={eposHealth}
+          purpose="Net takings from the till by trading day and hour. Actual sales are what turn forecast labour % into true labour %, and what tells a GM mid-week that they are overstaffed for the trade they are really doing."
+          action={
+            admin ? (
+              <button onClick={() => onOpen('settings')}>{eposConn ? 'Manage in Settings' : 'Connect Square in Settings'}</button>
+            ) : eposConn ? null : (
+              <a className="button" href={REQUEST('EPOS')}>Ask for your EPOS</a>
+            )
+          }
         >
           <dl className="facts">
-            <dt>Today</dt>
-            <dd>Forecasts are pushed through the API, for example from Preshift Reports</dd>
-            <dt>Sites with a forecast ahead</dt>
-            <dd className={forecastSites < state.sites.length ? 'bad-text' : undefined}>{forecastSites} of {state.sites.length}</dd>
-            <dt>What it removes</dt>
-            <dd>Keying or uploading sales by hand, and labour % that only goes true at month end</dd>
+            {eposConn ? (
+              <>
+                <dt>Account</dt>
+                <dd>{eposConn.accountName ?? 'Square'}</dd>
+                <dt>Sites matched</dt>
+                <dd className={eposMatched < (epos?.sites.length ?? 0) ? 'warn-text' : undefined}>{eposMatched} of {epos?.sites.length}</dd>
+                <dt>Last sync</dt>
+                <dd className={eposConn.lastSync?.ok === false ? 'bad-text' : undefined}>
+                  {eposConn.lastSync ? `${syncedAt(eposConn.lastSync.at)}: ${describeSync(eposConn.lastSync, siteName)}` : 'Not yet'}
+                </dd>
+                <dt>Schedule</dt>
+                <dd>The last three trading days, every morning</dd>
+              </>
+            ) : (
+              <>
+                <dt>Today</dt>
+                <dd>Takings are keyed in or imported on the Takings report</dd>
+                <dt>Sites with a forecast ahead</dt>
+                <dd className={forecastSites < state.sites.length ? 'bad-text' : undefined}>{forecastSites} of {state.sites.length}</dd>
+                <dt>What it removes</dt>
+                <dd>Keying or uploading sales by hand, and labour % that only goes true at month end</dd>
+              </>
+            )}
           </dl>
         </Card>
       </div>

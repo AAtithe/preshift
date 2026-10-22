@@ -27,7 +27,9 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
     if (email && req.principal.homeOrgId && req.principal.homeOrgId !== org.orgId) {
       throw new HttpError(403, 'forbidden', 'You have no access to this organisation.');
     }
-    return { kind: 'system', name: req.principal.name };
+    // A deployment key WS holds: never implied by `*`, so the operator's own keys never carry it.
+    const ws = !email && req.principal.scopes.includes('programme:lead');
+    return { kind: 'system', name: req.principal.name, ...(ws ? { ws } : {}) };
   }
   // Signing in proves the email, so it accepts a waiting invitation.
   if (user.status === 'invited' && email) {
@@ -86,8 +88,17 @@ export function withoutRecord(req: FastifyRequest, org: OrgData): boolean {
 
 export interface Guard {
   actor: Actor;
+  /** Today in the organisation's calendar, as the checks were made. */
+  today: string;
   /** The person, for a personal key. */
   user?: User;
+  /**
+   * The person behind the request: the caller, or whoever made the API key it came with. The rules
+   * on your own record, pay and cases hold for them however they ask, so a key is no way round them.
+   */
+  behind?: User;
+  /** A key someone made in the app, rather than a deployment's own key set in its environment. */
+  appKey: boolean;
   can: (p: Permission, siteId?: string) => boolean;
   /** Refuses with the reason a person would need to put it right. */
   allow: (p: Permission, siteId?: string) => void;
@@ -101,6 +112,9 @@ export function guard(ctx: AppContext, req: FastifyRequest, org: OrgData): Guard
   const today = ctx.store.todayISO();
   const actor = actorOf(req, org, today);
   const user = actor.kind === 'user' ? actor.user : undefined;
+  const maker = req.principal.madeBy;
+  // Keys made before makers were recorded by id are matched by name: stricter, never looser.
+  const behind = user ?? (maker && org.users.find((u) => (maker.id ? u.id === maker.id : u.name === maker.name)));
   const siteName = (id?: string) => (id ? org.state.sites.find((s) => s.id === id)?.name ?? id : undefined);
 
   const check = (p: Permission, siteId?: string) => !user || can(user, p, today, siteId);
@@ -133,7 +147,7 @@ export function guard(ctx: AppContext, req: FastifyRequest, org: OrgData): Guard
     return (row: { siteId: string }) => reach === 'all' || reach.has(row.siteId);
   };
 
-  return { actor, user, can: check, allow, sites, at };
+  return { actor, user, behind, appKey: Boolean(req.principal.keyId), today, can: check, allow, sites, at };
 }
 
 export const actorName = (g: Guard) => (g.actor.kind === 'system' ? g.actor.name : g.actor.user.name);

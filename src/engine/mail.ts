@@ -3,7 +3,7 @@
 
 import { ukDate, type Attention, type User } from './access';
 
-export type MailKind = 'invite' | 'reset' | 'forgot';
+export type MailKind = 'invite' | 'reset' | 'forgot' | 'staff_invite';
 export type MailStatus = 'sent' | 'delivered' | 'delayed' | 'bounced' | 'complained' | 'failed';
 
 export interface MailView {
@@ -11,6 +11,8 @@ export interface MailView {
   to: string;
   kind: MailKind;
   userId?: string;
+  /** A staff app invitation names the employee, who has no Preshift account. */
+  employeeId?: string;
   sentAt: string;
   by: string;
   status: MailStatus;
@@ -19,7 +21,7 @@ export interface MailView {
   detail?: string;
 }
 
-const WHAT: Record<MailKind, string> = { invite: 'invitation', reset: 'password reset email', forgot: 'password reset email' };
+const WHAT: Record<MailKind, string> = { invite: 'invitation', reset: 'password reset email', forgot: 'password reset email', staff_invite: 'staff app invitation' };
 
 /**
  * An email that went wrong, while it still matters: an invitation while the person has not

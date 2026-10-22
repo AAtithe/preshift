@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { rosterVsActual } from '../../src/engine/timesheet';
 import { weekDates } from '../../src/engine/time';
 import { breakShortfalls } from '../../src/engine/breaks';
@@ -33,24 +33,53 @@ interface ClockOptions {
   roleId?: string;
   breakMinutes?: number;
   location?: GeoFix;
+  /** Sent by a reader fixed at the site under its own key, not from a person's screen. */
+  fixedReader?: boolean;
+}
+
+/** How far a time sent by a person's screen may be from the server's clock before it is refused. */
+const CLOCK_DRIFT_MS = 2 * 60_000;
+
+/**
+ * A reader under its own key: an integration key made by an admin, with no person behind it.
+ * Only such a reader is trusted for where a card was tapped and when.
+ */
+export const isFixedReader = (req: FastifyRequest) => !req.principal.email && !req.principal.userId;
+
+/**
+ * The time a clock happened. A person's clock happens now, by the server's clock: anyone who records
+ * time could otherwise clock a colleague in for a shift they never started. A fixed reader may send the
+ * time of a tap it held while offline, never one in the future.
+ */
+export function clockTime(req: FastifyRequest, at: string | undefined): string | undefined {
+  if (!at) return undefined;
+  const ms = Date.parse(at);
+  const drift = ms - Date.now();
+  if (isFixedReader(req) ? drift <= CLOCK_DRIFT_MS : Math.abs(drift) <= CLOCK_DRIFT_MS) return at;
+  throw new HttpError(
+    422,
+    'time_set_by_server',
+    'A clock is recorded at the time it happens. For a missed clock-in or out, add a manual entry for a manager to approve.',
+  );
 }
 
 /**
- * Where the clock happened, checked against the site's geofence. A card tap is made on a reader
- * fixed at the site, so the card proves who and the reader proves where; any location sent with
- * it is kept but not enforced. A device clock needs a location inside the fence.
+ * Where the clock happened, checked against the site's geofence. A card tapped on a reader fixed at
+ * the site needs no location: the card proves who and the reader proves where. A card read by a
+ * person's phone or tablet proves only who, so it needs a location inside the fence like any device clock.
  */
 function locate(org: OrgData, siteId: string, opts: ClockOptions): ClockLocation | undefined {
   const site = org.state.sites.find((s) => s.id === siteId);
   if (!site) throw notFound(`Site ${siteId}`);
   const fix = opts.location;
+  const reader = opts.method === 'card' && opts.fixedReader;
   if (!site.geofence) return fix && { ...fix };
   if (!fix) {
-    if (opts.method === 'card') return undefined;
+    if (reader) return undefined;
     throw new HttpError(422, 'location_required', `${site.name} checks location when clocking. Allow location on this device and try again.`);
   }
   const check = checkFence(site.geofence, fix);
-  if (!check.ok && opts.method !== 'card') {
+  if (!check.ok && !reader) {
     throw new HttpError(
       422,
       check.reason,
@@ -171,7 +200,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
       guard(ctx, req, org).allow('time.record', req.body.siteId);
-      const entry = clockIn(org, employee, req.body.siteId, { method: 'device', ...req.body });
+      const entry = clockIn(org, employee, req.body.siteId, { method: 'device', ...req.body, at: clockTime(req, req.body.at) });
       return reply.code(201).send(entry);
     },
   );
@@ -195,7 +224,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
       guard(ctx, req, org).allow('time.record', entry.siteId);
-      return clockOut(org, entry, { method: 'device', ...req.body });
+      return clockOut(org, entry, { method: 'device', ...req.body, at: clockTime(req, req.body.at) });
     },
   );
 
@@ -268,7 +297,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       if (body.siteId) g.allow('time.approve', body.siteId);
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
-      const own = (t: TimeEntry) => !!g.user?.employeeId && t.employeeId === g.user.employeeId;
+      const own = (t: TimeEntry) => !!g.behind?.employeeId && t.employeeId === g.behind.employeeId;
       const candidates = org.timeEntries.filter((t) => t.status === 'submitted' && match(t));
       if (body.ids) {
         for (const t of candidates) {

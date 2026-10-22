@@ -9,7 +9,36 @@ and is it legal". It builds the rota from the sales forecast, costs every shift 
 will, blocks anything that breaks UK employment law, and hands finance a ready-to-post labour
 accrual so the P&L carries true labour before payroll has even run.
 
-## What is in this first build
+## What's new: week of 19 October 2026
+
+A one-page card for the team. Read it in two minutes, then open the app and try each item once.
+Past cards live in `docs/WHATS_NEW.md`.
+
+| For | What changed | Why it matters |
+| --- | --- | --- |
+| Owners | Self sign-up and Billing. A business starts a 14 day free trial from the sign-in page with no card: it confirms its email from a link, chooses a password and lands in Set-up as owner of its own new organisation. Organisation, then Billing, takes the subscription through Stripe Checkout, priced per site, with cards, VAT invoices and cancelling in Stripe's own portal. A lapsed trial or subscription pauses changes and keeps everything readable. | New customers onboard themselves and pay by card, so growth no longer waits on a set-up call or a manual invoice, and nobody is ever cut off from their own staff and pay records. |
+| GMs | People, then Onboarding: every person starting in the next 60 days or who started in the last 90, with one checklist each. Right to work and pay before any shift; written statement, NI number, emergency contact and clocking by day one; payroll and probation date in the first week; role training in the first month. Late steps go red and each opens the form that fixes it. | A new starter is finished once, properly, instead of being chased item by item for months. |
+| WS | Organisation, then Clients, for Williams, Stanley & Co. people: every client you hold a WS role in, its onboarding progress (owner accepted, companies, sites, team, payroll, email, first rota) and what needs attention. A WS client partner adds a new client from here: a new organisation with them on it, and its owner invited by email only. | Client onboarding is run and tracked in the product, and WS never holds a client owner's link. |
+| GMs | One week picker beside the week's status: arrows, a label saying where the week sits (This week, Next week, In 3 weeks), the week number with the month on both ends, a list of nearby weeks, a jump to any date, and Back to this week. | The manager knows which week they are planning at a glance, and a week across a month end no longer reads as the wrong dates. |
+| GMs | Left-hand management bar groups the app into Overview, Rota, People, Finance and Admin. Site-only sections stay visible at group level and ask for a site. | The map never moves, so nobody hunts for a tab when they switch from group to site. |
+| GMs | Clock in tab for a tablet at the door: RFID card tap (USB reader or Android NFC) or sign in by name inside the site's geofence. | Hours come from the door, not from memory, so the accrual and payroll start from evidence. |
+| Staff | Staff app at `/staff/`: clock in and out on their own phone, record breaks, see their own shifts and hours. Invite link from Clock in setup, valid 7 days. | Breaks are recorded when taken, so unpaid minutes are a fact at clock-out, not an argument at payroll. |
+| Finance | Payroll runs per PAYE scheme: one TeamPay employer per company, one batch of hours per company, each pay run reconciled to its own company's accrual. | Group structures with a central employer or sister-company cover now post and reconcile correctly. |
+| Finance | Employment Allowance applied to the claiming entity week by week, posted to its books only, resetting each tax year. | Employer NI in the accrual matches what payroll actually charges. |
+| Admin | Accounts, roles, passwords and the Claude key are managed in Settings. Forgot password by email through Resend, or a 24 hour link an admin hands over. | No access settings live in Vercel. Removing someone takes effect on their next click. |
+| GMs | Short daily rest (under 11 hours, 12 for under 18s) and no clear day off in the week now block publication instead of warning. The auto-build and the assistant will not create either. | The rota cannot be published in breach of the Working Time Regulations rest rules, which is the promise we sell. |
+| GMs | Rest breaches can be overridden from the Rota tab with a written reason and the compensatory rest given. The breach then publishes as a warning with the manager's name on it; moving either shift voids the override. | Real exceptions (sickness cover, a swap the person asked for) do not stop the week going out, and every one is on record. |
+| Operators | The Sites view has a "Rest overrides, last four weeks" section: each site's overrides week by week, the total and the group total, a "Recurring" tag on any site with overrides in three of the four weeks, and this week's reasons with who gave them. | One week is noise. Four weeks shows whether a site is managing exceptions or covering a headcount gap with a manager's signature. |
+| GMs | Redesigned rota in WS colours: a service timeline drawn over each day's sales curve, drag to move or resize shifts, draw a shift on empty space, borrow cover from sister sites, and a rota P&L beside every screen. | Every edit shows its cost and legality as it is made, so the GM sees labour % move before they commit, not after. |
+| People | HR file per person, holiday entitlement balances per leave year, and a break check on finished shifts. | The records an employment tribunal or HMRC would ask for are kept where the rota is made. |
+| Admin | GDPR request log for staff data, an Integrations page showing every connection's health, and a public demo with a private sandbox per visitor. | Compliance and prospects are handled in the product, not in spreadsheets and screen shares. |
+| Everyone | CI typechecks and runs the full suite (764 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+
+The test for this week: take one site through a full cycle. Build the week, publish it, clock two
+people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
+accrual. If any step needs an explanation, that is the next thing to fix.
+
+## Feature list
 
 | Area | What it does | Where |
 | --- | --- | --- |
@@ -20,20 +49,35 @@ accrual so the P&L carries true labour before payroll has even run.
 | Live labour % | Forecast sales, loaded labour, labour % against the site target, pound variance, SPLH, by day and week. | `src/engine/metrics.ts`, `src/ui/KpiBar.tsx` |
 | People | Employee records: details, employment dates, roles, contract and pay, right to work with the copies of the documents checked, availability and leave. Each record is checked before it reaches the rota: right to work missing or expired, checked with no copy held or no date recorded, pay below the legal minimum, upcoming birthdays that move the minimum wage band, salaried pay that falls below minimum wage at maximum hours, under 18 opt-outs, auto-enrolment eligibility. Starters and leavers are pro-rated in cost, kept off the auto-build outside their dates, and exported for payroll. | `src/engine/employees.ts`, `src/ui/PeopleView.tsx`, `src/ui/EmployeeEditor.tsx`, `server/routes/documents.ts` |
 | Holiday | Entitlement balances per person for each company's leave year: 5.6 weeks (or the contract) earned evenly for fixed hours staff, 12.07% of hours worked for irregular hours staff (paid travel between sites included), from approved clocked time where it exists and the rota otherwise. Taken and booked leave, carry over, opening balances at go-live, and per-day hours. Flags overbooking, unused leave near year end, and leavers' final holiday pay. The untaken balance is valued as the holiday pay provision, with employer NI, to match the balance sheet accrual. | `src/engine/holiday.ts`, `src/ui/HolidayView.tsx` |
-| HR | The personnel file behind every person, with everything a GM must act on in one list. Contract type, written statement issued and signed (a day one right), probation dates and outcome, fixed-term end, notice (contract against statutory: a week after a month, then a week a year to twelve), NI number, address, emergency contact and line manager. Sickness and other absence with fit notes after seven days, return to work conversations and the Bradford factor over 52 weeks; disability or pregnancy related absence is kept out of triggers. A shift on an absence day is blocked like leave, and the auto-build steers round it. A training matrix of the certificates an EHO, licensing officer or insurer asks for, required by role (food hygiene, allergens, Challenge 25, personal licence), with expiry warnings. Probation and appraisal tracking, and disciplinary, grievance and capability cases with outcomes and live warnings, visible to admins only. Headcount, turnover, average service and sick days per head across any scope, with directory, absence and training CSVs. Rota and payroll keys never see the file: they get absence dates only, without reasons. Subject access exports include the HR records; contact erasure removes address and emergency contact; anonymisation removes the NI number, sickness reasons and every HR record; the record of processing lists personnel files and health data. | `src/engine/hr.ts`, `server/routes/hr.ts`, `src/ui/HrOverview.tsx`, `src/ui/HrFile.tsx`, `src/ui/AbsenceView.tsx`, `src/ui/TrainingView.tsx`, `src/ui/ReviewsView.tsx` |
+| Onboarding | One checklist per new person, from 60 days before their first day to 90 days after it, in the order a GM should work it: right to work checked, with a copy and the date; roles, date of birth and pay checked against the minimum wage band; written statement issued and signed; NI number; address and emergency contact; probation end date; the training their role requires; set up in TeamPay; a clock card or the staff app. Legal steps are due by day one and block shifts until done, the rest fall due in the first week or month and turn late after. Steps on the personnel file or pay are hidden, not reported missing, for anyone who may not see them. CSV export. | `src/engine/onboarding.ts`, `src/ui/OnboardingView.tsx` |
+| HR | The personnel file behind every person, with everything a GM must act on in one list. Contract type, written statement issued and signed (a day one right), probation dates and outcome, fixed-term end, notice (contract against statutory: a week after a month, then a week a year to twelve), NI number, address, emergency contact and line manager. Sickness and other absence with fit notes after seven days, return to work conversations and the Bradford factor over 52 weeks; disability or pregnancy related absence is kept out of triggers. A shift on an absence day is blocked like leave, and the auto-build steers round it. A training matrix of the certificates an EHO, licensing officer or insurer asks for, required by role (food hygiene, allergens, Challenge 25, personal licence), with expiry warnings. Probation and appraisal tracking, and disciplinary, grievance and capability cases with outcomes and live warnings, visible to admins only. Headcount, turnover, average service and sick days per head across any scope, with directory, absence and training CSVs. Rota and payroll keys never see the file: they get absence dates only, without reasons. Every change to an HR record keeps the values it replaced and who made it; a case stays with its person and is closed, never deleted. Nobody changes their own staff record or answers a data request about themselves. Subject access exports include the HR records (cases only for those who handle them); contact erasure removes address and emergency contact; anonymisation removes the NI number, sickness reasons and every HR record; the record of processing lists personnel files and health data. | `src/engine/hr.ts`, `server/routes/hr.ts`, `src/ui/HrOverview.tsx`, `src/ui/HrFile.tsx`, `src/ui/AbsenceView.tsx`, `src/ui/TrainingView.tsx`, `src/ui/ReviewsView.tsx` |
 | Shifty and the command bar | Shifty, the chat in the bottom right, answers questions about the rota, labour, the team and holiday from the app's own data. The command bar along the bottom (Ctrl K) takes one-line instructions such as "please add a new starter". Both share one agent: it looks things up, and every change (a starter, record changes, a leaver, holiday, an absence, a shift, publishing) comes back as a card the manager confirms before it is carried out through the same actions and API checks as the screens. It enforces minimum wage for age and the rota rules, never sees NI numbers, addresses or absence reasons, hands whole-rota work to the rota assistant, and counts towards the same spend limits. | `src/ai/appTools.ts`, `src/ai/appAgent.ts`, `src/ui/Shifty.tsx`, `src/ui/CommandBar.tsx`, `src/ui/proposals.tsx` |
 | Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools, for one site, a company's sites or the whole group, then takes follow-up changes to the same draft. Every shift is costed by the payroll model and checked by the compliance engine, so it cannot roster illegally, roster a leaver or someone with no right to work check, or borrow anyone who has not agreed to cover a site. It uses each home team first, then sister sites, then other companies in the group (an intercompany recharge), and leaves shifts that have started alone. From the last four weeks it spreads weekends and closes fairly, respects each person's rota notes, avoids relying on people with recent late arrivals or no-shows for solo shifts, and suggests leave to people with holiday to use before the year end. The GM sees each site's labour % before and after, the changes, cover borrowed, a note and the Claude cost, then applies the draft in one all-or-nothing save that is refused if anyone changed the week meanwhile, with the instructions kept in the audit log. Spending is capped per organisation per month and per person per day in Settings. | `src/ai/`, `src/engine/insights.ts`, `src/ui/AssistantPanel.tsx`, `server/assistantLimits.ts` |
+| Forecast model | Builds each site's forecast from its own hourly till sales: the same weekday and hour over the last eight weeks, recent weeks weighted most, a damped trend, bank holidays from past bank holidays (or the Sunday pattern), and adjustments for weather, events and closures. Overrides keep the model figure underneath. Once traded, accuracy is measured by hour, day and daypart, and each person's overrides are scored against the model. | `src/engine/forecast.ts`, `src/ui/ForecastView.tsx` |
+| Calendar, weather and events | The UK trading calendar computed for any year: Easter, Mothering Sunday, Shrove Tuesday, Valentine's, Father's Day, Halloween, Bonfire Night, Black Friday, party season, Mad Friday, Christmas to New Year, every bank holiday, and the clock changes (an hour more or less pay for overnight staff). Weather from Open-Meteo and local events from iCal feeds (stadiums, venues, councils), Ticketmaster or entered by hand, fetched every morning. Each site learns from its own history how it trades on each occasion, in warm or wet weather, and around each feed's events, and the forecast allows for it by itself with the evidence shown. Where there is no history, the GM is reminded in time to set an expectation. People's adjustments always win; automatic ones are capped in total. | `src/engine/calendar.ts`, `src/engine/weather.ts`, `src/engine/events.ts`, `src/engine/plan.ts`, `server/integrations/feeds.ts`, `src/ui/CalendarView.tsx` |
+| Bookings | Covers on the books, by site and daypart, from a booking system's CSV export (ResDiary, SevenRooms, OpenTable or similar, columns found by name) or pushed by a connector. Only date, time, covers, status and when each was made or cancelled are read: guest details are never stored, and past days are compacted into pace history (covers on the books at set lead times) within two days. Each site learns its pickup from comparable days: walk-ins and late bookings, less no-shows. Expected covers (booked now plus pickup, with the weather applied to the walk-in part) replace the model's covers for that daypart and stand in for occasion, event and weather effects there. People's adjustments still win. Reminders for large parties and for pace well ahead of or behind a normal day. | `src/engine/bookings.ts`, `src/engine/bookingImport.ts`, `server/routes/bookings.ts` |
+| School holidays | The usual England and Wales pattern for any school year (half terms, Christmas, Easter, summer), marked as an estimate, until a site has its council's dates from an iCal feed or entered by hand; each confirmed holiday replaces the estimate for that holiday. Each site learns what holidays do to each daypart, weekdays and weekends apart, and the forecast allows for it. A reminder three weeks before each holiday: parents' leave, students' hours. The council feed reader refuses anything doubtful (implausibly long gaps, clubs, early closures) and says what it left out. | `src/engine/school.ts`, `src/ui/CalendarView.tsx` |
+| Child employment | Anyone still of compulsory school age (by nation, from gov.uk) is held to the child employment rules: 12 hours a week in term time, 2 on school days and Sundays, 5 or 8 on Saturdays by age; 25 or 35 a week in the holidays; never in school hours, before 07:00 or after 19:00; an hour's break after four hours; daily limits counted across the day's shifts. Estimated holidays count as term time: the longer holiday hours apply only once the council's dates are in. Permit and bar work flagged. The auto-build, the weekly moves and the assistant all follow them. | `src/engine/compliance.ts` |
+| Weekly moves | The three changes to a site's week that save most without leaving the floor short or breaking a rule: trim an overstaffed edge, take off a shift that is over demand all through, or give a shift to someone cheaper who is trained and free. Each is priced at its true marginal cost on the person's whole week, applied in one tap, re-checked when taken, and measured against approved time once the week is worked. | `src/engine/coach.ts`, `src/ui/CoachView.tsx` |
+| Scorecard and ladder | Per site per week: notice given, legal, labour planned and actual, hours over demand, rota-to-payroll gap, forecast error, moves taken. A four-rung ladder (on time and legal, on target, daypart precision, owns the forecast), each rung held three weeks in four, with the next step in one sentence. | `src/engine/scorecard.ts` |
+| Labour programme | The twelve-week WS programme: Baseline, Control, Optimise, Embed. Milestones proved by the site's data or signed off by the WS client partner, targets from the strategy, the saving against a baseline from the accounts, verified only when signed off from the management accounts, and a gain share only on a verified saving. See `docs/PROGRAMME.md`. | `src/engine/programme.ts`, `src/ui/ProgrammeView.tsx` |
+| Benchmarks | Anonymised quartiles across WS clients who opt in: labour %, sales per labour hour, hours over demand, forecast error. Nothing from fewer than ten sites or three operators, or where one operator dominates. | `src/engine/benchmark.ts`, `server/routes/insights.ts` |
 | Close | Labour accrual journals by role nominal and site tracking category, one per entity, from approved actuals once available, otherwise the rota, exported in Xero manual journal format. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
 | Multi-site | Group and entity views put every site side by side with entity subtotals and a sales-weighted group target. One press builds every site in scope: each site's own team first, then cover from people who have agreed to work other sites. Cross-site cover is reported each week. | `src/engine/metrics.ts`, `src/engine/autoschedule.ts`, `src/ui/GroupView.tsx` |
 | Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
 | Payroll per PAYE scheme | Each company has its own TeamPay employer. Starters, leavers and approved hours go to the scheme of the company that employs the person, wherever they worked; hours go as one batch per company, and each pay run comes back to its company and is reconciled against that company's accrual only. Nothing is sent until every company with hours has an employer, and moving a synced person between schemes is refused because it is a leaver and a starter. | `server/payrollEmployers.ts`, `server/routes/payroll.ts`, `server/outbox.ts` |
 | Employment Allowance | One claim per connected group, set on the claiming entity with what the last payroll left unused. Used against that entity's employer NI week by week until it runs out, as payroll applies it, and posted to its books only (Cr employer NI, Dr wages accrual) split across its sites. Resets each tax year. Site labour % stays before the allowance. | `src/engine/allowance.ts`, `src/engine/journal.ts` |
 | Reports | Labour trend over 4, 8 or 13 weeks on actual takings, with the target flexed to what each week took, labour from clocked time where a site clocks and the rota where it does not, and weeks over target counted by site. Cost by role: loaded labour by department and role with every on-cost, tying to the KPI bar and each wages nominal in the journal. Rota vs actual: the planned week against the latest estimate (clocked time for days worked, the rota for days left), per person hours and cost variance, shifts not clocked and unrostered clocking. Takings: net sales by site and day from a till feed (`PUT /v1/sales`), keyed in, or imported from the till's CSV export. Payroll accuracy: every pay run's accrual against what payroll cost, runs inside 1%, average miss, reruns replacing earlier runs, and people who miss the same way run after run. Every report exports to CSV and works for a site, an entity or the group. | `src/engine/reports.ts`, `src/ui/ReportsView.tsx`, `src/ui/TakingsEntry.tsx`, `src/ui/PayrollAccuracy.tsx` |
+| EPOS (Square) | Someone with settings.manage connects the group's Square account in Settings with an access token, which is checked with Square before it is saved and never shown again, then matches each site to its Square location. Completed orders come in net of VAT, tips and service charge (tips belong to the team under the Employment (Allocation of Tips) Act 2023) and net of refunds, bucketed into trading days in UK local time with sales after midnight kept on the night before, by hour as well as by day. Only finished trading days are written, a day with no orders is recorded as nil, and a figure a manager keyed in by hand is never overwritten. The last three days sync every morning; any range up to a quarter syncs on demand from Settings or the Takings report. The demo and development use a simulated till. Other tills implement the same two calls. | `server/integrations/epos/`, `server/routes/epos.ts`, `src/engine/epos.ts`, `src/ui/EposSetup.tsx` |
 | Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
-| Open API and webhooks | Any system can plug in without Preshift issuing anything. A person with the settings permission and their authenticator makes a key per system under Settings, ticks what it may do (never more than they can do across the organisation), sees it once (only its hash is kept), sees when it was last used and revokes it at once. Keys are rate limited. Webhooks post signed, thin events (ids, never pay or personal data) to a partner's https endpoint the moment a rota is published, a shift or starter changes, hours are approved, a pay run reconciles, or (only when named, and only for someone who reads personnel files) absence, training, reviews and right to work copies change, with absence reasons and disciplinary cases never sent; raised in the same save as the change and retried in order if the partner is down. A partner can register its own endpoint with a `webhooks:write` key. | `server/routes/developers.ts`, `server/webhooks.ts`, `src/ui/DeveloperSettings.tsx` |
+| Open API and webhooks | Any system can plug in without Preshift issuing anything. A person with the settings permission and their authenticator makes a key per system under Settings, ticks what it may do (never more than they can do across the organisation), sees it once (only its hash is kept), sees when it was last used and every call it has made (kept 13 months, refused calls and attempts after revocation included, downloadable as CSV for a breach investigation), and revokes it at once. Keys are rate limited. Webhooks post signed, thin events (ids, never pay or personal data) to a partner's https endpoint the moment a rota is published, a shift or starter changes, hours are approved, a pay run reconciles, or (only when named, and only for someone who reads personnel files) absence, training, reviews and right to work copies change, with absence reasons and disciplinary cases never sent; raised in the same save as the change and retried in order if the partner is down. A partner can register its own endpoint with a `webhooks:write` key. | `server/routes/developers.ts`, `server/webhooks.ts`, `src/ui/DeveloperSettings.tsx` |
+| MCP connector | Claude, or any MCP client, plugs into Preshift at `/mcp` with an API key and works the rota in plain English: sites, staff, the week with cost and compliance, forecast, takings, clocked time, rota against clocked, the labour accrual journal and pay runs; build, add or remove shifts, publish and approve time. Every tool calls the public API with the caller's own key, so scopes, site access, compliance blocks, audit and webhooks apply unchanged, and a key only sees the tools it may run. | `server/mcp.ts`, `docs/API.md` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. A team already on TeamPay is linked, never set up twice: a starter matching exactly one record on name and date of birth is linked automatically, a near match is held, and Payroll, under "Link existing TeamPay people", links the rest. Where the two disagree nothing is overwritten until someone decides which is right, and hours wait for that decision on pay. | `server/integrations/payroll/`, `server/outbox.ts`, `server/routes/payrollLink.ts`, `src/engine/payrollMatch.ts`, `src/ui/PayrollView.tsx`, `src/ui/PayrollLink.tsx` |
-| Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/` |
+| Sign-up and billing | A business signs itself up from the sign-in page: business name, its own name and email, then a single-use link (24 hours, token after `#`) to prove the inbox before any account exists, where it chooses its password. That makes a new empty organisation named after the business, with the person as owner, on a free trial, and opens Set-up. The page answers the same whether or not the email already has an account; an existing account is told in its own inbox. Billing (Organisation, then Billing, for `settings.manage`) subscribes through Stripe Checkout, priced per site and carrying any trial left, collects the billing address and VAT number, and opens Stripe's portal for cards, invoices and cancelling. Stripe's signed webhooks keep the subscription's status, sites and last invoice. When a trial ends unpaid, or a subscription is cancelled or stays unpaid after Stripe's retries, changes are refused (`402 billing_required`) while every read, paying, the person's own sign-in and GDPR requests carry on. Organisations billed under a WS engagement have no billing record and are never paused, nor is anyone on a system without Stripe configured. | `server/routes/signup.ts`, `server/billing.ts`, `server/routes/billing.ts`, `src/ui/BillingView.tsx`, `server/billing.test.ts` |
+| Clients | For Williams, Stanley & Co.: each WS person sees the client organisations they hold a WS role in, never anyone else's, with counts only (sites, people, starters, people not in payroll, accounts), a seven step onboarding checklist and what needs attention (owner invitation expired, still on the sample group, payroll gaps, nothing changed for 14 days). A WS client partner with their authenticator, working in their home organisation, adds a client: a new empty organisation named after its trading company, with them as its WS client partner and its owner invited. The owner's link only ever goes to the owner's own email, through the home organisation's Resend; without email set up nothing is created. While the owner has not accepted, the partner can send a fresh invitation (three an hour); once they accept, the client runs its own access and WS appoints nobody inside it. Until anyone at the client has signed in, and before any site or person is set up, the partner can remove the client: its owner link stops working, everyone's access there is suspended and it leaves every list and switcher. The organisation and its audit trail are kept, never deleted; once the client has signed in, only its owner can part company with WS. | `server/routes/clients.ts`, `src/ui/ClientsView.tsx`, `server/clients.test.ts` |
+| Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. Rostering another site's person needs their agreement to cover it, unless the caller also runs their home site. A CI test fails any API route that does not visibly check access. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/`, `server/accessCoverage.test.ts` |
+| Pay approvals | A change to someone's rate, salary or pay basis by a person is a proposal: their pay in force stays until the finance director approves it (`pay.approve`, with an authenticator). Nobody approves their own proposal or their own pay. Each proposal shows its reason and what it adds to gross pay over a year, on contracted hours or the last four weeks of rota. A starter's proposed rate goes the same way, starting at nought. Approval refuses pay that has moved since the proposal; a newer proposal replaces a waiting one; rates below the legal minimum are refused at once. Every decision is kept, and payroll and webhook subscribers hear of new pay only on approval. In a business where nobody else can approve (a new one run by its owner alone) a change applies at once and its record says so, and the Access overview flags that nobody can approve pay. Pasting in a team at set-up proposes each rate, and finance can approve them all in one confirmed step. Integration keys still set pay directly, in the audit trail. | `server/routes/pay.ts`, `src/engine/payChanges.ts`, `src/ui/PayApprovalsView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 | Staff app | Staff clock in and out on their own phones at `/staff/`, record their breaks, and see their own published shifts and hours. Breaks are not location checked (they only lower paid time); recorded breaks set the entry's unpaid minutes at clock-out, the phone shows the legal minimum for the shift, and a card tap during a break ends the break. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
@@ -51,22 +95,132 @@ accrual so the P&L carries true labour before payroll has even run.
 
 The product is meant to read like management accounts, not like a rota app, in Williams, Stanley & Co. colours: WS navy (#003359) on white over a pale blue gradient, ledger rules and double rules under totals, set in Geist with Geist Mono for figures and labels. Beyond the navy, colour is reserved for money and the law: teal inside budget, coral over budget or blocked, gold to review, each checked for colour-blind separation and always shown with a label or mark. Roles and departments are told apart by position and label, never by colour, so anything coloured on screen is something to act on.
 
+## Specification
+
+The detail behind the feature list. Every figure here is in the code; if they disagree, the code
+is right and this section is out of date.
+
+### Labour costing (`src/engine/cost.ts`, `src/engine/ukRates.ts`)
+
+| Parameter | 2026/27 value |
+| --- | --- |
+| National Living Wage (21+) | £12.71 an hour |
+| NMW 18 to 20 | £10.85 an hour |
+| NMW 16 to 17 and apprentice rate | £8.00 an hour |
+| Employer NI | 15% above £96 a week (secondary threshold) |
+| Auto-enrolment pension | 3% employer on qualifying earnings £120 to £967 a week; trigger £192 a week; ages 22 to 66 |
+| Holiday accrual | 12.07% of hours worked for hourly and irregular-hours staff (5.6 / 46.4) |
+| Employment Allowance | £10,500 a year, one claim per connected group |
+
+On-costs are calculated on the whole week, then spread across that week's shifts, so the rota
+total reconciles to payroll. The shift editor shows marginal cost: what the shift adds to the week.
+
+### Compliance rules (`src/engine/compliance.ts`)
+
+Blocking issues stop publication and are refused by the assistant. Warnings are shown and allowed.
+
+| Rule | Severity |
+| --- | --- |
+| Minimum wage for the person's age band | Block |
+| Rest breaks under the Working Time Regulations; 30 minutes over 4.5 hours for under 18s | Block |
+| Under 18s: 8 hours a day, 40 hours a week | Block |
+| Double booking across any site, on leave, outside employment dates, right to work missing or expired | Block |
+| 11 hours daily rest, checked across week boundaries; 12 hours for under 18s | Block |
+| Weekly rest: one clear day in the rota week, two for under 18s | Block |
+| Not enough time to travel between two sites' shifts, by the TfL journey time or estimate | Block |
+| Under 18 working between 22:00 and 06:00 (check the hospitality exemption) | Warn |
+| Outside stated availability, or not trained for the role | Warn |
+| Move between sites within 10 minutes of the journey time, or sites with no postcode set | Warn |
+| Over 48 hours without an opt-out (must average 48 or less over 17 weeks) | Warn |
+| Over the person's own maximum weekly hours | Warn |
+| Below contracted hours on a full week (the gap is paid regardless) | Warn |
+
+Rest breaches, and only rest breaches, can be overridden by a person who may publish the rota at that site, with a reason of at
+least 15 characters (why, and the compensatory rest the person gets). The breach then publishes as a
+warning carrying the manager's name and reason. An override covers that breach exactly as it stood:
+move either shift, or change the days worked, and it blocks again. System keys cannot override, the
+auto-build and the rota assistant never rely on one, and every override, withdrawal and publish
+through one is in the audit log. The Sites view shows overrides per site for the selected week and the
+three before it, with a group total and a "Recurring" tag on any site that overrode in three of those
+four weeks (`overrideTrend` in `src/engine/compliance.ts`). A daily rest override counts at the site
+of the shift worked short of rest, a weekly one at the person's home site. Routes: `GET`, `POST /v1/rota/overrides`, `DELETE /v1/rota/overrides/:id`.
+
+### Demand-led build (`src/engine/demand.ts`, `src/engine/autoschedule.ts`)
+
+- Input: hourly forecast net sales and covers per site, from `PUT /v1/forecast`.
+- Per role and site: sales per labour hour or covers per person per hour, a floor while open and a cap.
+- Fill order: peak hours first, cheapest legal person first, own-site team before cross-site cover.
+- Edges trimmed where overstaffed. Unfillable gaps are reported as a hiring or cross-training signal.
+
+### Rota assistant (`src/ai/`, `server/routes/assistant.ts`)
+
+- Claude drafts changes by calling the engine's own tools; it never writes shifts directly.
+- The server route accepts one fixed model, caps output at 16,000 tokens and refuses streaming.
+- The organisation's key is held server side, shown only by its last four characters.
+- The GM sees labour % before and after, the changes and the trade-offs, then applies or discards.
+
+### Finance outputs (`src/engine/journal.ts`)
+
+- Labour accrual journal per entity, by role nominal and site tracking category.
+- Basis: approved actuals when available, otherwise the rota (`basis=rota|actual|auto`).
+- Format: JSON or Xero manual journal CSV.
+- Intercompany recharge posted on both sides where a person works at another company's site,
+  checked to agree before posting.
+
+### Time, clocking and the staff app
+
+| Item | Specification |
+| --- | --- |
+| Geofence | Per site. Fix accuracy is allowed on top of the radius, up to the radius again. Fixes worse than 250 m are refused. |
+| Card taps | A reader fixed on site under its own API key is not location checked, and may send the time of a tap it held offline. A card read on a signed-in tablet or phone needs the device inside the geofence, like any device clock. Repeat reads of one tap are ignored. A tap during a break ends the break. |
+| Clock times | A clock from a person's screen is timed by the server: a time sent more than two minutes off is refused (`time_set_by_server`), so no one can clock a colleague in for a shift they never started. Missed clocks go in as manual entries for approval. |
+| Personal details | Date of birth, right to work evidence and expiry, holiday record and card number go only to those who manage the team or read HR at the person's site. Others, such as a supervisor, see whether someone is under 18 and whether their right to work is checked, with an expiry only when it falls within the next eight weeks of rota. |
+| Phone clocking | Requires the site's geofence, for clock-in and clock-out. Refused at a site with no fence. |
+| Breaks | Not location checked. Recorded as `{start, end}` and set unpaid minutes at clock-out. Clocking out ends a running break. |
+| Approval | Manager approval, rota against clock by person, period locked once sent to payroll. |
+
+### Access and security
+
+| Item | Specification |
+| --- | --- |
+| Manager sessions | 12 hours, HttpOnly cookie, checked against the database on every request. |
+| Staff sessions | 30 days, separate signing key, never accepted by the manager API. |
+| Passwords | scrypt hashes. Five wrong attempts lock the account for 15 minutes. |
+| Password reset | Single-use email link valid 30 minutes, at most three emails an hour per account, token after `#`. Admin-issued link valid 24 hours. |
+| Staff invite | One-time link valid 7 days; a new invite resets a forgotten staff password. |
+| Roles | Admin and member. At least one admin per organisation; nobody can remove themselves. |
+| API | Scoped API keys, per-organisation tenancy, OpenAPI docs at `/docs`. TeamPay webhooks HMAC signed. |
+
+### Platform
+
+| Item | Specification |
+| --- | --- |
+| Stack | TypeScript throughout. React 18 and Vite for the web and staff apps; Fastify 4 for the API. |
+| Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
+| Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
+| Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
+| Quality | 764 tests across 70 files (engine, sign-up and billing, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (439 across 37 files)
+npm test         # engine, UI rules, assistant and API tests (764 across 70 files)
 npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 ```
 
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
-`PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there. They only navigate; they
+`PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there, or set `PRESHIFT_E2E_DEMO=1`
+to go in through its public demo with no account (for example
+`PRESHIFT_E2E_URL=https://preshift-nine.vercel.app PRESHIFT_E2E_DEMO=1 npm run test:e2e`). They only navigate; they
 never build, clear, publish or save.
 
 Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only
-exists when the API runs without a database, and is never created on the live system.
+exists when the API runs without a database, and is never created on the live system. To try the
+labour programme's sign-offs, act as Sam Okoro, the WS client partner, from the demo people. The demo carries twelve
+weeks of till history, so the forecast model and accuracy work straight away.
 
 ## Evaluating the rota assistant
 
@@ -210,30 +364,94 @@ After that it is refused, and the sample can only be edited. Each site's typical
 on demand. Figures from a sales system replace it week by week and are never overwritten. A company,
 site or role that people, rotas or clocked time still use cannot be removed.
 
+## Self sign-up and billing
+
+A business can start on Preshift without a set-up call. Switch it on with `PRESHIFT_SIGNUP=1` once the
+first organisation has email set up under Settings, since its Resend account sends the confirmation
+links. The sign-in page then offers "Start a free trial", and the marketing site links to it.
+
+1. The visitor gives their business name, their own name and their work email.
+2. A single-use link goes to that inbox, valid 24 hours. Nothing is made until it is used, so nobody
+   can claim someone else's email. If the email already has an account, the inbox is told to sign
+   in instead and the page says exactly the same, so the form never reveals who is a customer. At most
+   three emails an hour per address, ten sign-ups a day per visitor address and 200 a day in total.
+3. Opening the link, they choose a password. A new empty organisation is made, named after the
+   business, with them as its owner, on a free trial (`PRESHIFT_TRIAL_DAYS`, default 14), and they
+   land in Set-up. Like any owner, they set up an authenticator before settings and billing open.
+
+Billing is for those organisations alone. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and
+`STRIPE_PRICE_ID` (a recurring price per site), and point a Stripe webhook at
+`/v1/integrations/stripe/webhook` (events listed in `docs/API.md`). Organisation, then Billing:
+
+- Subscribe opens Stripe Checkout for the organisation's own sites (the sample group's never count,
+  minimum one). Trial days left carry over, so paying early costs nothing. Checkout collects the
+  billing address and VAT number, and accepts promotion codes.
+- Manage billing opens Stripe's customer portal: card, VAT invoices, company details, cancelling.
+- When sites are added or closed, one button brings the sites paid for into line; Stripe prorates it.
+- The page shows the standing, renewal date and last invoice. Owners see a banner in the last week
+  of the trial, and when a payment fails.
+
+| Standing | When | What works |
+| --- | --- | --- |
+| Billed by WS | No billing record: the first organisation and every WS client | Everything, always |
+| Free trial | Trial days left and no subscription in force | Everything |
+| Subscribed | Stripe reports `active` or `trialing` | Everything |
+| Payment failed | Stripe reports `past_due` and is retrying the card | Everything, with a banner |
+| Lapsed | Trial over with no subscription, or cancelled, unpaid or expired | Every read, Billing, your profile and authenticator, GDPR requests. Every other change is refused with `402 billing_required` until someone pays |
+
+Nothing is paused on a system without Stripe configured: nobody is cut off who has no way to pay.
+Stripe's events are believed only with its signature over the exact bytes, from the last five
+minutes, and are applied to the organisation Preshift recorded when it made the Stripe customer,
+never one named in the event. Late or out-of-order events cannot undo a newer status. Preshift
+keeps the customer and subscription ids, status, sites paid for and the last invoice's amount and
+link: never a card. Demo sandboxes are never billed.
+
 ## Public demo for prospects
 
-A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
-an account. The marketing site's "Try the live demo" button opens `/demo`, which gives the visitor
-their own private copy of the demo group and signs them in as its admin. Everything works as it
-does for a customer: build from forecast, edit shifts, compliance, people, clock in, payroll
-against the TeamPay simulator, the Close journals and the API docs.
+The live system also hosts a public demo, kept apart from every customer. With `PRESHIFT_DEMO=1`,
+the marketing site's "Try the live demo" button opens `/demo`. Pressing "Start the demo" gives the
+visitor their own private copy of the demo group (a sandbox organisation) and signs them in with
+its full access. They can use the product as a customer would: build from forecast, edit shifts,
+compliance, people, HR, clock in at the site, payroll against the TeamPay simulator, the Close
+journals, GDPR, and the access controls on a fictional team, none of whom has an account.
+Every sandbox is wiped at midnight UK time.
 
-- Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
-  Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
-- Guard rails. Accounts, passwords and resets, the Claude key, email settings and owner setup
-  cannot be changed. Staff app logins work inside the sandbox. Payroll
-  always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
-  are deleted after 24 hours (on the daily cron and as new visitors arrive).
-- Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
-  sandbox. Put a monthly spend limit on that key in the Claude Console.
-- Where it runs. A separate Vercel project from the same repository, with its own Neon database
-  (`PRESHIFT_DATABASE_URL`), never the database that holds customer data. Without a database the
-  demo still works on one instance but sandboxes do not survive a cold start. Set `CRON_SECRET` for
-  the daily clean-up.
-- Linking from the live system. Set `PRESHIFT_DEMO_URL` on the live deployment (for example
-  `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
+Segregation and security controls, all in `server/demo.ts` and `server/sandbox.ts`:
 
-Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
+- Identity. A sandbox is known by its id (`sandbox-...`), which only "Start the demo" creates. Its
+  visitor account has an `.invalid` address and a random password nobody knows. Password sign-in,
+  password changes and reset links all refuse sandbox accounts, demo accounts never count towards
+  first-run owner setup, and integration keys cannot name a sandbox. A sandbox is reached only by
+  its own visitor account, which works nowhere else, and no invitation into a sandbox can be
+  accepted, so demo and customer accounts never mix.
+- Routes. A visitor's session reaches only the routes marked `true` in `SANDBOX_ROUTES`. Anything
+  else is refused, including any route added later: a test fails until each new API route is
+  listed as allowed or refused, so every feature gets a deliberate decision about the demo.
+  Refused: anything that issues an invitation or reset link or touches an authenticator, settings,
+  the Claude and email keys, right to work copies (no real passport should go into a public demo),
+  postcode and TfL lookups (they run on the live system's quota), and staff app logins (their
+  emails are unique system-wide, so a visitor could otherwise find out whether an address is a
+  customer's). The guard runs before a request body is even validated.
+- Data. Each request loads only the caller's own organisation, as for every customer. Deleting
+  data is a separate store operation that refuses any id that is not a sandbox, checked in code and
+  again in the SQL. Payroll webhooks never create an organisation and answer an unknown one exactly
+  as a bad signature, so they do not reveal which organisations exist.
+- Payroll. Sandboxes always run on an in-process TeamPay simulator whose webhook secret is random
+  per instance. Customers stay on real TeamPay, and the simulator-only routes return 404 for them.
+- Capacity and cost. Opening `/demo` creates nothing; only a same-site form post does. Up to 500
+  sandboxes a day in total and 10 per visitor address (kept only as a keyed hash). The rota
+  assistant is off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
+  sandbox and 1,500 a day; set a monthly spend limit on that key in the Claude Console as well.
+- Midnight reset. A visitor's session ends at midnight UK time even before clean-up runs. Vercel
+  Cron calls `/internal/demo-reset` at 23:05 and 00:05 UTC (just after midnight in summer and in
+  winter), and visitors starting the demo trigger it too. It deletes each sandbox with its visitor,
+  staff logins, documents and counters. Needs `CRON_SECRET`.
+- Kill switch. Unset `PRESHIFT_DEMO` and redeploy: nothing new starts, existing visitors are
+  refused on their next request, and the reset still clears what they left.
+
+Starting the demo replaces any Preshift session in that browser, which the start page says.
+
+Locally: `npm run dev:demo`, then open http://localhost:5173/demo. The dev account still works.
 
 ## Deployment (Vercel)
 
@@ -248,6 +466,9 @@ Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 | `/api/anthropic/v1/messages` | The rota assistant's route to Claude, using the key saved in Settings |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
 | `/internal/webhooks` | Vercel Cron every 15 minutes: webhook deliveries waiting on a retry (needs `CRON_SECRET`, and a Vercel plan that allows cron jobs more often than daily) |
+| `/demo`, `/demo/start` | The public demo's start page and the form post that starts a sandbox (with `PRESHIFT_DEMO=1`) |
+| `/internal/demo-reset` | The demo's midnight reset, Vercel Cron at 23:05 and 00:05 UTC (needs `CRON_SECRET`) |
+| `/v1/integrations/stripe/webhook` | Stripe's signed billing events (with `STRIPE_*` set) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when
@@ -265,7 +486,7 @@ stored copy. Every view of a copy is logged, and admins see the log on the emplo
 ```
 src/engine   Pure TypeScript domain logic, shared by API, browser and assistant. Fully unit tested.
 src/ai       The rota assistant: tools over the engine, and the Claude loop that drives them.
-server       The Preshift API: routes, sign-in, people and settings, API keys, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
+server       The Preshift API: routes, the MCP connector, sign-in, people and settings, API keys, tenancy, Postgres store, payroll outbox, TeamPay client and simulator.
 src/ui       React web app, a client of the API.
 site         Marketing site (static, no build step).
 scripts      Local dev runner and the Vercel build.

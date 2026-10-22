@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { PayrollHoursBatch } from '../src/engine/timesheet';
+import { employeeWeekCost } from '../src/engine/cost';
+import { seedState } from '../src/engine/seed';
+import { payrollHours, type PayrollHoursBatch } from '../src/engine/timesheet';
+import type { Shift, TimeEntry } from '../src/engine/types';
 import { buildApp } from './app';
 import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -209,5 +212,41 @@ describe('payroll per PAYE scheme', () => {
     expect(employerStatus(org, only, { defaultEmployerId: 'er_1', simulated: false }).employerId).toBe('er_1');
     expect(employerStatus(org, { ...only, payrollEmployerId: 'er_own' }, { defaultEmployerId: 'er_1', simulated: false }).employerId).toBe('er_own');
     expect(employerStatus(org, only, { simulated: false }).problem).toContain('no TeamPay employer');
+  });
+});
+
+describe('payroll simulator', () => {
+  it('pays each hours line at its own rate, so travel at a company rate is paid as the rota costed it', () => {
+    const state = seedState(WEEK);
+    const base = state.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours === 0)!;
+    const person = { ...base, hourlyRate: 16, dateOfBirth: '1990-01-01', payrollId: 'p_1' };
+    const entities = state.entities.map((e) => (e.id === person.entityId ? { ...e, travelPay: { basis: 'fixed' as const, hourly: 13 } } : e));
+    const entry = (id: string, siteId: string, start: number, end: number): TimeEntry =>
+      ({ id, employeeId: person.id, siteId, roleId: 'server', date: WEEK, clockIn: start * 60, clockOut: end * 60, breakMinutes: 0, status: 'approved' }) as TimeEntry;
+    const entries = [entry('a', 'shd', 12, 16), entry('b', 'mar', 17, 21)];
+    const batch = payrollHours([person], entries, WEEK, '2026-10-25', state.sites, entities);
+    expect(batch.lines.some((l) => l.travel && l.rate === 13)).toBe(true);
+
+    const { run } = new TeamPaySimulator().runPayroll('er_1', WEEK, '2026-10-25', [person], batch);
+    const shifts: Shift[] = entries.map((e) => ({ id: `te:${e.id}`, employeeId: e.employeeId, roleId: e.roleId, siteId: e.siteId, date: e.date, startMinute: e.clockIn, endMinute: e.clockOut!, breakMinutes: 0 }));
+    const costed = employeeWeekCost(person, shifts, undefined, 1, state.sites, entities);
+    const paid = run.employees[0];
+    // Payroll hours are rounded to two decimals and the rota's are not, so allow a few pence.
+    expect(Math.abs(paid.gross - costed.gross)).toBeLessThan(0.05);
+    expect(paid.gross).toBeCloseTo(8 * 16 + 0.72 * 13, 2);
+    expect(paid.holidayPay).toBeCloseTo(costed.holiday, 1);
+  });
+
+  it('still tops hourly pay up to guaranteed hours and pays salary as salary', () => {
+    const state = seedState(WEEK);
+    const hourly = { ...state.employees.find((e) => e.payBasis === 'hourly')!, hourlyRate: 15, contractedHours: 20, payrollId: 'p_2' };
+    const salaried = { ...state.employees.find((e) => e.payBasis === 'salaried')!, annualSalary: 52_000, payrollId: 'p_3' };
+    const batch: PayrollHoursBatch = {
+      periodStart: WEEK, periodEnd: '2026-10-25', salariedEntryIds: [], totalHours: 10,
+      lines: [{ employeeId: hourly.id, payrollId: 'p_2', siteId: hourly.siteId, roleId: 'server', hours: 10, rate: 15, entryIds: [] }],
+    };
+    const { run } = new TeamPaySimulator().runPayroll('er_1', WEEK, '2026-10-25', [hourly, salaried], batch);
+    expect(run.employees.find((e) => e.employeeId === hourly.id)!.gross).toBe(300);
+    expect(run.employees.find((e) => e.employeeId === salaried.id)!.gross).toBe(1000);
   });
 });

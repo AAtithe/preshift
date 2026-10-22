@@ -127,7 +127,9 @@ export function scopeMetrics(state: RotaState, siteIds: string[], start: string)
     paidHours,
     labourPct: pct(labourCost, forecastSales),
     splh: pct(forecastSales, paidHours),
-    targetPct: pct(targetCost, forecastSales),
+    // Sales-weighted across sites; with no forecast there is nothing to weight by, so the sites' own
+    // targets stand rather than reading as 0%.
+    targetPct: forecastSales > 0 ? pct(targetCost, forecastSales) : sites.reduce((s, m) => s + m.targetPct, 0) / (sites.length || 1),
     targetCost,
     varianceToTarget: labourCost - targetCost,
     cost,
