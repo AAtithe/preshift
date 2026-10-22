@@ -64,6 +64,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // The sandbox's own scheme: nothing leaves it, so a visitor can try changing the allocation.
   'PUT /v1/tronc/schemes/:siteId': true,
   'POST /v1/tronc/tips/paid': true,
+  'PUT /v1/tronc/tips': true,
   'GET /v1/time-entries/break-check': true,
   'GET /v1/time-entries/compare': true,
   'GET /v1/integrations/payroll': true,

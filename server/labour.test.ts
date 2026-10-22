@@ -142,3 +142,62 @@ describe('marking tips paid', () => {
     expect((await mark('ravi', { siteId: 'mar', weekStart: '2026-10-12', paidOn: '2026-10-20', undo: '2026-10-20' })).statusCode).toBe(400);
   });
 });
+
+describe('recording tips taken', () => {
+  async function boot() {
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const org = await store.load('demo');
+    org.state.troncSchemes = [{ siteId: 'fitz', troncmaster: 'Rachel Adams', independent: true, pointsPerHour: { server: 10 }, serviceCharge: 'none' }];
+    const { app } = await buildApp({
+      apiKeys: [person('priya', 'usr_gm_mar'), person('marco', 'usr_chef'), person('grace', 'usr_sup'), person('ravi', 'usr_ws_payroll'), person('daniel', 'usr_area')],
+      store,
+      provider: new TeamPaySimulator(),
+      autoDispatch: false,
+    });
+    const record = (key: string, body: unknown) =>
+      app.inject({ method: 'PUT', url: '/v1/tronc/tips', headers: { authorization: `Bearer ${key}` }, payload: body as object });
+    const mark = (key: string, body: unknown) =>
+      app.inject({ method: 'POST', url: '/v1/tronc/tips/paid', headers: { authorization: `Bearer ${key}` }, payload: body as object });
+    return { org, record, mark };
+  }
+  const monday = { siteId: 'mar', date: '2026-10-19', source: 'card-tip' };
+
+  it('lets the site cash up a day, correct it without counting it twice, and clear it', async () => {
+    const { org, record } = await boot();
+    const first = await record('priya', { ...monday, amount: 120.456 });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ id: 'tip-mar-2026-10-19-card-tip', amount: 120.46 });
+    expect((await record('priya', { ...monday, amount: 135 })).json().amount).toBe(135);
+    expect(org.state.tips?.filter((t) => t.siteId === 'mar')).toHaveLength(1);
+    expect((await record('priya', { ...monday, amount: 0 })).json()).toEqual({ removed: true });
+    expect(org.state.tips ?? []).toEqual([]);
+    expect(org.audit.filter((a) => a.action.startsWith('tronc.tips_')).map((a) => a.action)).toEqual(['tronc.tips_recorded', 'tronc.tips_corrected', 'tronc.tips_removed']);
+  });
+
+  it('keeps each site to its own cash-up, and lets payroll correct any', async () => {
+    const { record } = await boot();
+    // A head chef approves hours and sees cost at Marylebone; a supervisor does neither.
+    expect((await record('marco', { ...monday, amount: 50 })).statusCode).toBe(200);
+    expect((await record('grace', { ...monday, amount: 50 })).statusCode).toBe(403);
+    expect((await record('priya', { ...monday, siteId: 'shd', amount: 50 })).statusCode).toBe(403);
+    expect((await record('daniel', { ...monday, siteId: 'shd', amount: 50 })).statusCode).toBe(200);
+    expect((await record('ravi', { ...monday, siteId: 'fitz', amount: 50 })).statusCode).toBe(200);
+  });
+
+  it('will not change a figure already paid, a day still to come, or a service charge the scheme says there is none of', async () => {
+    const { record, mark } = await boot();
+    await record('priya', { ...monday, amount: 120 });
+    expect((await mark('ravi', { siteId: 'mar', weekStart: '2026-10-19', paidOn: '2026-10-20' })).statusCode).toBe(200);
+    const locked = await record('priya', { ...monday, amount: 100 });
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json().message).toMatch(/marked paid on 2026-10-20/);
+    expect((await record('priya', { ...monday, amount: 0 })).statusCode).toBe(409);
+    // Once payroll takes the payment back off, the figure can be put right.
+    await mark('ravi', { siteId: 'mar', weekStart: '2026-10-19', undo: '2026-10-20' });
+    expect((await record('priya', { ...monday, amount: 100 })).statusCode).toBe(200);
+
+    expect((await record('priya', { ...monday, date: '2026-10-22', amount: 10 })).statusCode).toBe(422);
+    expect((await record('ravi', { siteId: 'fitz', date: '2026-10-19', source: 'service-charge', amount: 10 })).statusCode).toBe(422);
+    expect((await record('priya', { ...monday, amount: -5 })).statusCode).toBe(400);
+  });
+});

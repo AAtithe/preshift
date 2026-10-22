@@ -24,6 +24,19 @@ function allowTronc(g: Guard) {
   g.allow('payroll.send');
 }
 
+/**
+ * Recording what was taken is the site's cash-up: whoever approves hours and sees cost there (a GM,
+ * an assistant manager, a head chef, their area and operations managers), or payroll to correct it.
+ * Allocating and paying stay with payroll alone.
+ */
+function allowTipsTaken(g: Guard, siteId: string) {
+  if (g.can('payroll.send') || g.can('pay.approve')) return;
+  g.allow('time.approve', siteId);
+  g.allow('costs.view', siteId);
+}
+
+const TIP_SOURCES = ['service-charge', 'card-tip', 'cash-pooled'] as const;
+
 const DEPARTMENT_SHARE = { type: 'number', minimum: 0, maximum: 1 } as const;
 const ISO_DATE = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } as const;
 const SCHEME_FIELDS = ['troncmaster', 'independent', 'pointsPerHour', 'departmentShares', 'serviceCharge', 'policyPublishedOn', 'lastReviewedOn'] as const;
@@ -94,6 +107,57 @@ export function labourRoutes(app: FastifyInstance, ctx: AppContext) {
       org.state.troncSchemes = [...(org.state.troncSchemes ?? []).filter((s) => s.siteId !== siteId), scheme];
       audit(org, actorName(g), 'tronc.scheme_saved', { siteId, fields, independent: scheme.independent });
       return scheme;
+    },
+  );
+
+  // The day's figure for one source, as cashed up: set it, correct it, or set it to nothing. One record
+  // per site, day and source, so a figure entered twice is corrected rather than counted twice. A figure
+  // already marked paid is fixed: payroll takes the payment back off first, so pay history is never rewritten.
+  app.put<{ Body: { siteId: string; date: string; source: TipsTaken['source']; amount: number } }>(
+    '/v1/tronc/tips',
+    {
+      ...write,
+      schema: {
+        tags: ['Labour'],
+        description: "Records the tips one site took on one day from one source; 0 removes the figure. For the site's cash-up (time.approve with costs.view there) or payroll.",
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['siteId', 'date', 'source', 'amount'],
+          properties: { siteId: { type: 'string' }, date: ISO_DATE, source: { type: 'string', enum: [...TIP_SOURCES] }, amount: { type: 'number', minimum: 0, maximum: 100_000 } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const { siteId, date, source } = req.body;
+      if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
+      const g = guard(ctx, req, org);
+      allowTipsTaken(g, siteId);
+      if (date > g.today) throw new HttpError(422, 'future_date', 'Tips can only be recorded for a day that has traded.');
+      const scheme = (org.state.troncSchemes ?? []).find((s) => s.siteId === siteId);
+      if (source === 'service-charge' && scheme?.serviceCharge === 'none' && req.body.amount > 0) {
+        throw new HttpError(422, 'no_service_charge', "This site's tronc scheme says it takes no service charge. Change the scheme first if it now does.");
+      }
+      const amount = Math.round(req.body.amount * 100) / 100;
+      const tips = org.state.tips ?? [];
+      const existing = tips.find((t) => t.siteId === siteId && t.date === date && t.source === source);
+      if (existing?.paidOn) {
+        throw new HttpError(409, 'already_paid', `These tips were marked paid on ${existing.paidOn}. Payroll takes that payment back off before the figure can change.`);
+      }
+      if (!existing && amount === 0) return { removed: false };
+      if (existing?.amount === amount) return existing;
+
+      const others = tips.filter((t) => t !== existing);
+      if (amount === 0) {
+        org.state.tips = others;
+        audit(org, actorName(g), 'tronc.tips_removed', { siteId, date, source });
+        return { removed: true };
+      }
+      const record: TipsTaken = { id: existing?.id ?? `tip-${siteId}-${date}-${source}`, siteId, date, source, amount };
+      org.state.tips = [...others, record];
+      audit(org, actorName(g), existing ? 'tronc.tips_corrected' : 'tronc.tips_recorded', { siteId, date, source, amount, ...(existing ? { was: existing.amount } : {}) });
+      return record;
     },
   );
 

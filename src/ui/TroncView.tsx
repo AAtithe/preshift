@@ -5,6 +5,7 @@ import type { RotaState, TimeEntry, TipsTaken, TroncScheme } from '../engine/typ
 import { api, ApiError } from './api';
 import { dayLabel, download, hours, money, money2 } from './format';
 import { Kpi } from './Kpi';
+import { TipsTakenPanel } from './TipsTakenPanel';
 import { TroncSchemeEditor } from './TroncSchemeEditor';
 import { useTimeEntries } from './useTimeEntries';
 
@@ -13,8 +14,10 @@ interface Props {
   siteId: string;
   week: string;
   asOf: string;
-  /** Payroll records the scheme: payroll.send or pay.approve. */
+  /** Payroll records the scheme and marks tips paid: payroll.send or pay.approve. */
   canEdit: boolean;
+  /** The site's cash-up records tips taken: time.approve with costs.view there, or payroll. */
+  canRecord: boolean;
 }
 
 const SOURCE_LABEL = { 'service-charge': 'Service charge', 'card-tip': 'Card tips', 'cash-pooled': 'Cash into the pool' };
@@ -35,12 +38,20 @@ export function TroncView(props: Props) {
     const ids = new Set(week.map((t) => t.id));
     setFeed({ ...feed, tips: [...feed.tips.filter((t) => !ids.has(t.id)), ...week] });
   };
-  return <Tronc {...props} state={{ ...props.state, ...feed }} entries={entries} onSaved={saved} onPaid={paid} />;
+  // One figure per site, day and source: a saved figure replaces the one it corrects, and none removes it.
+  const taken = ({ siteId, date, source, tip }: { siteId: string; date: string; source: TipsTaken['source']; tip: TipsTaken | null }) =>
+    setFeed((f) => f && { ...f, tips: [...f.tips.filter((t) => !(t.siteId === siteId && t.date === date && t.source === source)), ...(tip ? [tip] : [])] });
+  return <Tronc {...props} state={{ ...props.state, ...feed }} entries={entries} onSaved={saved} onPaid={paid} onTaken={taken} />;
 }
 
-type TroncProps = Props & { entries: TimeEntry[]; onSaved: (scheme: TroncScheme) => void; onPaid: (tips: TipsTaken[]) => void };
+type TroncProps = Props & {
+  entries: TimeEntry[];
+  onSaved: (scheme: TroncScheme) => void;
+  onPaid: (tips: TipsTaken[]) => void;
+  onTaken: (change: { siteId: string; date: string; source: TipsTaken['source']; tip: TipsTaken | null }) => void;
+};
 
-function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved, onPaid }: TroncProps) {
+function Tronc({ state, siteId, week, asOf, entries, canEdit, canRecord, onSaved, onPaid, onTaken }: TroncProps) {
   const scheme = state.troncSchemes?.find((s) => s.siteId === siteId);
   const [editing, setEditing] = useState(false);
   const [paidOn, setPaidOn] = useState(asOf);
@@ -100,12 +111,24 @@ function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved, onPaid }:
       onCancel={() => setEditing(false)}
     />
   );
+  const cashUp = (
+    <TipsTakenPanel
+      siteId={siteId}
+      week={week}
+      asOf={asOf}
+      tips={(state.tips ?? []).filter((t) => t.siteId === siteId)}
+      noServiceCharge={scheme?.serviceCharge === 'none'}
+      canRecord={canRecord}
+      onChanged={onTaken}
+    />
+  );
   if (!scheme) {
     if (editing) return editor;
     return (
       <div className="tronc">
         <p className="muted">No tronc scheme recorded for this site yet. {canEdit ? 'Record the one the troncmaster runs, and the allocation follows.' : 'Payroll records it here.'}</p>
         {canEdit && <button onClick={() => setEditing(true)}>Record the scheme</button>}
+        {cashUp}
       </div>
     );
   }
@@ -288,6 +311,7 @@ function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved, onPaid }:
           </p>
         </div>
       </div>
+      {cashUp}
     </div>
   );
 }
