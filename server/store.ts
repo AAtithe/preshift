@@ -89,10 +89,22 @@ export interface MailRecord {
   events: { id: string; type: MailEventType; at: string; detail?: string }[];
 }
 
+/** A shared iPad paired as one site's clocking kiosk. Its credential is kept hashed in settings, not here. */
+export interface Kiosk {
+  id: string;
+  siteId: string;
+  name: string;
+  pairedBy: string;
+  pairedAt: string;
+  lastSeenAt?: string;
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
   timeEntries: TimeEntry[];
+  /** Paired clocking kiosks. Absent on organisations saved before kiosks existed. */
+  kiosks?: Kiosk[];
   submissions: PayrollSubmission[];
   payRuns: PayRunRecord[];
   outbox: OutboxItem[];

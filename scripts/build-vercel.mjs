@@ -6,6 +6,7 @@
 //   /demo, /demo/start    the public demo's start page and a sandbox per visitor (PRESHIFT_DEMO=1)
 //   /app/                 the rota web app (Vite build), only to signed-in people
 //   /staff/               the staff app for clocking on their own phones (public page, own sign-in)
+//   /kiosk/               the clocking kiosk for shared iPads (public page, paired by a manager)
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
 //   /internal/dispatch    daily cron retry of undelivered payroll changes
 //   /internal/webhooks    webhook retries every 15 minutes
@@ -29,6 +30,14 @@ await viteBuild({
   configFile: path.resolve('vite.config.ts'),
   base: '/staff/',
   build: { outDir: path.resolve(`${fn}/staff`), emptyOutDir: true },
+  logLevel: 'warn',
+});
+// The kiosk is its own small build too, rooted in kiosk/.
+await viteBuild({
+  root: 'kiosk',
+  configFile: path.resolve('vite.config.ts'),
+  base: '/kiosk/',
+  build: { outDir: path.resolve(`${fn}/kiosk`), emptyOutDir: true },
   logLevel: 'warn',
 });
 await mkdir(fn, { recursive: true });
@@ -71,7 +80,7 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|internal/(?:dispatch|webhooks|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|internal/(?:dispatch|webhooks|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|kiosk(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },

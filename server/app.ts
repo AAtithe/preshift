@@ -38,6 +38,7 @@ import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromE
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
+import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
@@ -63,6 +64,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** The built kiosk page for shared iPads (hosted build). Public: it does nothing until the iPad is paired. */
+  kioskDir?: string;
   /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
   /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
@@ -302,11 +305,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, auth);
   staffRoutes(app, store);
+  kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
     loginPage: options.loginPage ?? path.resolve('site/login.html'),
     appDir: options.appDir,
     staffDir: options.staffDir,
+    kioskDir: options.kioskDir,
   });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
@@ -398,6 +403,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    kioskAdminRoutes(api, ctx);
   });
 
   return { app, ctx, routes };
