@@ -63,6 +63,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/payroll/submissions': true,
   'GET /v1/payroll/runs': true,
   'GET /v1/privacy/register': true,
+  'GET /v1/privacy/policy-documents': true,
+  'PUT /v1/privacy/policy-documents/:entityId': true,
   'GET /v1/privacy/retention': true,
   'GET /v1/privacy/requests': true,
   'GET /v1/journal': true,

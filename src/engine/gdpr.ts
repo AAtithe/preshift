@@ -484,3 +484,63 @@ export function processingRegister(
   ];
   return { activities, processors };
 }
+
+/**
+ * The appropriate policy document an employer must keep to hold health data such as sickness
+ * (DPA 2018 Schedule 1 Part 4): how it complies with the principles and how long it keeps the data.
+ * It must exist, be signed off and be reviewed. One per employing company, since each is a controller.
+ */
+export interface PolicyDocument {
+  entityId: string;
+  title: string;
+  /** Where the document lives, for anyone asked to show it. */
+  url?: string;
+  /** Legal review before sign-off. */
+  reviewedBy?: string;
+  reviewedOn?: string;
+  /** The director who signed it for the company. */
+  signedBy?: string;
+  signedOn?: string;
+  /** When it is next reviewed. A year after signing unless set. */
+  reviewDue?: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export const POLICY_REVIEW_MONTHS = 12;
+
+export interface PolicyDocumentCheck {
+  entityId: string;
+  severity: 'block' | 'warn' | 'ok';
+  message: string;
+}
+
+/** The review date in force: the one set, or a year after signing. */
+export function policyReviewDue(doc: Pick<PolicyDocument, 'signedOn' | 'reviewDue'>): string | undefined {
+  if (doc.reviewDue) return doc.reviewDue;
+  if (!doc.signedOn) return undefined;
+  const [y, m, d] = doc.signedOn.split('-');
+  return `${Number(y) + POLICY_REVIEW_MONTHS / 12}-${m}-${d}`;
+}
+
+/**
+ * Where each employing company stands: no document while sickness is held is the gap an ICO
+ * inspection asks about first; a document not reviewed by counsel or not signed is a draft; one
+ * past its review date is out of date.
+ */
+export function policyDocumentChecks(entities: { id: string; name: string }[], docs: PolicyDocument[], holdsHealthData: boolean, today: string): PolicyDocumentCheck[] {
+  return entities.map((entity) => {
+    const doc = docs.find((d) => d.entityId === entity.id);
+    const at = (severity: PolicyDocumentCheck['severity'], message: string) => ({ entityId: entity.id, severity, message });
+    if (!doc) {
+      return holdsHealthData
+        ? at('block', `${entity.name} holds sickness records with no appropriate policy document on record. Have it reviewed and signed by a director.`)
+        : at('warn', `${entity.name} has no appropriate policy document. One is needed before any sickness is recorded.`);
+    }
+    if (!doc.reviewedOn) return at('warn', `${entity.name}'s appropriate policy document has not been reviewed by counsel.`);
+    if (!doc.signedOn || !doc.signedBy) return at('warn', `${entity.name}'s appropriate policy document is reviewed but not signed by a director.`);
+    const due = policyReviewDue(doc)!;
+    if (due < today) return at('warn', `${entity.name}'s appropriate policy document was due for review on ${due}.`);
+    return at('ok', `Signed by ${doc.signedBy} on ${doc.signedOn}. Next review ${due}.`);
+  });
+}

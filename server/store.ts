@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
 import { seedHrRecords, seedState } from '../src/engine/seed';
-import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
+import type { PolicyDocument, RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
 import type { MoveRecord } from '../src/engine/coach';
 import type { Programme } from '../src/engine/programme';
@@ -143,7 +143,7 @@ export interface OrgData {
   /** Sign-offs of staff logins closed and opened again. Never removed. */
   loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
-  privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
   /**
