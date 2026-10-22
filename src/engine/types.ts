@@ -38,7 +38,18 @@ export interface Entity {
    * runs its own payroll, so starters, hours and pay runs are routed by it.
    */
   payrollEmployerId?: string;
+  /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
+  leaveYearStart?: string;
+  /** What this company pays for travel between sites within a working day. Defaults to the normal rate. */
+  travelPay?: TravelPay;
 }
+
+/**
+ * The hourly rate for travel between sites: each person's normal rate, the minimum wage for their
+ * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate never pays
+ * below it.
+ */
+export type TravelPay = { basis: 'normal' } | { basis: 'minimum' } | { basis: 'fixed'; hourly: number };
 
 export interface Site {
   id: string;
@@ -51,12 +62,41 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** The EPOS location whose takings are this site's, once the till is connected. */
+  eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
-  /** Where the site is, for its weather and nearby events. Falls back to the geofence centre. */
-  location?: { lat: number; lng: number };
   /** Which nation's school calendar applies. England when absent; only England and Wales get an estimate. */
   nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
+  /** A typical trading week, used to forecast any week no sales system has sent figures for. */
+  salesProfile?: SalesProfile;
+  /** Where the site is, for journeys between sites, its weather and nearby events. Set from its postcode. */
+  location?: SiteLocation;
+  /** Journey times from this site to others, by destination site id. */
+  travel?: Record<string, SiteTravel>;
+}
+
+export interface SalesProfile {
+  /** Net sales by weekday, Monday first. */
+  dailySales: number[];
+  /** Net spend per cover, to turn sales into covers. */
+  averageSpend: number;
+}
+
+export interface SiteLocation {
+  lat: number;
+  lng: number;
+  postcode?: string;
+}
+
+/** A journey time between two sites, and where it came from. */
+export interface SiteTravel {
+  minutes: number;
+  /** TfL's journey planner, a straight-line estimate, or set by hand (which a refresh keeps). */
+  source: 'tfl' | 'estimate' | 'manual';
+  /** The modes the journey uses, as TfL names them. */
+  mode?: string;
+  checkedAt: string;
 }
 
 /** A circle round the site's front door. */
@@ -64,6 +104,12 @@ export interface GeoFence {
   lat: number;
   lng: number;
   radiusMetres: number;
+}
+
+/** One break, as the person recorded it. */
+export interface BreakPeriod {
+  start: number;
+  end?: number;
 }
 
 /** A device's position when someone clocked, as the browser reported it. */
@@ -98,6 +144,36 @@ export interface RightToWork {
   evidence?: string;
   /** Time-limited permission: a follow-up check is due before this date. */
   expiry?: string;
+  /** Copies of what was seen. Managed by the server: the files are kept apart from the record. */
+  documents?: RightToWorkDocument[];
+}
+
+/**
+ * A copy of a right to work document. The statutory excuse needs a clear copy of each document
+ * checked, kept for the whole employment and two years after it ends.
+ */
+export interface RightToWorkDocument {
+  id: string;
+  fileName: string;
+  contentType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  bytes: number;
+  /** SHA-256 of the file as received, so a copy can be shown to be the one uploaded. */
+  sha256: string;
+  uploadedAt: string;
+  uploadedBy: string;
+}
+
+/** Holiday position that is not derived from shifts and leave dates. All figures in hours. */
+export interface HolidayRecord {
+  /** Contractual entitlement in weeks a year, for people on fixed hours. Statutory minimum 5.6. */
+  entitlementWeeks?: number;
+  /** Untaken leave carried in from the previous leave year. */
+  carriedOverHours?: number;
+  /** Opening position when records began part way through the leave year. Accrued applies to accrual staff only. */
+  openingAccruedHours?: number;
+  openingTakenHours?: number;
+  /** Hours a leave date counts for, where it is not a normal day. */
+  dayHours?: Record<string, number>;
 }
 
 export interface Employee {
@@ -126,6 +202,7 @@ export interface Employee {
   availability: Availability[];
   /** ISO dates the person is on approved leave. */
   leave: string[];
+  holiday?: HolidayRecord;
   email?: string;
   phone?: string;
   /** First day of employment. Absent means employed before records began. */
@@ -138,8 +215,104 @@ export interface Employee {
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
+  /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
+  payHidden?: boolean;
+  /** Set by the API: a pay change proposed for this person and waiting for finance. */
+  pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
+  rotaNotes?: string;
+  /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
+  hr?: HrProfile;
+  /** Sickness and other absence. A shift on an absence day is blocked like leave. */
+  absences?: Absence[];
+  /** Set when the retention period ended and the record was anonymised under UK GDPR. */
+  anonymisedOn?: string;
+}
+
+export type ContractType = 'permanent' | 'fixed-term' | 'casual' | 'apprentice';
+
+export interface EmergencyContact {
+  name: string;
+  relationship?: string;
+  phone: string;
+}
+
+/** The parts of a personnel file that are about the person and their contract, not the rota. */
+export interface HrProfile {
+  jobTitle?: string;
+  contractType?: ContractType;
+  /** Last day of a fixed-term contract. */
+  fixedTermEnd?: string;
+  /** Last day of probation, and the day it was confirmed as passed. */
+  probationEnd?: string;
+  probationPassedOn?: string;
+  /** Notice the employer must give, in weeks, where the contract gives more than statutory. */
+  noticeWeeks?: number;
+  /** Written statement of employment particulars: due on or before the first day. */
+  contractIssuedOn?: string;
+  contractSignedOn?: string;
+  handbookAcknowledgedOn?: string;
+  /** National Insurance number. Without it payroll runs on an emergency basis. */
+  niNumber?: string;
+  address?: string;
+  postcode?: string;
+  emergencyContact?: EmergencyContact;
+  /** Line manager's employee id. */
+  managerId?: string;
+}
+
+export type AbsenceType = 'sickness' | 'unauthorised' | 'compassionate' | 'dependants' | 'family' | 'unpaid' | 'other';
+
+/** A spell of absence other than holiday, which lives on `leave`. Dates are inclusive. */
+export interface Absence {
+  id: string;
+  type: AbsenceType;
+  from: string;
+  /** Last day off. Absent while the person is still off. */
+  to?: string;
+  reason?: string;
+  /** Fit note seen. Needed after seven calendar days of sickness. */
+  fitNote?: boolean;
+  /** Day the return to work conversation was held. */
+  returnToWorkOn?: string;
+  /** Disability or pregnancy related: kept out of absence triggers, as the Equality Act requires. */
+  excludeFromTriggers?: boolean;
+  notes?: string;
+}
+
+export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';
+export type ReviewType = 'probation' | 'appraisal' | 'one-to-one';
+export type CaseType = 'investigation' | 'disciplinary' | 'grievance' | 'capability';
+
+/**
+ * One dated entry on a personnel file: a course passed, a review held, a disciplinary
+ * or grievance case, a document on file or a note. Kept apart from the rota state so
+ * that rota and payroll keys never read it.
+ */
+export interface HrRecord {
+  id: string;
+  employeeId: string;
+  kind: HrRecordKind;
+  /** When it happened: the course date, review date, case opened, document signed. */
+  date: string;
+  /** Course name, review or case summary, document name. */
+  title: string;
+  /** Training: certificate expiry. */
+  expiresOn?: string;
+  reviewType?: ReviewType;
+  /** Review: when the next one is due. */
+  nextDue?: string;
+  caseType?: CaseType;
+  caseStatus?: 'open' | 'closed';
+  /** Review or case outcome, e.g. 'Passed', 'First written warning'. */
+  outcome?: string;
+  /** Case: the day a warning stops being live. */
+  warningExpires?: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
 }
 
 export interface Shift {
@@ -171,6 +344,8 @@ export interface HourForecast {
   /** Who last changed the figure away from the model, and why. */
   overriddenBy?: string;
   overrideReason?: string;
+  /** 'profile' when worked from the site's typical week. Figures sent by a sales system or the model carry none and win. */
+  source?: 'profile';
 }
 
 /** What one trading hour actually took, from the till. The forecast model learns from these. */
@@ -234,12 +409,51 @@ export interface TimeEntry {
   breakMinutes: number;
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
-  /** How a clock was made: a card tapped on a site reader, or a person signing in on a device. */
-  method?: 'card' | 'device';
+  /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
+  method?: 'card' | 'device' | 'phone';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
+  /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */
+  breaks?: BreakPeriod[];
   approvedBy?: string;
   approvedAt?: string;
+}
+
+/**
+ * A manager's decision to publish despite a rest breach, with their reason. It covers one breach
+ * exactly as it stood: moving either shift, or changing the days worked, makes it a new breach.
+ */
+export interface RestOverride {
+  id: string;
+  employeeId: string;
+  /** Where the short rest is worked: who may see and withdraw it follows the rota rights there. */
+  siteId: string;
+  code: 'daily-rest' | 'weekly-rest';
+  /** The breach it covers, as `Issue.overrideKey`. */
+  key: string;
+  reason: string;
+  by: string;
+  at: string;
+}
+
+/** Takings for one trading day at one site, net of VAT: what the till actually rang, not the forecast. */
+export interface DaySales {
+  siteId: string;
+  date: string;
+  netSales: number;
+  covers?: number;
+  /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
+  source: 'till' | 'manual' | 'import';
+  /** Completed orders, where the till reports them. */
+  orders?: number;
+  /** Takings by hour, from a till feed: history to forecast from. Hours past midnight run on (24 is 00:00 the next morning). */
+  hours?: HourSales[];
+}
+
+export interface HourSales {
+  hour: number;
+  netSales: number;
+  orders: number;
 }
 
 export interface RotaState {
@@ -263,6 +477,10 @@ export interface RotaState {
   bookingPace?: BookingPace[];
   /** School holidays confirmed for a site: from its council's feed or entered by hand. */
   schoolHolidays?: (SchoolPeriod & { siteId: string })[];
+  /** Actual takings by day. Absent on organisations saved before takings were recorded. */
+  sales?: DaySales[];
+  /** Recorded by the API only; never sent with shifts. */
+  restOverrides?: RestOverride[];
 }
 
 /** A school holiday. Estimates are the usual pattern; council dates replace them. */
@@ -334,3 +552,39 @@ export interface LocalEvent {
   venue?: string;
   source: 'ics' | 'ticketmaster' | 'manual';
 }
+
+/** The terms a person is paid on. */
+export interface PayTerms {
+  payBasis: PayBasis;
+  hourlyRate: number;
+  annualSalary: number;
+}
+
+export type PayChangeStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'superseded';
+
+/**
+ * A change to someone's pay, proposed by a person who sets pay and decided by finance. The rate
+ * in force stays as it is until the change is approved; nobody approves their own proposal.
+ */
+export interface PayChange {
+  id: string;
+  employeeId: string;
+  /** Home site when proposed: decides who may see and approve it. */
+  siteId: string;
+  /** Terms in force when proposed. Approval is refused if they have moved since. */
+  before: PayTerms;
+  after: PayTerms;
+  reason?: string;
+  status: PayChangeStatus;
+  requestedBy: string;
+  /** The person's access record id, when a person proposed it. */
+  requestedById?: string;
+  requestedAt: string;
+  decidedBy?: string;
+  decidedById?: string;
+  decidedAt?: string;
+  note?: string;
+}
+
+/** What a person's record carries about a change waiting for approval. */
+export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt'>;

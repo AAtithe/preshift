@@ -93,7 +93,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
   const realised = history.filter((m) => m.status === 'taken' && m.realisedSaving !== null);
 
   return (
-    <div className="coach">
+    <div className="insight">
       {message && (
         <div className={`notice ${message.bad ? 'error' : ''}`}>
           {message.text} <button className="link" onClick={() => setMessage(null)}>Dismiss</button>
@@ -101,7 +101,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
       )}
 
       <section className="settings-card">
-        <div className="coach-head">
+        <div className="insight-head">
           <div>
             <h2>This week's moves</h2>
             <p className="muted small">
@@ -112,7 +112,7 @@ export function CoachView({ state, siteId, week, onChanged }: Props) {
             </p>
           </div>
           {offer && offer.moves.length > 0 && (
-            <div className="coach-total">
+            <div className="insight-total">
               <div className="big good-text">{money(offer.saving)}</div>
               <div className="muted small">
                 Labour {pct(offer.labourPctBefore)} to {pct(offer.labourPctAfter)}
@@ -267,7 +267,7 @@ function Ladder({ card }: { card: Scorecard }) {
           </li>
         ))}
       </ol>
-      <div className="notice coach-next">
+      <div className="notice insight-next">
         <strong>Next step.</strong> {m.next}
       </div>
     </section>

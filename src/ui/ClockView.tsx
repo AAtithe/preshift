@@ -3,6 +3,7 @@ import { checkFence } from '../engine/clocking';
 import { addDays, formatMinute } from '../engine/time';
 import type { Employee, GeoFix, RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
+import { StaffLogins } from './StaffLogins';
 
 interface Props {
   state: RotaState;
@@ -10,10 +11,14 @@ interface Props {
   today: string;
   onSetGeofence: (siteId: string, fence: { lat: number; lng: number; radiusMetres: number } | null) => Promise<unknown>;
   onSetBadge: (employeeId: string, badgeId: string | null) => Promise<unknown>;
+  /** The site's clocking area is a site setting: settings.manage. */
+  canSetFence: boolean;
+  /** Issuing cards is the team's to manage at the site. */
+  canEnrolCards: boolean;
 }
 
 interface TapResult {
-  action: 'clock_in' | 'clock_out' | 'already_clocked_in' | 'already_clocked_out';
+  action: 'clock_in' | 'clock_out' | 'break_end' | 'already_clocked_in' | 'already_clocked_out';
   employee: { id: string; name: string };
   entry: TimeEntry;
 }
@@ -37,7 +42,7 @@ const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not 
  * USB reader (which types the card number and presses Enter), or on the phone's NFC, or pick their
  * name. Signing in by name checks this device's location against the site's geofence.
  */
-export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: Props) {
+export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, canSetFence, canEnrolCards }: Props) {
   const site = state.sites.find((s) => s.id === siteId)!;
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [geo, setGeo] = useState<GeoState>({ status: 'off' });
@@ -223,7 +228,9 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
                     <td>{person.name}{!shift && <span className="tag">Not on rota</span>}</td>
                     <td className="nowrap">{shift ? `${formatMinute(shift.startMinute)} to ${formatMinute(shift.endMinute)}` : 'None'}</td>
                     <td>
-                      {entry ? (
+                      {entry?.breaks?.some((b) => b.end === undefined) ? (
+                        <span className="warn-text">On break since {formatMinute(entry.breaks[entry.breaks.length - 1].start)}</span>
+                      ) : entry ? (
                         <span className="good-text">In since {formatMinute(entry.clockIn)}{entry.method === 'card' ? ' (card)' : ''}</span>
                       ) : done.length ? (
                         <span className="muted">Clocked out {formatMinute(done[done.length - 1].clockOut!)}</span>
@@ -249,9 +256,11 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
         )}
       </section>
 
+      {(canSetFence || canEnrolCards) && (
       <details className="clock-card">
         <summary className="strong">Clock-in setup for {site.name}</summary>
 
+        {canSetFence && (<>
         <h3>Site location</h3>
         <p className="muted small">
           Staff signing in by name on a phone or tablet must be inside this circle. Stand at the entrance to set it.
@@ -301,6 +310,8 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
           )}
         </div>
 
+        </>)}
+        {canEnrolCards && (<>
         <h3>RFID cards</h3>
         <p className="muted small">
           Choose Enrol card, then tap the person's card on this screen's reader. Enrol on the same kind of reader the site uses for
@@ -330,7 +341,12 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge }: P
             </tbody>
           </table>
         </div>
+
+        {/* Staff logins answer to team.manage at this site, as the server checks. */}
+        <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
+        </>)}
       </details>
+      )}
     </div>
   );
 }
@@ -341,6 +357,10 @@ function tapText({ action, employee, entry }: TapResult): string {
       return `Welcome, ${employee.name}. Clocked in at ${formatMinute(entry.clockIn)}.`;
     case 'clock_out':
       return `Thanks, ${employee.name}. Clocked out at ${formatMinute(entry.clockOut!)}.`;
+    case 'break_end': {
+      const last = entry.breaks?.[entry.breaks.length - 1];
+      return `Welcome back, ${employee.name}. Break ended at ${formatMinute(last?.end ?? 0)}, ${(last?.end ?? 0) - (last?.start ?? 0)} minutes. Tap again later to clock out.`;
+    }
     case 'already_clocked_in':
       return `${employee.name}, you are already clocked in from ${formatMinute(entry.clockIn)}.`;
     case 'already_clocked_out':

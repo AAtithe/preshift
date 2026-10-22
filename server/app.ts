@@ -8,23 +8,38 @@ import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
-import { accessRoutes, signInRoutes } from './routes/access';
+import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
+import { demoRoutes, sweepSandboxes } from './demo';
 import { devRoutes } from './routes/dev';
+import { developerRoutes } from './routes/developers';
+import { documentCipherFromEnv } from './documentCrypto';
+import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
+import { eposRoutes, syncAllTills } from './routes/epos';
+import { payRoutes } from './routes/pay';
+import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
+import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
+import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
+import { authenticatorRoutes } from './routes/authenticator';
+import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
+import { travelRoutes } from './routes/travel';
+import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
+import { mcpRoutes } from './mcp';
 import { MemoryStore, PgStore, type Store } from './store';
+import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
 export interface BuildOptions {
   apiKeys?: ApiKey[];
@@ -40,14 +55,23 @@ export interface BuildOptions {
   loginPage?: string;
   /** The built web app, served at /app/ to signed-in people only. Unset in development, where Vite serves it. */
   appDir?: string;
-  /** Fixes the clock for tests. */
-  now?: () => Date;
-  /** Replaces outbound HTTP for weather and event feeds (tests). */
+  /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
+  staffDir?: string;
+  /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
+  /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
+  demo?: boolean;
+  /** The clock (tests fix it). */
+  now?: () => Date;
+  /** How webhooks reach partner systems. Defaults to fetch; tests supply a recorder. */
+  webhookFetch?: Fetch;
+  /** Requests per minute per API key. */
+  rateLimit?: number;
 }
 
-function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
-  if (env.TEAMPAY_API_KEY) {
+function payrollFromEnv(env: NodeJS.ProcessEnv, demo: boolean): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
+  // The demo never reaches real payroll, whatever keys the deployment carries.
+  if (env.TEAMPAY_API_KEY && !demo) {
     return {
       provider: new TeamPayProvider({
         baseUrl: env.TEAMPAY_BASE_URL ?? 'https://api.team-pay.co.uk/v1',
@@ -77,12 +101,14 @@ export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
 
 export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const env = options.env ?? process.env;
+  const demo = options.demo ?? env.PRESHIFT_DEMO === '1';
   const app = Fastify({ logger: options.logger ?? false });
   const store = options.store ?? storeFromEnv(env);
   const payroll = options.provider
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
-    : payrollFromEnv(env);
+    : payrollFromEnv(env, demo);
   const providerFor = () => payroll.provider;
+  const documents = documentCipherFromEnv(env, store instanceof PgStore);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
@@ -91,9 +117,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
-    now: options.now ?? (() => new Date()),
-    fetch: options.fetch ?? publicFetch,
+    documentCipher: documents.cipher,
+    fetch: options.fetch ?? fetch,
+    // Feed addresses are typed in by people, so the server's own reads of them are kept to public https.
+    feedFetch: options.fetch ?? publicFetch,
     feeds: feedConfig(env),
+    tflAppKey: env.TFL_APP_KEY || undefined,
+    now: options.now ?? (() => new Date()),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -113,6 +143,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     }
   });
 
+  // Uploaded files arrive as the raw request body. The route checks what the bytes really are.
+  app.addContentTypeParser(UPLOAD_CONTENT_TYPES, { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES }, (_req, body, done) => {
+    done(null, body);
+  });
+
   await app.register(swagger, {
     openapi: {
       info: {
@@ -121,8 +156,21 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         description:
           'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
           'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
-          'to reconcile against the labour accrual.',
+          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.\n\n' +
+          'Authenticate with `Authorization: Bearer psk_...`, a key a person with the settings permission makes under Settings, API keys, limited to the scopes ' +
+          'it needs. Each key reaches its own organisation only and may make 300 requests a minute. ' +
+          'Webhooks tell your system when something changes: register an https endpoint, then verify the ' +
+          '`preshift-signature` header (`t=<unix seconds>,v1=<hex HMAC-SHA256 of "t.body" with the endpoint secret>`) on every event. ' +
+          'Events carry ids, never personal data; fetch the detail with your key.',
       },
+      tags: [
+        { name: 'Reference' },
+        { name: 'Employees' },
+        { name: 'Shifts' },
+        { name: 'Rota' },
+        { name: 'Forecast' },
+        { name: 'Webhooks', description: 'Signed event notifications to your own https endpoint.' },
+      ],
       components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } },
       security: [{ bearer: [] }],
     },
@@ -144,9 +192,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     const ok = database === 'ok' || database === 'not configured';
     return reply.code(ok ? 200 : 503).send({
       ok,
+      ...(demo ? { demo: true } : {}),
       payroll: payroll.provider.name,
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
+      documents: documents.status,
     });
   });
 
@@ -154,6 +204,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await deliverAllWebhooks(store, options.webhookFetch);
+    if (demo) await sweepSandboxes(store);
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
     // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
     // waiting go first, the run stops before the function's time runs out, and one organisation failing
@@ -200,11 +253,34 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
   });
 
+  // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
+  // hears within the quarter hour of coming back, even from an organisation nobody is editing.
+  app.get('/internal/webhooks', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await deliverAllWebhooks(store, options.webhookFetch);
+    return { ok: true };
+  });
+
   const keys = options.apiKeys ?? loadApiKeys(env);
-  const auth = authenticate(keys, store);
-  signInRoutes(app, store);
-  assistantRoutes(app, store);
-  webRoutes(app, store, { loginPage: options.loginPage ?? path.resolve('site/login.html'), appDir: options.appDir });
+  const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
+  const appPath = '/app/';
+  if (demo) demoRoutes(app, store, { appPath });
+  else {
+    // The marketing site links to /demo; on the live system it goes to the demo deployment.
+    app.get('/demo', { schema: { hide: true } }, async (_req, reply) =>
+      reply.code(302).header('location', env.PRESHIFT_DEMO_URL || '/login').send(),
+    );
+  }
+  signInRoutes(app, ctx, { demo });
+  // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
+  mcpRoutes(app, auth);
+  staffRoutes(app, store);
+  assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
+  webRoutes(app, store, {
+    loginPage: options.loginPage ?? path.resolve(demo ? 'site/demo.html' : 'site/login.html'),
+    appDir: options.appDir,
+    staffDir: options.staffDir,
+  });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
     api.addHook('onRequest', async (req, reply) => {
@@ -218,8 +294,14 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
-      if (!req.org || req.method === 'GET' || reply.statusCode >= 400) return payload;
+      if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
+        await store.save(req.org).catch(() => undefined);
+        return payload;
+      }
+      if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
       try {
+        // Events this request raised go out now, inside it, so they are saved as sent with it.
+        if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -230,14 +312,26 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    payRoutes(api, ctx);
+    setupRoutes(api, ctx);
+    hrRoutes(api, ctx);
+    documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
     bookingRoutes(api, ctx);
+    travelRoutes(api, ctx);
+    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
+    userRoutes(api, ctx);
+    authenticatorRoutes(api, ctx);
+    privacyRoutes(api, ctx);
     devRoutes(api, ctx);
-    accessRoutes(api, store);
+    settingsRoutes(api, ctx);
+    developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
+    // People who manage are on userRoutes; staff app logins answer to the same access rules.
+    staffAdminRoutes(api, ctx);
   });
 
   return { app, ctx };

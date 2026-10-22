@@ -101,9 +101,11 @@ Two routes, agreed per client before week 1:
 
 | Action | Who |
 | --- | --- |
-| Run the forecast model, override hours, add adjustments, take or turn down moves | GM and anyone with rota access |
-| Put a site on the programme, record the baseline, sign off milestones, verify the saving, set the gain share | The WS lead only: a person WS has marked as lead, or a WS key with the `programme:lead` scope. The operator's own admin cannot, because these set the fee. |
-| Share anonymised figures for benchmarking | The operator's admin. Their data, their decision. |
+| Run the forecast model, override hours, add adjustments, set expectations on reminders, load bookings | Anyone whose role can change forecasts at the site |
+| Take or turn down the weekly moves | Anyone whose role can build and edit the rota at the site (both sites, for a cover move) |
+| See the scorecard, the programme and benchmarks | Anyone whose role shows labour cost at the site |
+| Put a site on the programme, record the baseline, sign off milestones, verify the saving, set the gain share | The WS lead only: a person a WS key has named as lead in this organisation, or a WS deployment key with the `programme:lead` scope. The operator's own owner cannot, and no key made in the app can carry that scope, because these set the fee. |
+| Share anonymised figures for benchmarking | Anyone who can change the organisation's settings. Their data, their decision. |
 
 ## Benchmarks
 

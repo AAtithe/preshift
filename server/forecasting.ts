@@ -70,15 +70,15 @@ export async function fetchOutside(ctx: AppContext, org: OrgData, today: string,
   for (const site of sites) {
     if (siteLocation(site)) {
       try {
-        out.weather.set(site.id, await fetchWeather(ctx.fetch, ctx.feeds, site, today, backfillFrom(org, site.id, today)));
+        out.weather.set(site.id, await fetchWeather(ctx.feedFetch, ctx.feeds, site, today, backfillFrom(org, site.id, today)));
       } catch (e) {
         out.weatherErrors.set(site.id, (e as Error).message);
       }
     }
     for (const feed of org.eventFeeds.filter((f) => f.siteId === site.id)) {
       try {
-        if (feed.kind === 'school') out.school.set(feed.id, await fetchSchoolFeed(ctx.fetch, feed, site.id));
-        else out.events.set(feed.id, await fetchFeedEvents(ctx.fetch, ctx.feeds, feed, site, today));
+        if (feed.kind === 'school') out.school.set(feed.id, await fetchSchoolFeed(ctx.feedFetch, feed, site.id));
+        else out.events.set(feed.id, await fetchFeedEvents(ctx.feedFetch, ctx.feeds, feed, site, today));
       } catch (e) {
         out.feedErrors.set(feed.id, (e as Error).message);
       }

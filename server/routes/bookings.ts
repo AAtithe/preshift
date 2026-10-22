@@ -6,6 +6,7 @@ import type { Booking } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../context';
 import { isoDate, rangeQuery } from '../schemas';
+import { guard } from '../guard';
 import { audit, type OrgData } from '../store';
 
 /**
@@ -75,8 +76,13 @@ export function bookingRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      // Bookings move the forecast: demand data, as takings are.
+      const g = guard(ctx, req, org);
+      for (const siteId of new Set(req.body.rows.map((r) => r.siteId))) {
+        requireSite(org, siteId);
+        g.allow('demand.manage', siteId);
+      }
       for (const r of req.body.rows) {
-        requireSite(org, r.siteId);
         if (!realDay(r.date)) throw new HttpError(422, 'invalid_date', `Booking ${r.id} has no such date ${r.date}`);
         if (!instantOrDay(r.createdAt) || !instantOrDay(r.cancelledAt)) throw new HttpError(422, 'invalid_date', `Booking ${r.id} has an unreadable made or cancelled date`);
       }
@@ -115,6 +121,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      guard(ctx, req, org).allow('demand.manage', req.body.siteId);
       const result = importBookings(req.body.csv, req.body.siteId, req.body.source, { usDates: req.body.usDates });
       // An export carries whole days, so it may replace days already in history.
       if (result.rows.length) store(org, result.rows, today(), true);
@@ -135,14 +142,16 @@ export function bookingRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get<{ Querystring: { siteId?: string; from?: string; to?: string } }>('/v1/bookings', { ...read, schema: { tags: ['Bookings'], querystring: rangeQuery } }, async (req) => {
     const q = req.query;
-    return (orgOf(req).state.bookings ?? []).filter((b) => (!q.siteId || b.siteId === q.siteId) && (!q.from || b.date >= q.from) && (!q.to || b.date <= q.to));
+    const visible = guard(ctx, req, orgOf(req)).at('rota.view');
+    return (orgOf(req).state.bookings ?? []).filter((b) => visible(b) && (!q.siteId || b.siteId === q.siteId) && (!q.from || b.date >= q.from) && (!q.to || b.date <= q.to));
   });
 
   app.get('/v1/bookings/status', { ...read, schema: { tags: ['Bookings'], description: 'What is loaded for each site: bookings ahead, how far ahead, and how much pace history there is to learn from.' } }, async (req) => {
     const org = orgOf(req);
     const now = today();
     const lastImport = [...org.audit].reverse().filter((a) => a.action === 'bookings.imported' || a.action === 'bookings.received');
-    return org.state.sites.map((s) => {
+    const visible = guard(ctx, req, org).at('rota.view');
+    return org.state.sites.filter((s) => visible({ siteId: s.id })).map((s) => {
       const ahead = (org.state.bookings ?? []).filter((b) => b.siteId === s.id && b.date >= now);
       const history = new Set((org.state.bookingPace ?? []).filter((p) => p.siteId === s.id && p.date >= addDays(now, -84)).map((p) => p.date));
       const last = lastImport.find((a) => {

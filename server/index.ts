@@ -10,7 +10,7 @@ const { app, ctx } = await buildApp({ logger: true });
 // Local development without a database starts empty on every restart, so give it a ready-made
 // admin rather than asking for the owner set-up each time. Never with a real database. Locally the
 // same person also plays the WS lead, so the labour programme can be tried end to end.
-if (process.env.NODE_ENV !== 'production' && ctx.store instanceof MemoryStore) {
+if (process.env.NODE_ENV !== 'production' && process.env.PRESHIFT_DEMO !== '1' && ctx.store instanceof MemoryStore) {
   await ctx.store.createUser({
     email: DEV_USER.email,
     orgId: 'demo',
@@ -20,7 +20,7 @@ if (process.env.NODE_ENV !== 'production' && ctx.store instanceof MemoryStore) {
     sessionsValidFrom: 0,
     failedAttempts: 0,
     lockedUntil: 0,
-    lead: true,
+    leadOrgs: ['demo'],
   });
   app.log.info(`Sign in locally as ${DEV_USER.email} / ${DEV_USER.password}`);
 }
@@ -30,3 +30,4 @@ setInterval(() => void ctx.dispatcher.processDue(), 15_000).unref();
 
 await app.listen({ port, host: '0.0.0.0' });
 app.log.info(`Preshift API on :${port}, docs at /docs, payroll via ${ctx.providerFor('demo').name}`);
+if (process.env.PRESHIFT_DEMO === '1') app.log.info('Public demo: open /demo for a sandbox of your own');

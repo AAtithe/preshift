@@ -1,8 +1,10 @@
-import type { Employee, RotaState, SchoolPeriod, Shift, Site } from './types';
+import type { Employee, RestOverride, RotaState, SchoolPeriod, Shift, Site } from './types';
 import { isSchoolDay } from './school';
 import { shiftPaidMinutes } from './cost';
 import { isEmployedOn } from './employees';
+import { isAbsentOn } from './hr';
 import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { travelIssues } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
 export type Severity = 'block' | 'warn';
@@ -14,7 +16,14 @@ export interface Issue {
   shiftId?: string;
   date?: string;
   message: string;
+  /** Set on breaches a manager may override with a reason: rest periods only. */
+  overrideKey?: string;
+  /** The override that turned this breach from blocking into a warning. */
+  overridden?: Pick<RestOverride, 'id' | 'reason' | 'by' | 'at'>;
 }
+
+/** Rest breaches a manager can publish through, with a recorded reason. Nothing else can be overridden. */
+export const OVERRIDABLE = new Set(['daily-rest', 'weekly-rest']);
 
 const H = 60;
 
@@ -95,7 +104,7 @@ function overlaps(a: Shift, b: Shift, anchor: string) {
   return a0 < b1 && b0 < a1;
 }
 
-function isAvailable(employee: Employee, shift: Shift): boolean {
+export function isAvailable(employee: Employee, shift: Shift): boolean {
   if (employee.availability.length === 0) return true;
   const day = weekday(shift.date);
   return employee.availability.some(
@@ -112,6 +121,7 @@ export function checkEmployeeWeek(
   employee: Employee,
   weekStartDate: string,
   context: Shift[],
+  overrides: RestOverride[] = [],
   rates: UkRates = UK_RATES_2026_27,
   options: ComplianceOptions = {},
 ): Issue[] {
@@ -140,6 +150,18 @@ export function checkEmployeeWeek(
   const paidSoFar = new Map<string, number>();
   const beforeSchoolSoFar = new Map<string, number>();
   const barRoles = new Set(options.barRoleIds ?? []);
+  // A rest breach a manager has overridden still shows, as a warning carrying who and why.
+  const pushRest = (i: Omit<Issue, 'employeeId' | 'overrideKey'>, key: string) => {
+    const o = overrides.find((x) => x.employeeId === employee.id && x.key === key);
+    if (!o) return push({ ...i, overrideKey: key });
+    push({
+      ...i,
+      overrideKey: key,
+      severity: 'warn',
+      message: `${i.message} Overridden by ${o.by}: ${o.reason}`,
+      overridden: { id: o.id, reason: o.reason, by: o.by, at: o.at },
+    });
+  };
 
   for (const shift of week) {
     const length = shift.endMinute - shift.startMinute;
@@ -169,6 +191,9 @@ export function checkEmployeeWeek(
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
     }
+    if (isAbsentOn(employee, shift.date)) {
+      push({ ...base, code: 'absent', severity: 'block', message: 'Recorded as absent that day. Re-cover the shift.' });
+    }
     if (!isAvailable(employee, shift)) {
       push({ ...base, code: 'availability', severity: 'warn', message: 'Outside stated availability.' });
     }
@@ -177,7 +202,8 @@ export function checkEmployeeWeek(
     }
     if (employee.payBasis === 'hourly') {
       const band = minimumWageFor(ageOn(employee.dateOfBirth, shift.date), rates);
-      if (band && employee.hourlyRate < band.hourly) {
+      // Withheld pay reads as nought; the API, which holds the real rate, makes this check for that reader.
+      if (band && !employee.payHidden && employee.hourlyRate < band.hourly) {
         push({
           ...base,
           code: 'minimum-wage',
@@ -239,13 +265,16 @@ export function checkEmployeeWeek(
     }
     const gap = absoluteMinute(anchor, next.date, next.startMinute) - absoluteMinute(anchor, prev.date, prev.endMinute);
     if (prev.date !== next.date && gap < minRest) {
-      push({
-        shiftId: next.id,
-        date: next.date,
-        code: 'daily-rest',
-        severity: 'warn',
-        message: `Only ${(gap / H).toFixed(1)}h rest since the last shift; ${minRest / H}h is the legal minimum.`,
-      });
+      pushRest(
+        {
+          shiftId: next.id,
+          date: next.date,
+          code: 'daily-rest',
+          severity: 'block',
+          message: `Only ${(gap / H).toFixed(1)}h rest since the last shift; ${minRest / H}h is the legal minimum.`,
+        },
+        `daily-rest|${prev.id}|${prev.date}|${prev.endMinute}|${next.id}|${next.date}|${next.startMinute}`,
+      );
     }
   }
 
@@ -254,7 +283,10 @@ export function checkEmployeeWeek(
   const daysOff = dates.filter((d) => !worked.has(d)).length;
   const neededOff = young ? 2 : 1;
   if (daysOff < neededOff) {
-    push({ code: 'weekly-rest', severity: 'warn', message: `Needs ${neededOff} clear day${neededOff > 1 ? 's' : ''} off this week.` });
+    pushRest(
+      { code: 'weekly-rest', severity: 'block', message: `Needs ${neededOff} clear day${neededOff > 1 ? 's' : ''} off this week.` },
+      `weekly-rest|${weekStartDate}|${[...worked].sort().join(',')}`,
+    );
   }
 
   const hours = week.reduce((sum, s) => sum + shiftPaidMinutes(s), 0) / H;
@@ -295,5 +327,28 @@ export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: str
   const scope = siteIds === undefined ? null : new Set(typeof siteIds === 'string' ? [siteIds] : siteIds);
   return state.employees
     .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
-    .flatMap((e) => checkEmployeeWeek(e, weekStartDate, context, undefined, complianceOptions(state, e)));
+    .flatMap((e) => [...checkEmployeeWeek(e, weekStartDate, context, state.restOverrides, undefined, complianceOptions(state, e)), ...travelIssues(e, context, state.sites)]);
+}
+
+/** The site an issue belongs to: where its shift is worked, or the person's home site for a week-level issue. */
+export function issueSiteId(state: RotaState, issue: Issue): string | undefined {
+  if (issue.shiftId) return state.shifts.find((s) => s.id === issue.shiftId)?.siteId;
+  return state.employees.find((e) => e.id === issue.employeeId)?.siteId;
+}
+
+/**
+ * Rest overrides per site for the week given and the weeks before it, oldest first. One override is an
+ * exception; one most weeks is a site short of people or cross-training.
+ */
+export function overrideTrend(state: RotaState, weekStartDate: string, siteIds: string[], weeks = 4): { weekStarts: string[]; bySite: Map<string, number[]> } {
+  const weekStarts = Array.from({ length: weeks }, (_, n) => addDays(weekStartDate, -7 * (weeks - 1 - n)));
+  const bySite = new Map(siteIds.map((id) => [id, weekStarts.map(() => 0)]));
+  weekStarts.forEach((ws, n) => {
+    for (const issue of checkWeek(state, ws, siteIds)) {
+      if (!issue.overridden) continue;
+      const counts = bySite.get(issueSiteId(state, issue) ?? '');
+      if (counts) counts[n]++;
+    }
+  });
+  return { weekStarts, bySite };
 }

@@ -99,6 +99,8 @@ describe('the daily job and pushed bookings', () => {
   it('compacts pushed bookings into pace history for a site with no location or feeds', async () => {
     const store = new MemoryStore(['demo'], TODAY);
     const { app } = await buildApp({ apiKeys: KEYS, store, provider: new TeamPaySimulator(), autoDispatch: false, now: () => new Date(`${TODAY}T07:00:00Z`), env: { CRON_SECRET: 'tick' } });
+    const seeded = await store.load('demo');
+    seeded.state.sites = seeded.state.sites.map(({ location: _l, geofence: _g, ...site }) => site);
     const rows = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, siteId: 'fitz', source: 'sevenrooms', date: '2026-10-15', startMinute: 1140, covers: 4, status: 'completed', createdAt: '2026-10-05' }));
     await app.inject({ method: 'PUT', url: '/v1/bookings', headers: { authorization: 'Bearer admin', 'content-type': 'application/json' }, payload: JSON.stringify({ rows }) });
     const before = await store.load('demo');

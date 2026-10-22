@@ -163,7 +163,7 @@ class WeekCheck {
   issuesBefore(e: Employee): Set<string> {
     let set = this.before.get(e.id);
     if (!set) {
-      set = new Set(checkEmployeeWeek(e, this.ws, this.context, undefined, complianceOptions(this.state, e)).map(issueKey));
+      set = new Set(checkEmployeeWeek(e, this.ws, this.context, this.state.restOverrides, undefined, complianceOptions(this.state, e)).map(issueKey));
       this.before.set(e.id, set);
     }
     return set;
@@ -172,7 +172,7 @@ class WeekCheck {
   issuesAfter(e: Employee, change: Candidate): Issue[] {
     const own = this.context.filter((s) => s.id !== change.shift.id && s.employeeId === e.id);
     if (change.after && change.after.employeeId === e.id) own.push(change.after);
-    return checkEmployeeWeek(e, this.ws, own, undefined, complianceOptions(this.state, e));
+    return checkEmployeeWeek(e, this.ws, own, this.state.restOverrides, undefined, complianceOptions(this.state, e));
   }
 }
 

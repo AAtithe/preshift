@@ -69,22 +69,26 @@ export function taxYearStartDate(taxYear: string): string {
   return `${taxYear.slice(0, 4)}-04-06`;
 }
 
-/** The London calendar date of an instant, so a publish just after midnight in summer time lands on the right day. */
-export function londonDate(isoInstant: string): string {
+/** Local date and minute in London for an instant: clocking and rotas are always UK wall-clock time. */
+export function londonParts(at: Date): { date: string; minute: number } {
   const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' })
-      .formatToParts(new Date(isoInstant))
-      .map((x) => [x.type, x.value]),
-  );
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-/** The London date and minute of an instant. */
-export function londonClock(isoInstant: string): { date: string; minute: number } {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-      .formatToParts(new Date(isoInstant))
-      .map((x) => [x.type, x.value]),
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(at)
+      .map((p) => [p.type, p.value]),
   );
   return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
 }
+
+/** The London date and minute of an instant given as an ISO string. */
+export const londonClock = (isoInstant: string): { date: string; minute: number } => londonParts(new Date(isoInstant));
+
+/** The London calendar date of an instant, so a publish just after midnight in summer time lands on the right day. */
+export const londonDate = (isoInstant: string): string => londonParts(new Date(isoInstant)).date;

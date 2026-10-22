@@ -167,7 +167,7 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
   const feedName = (id?: string) => feeds.find((f) => f.id === id)?.label;
 
   return (
-    <div className="coach">
+    <div className="insight">
       {message && (
         <div className={`notice ${message.bad ? 'error' : ''}`}>
           {message.text} <button className="link" onClick={() => setMessage(null)}>Dismiss</button>
@@ -175,7 +175,7 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
       )}
 
       <section className="settings-card">
-        <div className="coach-head">
+        <div className="insight-head">
           <div>
             <h2>Coming up at {site.name}</h2>
             <p className="muted small">

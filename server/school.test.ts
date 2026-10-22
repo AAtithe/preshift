@@ -20,6 +20,9 @@ async function setup() {
     throw new Error(`Unexpected ${String(input)}`);
   }) as typeof fetch;
   const { app } = await buildApp({ apiKeys: KEYS, store, provider: new TeamPaySimulator(), autoDispatch: false, now: () => new Date(`${TODAY}T07:00:00Z`), fetch: fetchCouncil });
+  // No weather to fetch: these tests are about the council's feed alone. The memory store hands back the live organisation.
+  const org = await store.load('demo');
+  org.state.sites = org.state.sites.map(({ location: _l, geofence: _g, ...site }) => site);
   const call = async (method: string, url: string, body?: unknown) => {
     const res = await app.inject({ method: method as 'GET', url, headers: { authorization: 'Bearer admin', ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
     return { status: res.statusCode, body: res.body ? res.json() : undefined };

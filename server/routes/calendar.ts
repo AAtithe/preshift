@@ -10,10 +10,8 @@ import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../con
 import { refreshOutside } from '../forecasting';
 import { checkFeedUrl, FeedError, maskFeedUrl, type EventFeed } from '../integrations/feeds';
 import { isoDate, rangeQuery } from '../schemas';
+import { guard } from '../guard';
 import { audit, type OrgData } from '../store';
-
-const lat = { type: 'number', minimum: -90, maximum: 90 } as const;
-const lng = { type: 'number', minimum: -180, maximum: 180 } as const;
 
 function requireSite(org: OrgData, siteId: string) {
   const site = org.state.sites.find((s) => s.id === siteId);
@@ -34,25 +32,6 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
   const write = { preHandler: requireScope('rota:write') };
   const today = () => londonToday(ctx);
 
-  app.put<{ Params: { id: string }; Body: { lat: number; lng: number } }>(
-    '/v1/sites/:id/location',
-    {
-      ...write,
-      schema: {
-        tags: ['Calendar'],
-        description: "Where the site is, for its weather and nearby events. Without one, the clock-in geofence's centre is used.",
-        body: { type: 'object', required: ['lat', 'lng'], additionalProperties: false, properties: { lat, lng } },
-      },
-    },
-    async (req) => {
-      const org = orgOf(req);
-      const site = requireSite(org, req.params.id);
-      site.location = { lat: req.body.lat, lng: req.body.lng };
-      audit(org, req.principal.name, 'site.location', { siteId: site.id });
-      return site;
-    },
-  );
-
   app.post<{ Body: { siteIds?: string[] } }>(
     '/v1/outside/refresh',
     {
@@ -65,14 +44,22 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      for (const id of req.body?.siteIds ?? []) requireSite(org, id);
-      return { sites: await refreshOutside(ctx, org, today(), req.principal.name, req.body?.siteIds) };
+      const g = guard(ctx, req, org);
+      for (const id of req.body?.siteIds ?? []) {
+        requireSite(org, id);
+        g.allow('demand.manage', id);
+      }
+      // Without a list, every site whose forecast this person runs.
+      const siteIds = req.body?.siteIds ?? org.state.sites.filter((s) => g.can('demand.manage', s.id)).map((s) => s.id);
+      if (siteIds.length === 0) g.allow('demand.manage');
+      return { sites: await refreshOutside(ctx, org, today(), req.principal.name, siteIds) };
     },
   );
 
   app.get<{ Querystring: { siteId?: string; from?: string; to?: string } }>('/v1/weather', { ...read, schema: { tags: ['Calendar'], querystring: rangeQuery } }, async (req) => {
     const q = req.query;
-    return (orgOf(req).state.weather ?? []).filter((w) => (!q.siteId || w.siteId === q.siteId) && (!q.from || w.date >= q.from) && (!q.to || w.date <= q.to));
+    const visible = guard(ctx, req, orgOf(req)).at('rota.view');
+    return (orgOf(req).state.weather ?? []).filter((w) => visible(w) && (!q.siteId || w.siteId === q.siteId) && (!q.from || w.date >= q.from) && (!q.to || w.date <= q.to));
   });
 
   // ----- Event feeds -----
@@ -80,7 +67,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
   // Private calendar links carry secret tokens, so the address is never sent back in full.
   const view = (f: EventFeed) => ({ ...f, url: maskFeedUrl(f.url) });
 
-  app.get('/v1/event-feeds', { ...read, schema: { tags: ['Calendar'] } }, async (req) => orgOf(req).eventFeeds.map(view));
+  app.get('/v1/event-feeds', { ...read, schema: { tags: ['Calendar'] } }, async (req) => orgOf(req).eventFeeds.filter(guard(ctx, req, orgOf(req)).at('rota.view')).map(view));
 
   app.post<{ Body: Omit<EventFeed, 'id'> }>(
     '/v1/event-feeds',
@@ -106,6 +93,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      guard(ctx, req, org).allow('demand.manage', req.body.siteId);
       if (req.body.kind === 'ics' || req.body.kind === 'school') {
         try {
           checkFeedUrl(req.body.url ?? '');
@@ -124,7 +112,9 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete<{ Params: { id: string } }>('/v1/event-feeds/:id', { ...write, schema: { tags: ['Calendar'] } }, async (req, reply) => {
     const org = orgOf(req);
-    if (!org.eventFeeds.some((f) => f.id === req.params.id)) throw notFound(`Feed ${req.params.id}`);
+    const feed = org.eventFeeds.find((f) => f.id === req.params.id);
+    if (!feed) throw notFound(`Feed ${req.params.id}`);
+    guard(ctx, req, org).allow('demand.manage', feed.siteId);
     org.eventFeeds = org.eventFeeds.filter((f) => f.id !== req.params.id);
     // Its future events go with it; past ones stay, as history the site really traded through.
     org.state.localEvents = (org.state.localEvents ?? []).filter((e) => e.feedId !== req.params.id || e.date < today());
@@ -138,7 +128,8 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get<{ Querystring: { siteId?: string; from?: string; to?: string } }>('/v1/local-events', { ...read, schema: { tags: ['Calendar'], querystring: rangeQuery } }, async (req) => {
     const q = req.query;
-    return (orgOf(req).state.localEvents ?? []).filter((e) => (!q.siteId || e.siteId === q.siteId) && (!q.from || e.date >= q.from) && (!q.to || e.date <= q.to));
+    const visible = guard(ctx, req, orgOf(req)).at('rota.view');
+    return (orgOf(req).state.localEvents ?? []).filter((e) => visible(e) && (!q.siteId || e.siteId === q.siteId) && (!q.from || e.date >= q.from) && (!q.to || e.date <= q.to));
   });
 
   app.post<{ Body: { siteId: string; date: string; name: string; startMinute?: number; venue?: string } }>(
@@ -159,6 +150,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      guard(ctx, req, org).allow('demand.manage', req.body.siteId);
       const event: LocalEvent = { id: `ev_${randomUUID().slice(0, 12)}`, ...req.body, source: 'manual' };
       org.state.localEvents = [...(org.state.localEvents ?? []), event];
       audit(org, req.principal.name, 'local_event.added', { id: event.id, siteId: event.siteId, date: event.date });
@@ -170,6 +162,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = orgOf(req);
     const event = (org.state.localEvents ?? []).find((e) => e.id === req.params.id);
     if (!event || event.source !== 'manual') throw notFound(`Event ${req.params.id} entered by hand`);
+    guard(ctx, req, org).allow('demand.manage', event.siteId);
     org.state.localEvents = org.state.localEvents!.filter((e) => e.id !== req.params.id);
     audit(org, req.principal.name, 'local_event.removed', { id: req.params.id });
     return reply.code(204).send();
@@ -190,6 +183,8 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const site = requireSite(org, req.params.id);
+      // It decides which child employment rules apply: site set-up, as its location is.
+      guard(ctx, req, org).allow('settings.manage');
       site.nation = req.body.nation;
       audit(org, req.principal.name, 'site.nation', { siteId: site.id, nation: site.nation });
       return site;
@@ -209,6 +204,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const site = requireSite(org, req.query.siteId);
+      guard(ctx, req, org).allow('rota.view', site.id);
       const from = req.query.from ?? today();
       const to = req.query.to ?? addDays(from, 400);
       const confirmed = (org.state.schoolHolidays ?? []).filter((p) => p.siteId === site.id);
@@ -234,6 +230,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      guard(ctx, req, org).allow('demand.manage', req.body.siteId);
       if (req.body.end < req.body.start) throw new HttpError(422, 'invalid_period', 'The holiday ends before it starts');
       const period = { id: `sh_${randomUUID().slice(0, 12)}`, siteId: req.body.siteId, start: req.body.start, end: req.body.end, name: req.body.name, kind: kindOf(req.body.name), source: 'manual' as const };
       org.state.schoolHolidays = [...(org.state.schoolHolidays ?? []), period];
@@ -246,6 +243,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = orgOf(req);
     const held = (org.state.schoolHolidays ?? []).find((p) => p.id === req.params.id);
     if (!held || held.source !== 'manual') throw notFound(`School holiday ${req.params.id} entered by hand`);
+    guard(ctx, req, org).allow('demand.manage', held.siteId);
     org.state.schoolHolidays = org.state.schoolHolidays!.filter((p) => p.id !== req.params.id);
     audit(org, req.principal.name, 'school_holiday.removed', { id: req.params.id });
     return reply.code(204).send();
@@ -266,6 +264,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       requireSite(org, req.query.siteId);
+      guard(ctx, req, org).allow('rota.view', req.query.siteId);
       const now = today();
       const from = req.query.from ?? now;
       // Far enough ahead to catch the longest reminder lead time.
@@ -285,9 +284,10 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const now = today();
+      const visible = guard(ctx, req, org).at('rota.view');
       const ids = req.query.siteIds ? req.query.siteIds.split(',') : org.state.sites.map((s) => s.id);
       return ids
-        .filter((id) => org.state.sites.some((s) => s.id === id))
+        .filter((id) => org.state.sites.some((s) => s.id === id) && visible({ siteId: id }))
         .flatMap((siteId) => withState(org, dueReminders(planAhead(org.state, siteId, now, addDays(now, 83), now), now), siteId))
         .filter((r) => r.status === 'open')
         .sort((a, b) => a.date.localeCompare(b.date));
@@ -320,6 +320,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const { siteId, key, action } = req.body;
       requireSite(org, siteId);
+      guard(ctx, req, org).allow('demand.manage', siteId);
       const now = today();
       const reminder = planAhead(org.state, siteId, now, addDays(now, 400), now).reminders.find((r) => r.key === key);
       if (!reminder) throw notFound(`Reminder ${key}`);

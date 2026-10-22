@@ -12,7 +12,8 @@ import { requireScope } from '../auth';
 import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../context';
 import { forecastBody, isoDate, rangeQuery, siteWeekQuery } from '../schemas';
 import { modelDates } from '../forecasting';
-import { audit, type OrgData } from '../store';
+import { guard } from '../guard';
+import { audit, orgsOfAccount, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
 type Range = { siteId?: string; from?: string; to?: string };
@@ -104,8 +105,11 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const email = req.params.email.toLowerCase();
       const user = await ctx.store.getUser(email);
-      if (!user || user.orgId !== req.principal.orgId) throw notFound(`Person ${email}`);
-      await ctx.store.updateUser(email, { lead: req.body.lead });
+      const orgId = req.principal.orgId;
+      if (!user || !orgsOfAccount(user).includes(orgId)) throw notFound(`Person ${email}`);
+      // Lead here only: an account that also works for another organisation is not its lead.
+      const others = (user.leadOrgs ?? []).filter((o) => o !== orgId);
+      await ctx.store.updateUser(email, { leadOrgs: req.body.lead ? [...others, orgId] : others });
       audit(orgOf(req), req.principal.name, 'programme.lead', { email, lead: req.body.lead });
       return { email, lead: req.body.lead };
     },
@@ -115,7 +119,8 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get<{ Querystring: Range }>('/v1/actuals', { ...read, schema: { tags: ['Forecast'], description: 'Hourly till sales and covers, as traded.', querystring: rangeQuery } }, async (req) => {
     const q = req.query;
-    return (orgOf(req).state.actuals ?? []).filter((a) => (!q.siteId || a.siteId === q.siteId) && (!q.from || a.date >= q.from) && (!q.to || a.date <= q.to));
+    const visible = guard(ctx, req, orgOf(req)).at('rota.view');
+    return (orgOf(req).state.actuals ?? []).filter((a) => visible(a) && (!q.siteId || a.siteId === q.siteId) && (!q.from || a.date >= q.from) && (!q.to || a.date <= q.to));
   });
 
   app.put<{ Body: { rows: HourActual[] } }>(
@@ -123,6 +128,9 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...write, schema: { tags: ['Forecast'], description: 'Preshift Reports, or the till, pushes what each hour actually took. Upserts by site, date and hour.', body: forecastBody } },
     async (req) => {
       const org = orgOf(req);
+      // What a site took is demand data, as takings are.
+      const g = guard(ctx, req, org);
+      for (const siteId of new Set(req.body.rows.map((r) => r.siteId))) g.allow('demand.manage', siteId);
       const key = (r: HourActual) => `${r.siteId}|${r.date}|${r.hour}`;
       const incoming = new Map(req.body.rows.map((r) => [key(r), { siteId: r.siteId, date: r.date, hour: r.hour, sales: r.sales, covers: r.covers }]));
       org.state.actuals = [...(org.state.actuals ?? []).filter((a) => !incoming.has(key(a))), ...incoming.values()];
@@ -132,7 +140,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
   );
 
   app.get<{ Querystring: { siteId?: string } }>('/v1/forecast/adjustments', { ...read, schema: { tags: ['Forecast'] } }, async (req) =>
-    (orgOf(req).state.forecastAdjustments ?? []).filter((a) => !req.query.siteId || a.siteId === req.query.siteId),
+    (orgOf(req).state.forecastAdjustments ?? []).filter(guard(ctx, req, orgOf(req)).at('rota.view')).filter((a) => !req.query.siteId || a.siteId === req.query.siteId),
   );
 
   app.post<{ Body: Omit<ForecastAdjustment, 'id'> }>(
@@ -161,6 +169,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      guard(ctx, req, org).allow('demand.manage', req.body.siteId);
       // A zero factor closes the floor as well as the forecast, so only a closure may say zero.
       if (req.body.factor === 0 && req.body.reason !== 'closure') {
         throw new HttpError(422, 'invalid_factor', 'Only a closure can take trade to zero. Choose Closure, or give a percentage of normal trade.');
@@ -175,8 +184,10 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
   app.delete<{ Params: { id: string } }>('/v1/forecast/adjustments/:id', { ...write, schema: { tags: ['Forecast'] } }, async (req, reply) => {
     const org = orgOf(req);
     const before = org.state.forecastAdjustments ?? [];
+    const found = before.find((a) => a.id === req.params.id);
+    if (!found) throw notFound(`Adjustment ${req.params.id}`);
+    guard(ctx, req, org).allow('demand.manage', found.siteId);
     org.state.forecastAdjustments = before.filter((a) => a.id !== req.params.id);
-    if (org.state.forecastAdjustments.length === before.length) throw notFound(`Adjustment ${req.params.id}`);
     audit(org, req.principal.name, 'forecast.adjustment.removed', { id: req.params.id });
     return reply.code(204).send();
   });
@@ -195,6 +206,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const { siteId, weekStart: ws } = req.body;
       requireSite(org, siteId);
+      guard(ctx, req, org).allow('demand.manage', siteId);
       const result = modelDates(org, siteId, weekDates(ws), today());
       audit(org, req.principal.name, 'forecast.modelled', { siteId, weekStart: ws, rows: result.rows.length, skipped: result.skipped.length, automatic: result.automatic.length });
       return {
@@ -230,6 +242,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const { siteId, date, hour, sales, covers, reason } = req.body;
       requireSite(org, siteId);
+      guard(ctx, req, org).allow('demand.manage', siteId);
       const i = org.state.forecast.findIndex((f) => f.siteId === siteId && f.date === date && f.hour === hour);
       const row = i >= 0 ? org.state.forecast[i] : { siteId, date, hour, sales: 0, covers: 0, modelSales: 0, modelCovers: 0 };
       const next = overrideForecast(row, sales, covers, req.principal.name, reason);
@@ -253,6 +266,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       requireSite(org, req.query.siteId);
+      guard(ctx, req, org).allow('rota.view', req.query.siteId);
       return forecastAccuracy(org.state.forecast, org.state.actuals ?? [], req.query.siteId, req.query.from, req.query.to);
     },
   );
@@ -272,6 +286,10 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
+      // Moves are priced, and taking one changes the rota.
+      const g = guard(ctx, req, org);
+      g.allow('rota.edit', req.body.siteId);
+      g.allow('costs.view', req.body.siteId);
       const result = offer(org, req.body.siteId, req.body.weekStart, today(), ctx.now().toISOString());
       const records = org.moves.filter((m) => m.siteId === req.body.siteId && m.weekStart === req.body.weekStart);
       return { ...result, records };
@@ -288,6 +306,9 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const record = org.moves.find((m) => m.id === req.body.moveId && m.status === 'offered');
       if (!record) throw notFound(`Offered move ${req.body.moveId}`);
+      // A cover move changes another site's rota as well.
+      const g = guard(ctx, req, org);
+      for (const siteId of new Set([record.siteId, record.before.siteId, ...(record.after ? [record.after.siteId] : [])])) g.allow('rota.edit', siteId);
       const i = org.state.shifts.findIndex((s) => s.id === record.shiftId);
       // The rota has moved on since the move was worked out: offer again rather than apply something stale.
       if (i < 0 || !sameShift(org.state.shifts[i], record.before)) {
@@ -323,6 +344,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const record = org.moves.find((m) => m.id === req.body.moveId && m.status === 'offered');
       if (!record) throw notFound(`Offered move ${req.body.moveId}`);
+      guard(ctx, req, org).allow('rota.edit', record.siteId);
       record.status = 'dismissed';
       record.reason = req.body.reason;
       record.decidedAt = ctx.now().toISOString();
@@ -339,7 +361,9 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const q = req.query;
       const now = today();
+      const priced = guard(ctx, req, org).at('costs.view');
       return org.moves
+        .filter(priced)
         .filter((m) => (!q.siteId || m.siteId === q.siteId) && (!q.from || m.weekStart >= q.from) && (!q.to || m.weekStart <= q.to))
         .map((m: MoveRecord) => ({ ...m, realisedSaving: m.status === 'taken' ? realisedSaving(m, org.state.employees, org.timeEntries, now) : null }));
     },
@@ -353,6 +377,8 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       requireSite(org, req.query.siteId);
+      // Labour % and cost against target.
+      guard(ctx, req, org).allow('costs.view', req.query.siteId);
       return scorecardFor(org, req.query.siteId, today(), req.query.weeks ?? 8);
     },
   );
@@ -360,7 +386,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/v1/programmes', { ...read, schema: { tags: ['Programme'], description: 'Every site on the labour programme: week, phase, milestones, targets and the saving.' } }, async (req) => {
     const org = orgOf(req);
     const now = today();
-    return org.programmes.map((p) => {
+    return org.programmes.filter(guard(ctx, req, org).at('costs.view')).map((p) => {
       const card = scorecardFor(org, p.siteId, now);
       return { programme: p, status: programmeStatus(p, card, org.state, now), maturity: card.maturity, summary: card.summary };
     });
@@ -503,10 +529,10 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
   app.put<{ Body: { benchmarking: boolean } }>(
     '/v1/settings/benchmarking',
     {
-      // The operator's data, so the operator decides: their signed-in admin, or their own full-access key.
+      // The operator's data, so the operator decides: a person who manages their settings, or their own full-access key.
       preHandler: async (req: FastifyRequest, reply: FastifyReply) => {
-        if (req.principal.user ? req.principal.user.role !== 'admin' : !req.principal.scopes.includes('*')) {
-          return reply.code(403).send({ error: 'forbidden', message: 'Only an admin can change benchmarking' });
+        if (!req.principal.user && !req.principal.scopes.includes('*')) {
+          return reply.code(403).send({ error: 'forbidden', message: 'Only the operator can change benchmarking' });
         }
       },
       schema: {
@@ -517,6 +543,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      guard(ctx, req, org).allow('settings.manage');
       org.settings = { ...org.settings, benchmarking: req.body.benchmarking };
       audit(org, req.principal.name, 'settings.benchmarking', { benchmarking: req.body.benchmarking });
       return org.settings;
@@ -537,6 +564,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      const priced = guard(ctx, req, org).at('costs.view');
       if (!org.settings.benchmarking) {
         return { optedIn: false, benchmark: null, sites: [] };
       }
@@ -555,7 +583,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       const benchmark = cohortBenchmark(samples, org.orgId);
       const lowerIsBetter: Record<BenchmarkMetric, boolean> = { labourPct: true, splh: false, overstaffedShare: true, forecastWape: true };
       const sites = org.state.sites
-        .filter((s) => !req.query.siteId || s.id === req.query.siteId)
+        .filter((s) => (!req.query.siteId || s.id === req.query.siteId) && priced({ siteId: s.id }))
         .map((s) => {
           const own = sampleOf(org, s.id, now);
           const position = Object.fromEntries(

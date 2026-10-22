@@ -1,28 +1,49 @@
 import { useMemo, useState } from 'react';
 import { employeeWeekCost } from '../engine/cost';
 import { isEmployedOn, reviewEmployee } from '../engine/employees';
+import { holidayBalance, STATUTORY_WEEKS } from '../engine/holiday';
 import { formatMinute, parseClock } from '../engine/time';
-import type { Availability, Employee, RotaState } from '../engine/types';
+import type { Availability, Employee, HolidayRecord, RotaState } from '../engine/types';
+import { fileSize, MAX_UPLOAD_BYTES, shrinkPhoto } from './files';
 import { money } from './format';
+import type { DocumentAccess } from './store';
 
 interface Props {
   state: RotaState;
   employee: Employee;
   today: string;
-  onSave: (employee: Employee) => void;
+  /** May change the rate, salary and pay basis. Without it pay is shown locked, or not at all if withheld. */
+  canEditPay: boolean;
+  /** Pay changes go to finance for approval rather than applying on save. */
+  payNeedsApproval?: boolean;
+  /** The reason travels with a proposed pay change; finance sees it. */
+  onSave: (employee: Employee, payReason?: string) => void;
   onLeaver: (id: string, leaveDate: string) => void;
+  /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
+  onAddDocument: (id: string, file: Blob, fileName: string) => Promise<Employee>;
+  /** privacy.manage, as on the server: absent hides Delete and History. */
+  onDeleteDocument?: (id: string, documentId: string) => Promise<Employee>;
+  onDocumentHistory?: (id: string, documentId: string) => Promise<DocumentAccess[]>;
   onClose: () => void;
 }
 
+const LONDON_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' });
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApproval, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
+  const payLocked = !canEditPay;
   const [draft, setDraft] = useState<Employee>(employee);
+  const [uploading, setUploading] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ documentId: string; entries: DocumentAccess[] } | null>(null);
   const [leaveDay, setLeaveDay] = useState('');
+  const [payReason, setPayReason] = useState('');
   const [leaving, setLeaving] = useState<string | null>(null);
   const isNew = !state.employees.some((e) => e.id === employee.id);
+  const payChanged = !draft.payHidden && canEditPay &&
+    (draft.payBasis !== employee.payBasis || draft.hourlyRate !== employee.hourlyRate || draft.annualSalary !== employee.annualSalary);
   const set = <K extends keyof Employee>(key: K, value: Employee[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const rtw = draft.rightToWork ?? { checked: false };
 
@@ -33,6 +54,15 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
   const dropped = shifts.filter((s) => !isEmployedOn(draft, s.date)).length;
   const homeEntity = state.sites.find((x) => x.id === draft.siteId)?.entityId;
   const siteName = (id: string) => state.sites.find((x) => x.id === id)?.name ?? id;
+  const holiday = draft.holiday ?? {};
+  const setHoliday = (patch: Partial<HolidayRecord>) => set('holiday', { ...holiday, ...patch });
+  const leaveYearStart = state.entities.find((x) => x.id === draft.entityId)?.leaveYearStart;
+  // The editor has the rota only; the Holiday tab also counts clocked time.
+  const balance = useMemo(
+    () => holidayBalance(draft, state.shifts.filter((s) => s.date <= today), today, leaveYearStart, undefined, state.sites),
+    [draft, state.shifts, state.sites, today, leaveYearStart],
+  );
+  const numberOrUndefined = (v: string) => (v === '' ? undefined : Number(v));
 
   function toggleRole(roleId: string) {
     const has = draft.roleIds.includes(roleId);
@@ -62,6 +92,49 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
   }
   function restrictAvailability() {
     set('availability', WEEKDAYS.map((_, weekday) => ({ weekday, fromMinute: 9 * 60, toMinute: 24 * 60 })));
+  }
+
+  // The server owns the list of copies; take it from the saved record and keep the rest of the draft.
+  const takeDocuments = (saved: Employee) =>
+    setDraft((d) => ({ ...d, rightToWork: { ...(d.rightToWork ?? { checked: false }), documents: saved.rightToWork?.documents ?? [] } }));
+  const documents = rtw.documents ?? [];
+
+  async function addDocuments(files: FileList | null) {
+    if (!files?.length) return;
+    setDocError(null);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const body = await shrinkPhoto(file);
+        if (body.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is ${fileSize(body.size)}. The limit is ${fileSize(MAX_UPLOAD_BYTES)}: scan it at a lower resolution.`);
+        const name = body === file ? file.name : file.name.replace(/\.[^.]*$/, '') + '.jpg';
+        takeDocuments(await onAddDocument(draft.id, body, name));
+      }
+    } catch (e) {
+      setDocError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteDocument(documentId: string, fileName: string) {
+    if (!window.confirm(`Delete ${fileName}? Without a copy of each document checked there is no statutory excuse.`)) return;
+    setDocError(null);
+    try {
+      if (onDeleteDocument) takeDocuments(await onDeleteDocument(draft.id, documentId));
+    } catch (e) {
+      setDocError((e as Error).message);
+    }
+  }
+
+  async function toggleHistory(documentId: string) {
+    if (history?.documentId === documentId) return setHistory(null);
+    setDocError(null);
+    try {
+      if (onDocumentHistory) setHistory({ documentId, entries: await onDocumentHistory(draft.id, documentId) });
+    } catch (e) {
+      setDocError((e as Error).message);
+    }
   }
 
   function addLeave() {
@@ -162,10 +235,21 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
         </div>
 
         <h3 className="section">Contract and pay</h3>
+        {draft.payHidden && <p className="muted small">Pay is withheld from your view. Whoever manages pay sets the rate.</p>}
+        {!draft.payHidden && payLocked && <p className="muted small">Pay is set by whoever manages pay, never by the person managing the team.</p>}
+        {employee.pendingPay && (
+          <p className="notice">
+            {employee.pendingPay.after.payBasis === 'salaried'
+              ? `${money(employee.pendingPay.after.annualSalary)} a year`
+              : `£${employee.pendingPay.after.hourlyRate.toFixed(2)} an hour`}{' '}
+            proposed by {employee.pendingPay.requestedBy}, waiting for finance. The pay below stays in force until it is approved.
+          </p>
+        )}
         <div className="form">
+          {!draft.payHidden && (<>
           <label>
             Pay basis
-            <select value={draft.payBasis} onChange={(e) => set('payBasis', e.target.value as Employee['payBasis'])}>
+            <select disabled={payLocked} value={draft.payBasis} onChange={(e) => set('payBasis', e.target.value as Employee['payBasis'])}>
               <option value="hourly">Hourly</option>
               <option value="salaried">Salaried</option>
             </select>
@@ -173,12 +257,20 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
           {draft.payBasis === 'hourly' ? (
             <label>
               Hourly rate (£)
-              <input type="number" min={0} step={0.01} value={draft.hourlyRate} onChange={(e) => set('hourlyRate', Number(e.target.value))} />
+              <input type="number" min={0} step={0.01} disabled={payLocked} value={draft.hourlyRate} onChange={(e) => set('hourlyRate', Number(e.target.value))} />
             </label>
           ) : (
             <label>
               Annual salary (£)
-              <input type="number" min={0} step={500} value={draft.annualSalary} onChange={(e) => set('annualSalary', Number(e.target.value))} />
+              <input type="number" min={0} step={500} disabled={payLocked} value={draft.annualSalary} onChange={(e) => set('annualSalary', Number(e.target.value))} />
+            </label>
+          )}
+          </>)}
+          {payChanged && payNeedsApproval && (
+            <label className="wide-field">
+              Reason for the change (finance sees this)
+              <input value={payReason} onChange={(e) => setPayReason(e.target.value)} placeholder="e.g. passed probation, new responsibilities, market rate" />
+              <span className="muted small">Goes to finance for approval. Until then their current pay stays in force{isNew ? ', which for a starter is nought' : ''}.</span>
             </label>
           )}
           <label>
@@ -202,6 +294,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
             Enrolled in workplace pension
           </label>
         </div>
+        {!draft.payHidden && (
         <div className="cost-box">
           <div>
             <div className="muted small">Guaranteed weekly cost</div>
@@ -213,12 +306,13 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
               : `${money(guaranteed.total * 52)} a year, loaded with holiday, employer NI and pension. You pay this whether or not the rota uses them.`}
           </div>
         </div>
+        )}
 
         <h3 className="section">Right to work</h3>
         <div className="form">
           <label className="check">
             <input type="checkbox" checked={rtw.checked} onChange={(e) => set('rightToWork', { ...rtw, checked: e.target.checked })} />
-            Check done and copy held on file
+            Check done
           </label>
           <label>
             Checked on
@@ -239,6 +333,53 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
             <input type="date" value={rtw.expiry ?? ''} onChange={(e) => set('rightToWork', { ...rtw, expiry: e.target.value || undefined })} />
           </label>
         </div>
+        <p className="muted small">
+          Keep a clear copy of every document checked: the photo page of a passport, both sides of a card, or the online
+          check result for a share code. Hold it for the whole employment and at least two years after; the retention schedule under GDPR deletes it when your policy says.
+          Copies are encrypted, and every time one is opened it is logged.
+        </p>
+        {documents.length > 0 && (
+          <ul className="doc-list">
+            {documents.map((d) => (
+              <li key={d.id}>
+                <a href={`/v1/employees/${draft.id}/right-to-work/documents/${d.id}`} target="_blank" rel="noopener noreferrer">{d.fileName}</a>
+                <span className="muted small">
+                  {fileSize(d.bytes)}, added {d.uploadedAt.slice(0, 10)} by {d.uploadedBy}
+                </span>
+                {onDocumentHistory && (
+                  <button className="link" onClick={() => void toggleHistory(d.id)}>{history?.documentId === d.id ? 'Hide history' : 'History'}</button>
+                )}
+                {onDeleteDocument && <button className="link danger" onClick={() => void deleteDocument(d.id, d.fileName)}>Delete</button>}
+                {history?.documentId === d.id && (
+                  <ol className="doc-history">
+                    {history.entries.map((a, i) => (
+                      <li key={i} className="muted small">
+                        {LONDON_TIME.format(new Date(a.at))} {a.action} by {a.actor}
+                        {a.via === 'api key' ? ' (integration)' : ''}
+                        {a.ip ? ` from ${a.ip}` : ''}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {isNew ? (
+          <p className="muted small">Save the record first, then add the copies.</p>
+        ) : (
+          <label className={`file-pick${uploading ? ' busy' : ''}`}>
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              multiple
+              disabled={uploading}
+              onChange={(e) => { void addDocuments(e.target.files); e.target.value = ''; }}
+            />
+            {uploading ? 'Uploading...' : documents.length ? 'Add another copy' : 'Add copy (PDF or photo)'}
+          </label>
+        )}
+        {docError && <p className="hint bad-text">{docError}</p>}
 
         <h3 className="section">Availability</h3>
         {anyTime ? (
@@ -284,6 +425,58 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
           </>
         )}
 
+        <h3 className="section">Rota notes</h3>
+        <label className="notes">
+          <span className="muted small">
+            Preferences and commitments the rota should respect, for example "Prefers not to close on Sundays" or "College
+            on Tuesdays until June". The rota assistant reads these.
+          </span>
+          <textarea rows={2} maxLength={1000} value={draft.rotaNotes ?? ''} onChange={(e) => set('rotaNotes', e.target.value)} />
+        </label>
+
+        <h3 className="section">Holiday</h3>
+        <div className="cost-box holiday-box">
+          <div>
+            <div className="muted small">Remaining this leave year</div>
+            <div className={`big${balance.remainingHours < 0 ? ' bad-text' : ''}`}>{balance.remainingHours.toFixed(1)}h</div>
+          </div>
+          <div className="muted small">
+            {balance.year.start} to {balance.year.end}.{' '}
+            {balance.basis === 'fixed'
+              ? `${balance.entitlementHours.toFixed(1)}h entitlement`
+              : `${balance.accruedHours.toFixed(1)}h accrued at 12.07% of hours worked${balance.travelHours > 0 ? `, including ${balance.travelHours.toFixed(1)}h paid travel between sites` : ''}`}
+            {balance.carriedOverHours > 0 && `, ${balance.carriedOverHours.toFixed(1)}h carried over`}
+            , {balance.takenHours.toFixed(1)}h taken, {balance.bookedHours.toFixed(1)}h booked. A normal day counts as {balance.dayHours.toFixed(1)}h.
+          </div>
+        </div>
+        <div className="form">
+          {balance.basis === 'fixed' ? (
+            <label>
+              Entitlement (weeks a year, statutory {STATUTORY_WEEKS})
+              <input
+                type="number"
+                min={STATUTORY_WEEKS}
+                step={0.2}
+                value={holiday.entitlementWeeks ?? STATUTORY_WEEKS}
+                onChange={(e) => setHoliday({ entitlementWeeks: Math.max(STATUTORY_WEEKS, Number(e.target.value)) })}
+              />
+            </label>
+          ) : (
+            <label>
+              Accrued before records began (hours)
+              <input type="number" min={0} step={0.5} value={holiday.openingAccruedHours ?? ''} onChange={(e) => setHoliday({ openingAccruedHours: numberOrUndefined(e.target.value) })} />
+            </label>
+          )}
+          <label>
+            Taken before records began (hours)
+            <input type="number" min={0} step={0.5} value={holiday.openingTakenHours ?? ''} onChange={(e) => setHoliday({ openingTakenHours: numberOrUndefined(e.target.value) })} />
+          </label>
+          <label>
+            Carried over from last year (hours)
+            <input type="number" min={0} step={0.5} value={holiday.carriedOverHours ?? ''} onChange={(e) => setHoliday({ carriedOverHours: numberOrUndefined(e.target.value) })} />
+          </label>
+        </div>
+
         <h3 className="section">Approved leave</h3>
         <div className="leave-add">
           <input type="date" value={leaveDay} onChange={(e) => setLeaveDay(e.target.value)} />
@@ -294,15 +487,30 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
             {draft.leave.map((d) => (
               <span key={d} className="leave-chip">
                 {d}
+                <input
+                  type="number"
+                  className="day-hours"
+                  min={0}
+                  max={24}
+                  step={0.5}
+                  value={holiday.dayHours?.[d] ?? balance.dayHours}
+                  aria-label={`Hours of leave on ${d}`}
+                  onChange={(e) => {
+                    const { [d]: _old, ...rest } = holiday.dayHours ?? {};
+                    const v = Number(e.target.value);
+                    setHoliday({ dayHours: v === balance.dayHours ? rest : { ...rest, [d]: v } });
+                  }}
+                />
+                h
                 <button className="link" aria-label={`Remove ${d}`} onClick={() => set('leave', draft.leave.filter((x) => x !== d))}>Remove</button>
               </span>
             ))}
           </div>
         )}
 
-        {checks.length > 0 && (
+        {checks.length + balance.checks.length > 0 && (
           <ul className="issues">
-            {checks.map((c) => <li key={c.code} className={c.severity}>{c.message}</li>)}
+            {[...checks, ...balance.checks].map((c) => <li key={c.code} className={c.severity}>{c.message}</li>)}
           </ul>
         )}
 
@@ -323,7 +531,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onClo
           )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() })}>
+          <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() }, payChanged ? payReason : undefined)}>
             Save
           </button>
         </div>

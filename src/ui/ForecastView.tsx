@@ -116,7 +116,7 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
   const dates = weekDates(week);
 
   return (
-    <div className="coach">
+    <div className="insight">
       {message && (
         <div className={`notice ${message.bad ? 'error' : ''}`}>
           {message.text} <button className="link" onClick={() => setMessage(null)}>Dismiss</button>
@@ -124,7 +124,7 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
       )}
 
       <section className="settings-card">
-        <div className="coach-head">
+        <div className="insight-head">
           <div>
             <h2>Forecast for w/c {dayLabel(week).date}</h2>
             <p className="muted small">
@@ -229,7 +229,7 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
       </div>
 
       <section className="settings-card">
-        <div className="coach-head">
+        <div className="insight-head">
           <h2>How the forecast did</h2>
           <div className="week-nav">
             <button onClick={() => setAccuracyWeek(addDays(accuracyWeek, -7))} aria-label="Earlier week">&lsaquo;</button>

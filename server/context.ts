@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import type { TeamPaySimulator } from './integrations/payroll/simulator';
 import type { FeedConfig, Fetch } from './integrations/feeds';
+import type { DocumentCipher } from './documentCrypto';
 import type { OutboxDispatcher } from './outbox';
 import type { EmployerConfig } from './payrollEmployers';
 import type { OrgData, Store } from './store';
@@ -16,16 +17,26 @@ export interface AppContext {
   simulator?: TeamPaySimulator;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
+  /** Encrypts stored files. Null when a database is in use and no valid key is set: files are then refused. */
+  documentCipher: DocumentCipher | null;
+  /** Outbound HTTP for postcode lookups, TfL journey times and the till. Replaced in tests. */
+  fetch: typeof fetch;
+  /** Outbound HTTP for weather, event and school feeds, whose addresses people type in: public https addresses only. */
+  feedFetch: Fetch;
+  feeds: FeedConfig;
+  /** Optional TfL app key; the journey planner works without one at low volume. */
+  tflAppKey?: string;
   /** The clock, so tests can fix today. */
   now: () => Date;
-  /** How the server reaches weather and event providers; tests pass recorded responses. */
-  fetch: Fetch;
-  feeds: FeedConfig;
 }
 
 declare module 'fastify' {
   interface FastifyRequest {
     org?: OrgData;
+    /** Set when a read changed the organisation (an invitation accepted on sign-in), so it is saved too. */
+    orgChanged?: boolean;
+    /** Set when a read only refreshed someone's last seen: saved if it can be, never at the read's expense. */
+    orgTouched?: boolean;
   }
 }
 
@@ -48,23 +59,9 @@ export class HttpError extends Error {
 
 export const notFound = (what: string) => new HttpError(404, 'not_found', `${what} not found`);
 
+// Shared with the browser, where the rota assistant needs the same idea of now.
+import { londonParts } from '../src/engine/time';
+export { londonParts };
+
 /** Today's date in London. */
 export const londonToday = (ctx: AppContext) => londonParts(ctx.now()).date;
-
-/** Local date and minute in London for an instant: clocking is always UK wall-clock time. */
-export function londonParts(at: Date): { date: string; minute: number } {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/London',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    })
-      .formatToParts(at)
-      .map((p) => [p.type, p.value]),
-  );
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
-}

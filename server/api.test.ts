@@ -1,3 +1,4 @@
+import { addDays, londonParts, weekStart } from '../src/engine/time';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -66,13 +67,17 @@ describe('rota', () => {
 
   it('replaces a week in one go, as when a rota assistant draft is applied', async () => {
     const { call } = await setup();
-    await call('POST', '/v1/rota/build', { siteId: 'mar', weekStart: WEEK });
-    const draft = [{ id: 'd1', employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: WEEK, startMinute: 600, endMinute: 960, breakMinutes: 0 }];
-    const res = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: WEEK, shifts: draft });
+    // A week still ahead: shifts that have started can never be replaced (see assistantApply.test.ts).
+    const ahead = weekStart(addDays(londonParts(new Date()).date, 14));
+    const existing = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', startMinute: 600, endMinute: 960, breakMinutes: 0 };
+    await call('POST', '/v1/shifts', { ...existing, date: ahead });
+    await call('POST', '/v1/shifts', { ...existing, date: addDays(ahead, 1) });
+    const draft = [{ ...existing, id: 'd1', date: ahead, startMinute: 660 }];
+    const res = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: ahead, shifts: draft });
     expect(res.status).toBe(200);
-    const week = await call('GET', `/v1/shifts?siteId=mar&from=${WEEK}&to=2026-10-25`);
+    const week = await call('GET', `/v1/shifts?siteId=mar&from=${ahead}&to=${addDays(ahead, 6)}`);
     expect(week.body.map((s: { id: string }) => s.id)).toEqual(['d1']);
-    const outside = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: WEEK, shifts: [{ ...draft[0], date: '2026-11-02' }] });
+    const outside = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: ahead, shifts: [{ ...draft[0], date: addDays(ahead, 7) }] });
     expect(outside.status).toBe(422);
   });
 
@@ -262,5 +267,72 @@ describe('multi-site and multi-entity', () => {
     expect(up.sites[0].entityId).toBe(up.entities[0].id);
     expect(up.employees[0]).toMatchObject({ entityId: up.entities[0].id, coverSiteIds: [] });
     expect(up.entities[0].employmentAllowance).toBeUndefined();
+  });
+});
+
+describe('holiday', () => {
+  it('stores a holiday record on an employee and a leave year on a company', async () => {
+    const { call } = await setup();
+    const holiday = { entitlementWeeks: 6, carriedOverHours: 8, openingTakenHours: 16, dayHours: { '2026-11-02': 4 } };
+    const saved = await call('PATCH', '/v1/employees/mar-2', { holiday });
+    expect(saved.status).toBe(200);
+    expect(saved.body.holiday).toEqual(holiday);
+    expect((await call('PATCH', '/v1/employees/mar-2', { holiday: { entitlementWeeks: 4 } })).status).toBe(400);
+
+    const entity = await call('PATCH', '/v1/entities/wdl', { leaveYearStart: '04-01' });
+    expect(entity.body.leaveYearStart).toBe('04-01');
+    expect((await call('PATCH', '/v1/entities/wdl', { leaveYearStart: '13-01' })).status).toBe(400);
+  });
+});
+
+describe('takings', () => {
+  it('upserts, filters, removes and checks the site', async () => {
+    const { call } = await setup();
+    const seeded = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-19&to=2026-10-25')).body as unknown[];
+    expect(seeded).toHaveLength(2);
+    const put = await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: 5000.456, covers: 120 }, { siteId: 'mar', date: '2026-10-21', netSales: 4200, source: 'manual' }] });
+    expect(put.body).toEqual({ upserted: 2 });
+    const week = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-19&to=2026-10-25')).body as { date: string; netSales: number; source: string }[];
+    expect(week).toHaveLength(3);
+    expect(week.find((r) => r.date === '2026-10-19')).toMatchObject({ netSales: 5000.46, source: 'till' });
+    expect(week.find((r) => r.date === '2026-10-21')?.source).toBe('manual');
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'nowhere', date: '2026-10-19', netSales: 1 }] })).status).toBe(404);
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: -1 }] })).status).toBe(400);
+    expect((await call('DELETE', '/v1/sales?siteId=mar&date=2026-10-21')).status).toBe(204);
+    expect((await call('DELETE', '/v1/sales?siteId=mar&date=2026-10-21')).status).toBe(404);
+    expect((await call('PUT', '/v1/sales', { rows: [] }, 'other')).status).toBe(200);
+    expect((await call('GET', '/v1/sales', undefined, 'other')).body).toEqual([]);
+  });
+
+  it('forecasts a week with no forecast from past takings, and leaves forecast days alone', async () => {
+    const { call, ctx } = await setup();
+    // The demo forecasts up to 2026-11-08; the week after has none.
+    expect((await call('GET', '/v1/forecast?siteId=mar&from=2026-11-09&to=2026-11-15')).body).toEqual([]);
+    const made = await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-09' });
+    expect(made.status).toBe(200);
+    const days = made.body.days as { date: string; sales: number; basis: string; filled: boolean; from: string[] }[];
+    expect(days).toHaveLength(7);
+    const monday = days.find((d) => d.date === '2026-11-09')!;
+    expect(monday).toMatchObject({ basis: 'recent', filled: true });
+    expect(monday.from.every((d) => d < '2026-10-22')).toBe(true);
+    expect(made.body.filled).toBe(days.filter((d) => d.filled).length);
+    const rows = (await call('GET', '/v1/forecast?siteId=mar&from=2026-11-09&to=2026-11-09')).body as { sales: number }[];
+    expect(rows.reduce((a, r) => a + r.sales, 0)).toBe(monday.sales);
+
+    // A week already forecast is not overwritten unless asked.
+    const before = (await call('GET', '/v1/forecast?siteId=mar&from=2026-11-02&to=2026-11-08')).body;
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-02' })).body.filled).toBe(0);
+    expect((await call('GET', '/v1/forecast?siteId=mar&from=2026-11-02&to=2026-11-08')).body).toEqual(before);
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-02', replace: true })).body.filled).toBeGreaterThan(0);
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'nowhere', weekStart: '2026-11-09' })).status).toBe(404);
+
+    // A week on set-up's typical week alone is filled from takings without asking to replace, and the result is not typical.
+    const org = await ctx.store.load('demo');
+    org.state.forecast.push(...[12, 13, 19].map((hour) => ({ siteId: 'mar', date: '2026-11-16', hour, sales: 100, covers: 2, source: 'profile' as const })));
+    const filled = await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-16' });
+    expect(filled.body.days.find((d: { date: string }) => d.date === '2026-11-16').filled).toBe(true);
+    const after = (await call('GET', '/v1/forecast?siteId=mar&from=2026-11-16&to=2026-11-16')).body as { source?: string }[];
+    expect(after.length).toBeGreaterThan(3);
+    expect(after.every((r) => r.source === undefined)).toBe(true);
   });
 });

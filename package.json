@@ -10,9 +10,12 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "dev:api": "tsx watch server/index.ts",
+    "dev:demo": "PRESHIFT_DEMO=1 node scripts/dev.mjs",
     "dev:web": "vite",
     "start": "tsx server/index.ts",
-    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs"
+    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
+    "eval:assistant": "tsx scripts/eval-assistant.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
@@ -20,12 +23,15 @@
     "@fastify/swagger-ui": "^4.1.0",
     "@neondatabase/serverless": "^0.10.4",
     "fastify": "^4.28.1",
+    "qrcode": "1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.2.12",
+    "@playwright/test": "^1.56.1",
     "@types/node": "^22.9.0",
+    "@types/qrcode": "1.5.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

@@ -166,7 +166,7 @@ describe('children on the rota', () => {
 
   it('warns about bar work by the role’s department, not its name', () => {
     const k = child('2011-05-01');
-    const issues = checkEmployeeWeek(k, WEEK, [shift(addDays(WEEK, 5), 10, 12, 0, 'mixology')], undefined, { barRoleIds: ['mixology'] });
+    const issues = checkEmployeeWeek(k, WEEK, [shift(addDays(WEEK, 5), 10, 12, 0, 'mixology')], undefined, undefined, { barRoleIds: ['mixology'] });
     expect(issues.map((i) => i.code)).toContain('child-bar');
   });
 
@@ -175,10 +175,10 @@ describe('children on the rota', () => {
     const week = [0, 1, 2, 3].map((i) => shift(addDays(HALF_TERM, i), 10, 18, 60)); // 7h a day, 28h
     const estimated = checkEmployeeWeek(k, HALF_TERM, week);
     expect(codes(estimated)).toContain('child-school-hours');
-    const confirmed = checkEmployeeWeek(k, HALF_TERM, week, undefined, { schoolHolidays: council });
+    const confirmed = checkEmployeeWeek(k, HALF_TERM, week, undefined, undefined, { schoolHolidays: council });
     expect(confirmed.filter((i) => i.severity === 'block')).toEqual([]);
     // A fourteen-year-old is held to five hours a day and 25 a week in the holidays.
-    const younger = checkEmployeeWeek(child('2012-03-01'), HALF_TERM, week, undefined, { schoolHolidays: council });
+    const younger = checkEmployeeWeek(child('2012-03-01'), HALF_TERM, week, undefined, undefined, { schoolHolidays: council });
     expect(codes(younger)).toEqual(expect.arrayContaining(['child-daily', 'child-weekly']));
   });
 

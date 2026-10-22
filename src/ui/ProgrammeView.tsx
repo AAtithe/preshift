@@ -6,7 +6,7 @@ import type { RotaState } from '../engine/types';
 import { addDays, weekStart } from '../engine/time';
 import { api, ApiError } from './api';
 import { money, pct } from './format';
-import type { Me } from './SettingsView';
+import type { Account } from './SettingsView';
 
 interface Entry {
   programme: Programme;
@@ -25,7 +25,9 @@ interface Props {
   state: RotaState;
   siteIds: string[];
   today: string;
-  me: Me | null;
+  me: Account | null;
+  /** Whether this person may opt the organisation in to sharing: a settings change. */
+  canShare: boolean;
   onOpenSite: (siteId: string) => void;
 }
 
@@ -43,7 +45,7 @@ const formatMetric = (m: BenchmarkMetric, v: number) => (m === 'splh' ? money(v)
  * weeks, which milestones are proved, the targets, and the saving, marked
  * verified only once it is signed off in the management accounts.
  */
-export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) {
+export function ProgrammeView({ state, siteIds, today, me, canShare, onOpenSite }: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [bench, setBench] = useState<Benchmarks | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
@@ -82,7 +84,7 @@ export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) 
   const detail = single ? entries.find((e) => e.programme.siteId === single) : undefined;
 
   return (
-    <div className="coach">
+    <div className="insight">
       {message && (
         <div className={`notice ${message.bad ? 'error' : ''}`}>
           {message.text} <button className="link" onClick={() => setMessage(null)}>Dismiss</button>
@@ -153,7 +155,7 @@ export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) 
 
       {!benchOpen && (
         <section className="settings-card">
-          <div className="coach-head">
+          <div className="insight-head">
             <div>
               <h2>Benchmarks</h2>
               <p className="muted small">How your sites compare with other operators WS works with, anonymised.</p>
@@ -163,7 +165,7 @@ export function ProgrammeView({ state, siteIds, today, me, onOpenSite }: Props) 
         </section>
       )}
       {benchOpen && !bench && <p className="muted">Loading benchmarks</p>}
-      {benchOpen && bench && <BenchmarkPanel bench={bench} siteIds={siteIds} siteName={siteName} admin={me?.role === 'admin'} busy={busy}
+      {benchOpen && bench && <BenchmarkPanel bench={bench} siteIds={siteIds} siteName={siteName} admin={canShare} busy={busy}
         onToggle={(on) => act(on ? 'Sharing anonymised figures. You will see the cohort once it is large enough to stay anonymous.' : 'No longer sharing.', () => api.put('/v1/settings/benchmarking', { benchmarking: on }))} />}
     </div>
   );
@@ -318,7 +320,7 @@ function BenchmarkPanel({ bench, siteIds, siteName, admin, busy, onToggle }: { b
   const metrics = (Object.keys(METRIC_LABELS) as BenchmarkMetric[]).filter((m) => bench.benchmark?.metrics[m]);
   return (
     <section className="settings-card">
-      <div className="coach-head">
+      <div className="insight-head">
         <div>
           <h2>Benchmarks</h2>
           <p className="muted small">
