@@ -75,6 +75,38 @@ describe('HR access', () => {
   });
 });
 
+describe('cases in the HR overview', () => {
+  const caseLines = async (call: Awaited<ReturnType<typeof setup>>['call'], key: string) => {
+    const res = await call('GET', '/v1/hr/overview', undefined, key);
+    expect(res.status).toBe(200);
+    const checks = res.body.checks as { employeeId: string; checks: { code: string; message: string }[] }[];
+    return checks.flatMap((c) => c.checks.filter((x) => /^(case|warning):/.test(x.code)).map((x) => `${c.employeeId}: ${x.message}`));
+  };
+
+  it('tells nobody without hr.cases that a case exists, through the checks or otherwise', async () => {
+    const { call } = await setup();
+    // The seed holds an open disciplinary case at Marylebone, whose files Priya reads.
+    expect(await caseLines(call, 'kate')).toEqual(expect.arrayContaining([expect.stringContaining('Lateness on three shifts')]));
+    expect(await caseLines(call, 'priya')).toEqual([]);
+    // A key without an HR scope does not reach the overview at all.
+    expect((await call('GET', '/v1/hr/overview', undefined, 'gm')).status).toBe(403);
+  });
+
+  it('never tells a manager of a case about them, or a grievance raised against them', async () => {
+    const { call } = await setup();
+    const about = { kind: 'case', date: '2026-10-21' };
+    expect((await call('POST', '/v1/hr/records', { ...about, employeeId: 'mar-1', caseType: 'investigation', title: 'Allegation about GM conduct' }, 'kate')).status).toBe(201);
+    expect((await call('POST', '/v1/hr/records', { ...about, employeeId: 'mar-2', caseType: 'grievance', title: 'Bullying by the general manager' }, 'kate')).status).toBe(201);
+    const priya = (await caseLines(call, 'priya')).join('\n');
+    expect(priya).not.toContain('Allegation about GM conduct');
+    expect(priya).not.toContain('Bullying by the general manager');
+    // The people manager handling them still sees both.
+    const kate = (await caseLines(call, 'kate')).join('\n');
+    expect(kate).toContain('Allegation about GM conduct');
+    expect(kate).toContain('Bullying by the general manager');
+  });
+});
+
 describe('cases about the person reading them', () => {
   it('keeps a case about someone away from them, even when they handle cases', async () => {
     const { call, store } = await setup();
