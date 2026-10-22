@@ -24,6 +24,8 @@ export interface AppContext {
   fetch: typeof fetch;
   /** Optional TfL app key; the journey planner works without one at low volume. */
   tflAppKey?: string;
+  /** The clock, so tests can fix today. */
+  now: () => Date;
 }
 
 declare module 'fastify' {

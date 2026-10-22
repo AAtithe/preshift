@@ -62,6 +62,8 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** The EPOS location whose takings are this site's, once the till is connected. */
+  eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
   /** A typical trading week, used to forecast any week no sales system has sent figures for. */
@@ -213,6 +215,8 @@ export interface Employee {
   leaveDate?: string;
   /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
   payHidden?: boolean;
+  /** Set by the API: a pay change proposed for this person and waiting for finance. */
+  pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
@@ -396,6 +400,16 @@ export interface DaySales {
   covers?: number;
   /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
   source: 'till' | 'manual' | 'import';
+  /** Completed orders, where the till reports them. */
+  orders?: number;
+  /** Takings by hour, from a till feed: history to forecast from. Hours past midnight run on (24 is 00:00 the next morning). */
+  hours?: HourSales[];
+}
+
+export interface HourSales {
+  hour: number;
+  netSales: number;
+  orders: number;
 }
 
 export interface RotaState {
@@ -411,3 +425,39 @@ export interface RotaState {
   /** Recorded by the API only; never sent with shifts. */
   restOverrides?: RestOverride[];
 }
+
+/** The terms a person is paid on. */
+export interface PayTerms {
+  payBasis: PayBasis;
+  hourlyRate: number;
+  annualSalary: number;
+}
+
+export type PayChangeStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'superseded';
+
+/**
+ * A change to someone's pay, proposed by a person who sets pay and decided by finance. The rate
+ * in force stays as it is until the change is approved; nobody approves their own proposal.
+ */
+export interface PayChange {
+  id: string;
+  employeeId: string;
+  /** Home site when proposed: decides who may see and approve it. */
+  siteId: string;
+  /** Terms in force when proposed. Approval is refused if they have moved since. */
+  before: PayTerms;
+  after: PayTerms;
+  reason?: string;
+  status: PayChangeStatus;
+  requestedBy: string;
+  /** The person's access record id, when a person proposed it. */
+  requestedById?: string;
+  requestedAt: string;
+  decidedBy?: string;
+  decidedById?: string;
+  decidedAt?: string;
+  note?: string;
+}
+
+/** What a person's record carries about a change waiting for approval. */
+export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt'>;

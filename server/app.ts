@@ -16,6 +16,8 @@ import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
+import { eposRoutes, syncAllTills } from './routes/epos';
+import { payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
@@ -56,6 +58,8 @@ export interface BuildOptions {
   demo?: boolean;
   /** The demo's start page. Defaults to site/demo.html in the repository. */
   demoPage?: string;
+  /** The clock (tests fix it). */
+  now?: () => Date;
   /** How webhooks reach partner systems. Defaults to fetch; tests supply a recorder. */
   webhookFetch?: Fetch;
   /** Requests per minute per API key. */
@@ -122,6 +126,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     documentCipher: documents.cipher,
     fetch: options.fetch ?? fetch,
     tflAppKey: env.TFL_APP_KEY || undefined,
+    now: options.now ?? (() => new Date()),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -202,6 +207,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
     return { ok: true };
   });
@@ -273,12 +279,14 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    payRoutes(api, ctx);
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     travelRoutes(api, ctx);
+    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
     authenticatorRoutes(api, ctx);

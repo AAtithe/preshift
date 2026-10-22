@@ -2,11 +2,12 @@ import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
-import { toISODate } from '../src/engine/time';
+import { addDays, toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
+import type { EposConnection } from './integrations/epos/provider';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -108,8 +109,12 @@ export interface OrgData {
   mail: Record<string, MailRecord>;
   /** Personnel file entries: training, reviews, cases, documents and notes. Served only to HR scopes. */
   hrRecords: HrRecord[];
+  /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
+  payChanges: PayChange[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  /** The till the organisation has connected, if any. Its access token lives in the settings store. */
+  epos?: EposConnection;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
@@ -301,7 +306,7 @@ export interface Store extends UserStore, StaffStore, ApiKeyStore, DocumentStore
   /** The demo sandboxes only, never a customer organisation. */
   sandboxIds(): Promise<string[]>;
   /**
-   * Deletes a demo sandbox for good: its data, its visitor account, staff logins and documents. Refuses
+   * Deletes a demo sandbox for good: its data, its visitor account, staff logins, documents and API keys. Refuses
    * anything that is not a sandbox id, in code and again in the database statement itself, so no
    * fault in the caller can delete a customer.
    */
@@ -313,6 +318,22 @@ function assertSandbox(orgId: string) {
 }
 
 const newSecret = () => randomBytes(32).toString('hex');
+
+/** One rise waiting for finance in the demo, so the approvals screen has something on it. */
+function seedPayChanges(today: string): PayChange[] {
+  return [{
+    id: 'pay_demo1',
+    employeeId: 'mar-5',
+    siteId: 'mar',
+    before: { payBasis: 'hourly', hourlyRate: 12.71, annualSalary: 0 },
+    after: { payBasis: 'hourly', hourlyRate: 13.25, annualSalary: 0 },
+    reason: 'Six months in, signed off on the pass and covering prep. Brings him level with the other KPs on 30 hours.',
+    status: 'pending',
+    requestedBy: 'Kate Morgan',
+    requestedById: 'usr_people',
+    requestedAt: `${addDays(today, -2)}T10:15:00.000Z`,
+  }];
+}
 
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   // The demo's fictional people never go into a deployment: there they would sit on the real Access tab
@@ -336,6 +357,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     mail: {},
     authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
+    payChanges: seeded ? seedPayChanges(today ?? toISODate(new Date())) : [],
   };
 }
 
@@ -402,6 +424,7 @@ export class MemoryStore implements Store {
     for (const [key, login] of this.staff) if (login.orgId === orgId) this.staff.delete(key);
     for (const key of this.documents.keys()) if (key.startsWith(`${orgId}/`)) this.documents.delete(key);
     for (let i = this.documentAccess.length - 1; i >= 0; i--) if (this.documentAccess[i].orgId === orgId) this.documentAccess.splice(i, 1);
+    for (const [hash, key] of this.apiKeys) if (key.orgId === orgId) this.apiKeys.delete(hash);
   }
 
   async sessionSecret() {
@@ -711,6 +734,7 @@ export class PgStore implements Store {
     await this.init();
     // The prefix is repeated in each statement: even a wrong id from the caller cannot reach a customer row.
     const only = `and org_id like '${SANDBOX_PREFIX}%'`;
+    await this.query(`delete from preshift.api_keys where org_id = $1 ${only}`, [orgId]);
     await this.query(`delete from preshift.document_access where org_id = $1 ${only}`, [orgId]);
     await this.query(`delete from preshift.documents where org_id = $1 ${only}`, [orgId]);
     await this.query(`delete from preshift.staff_logins where org_id = $1 ${only}`, [orgId]);
@@ -958,6 +982,7 @@ function deserialise(data: unknown, version: number): OrgData {
   return {
     ...raw,
     hrRecords: raw.hrRecords ?? [],
+    payChanges: raw.payChanges ?? [],
     state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],

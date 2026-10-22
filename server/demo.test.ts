@@ -128,6 +128,7 @@ describe('public demo on the live system', () => {
       ['POST', `/v1/employees/${person}/right-to-work/documents`, {}],
       ['POST', '/v1/sites/travel/refresh', {}],
       ['POST', '/v1/api-keys', { name: 'mine' }],
+      ['PUT', '/v1/integrations/epos', { accessToken: 'square-token', environment: 'production' }],
       ['POST', '/v1/webhooks', { url: 'http://169.254.169.254/latest/meta-data', events: ['shift.created'] }],
     ];
     for (const [method, url, body] of denied) {

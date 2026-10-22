@@ -100,6 +100,14 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/integrations/payroll/sync-employees': true,
   'POST /v1/integrations/payroll/outbox/:id/retry': true,
   'POST /v1/payroll/submissions': true,
+  // Pay changes waiting on finance approval, inside the sandbox.
+  'GET /v1/pay-changes': true,
+  'POST /v1/employees/:id/pay-changes': true,
+  'POST /v1/pay-changes/:id/approve': true,
+  'POST /v1/pay-changes/:id/reject': true,
+  'POST /v1/pay-changes/:id/withdraw': true,
+  // Whether a till is connected: never in a sandbox, so this only ever says not connected.
+  'GET /v1/integrations/epos': true,
   'POST /v1/dev/simulate-clocking': true,
   'POST /v1/dev/teampay/run-payroll': true,
   'PUT /v1/privacy/policy': true,
@@ -166,6 +174,12 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/webhooks/:id/test': false,
   'GET /v1/webhooks/deliveries': false,
   'POST /v1/webhooks/deliveries/:id/retry': false,
+  // Refused: connecting a till hands the live system a visitor's Square token to call Square with.
+  'PUT /v1/integrations/epos': false,
+  'DELETE /v1/integrations/epos': false,
+  'GET /v1/integrations/epos/locations': false,
+  'PUT /v1/integrations/epos/mapping': false,
+  'POST /v1/integrations/epos/sync': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   'GET /v1/settings': false,
