@@ -276,6 +276,8 @@ export interface ApiKeyRecord {
   endsWith: string;
   createdAt: string;
   createdBy: string;
+  /** The person who made it: what they may not do for themselves, the key may not do for them. */
+  createdById?: string;
   lastUsedAt?: string;
   /**
    * Set when revoked. A revoked key is kept, never deleted, so a later attempt to use it is still
