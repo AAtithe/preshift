@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SQUARE_VERSION, SquareProvider, squareNetSales, squareTips } from './integrations/epos/square';
+import { SQUARE_VERSION, SquareProvider, squareNetSales, squareServiceCharge, squareTips } from './integrations/epos/square';
 import { MemoryStore } from './store';
 import { enrol, kit, TODAY } from './testkit';
 
@@ -167,6 +167,39 @@ describe('card tips from Square', () => {
     expect(again.body.tips.kept).toEqual(expect.arrayContaining([{ siteId: 'mar', date: '2026-10-19' }]));
     const after = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number }[];
     expect(after.find((t) => t.date === '2026-10-19' && t.source === 'card-tip')?.amount).toBe(60);
+  });
+});
+
+describe('service charge from Square', () => {
+  it('takes what was collected: nothing for a charge taken off the bill, net of one refunded after', () => {
+    expect(squareServiceCharge({ id: 'a', location_id: 'L', total_money: { amount: 6750 }, total_service_charge_money: { amount: 750 } })).toBe(7.5);
+    expect(squareServiceCharge({ id: 'b', location_id: 'L', total_money: { amount: 6000 } })).toBe(0);
+    expect(squareServiceCharge({ id: 'c', location_id: 'L', net_amounts: { total_money: { amount: 6000 }, service_charge_money: { amount: 0 } }, total_service_charge_money: { amount: 750 } })).toBe(0);
+  });
+
+  it('brings each finished day’s service charge in beside the card tips, even one the scheme does not expect', async () => {
+    const charge = (pounds: number) => ({ total_service_charge_money: { amount: Math.round(pounds * 100), currency: 'GBP' } });
+    const square = fakeSquare({
+      orders: [
+        order('1', 'LMAR', '2026-10-19T11:30:00Z', 1000, { ...charge(125), total_tip_money: { amount: 1000, currency: 'GBP' } }),
+        order('2', 'LMAR', '2026-10-20T18:00:00Z', 800, charge(100)),
+        order('3', 'LFITZ', '2026-10-20T18:00:00Z', 400, charge(50)),
+      ],
+    });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR', fitz: 'LFITZ' } });
+    await call('PUT', '/v1/tronc/schemes/fitz', { troncmaster: 'Rachel Adams', independent: true, pointsPerHour: { server: 10 }, serviceCharge: 'none' }, 'key');
+
+    const res = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-21' }, 'key');
+    expect(res.body.serviceCharge).toMatchObject({ written: 3, kept: [], paidDiffers: [], total: 275 });
+    expect(res.body.tips).toMatchObject({ written: 1, total: 10 });
+    const tips = (await call('GET', '/v1/tronc')).body.tips as { siteId: string; date: string; source: string; amount: number; fromTill?: boolean }[];
+    const sc = (site: string, d: string) => tips.find((t) => t.siteId === site && t.date === d && t.source === 'service-charge');
+    expect(sc('mar', '2026-10-19')).toMatchObject({ amount: 125, fromTill: true });
+    expect(sc('mar', '2026-10-20')).toMatchObject({ amount: 100, fromTill: true });
+    // Fitzrovia's scheme says no service charge, but the till took one: it is written, not dropped.
+    expect(sc('fitz', '2026-10-20')).toMatchObject({ amount: 50, fromTill: true });
   });
 });
 

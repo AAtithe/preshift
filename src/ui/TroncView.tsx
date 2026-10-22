@@ -117,7 +117,7 @@ function Tronc({ state, siteId, week, asOf, entries, canEdit, canRecord, onSaved
       week={week}
       asOf={asOf}
       tips={(state.tips ?? []).filter((t) => t.siteId === siteId)}
-      noServiceCharge={scheme?.serviceCharge === 'none'}
+      noServiceCharge={scheme?.serviceCharge === 'none' && !(state.tips ?? []).some((t) => t.siteId === siteId && t.source === 'service-charge' && weekDates(week).includes(t.date))}
       canRecord={canRecord}
       onChanged={onTaken}
     />

@@ -12,7 +12,7 @@ interface Props {
   asOf: string;
   /** This site's tips, any week. */
   tips: TipsTaken[];
-  /** The scheme says the site takes no service charge, so there is no column for it. */
+  /** The scheme says the site takes no service charge and none is recorded this week, so there is no column for it. */
   noServiceCharge: boolean;
   /** The site's cash-up (time.approve with costs.view there) or payroll. */
   canRecord: boolean;
@@ -127,8 +127,8 @@ export function TipsTakenPanel({ siteId, week, asOf, tips, noServiceCharge, canR
       </table>
       {note && <p className="small">{note}</p>}
       <p className="small muted">
-        Enter each day's figures from the cash-up; entering a day again corrects it. With a till connected, card tips come in
-        from it, marked till; a figure entered here replaces the till's for that day. Paid figures are fixed: payroll takes
+        Enter each day's figures from the cash-up; entering a day again corrects it. With a till connected, card tips and
+        service charge come in from it, marked till; a figure entered here replaces the till's for that day. Paid figures are fixed: payroll takes
         the payment back off before one can change.
       </p>
     </div>

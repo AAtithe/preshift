@@ -55,12 +55,16 @@ export interface EposSyncResult {
   kept: { siteId: string; date: string }[];
   sites: { siteId: string; netSales: number; orders: number }[];
   /** Card tips brought in as each day's card-tip figure. Absent on syncs from before the till fed tips. */
-  tips?: {
-    written: number;
-    /** Days whose card tips a manager keyed in by hand, left as they were. */
-    kept: { siteId: string; date: string }[];
-    /** Paid days the till now disagrees with: left as paid, for payroll to look at. */
-    paidDiffers: { siteId: string; date: string; paid: number; till: number }[];
-    total: number;
-  };
+  tips?: TillTipsResult;
+  /** Service charge brought in the same way. Absent on syncs from before the till fed it. */
+  serviceCharge?: TillTipsResult;
+}
+
+export interface TillTipsResult {
+  written: number;
+  /** Days a manager keyed in by hand, left as they were. */
+  kept: { siteId: string; date: string }[];
+  /** Paid days the till now disagrees with: left as paid, for payroll to look at. */
+  paidDiffers: { siteId: string; date: string; paid: number; till: number }[];
+  total: number;
 }

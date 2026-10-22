@@ -196,6 +196,13 @@ describe('compliance', () => {
     expect(markWeekUnpaid(both, 'mar', NEXT, addDays(WEEK, 2))).toEqual(both);
   });
 
+  it('flags a service charge the scheme says the site does not take', () => {
+    const st = state({ clocks: [clock('a', 'server', 8)], tips: [{ ...tip(50), source: 'service-charge' }] });
+    const none = { ...st, troncSchemes: st.troncSchemes!.map((s) => ({ ...s, serviceCharge: 'none' as const })) };
+    expect(codes(none)).toContain('service-charge-not-in-scheme');
+    expect(codes(st)).not.toContain('service-charge-not-in-scheme');
+  });
+
   it('flags tips taken with no scheme at all', () => {
     expect(codes(state({ troncSchemes: [], tips: [tip(10)] }))).toEqual(['tronc-no-scheme']);
   });

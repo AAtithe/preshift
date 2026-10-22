@@ -100,3 +100,32 @@ describe('card tips from the till', () => {
     expect(mergeTillTips([{ ...paid[0], amount: 61 }], 'mar', ['2026-10-20'], days).paidDiffers).toEqual([]);
   });
 });
+
+describe('service charge from the till', () => {
+  const days = new Map<string, TradingDay>([
+    ['2026-10-19', { date: '2026-10-19', netSales: 1000, orders: 30, hours: [], tips: 40, serviceCharge: 125 }],
+    ['2026-10-20', { date: '2026-10-20', netSales: 800, orders: 20, hours: [], tips: 30, serviceCharge: 0 }],
+  ]);
+
+  it('adds each order’s service charge into its trading day', () => {
+    const orders = [
+      { locationId: 'L', closedAt: '2026-10-19T12:00:00Z', netSales: 40, serviceCharge: 5 },
+      { locationId: 'L', closedAt: '2026-10-19T23:30:00Z', netSales: 20, serviceCharge: 2.5, tips: 1 },
+    ];
+    expect(tradingDays(orders, 'Europe/London').get('2026-10-19')).toMatchObject({ netSales: 60, serviceCharge: 7.5, tips: 1 });
+  });
+
+  it('writes it as its own figure, by the same rules, and leaves the card tips alone', () => {
+    const existing: TipsTaken[] = [
+      { id: 'c', siteId: 'mar', date: '2026-10-19', source: 'card-tip', amount: 99 },
+      { id: 'sc', siteId: 'mar', date: '2026-10-20', source: 'service-charge', amount: 80, fromTill: true },
+    ];
+    const r = mergeTillTips(existing, 'mar', ['2026-10-19', '2026-10-20'], days, 'service-charge');
+    const sc = (d: string) => r.tips.find((t) => t.date === d && t.source === 'service-charge');
+    expect(sc('2026-10-19')).toMatchObject({ id: 'tip-mar-2026-10-19-service-charge', amount: 125, fromTill: true });
+    // The till now shows none on Tuesday (taken off, or refunded): its own figure goes.
+    expect(sc('2026-10-20')).toBeUndefined();
+    expect(r.tips.find((t) => t.id === 'c')?.amount).toBe(99);
+    expect(r.written).toBe(2);
+  });
+});

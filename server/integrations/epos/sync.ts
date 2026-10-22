@@ -1,7 +1,7 @@
 import { mergeTill, mergeTillTips, tradingDays, tradingHour } from '../../../src/engine/epos';
 import { addDays } from '../../../src/engine/time';
 import type { OrgData } from '../../store';
-import { EposError, type EposProvider, type EposSyncResult } from './provider';
+import { EposError, type EposProvider, type EposSyncResult, type TillTipsResult } from './provider';
 
 /** The longest range one sync fetches. A quarter covers a first backfill; longer goes in chunks. */
 export const MAX_SYNC_DAYS = 92;
@@ -14,7 +14,8 @@ export const MAX_SYNC_DAYS = 92;
 export async function syncEpos(org: OrgData, provider: EposProvider, from: string, to: string, now: Date): Promise<EposSyncResult> {
   const at = now.toISOString();
   const result: EposSyncResult = { at, from, to, ok: true, written: 0, kept: [], sites: [] };
-  const tips: NonNullable<EposSyncResult['tips']> = { written: 0, kept: [], paidDiffers: [], total: 0 };
+  const fresh = (): TillTipsResult => ({ written: 0, kept: [], paidDiffers: [], total: 0 });
+  const fed = { 'card-tip': fresh(), 'service-charge': fresh() };
   const mapped = org.state.sites.filter((s) => s.eposLocationId);
   if (mapped.length === 0) return { ...result, ok: false, error: 'No site is matched to a till location yet.' };
 
@@ -41,22 +42,26 @@ export async function syncEpos(org: OrgData, provider: EposProvider, from: strin
       org.state.sales = merged.sales;
       result.written += merged.written;
       result.kept.push(...merged.kept);
-      // Card tips on the same finished days, as each day's card-tip figure for the tronc.
-      const tipped = mergeTillTips(org.state.tips ?? [], site.id, dates, days);
-      org.state.tips = tipped.tips;
-      tips.written += tipped.written;
-      tips.kept.push(...tipped.kept);
-      tips.paidDiffers.push(...tipped.paidDiffers);
+      // Card tips and service charge on the same finished days, as each day's figures for the tronc.
+      for (const source of ['card-tip', 'service-charge'] as const) {
+        const merged = mergeTillTips(org.state.tips ?? [], site.id, dates, days, source);
+        org.state.tips = merged.tips;
+        fed[source].written += merged.written;
+        fed[source].kept.push(...merged.kept);
+        fed[source].paidDiffers.push(...merged.paidDiffers);
+      }
       const inRange = dates.map((d) => days.get(d)).filter((d) => d !== undefined);
       result.sites.push({
         siteId: site.id,
         netSales: Math.round(inRange.reduce((s, d) => s + d.netSales, 0) * 100) / 100,
         orders: inRange.reduce((s, d) => s + d.orders, 0),
       });
-      tips.total += inRange.reduce((s, d) => s + (d.tips ?? 0), 0);
+      fed['card-tip'].total += inRange.reduce((s, d) => s + (d.tips ?? 0), 0);
+      fed['service-charge'].total += inRange.reduce((s, d) => s + (d.serviceCharge ?? 0), 0);
     }
-    tips.total = Math.round(tips.total * 100) / 100;
-    result.tips = tips;
+    for (const r of Object.values(fed)) r.total = Math.round(r.total * 100) / 100;
+    result.tips = fed['card-tip'];
+    result.serviceCharge = fed['service-charge'];
   } catch (err) {
     return { ...result, ok: false, error: err instanceof Error ? err.message : String(err) };
   }

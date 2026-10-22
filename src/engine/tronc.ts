@@ -217,6 +217,13 @@ export function troncCompliance(state: RotaState, entries: TimeEntry[], siteId: 
       message: `The employer decides the allocation, so ${gbp(saving)} of National Insurance is due on this week's tips (${gbp(run.niSaving.employer)} employer, ${gbp(run.niSaving.employee)} staff). An independent troncmaster removes it.`,
     });
   }
+  if (scheme.serviceCharge === 'none' && run.bySource['service-charge'] > 0) {
+    issues.push({
+      code: 'service-charge-not-in-scheme',
+      severity: 'warn',
+      message: `The till took ${gbp(run.bySource['service-charge'])} of service charge this week, but the scheme says this site charges none. It is still the team's: record in the scheme whether it is discretionary or mandatory, which decides the VAT.`,
+    });
+  }
   if (run.vatOnServiceCharge > 0) {
     issues.push({
       code: 'service-charge-vat',
