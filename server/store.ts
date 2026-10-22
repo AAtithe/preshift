@@ -147,12 +147,46 @@ export interface StaffStore {
   deleteStaffLogin(orgId: string, employeeId: string): Promise<void>;
 }
 
+/** An uploaded file: its bytes and the type they were checked to be. */
+export interface StoredFile {
+  contentType: string;
+  data: Buffer;
+}
+
+/** One touch of a stored file. Kept for good: the log outlives the file it describes. */
+export interface DocumentAccess {
+  orgId: string;
+  documentId: string;
+  employeeId: string;
+  action: 'added' | 'viewed' | 'deleted';
+  at: string;
+  /** The signed-in person's email, or the API key's name. */
+  actor: string;
+  via: 'session' | 'api key';
+  ip?: string;
+}
+
+/**
+ * Files such as right to work copies, kept apart from the organisation document so that loading
+ * the rota never pulls scans of passports with it. The record that names a file lives in OrgData.
+ * Files arrive here already encrypted; the store never sees the key.
+ */
+export interface DocumentStore {
+  putDocument(orgId: string, id: string, file: StoredFile): Promise<void>;
+  getDocument(orgId: string, id: string): Promise<StoredFile | null>;
+  deleteDocument(orgId: string, id: string): Promise<void>;
+  /** Append only: there is no way to change or remove an entry. */
+  logDocumentAccess(entry: DocumentAccess): Promise<void>;
+  /** Oldest first. */
+  listDocumentAccess(orgId: string, documentId: string): Promise<DocumentAccess[]>;
+}
+
 /**
  * Tenancy boundary: every request loads exactly one organisation, works on it,
  * and saves it once at the end. A save that finds the organisation changed
  * underneath it is refused rather than overwriting someone else's work.
  */
-export interface Store extends UserStore, StaffStore {
+export interface Store extends UserStore, StaffStore, DocumentStore {
   load(orgId: string): Promise<OrgData>;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
@@ -165,7 +199,7 @@ const newSecret = () => randomBytes(32).toString('hex');
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
-    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [] },
+    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -193,7 +227,7 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees };
+  return { ...state, entities, sites, employees, sales: state.sales ?? [] };
 }
 
 export class MemoryStore implements Store {
@@ -297,6 +331,31 @@ export class MemoryStore implements Store {
     return { ...next };
   }
 
+  private readonly documents = new Map<string, StoredFile>();
+
+  async putDocument(orgId: string, id: string, file: StoredFile) {
+    this.documents.set(`${orgId}/${id}`, { contentType: file.contentType, data: Buffer.from(file.data) });
+  }
+
+  async getDocument(orgId: string, id: string) {
+    const file = this.documents.get(`${orgId}/${id}`);
+    return file ? { contentType: file.contentType, data: Buffer.from(file.data) } : null;
+  }
+
+  async deleteDocument(orgId: string, id: string) {
+    this.documents.delete(`${orgId}/${id}`);
+  }
+
+  private readonly documentAccess: DocumentAccess[] = [];
+
+  async logDocumentAccess(entry: DocumentAccess) {
+    this.documentAccess.push({ ...entry });
+  }
+
+  async listDocumentAccess(orgId: string, documentId: string) {
+    return this.documentAccess.filter((a) => a.orgId === orgId && a.documentId === documentId).map((a) => ({ ...a }));
+  }
+
   private readonly settings = new Map<string, string>();
 
   async getSetting(key: string) {
@@ -370,6 +429,29 @@ export class PgStore implements Store {
          )`,
         [],
       );
+      // Base64 text rather than bytea: Neon's HTTP driver and PGlite pass strings identically.
+      await this.query(
+        `create table if not exists preshift.documents (
+           org_id text not null,
+           id text not null,
+           content_type text not null,
+           data text not null,
+           created_at timestamptz not null default now(),
+           primary key (org_id, id)
+         )`,
+        [],
+      );
+      await this.query(
+        `create table if not exists preshift.document_access (
+           seq bigserial primary key,
+           org_id text not null,
+           document_id text not null,
+           data jsonb not null,
+           at timestamptz not null default now()
+         )`,
+        [],
+      );
+      await this.query('create index if not exists document_access_doc_idx on preshift.document_access (org_id, document_id)', []);
     })().catch((err) => {
       // Instances starting together can collide creating the schema; let the next request try again
       // rather than leave this instance failing every request until it is recycled.
@@ -535,6 +617,41 @@ export class PgStore implements Store {
       [tokenHash, nowSeconds, JSON.stringify(patch)],
     );
     return rows.length ? userFrom(rows[0].data) : null;
+  }
+
+  async putDocument(orgId: string, id: string, file: StoredFile) {
+    await this.init();
+    await this.query(
+      `insert into preshift.documents (org_id, id, content_type, data) values ($1, $2, $3, $4)
+       on conflict (org_id, id) do update set content_type = excluded.content_type, data = excluded.data`,
+      [orgId, id, file.contentType, file.data.toString('base64')],
+    );
+  }
+
+  async getDocument(orgId: string, id: string) {
+    await this.init();
+    const rows = await this.query('select content_type, data from preshift.documents where org_id = $1 and id = $2', [orgId, id]);
+    return rows.length ? { contentType: String(rows[0].content_type), data: Buffer.from(String(rows[0].data), 'base64') } : null;
+  }
+
+  async deleteDocument(orgId: string, id: string) {
+    await this.init();
+    await this.query('delete from preshift.documents where org_id = $1 and id = $2', [orgId, id]);
+  }
+
+  async logDocumentAccess(entry: DocumentAccess) {
+    await this.init();
+    await this.query('insert into preshift.document_access (org_id, document_id, data) values ($1, $2, $3)', [
+      entry.orgId,
+      entry.documentId,
+      JSON.stringify(entry),
+    ]);
+  }
+
+  async listDocumentAccess(orgId: string, documentId: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.document_access where org_id = $1 and document_id = $2 order by seq', [orgId, documentId]);
+    return rows.map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) as DocumentAccess);
   }
 
   async getSetting(key: string) {

@@ -25,6 +25,7 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Me } from './SettingsView';
 import { ShiftEditor } from './ShiftEditor';
@@ -36,9 +37,9 @@ import { TravelPanel } from './TravelPanel';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'integrations' | 'privacy' | 'settings' | 'howto';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'reports' | 'integrations' | 'privacy' | 'settings' | 'howto';
 
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
+// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
 // groupLevel sections cover the whole organisation (payroll, the books, GDPR), so site managers do not get them.
 type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; adminOnly?: boolean; groupLevel?: boolean };
@@ -77,6 +78,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'close', label: 'Close', groupLevel: true },
     ],
   },
+  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports' }] },
   {
     heading: 'Admin',
     items: [
@@ -493,6 +495,18 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {activeTab === 'reports' && (
+                <ReportsView
+                  state={state}
+                  siteIds={siteIds}
+                  entityIds={entityIds}
+                  week={week}
+                  today={today}
+                  onSaveSales={actions.saveSales}
+                  payrollAccess={!isManager}
+                  scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
+                />
+              )}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
@@ -573,6 +587,9 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
             if (await actions.saveEmployee(employee, isNew)) setEditingPerson(null);
           }}
           onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
+          onAddDocument={actions.addRightToWorkDocument}
+          onDeleteDocument={isAdmin ? actions.deleteRightToWorkDocument : undefined}
+          onDocumentHistory={isAdmin ? actions.rightToWorkDocumentHistory : undefined}
           onClose={() => setEditingPerson(null)}
         />
       )}

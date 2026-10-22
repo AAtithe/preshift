@@ -279,3 +279,23 @@ describe('holiday', () => {
     expect((await call('PATCH', '/v1/entities/wdl', { leaveYearStart: '13-01' })).status).toBe(400);
   });
 });
+
+describe('takings', () => {
+  it('upserts, filters, removes and checks the site', async () => {
+    const { call } = await setup();
+    const seeded = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-19&to=2026-10-25')).body as unknown[];
+    expect(seeded).toHaveLength(2);
+    const put = await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: 5000.456, covers: 120 }, { siteId: 'mar', date: '2026-10-21', netSales: 4200, source: 'manual' }] });
+    expect(put.body).toEqual({ upserted: 2 });
+    const week = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-19&to=2026-10-25')).body as { date: string; netSales: number; source: string }[];
+    expect(week).toHaveLength(3);
+    expect(week.find((r) => r.date === '2026-10-19')).toMatchObject({ netSales: 5000.46, source: 'till' });
+    expect(week.find((r) => r.date === '2026-10-21')?.source).toBe('manual');
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'nowhere', date: '2026-10-19', netSales: 1 }] })).status).toBe(404);
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: -1 }] })).status).toBe(400);
+    expect((await call('DELETE', '/v1/sales?siteId=mar&date=2026-10-21')).status).toBe(204);
+    expect((await call('DELETE', '/v1/sales?siteId=mar&date=2026-10-21')).status).toBe(404);
+    expect((await call('PUT', '/v1/sales', { rows: [] }, 'other')).status).toBe(200);
+    expect((await call('GET', '/v1/sales', undefined, 'other')).body).toEqual([]);
+  });
+});

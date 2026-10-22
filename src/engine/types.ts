@@ -122,6 +122,23 @@ export interface RightToWork {
   evidence?: string;
   /** Time-limited permission: a follow-up check is due before this date. */
   expiry?: string;
+  /** Copies of what was seen. Managed by the server: the files are kept apart from the record. */
+  documents?: RightToWorkDocument[];
+}
+
+/**
+ * A copy of a right to work document. The statutory excuse needs a clear copy of each document
+ * checked, kept for the whole employment and two years after it ends.
+ */
+export interface RightToWorkDocument {
+  id: string;
+  fileName: string;
+  contentType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  bytes: number;
+  /** SHA-256 of the file as received, so a copy can be shown to be the one uploaded. */
+  sha256: string;
+  uploadedAt: string;
+  uploadedBy: string;
 }
 
 /** Holiday position that is not derived from shifts and leave dates. All figures in hours. */
@@ -330,6 +347,16 @@ export interface TimeEntry {
   approvedAt?: string;
 }
 
+/** Takings for one trading day at one site, net of VAT: what the till actually rang, not the forecast. */
+export interface DaySales {
+  siteId: string;
+  date: string;
+  netSales: number;
+  covers?: number;
+  /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
+  source: 'till' | 'manual' | 'import';
+}
+
 export interface RotaState {
   entities: Entity[];
   sites: Site[];
@@ -338,4 +365,6 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  /** Actual takings by day. Absent on organisations saved before takings were recorded. */
+  sales?: DaySales[];
 }

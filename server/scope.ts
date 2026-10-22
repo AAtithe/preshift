@@ -30,6 +30,9 @@ export const SCOPED_ROUTES = new Set([
   'POST /v1/rota/publish',
   'GET /v1/forecast',
   'PUT /v1/forecast',
+  'GET /v1/sales',
+  'PUT /v1/sales',
+  'DELETE /v1/sales',
   'GET /v1/employees',
   'GET /v1/employees/:id',
   'POST /v1/employees',
@@ -54,6 +57,8 @@ export const SCOPED_ROUTES = new Set([
   'PATCH /v1/hr/records/:id',
   'DELETE /v1/hr/records/:id',
   'PUT /v1/employees/:id/hr',
+  'POST /v1/employees/:id/right-to-work/documents',
+  'GET /v1/employees/:id/right-to-work/documents/:docId',
   'POST /v1/employees/:id/absences',
   'PATCH /v1/employees/:id/absences/:absenceId',
   'DELETE /v1/employees/:id/absences/:absenceId',
@@ -118,8 +123,14 @@ export function scopedOrg(org: OrgData, scope: Set<string>): OrgData {
   const entityIds = new Set([...sites.map((s) => s.entityId), ...visible.map((e) => e.entityId)]);
   const employees = visible.map((e) => {
     if (home.has(e.id)) return e;
-    const { hr: _hr, email: _email, phone: _phone, absences, ...rest } = e;
-    return absences ? { ...rest, absences: absences.map(({ id, type, from, to }) => ({ id, type, from, to })) } : rest;
+    const { hr: _hr, email: _email, phone: _phone, absences, rightToWork, ...rest } = e;
+    // The check's dates stay for compliance; copies of someone else's documents do not.
+    const rtw = rightToWork ? (({ documents: _docs, ...r }) => r)(rightToWork) : undefined;
+    return {
+      ...rest,
+      ...(rtw ? { rightToWork: rtw } : {}),
+      ...(absences ? { absences: absences.map(({ id, type, from, to }) => ({ id, type, from, to })) } : {}),
+    };
   });
   return {
     ...org,
@@ -131,6 +142,7 @@ export function scopedOrg(org: OrgData, scope: Set<string>): OrgData {
       shifts: state.shifts.filter((s) => ids.has(s.employeeId) || scope.has(s.siteId)),
       forecast: state.forecast.filter((f) => scope.has(f.siteId)),
       demandRules: state.demandRules.filter((r) => scope.has(r.siteId)),
+      sales: (state.sales ?? []).filter((s) => scope.has(s.siteId)),
     },
     timeEntries: org.timeEntries.filter((t) => scope.has(t.siteId) || home.has(t.employeeId)),
     hrRecords: org.hrRecords.filter((r) => home.has(r.employeeId)),

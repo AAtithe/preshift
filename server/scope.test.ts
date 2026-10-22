@@ -167,6 +167,17 @@ describe('site managers', () => {
     expect((await t.call(t.gm, 'POST', '/v1/time-entries/approve', { siteId: 'mar', from: '2026-10-01', to: '2026-10-31' })).status).toBe(403);
     expect((await t.call(t.gm, 'POST', '/v1/time-entries/approve', { siteId: 'fitz', from: '2026-10-01', to: '2026-10-31' })).body.approved).toBe(1);
 
+    expect((await t.call(t.gm, 'PUT', '/v1/sales', { rows: [{ siteId: 'fitz', date: '2026-10-20', netSales: 2100 }] })).status).toBe(200);
+    expect((await t.call(t.gm, 'PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-20', netSales: 1 }] })).status).toBe(403);
+    expect((await t.call(t.gm, 'DELETE', '/v1/sales?siteId=mar&date=2026-10-20')).status).toBe(403);
+    await t.call(t.owner, 'PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-20', netSales: 3000 }] });
+    const sales = (await t.call(t.gm, 'GET', '/v1/sales')).body as { siteId: string }[];
+    expect(sales.length).toBeGreaterThan(0);
+    expect(sales.every((r) => r.siteId === 'fitz')).toBe(true);
+    expect((await t.call(t.gm, 'GET', '/v1/employees/mar-8/right-to-work/documents/doc1')).status).toBe(403);
+    expect((await t.call(t.gm, 'GET', '/v1/employees/fitz-6/right-to-work/documents/doc1/access')).status).toBe(403);
+    expect((await t.call(t.gm, 'DELETE', '/v1/employees/fitz-6/right-to-work/documents/doc1')).status).toBe(403);
+
     expect((await t.call(t.gm, 'POST', '/v1/staff-logins/mar-8/invite')).status).toBe(403);
     expect((await t.call(t.owner, 'POST', '/v1/staff-logins/mar-8/invite')).status).toBe(201);
     expect((await t.call(t.gm, 'POST', '/v1/staff-logins/fitz-6/invite')).status).toBe(201);

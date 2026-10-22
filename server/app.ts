@@ -11,6 +11,8 @@ import { accessRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
 import { demoRoutes, sweepSandboxes } from './demo';
 import { devRoutes } from './routes/dev';
+import { documentCipherFromEnv } from './documentCrypto';
+import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
@@ -87,6 +89,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
     : payrollFromEnv(env, demo);
   const providerFor = () => payroll.provider;
+  const documents = documentCipherFromEnv(env, store instanceof PgStore);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
@@ -95,6 +98,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
+    documentCipher: documents.cipher,
     fetch: options.fetch ?? fetch,
     tflAppKey: env.TFL_APP_KEY || undefined,
   };
@@ -114,6 +118,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       (err as { statusCode?: number }).statusCode = 400;
       done(err as Error, undefined);
     }
+  });
+
+  // Uploaded files arrive as the raw request body. The route checks what the bytes really are.
+  app.addContentTypeParser(UPLOAD_CONTENT_TYPES, { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES }, (_req, body, done) => {
+    done(null, body);
   });
 
   await app.register(swagger, {
@@ -151,6 +160,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       payroll: payroll.provider.name,
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
+      documents: documents.status,
     });
   });
 
@@ -216,6 +226,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
     hrRoutes(api);
+    documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     travelRoutes(api, ctx);
