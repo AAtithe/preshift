@@ -54,7 +54,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (337 across 29 files)
+npm test         # engine, UI rules and API tests (344 across 30 files)
 npm run build    # typecheck and production build
 ```
 
