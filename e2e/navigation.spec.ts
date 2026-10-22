@@ -6,8 +6,9 @@ import { NAV, NAV_ITEMS, type NavItem } from '../src/ui/nav';
 // read from the page, so the same checks run against the local demo or a deployed site.
 
 // The sections and their rules come from the bar itself, so a new section is checked as soon as it exists.
-// These checks sign in as an admin, who is offered every section.
-const SECTIONS = NAV_ITEMS.map((t) => t.label);
+// These checks sign in as an admin, who is offered every section except those kept to one audience
+// (Clients is for Williams, Stanley & Co. people).
+const SECTIONS = NAV_ITEMS.filter((t) => t.access === 'everyone' || !t.access.audience).map((t) => t.label);
 const labels = (keep: (t: NavItem) => boolean) => NAV_ITEMS.filter(keep).map((t) => t.label);
 const SITE_ONLY = labels((t) => !!t.siteOnly);
 const PLANNING = labels((t) => !!t.plans);
