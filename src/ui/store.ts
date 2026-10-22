@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RotaState, Shift, Site } from '../engine/types';
+import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RotaState, Shift, Site, TravelPay } from '../engine/types';
 import { weekDates } from '../engine/time';
 import type { Me } from './access/model';
 import { api } from './api';
@@ -183,6 +183,13 @@ export function useRotaStore() {
     setLeaveYearStart: (entityId: string, leaveYearStart: string) =>
       guard(async () => {
         const entity = await api.patch<Entity>(`/v1/entities/${entityId}`, { leaveYearStart });
+        setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
+        return entity;
+      }),
+    /** Sets what a company pays for travel between sites; every cost and payroll line follows it. */
+    setTravelPay: (entityId: string, travelPay: TravelPay) =>
+      guard(async () => {
+        const entity = await api.patch<Entity>(`/v1/entities/${entityId}`, { travelPay });
         setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
         return entity;
       }),

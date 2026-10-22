@@ -1,6 +1,7 @@
 import { EposSetup } from './EposSetup';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
+import { ApiKeys, Webhooks } from './DeveloperSettings';
 
 /** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
 export interface Account {
@@ -39,7 +40,7 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
         <section className="settings-card">
           <h2>Settings in the demo</h2>
           <p className="small muted">
-            In the live product this is where the Claude API key and email are set up, and where each person changes their own
+            In the live product this is where the Claude API key and email are set up, where API keys and webhooks are made for other systems to plug in, and where each person changes their own
             password. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
             your own copy of the demo group, and it is deleted after a day.
           </p>
@@ -62,6 +63,8 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
       {canSettings && <EposSetup onSynced={onSalesChanged} />}
       {canSettings && <ClaudeKey />}
       {canSettings && <EmailSetup />}
+      {canSettings && <ApiKeys />}
+      {canSettings && <Webhooks />}
       {account && <OwnPassword />}
     </div>
   );

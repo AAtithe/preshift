@@ -3,10 +3,11 @@ import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
+import { missingForecast } from '../../src/engine/setup';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
 import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
-import { requireScope } from '../auth';
+import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
@@ -17,15 +18,19 @@ type SiteWeek = { siteId: string; weekStart: string };
 type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
 type Range = { siteId?: string; from?: string; to?: string };
 
-export function serialiseMetrics(m: WeekMetrics) {
+/**
+ * Without employees:read the week carries labour totals only. Cost by person, or by shift (which
+ * names its person), would give away individual pay.
+ */
+export function serialiseMetrics(m: WeekMetrics, byPerson = true) {
   const { cost, ...rest } = m;
   return {
     ...rest,
     cost: {
       total: cost.total,
       unallocated: cost.unallocated,
-      employees: Object.fromEntries(cost.employees),
-      shifts: Object.fromEntries(cost.shifts),
+      employees: byPerson ? Object.fromEntries(cost.employees) : {},
+      shifts: byPerson ? Object.fromEntries(cost.shifts) : {},
     },
   };
 }
@@ -221,7 +226,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       weekStart: ws,
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
       // Labour cost is worked from pay rates, so it goes only to those who see them.
-      metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws)) : null,
+      metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws), hasScope(req, 'employees:read')) : null,
       issues: checkWeek(org.state, ws, siteId),
     };
   });
@@ -242,6 +247,9 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       // A group build needs the right at every site in it: all or nothing.
       for (const id of siteIds) g.allow('rota.edit', id);
+      // A week no sales system has sent figures for is forecast from each site's typical week.
+      const filled = missingForecast(org.state, siteIds, req.body.weekStart);
+      if (filled.length) org.state.forecast.push(...filled);
       const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
       // The build fills the whole week; hours already gone are left as they happened.
       const now = londonParts(new Date());
@@ -404,7 +412,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const g = guard(ctx, req, org);
     for (const siteId of new Set(req.body.rows.map((r) => r.siteId))) g.allow('demand.manage', siteId);
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
-    const incoming = new Map(req.body.rows.map((r) => [key(r), r]));
+    // Pushed figures are the real forecast: never marked as profile rows, which set-up may replace.
+    const incoming = new Map(req.body.rows.map(({ source: _source, ...r }) => [key(r), r as HourForecast]));
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];
     audit(org, actorName(g), 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };

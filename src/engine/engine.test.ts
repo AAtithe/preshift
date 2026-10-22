@@ -613,6 +613,51 @@ describe('paid travel between sites', () => {
     expect(batch.totalHours).toBeCloseTo(8.72, 2);
   });
 
+  it('pays travel at the company travel rate, never below the minimum wage, and charges it by what it pays', () => {
+    const s = state();
+    const p = { ...person(s), hourlyRate: 16, dateOfBirth: '1990-01-01' };
+    s.employees = s.employees.map((e) => (e.id === p.id ? p : e));
+    s.shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    const withPolicy = (travelPay: Entity['travelPay']) => s.entities.map((e) => (e.id === p.entityId ? { ...e, travelPay } : e));
+    const travel = 43 / 60;
+    const gross = (entities: Entity[]) => employeeWeekCost(p, s.shifts, undefined, 1, s.sites, entities).gross;
+    expect(gross(s.entities)).toBeCloseTo(8 * 16 + travel * 16, 1);
+    expect(gross(withPolicy({ basis: 'minimum' }))).toBeCloseTo(8 * 16 + travel * 12.71, 1);
+    expect(gross(withPolicy({ basis: 'fixed', hourly: 14 }))).toBeCloseTo(8 * 16 + travel * 14, 1);
+    // A fixed rate under the minimum wage is lifted to it.
+    expect(gross(withPolicy({ basis: 'fixed', hourly: 5 }))).toBeCloseTo(8 * 16 + travel * 12.71, 1);
+
+    s.entities = withPolicy({ basis: 'fixed', hourly: 13 });
+    const whole = employeeWeekCost(p, s.shifts, undefined, 1, s.sites, s.entities);
+    const mar = weekCost(s, WEEK, 'mar');
+    const shd = weekCost(s, WEEK, 'shd');
+    // The travel line carries its own pay, and the two sites still tie to the person's week.
+    expect(mar.travel.cost / whole.total).toBeCloseTo((travel * 13) / whole.gross, 3);
+    expect(mar.shifts.get('away')!.total + shd.shifts.get('home')!.total).toBeCloseTo(whole.total, 1);
+  });
+
+  it('counts travel towards guaranteed hours, which stay a floor on pay', () => {
+    const s = state();
+    const p = { ...person(s), hourlyRate: 16, contractedHours: 10, dateOfBirth: '1990-01-01' };
+    const shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    const entities = s.entities.map((e) => (e.id === p.entityId ? { ...e, travelPay: { basis: 'minimum' as const } } : e));
+    expect(employeeWeekCost(p, shifts, undefined, 1, s.sites, entities).gross).toBe(160);
+  });
+
+  it('sends travel at a different rate to payroll as a line of its own', () => {
+    const s = state();
+    const p = { ...person(s), hourlyRate: 16, dateOfBirth: '1990-01-01' };
+    const entities = s.entities.map((e) => (e.id === p.entityId ? { ...e, travelPay: { basis: 'fixed' as const, hourly: 13 } } : e));
+    const entry = (id: string, siteId: string, start: number, end: number) => ({
+      id, employeeId: p.id, siteId, roleId: 'server', date: WEEK, clockIn: start * 60, clockOut: end * 60, breakMinutes: 0, status: 'approved' as const,
+    });
+    const batch = payrollHours([p], [entry('a', 'shd', 12, 16), entry('b', 'mar', 17, 21)] as never, WEEK, '2026-10-25', s.sites, entities);
+    const travelLine = batch.lines.find((l) => l.travel)!;
+    expect(travelLine).toMatchObject({ siteId: 'mar', rate: 13, hours: 0.72, travelHours: 0.72, entryIds: ['b'] });
+    expect(batch.lines.find((l) => l.siteId === 'mar' && !l.travel)).toMatchObject({ rate: 16, hours: 4, travelHours: 0 });
+    expect(batch.totalHours).toBeCloseTo(8.72, 2);
+  });
+
   it('counts paid travel as hours worked for holiday accrual', () => {
     const s = state();
     const p = person(s);

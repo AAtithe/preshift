@@ -155,6 +155,10 @@ function forecast(start: string): HourForecast[] {
   return rows;
 }
 
+/** Ids the sample group uses, so set-up can tell sample data from a customer's own. */
+export const SAMPLE_ENTITY_IDS = entities.map((e) => e.id);
+export const SAMPLE_SITE_IDS = sites.map((s) => s.id);
+
 /**
  * Takings for every trading day before today in the forecast's first two weeks, off forecast by a
  * steady few percent so the reports have real variance to show. Deterministic, so tests can rely on it.

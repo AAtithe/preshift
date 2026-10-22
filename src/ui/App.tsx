@@ -32,6 +32,7 @@ import { PrivacyView } from './PrivacyView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Account } from './SettingsView';
+import { SetupView } from './SetupView';
 import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
 import { allowFor, NOT_YOURS } from './permissions';
 import type { ProposalDeps } from './proposals';
@@ -62,11 +63,27 @@ const MONTH = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('
 
 export function App() {
   const { state, me, error, setError, actions } = useRotaStore();
+  // Set when the first save of set-up gives the organisation its first site: the workspace then
+  // opens on set-up's team step instead of dropping the person on an empty overview.
+  const [continueSetup, setContinueSetup] = useState(false);
   if (!state) {
     return (
       <div className="shell">
         <p className="muted">{error ? `Cannot reach the Preshift API: ${error}` : 'Loading'}</p>
         {error && <button onClick={() => void actions.reload()}>Try again</button>}
+      </div>
+    );
+  }
+  // No sites for someone who may change them organisation-wide means none exist yet: set-up is the
+  // only useful screen. Anyone else with no sites simply has no site role.
+  if (state.sites.length === 0 && allowFor(me)('settings.manage')) {
+    return (
+      <div className="first-run">
+        <div className="wordmark">
+          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+        </div>
+        <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
+        <p className="small muted"><a className="link" href="/auth/logout">Sign out</a></p>
       </div>
     );
   }
@@ -78,18 +95,18 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} />;
+  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} continueSetup={continueSetup} />;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, me, error, setError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
+function Workspace({ state, me, error, setError, actions, continueSetup }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions']; continueSetup: boolean }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [initial] = useState(() => readPlace(weekStart(toISODate(new Date()))));
   const [entityId, setEntityId] = useState(state.entities.some((e) => e.id === initial.entityId) ? initial.entityId : ALL);
   const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
   const [week, setWeek] = useState(initial.week);
-  const [tab, setTab] = useState<Tab>(initial.tab);
+  const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : initial.tab);
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
@@ -134,6 +151,15 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
   const allow = useMemo(() => allowFor(me), [me]);
+  const [sample, setSample] = useState(false);
+  // Whoever may change the set-up is told when they are still looking at the sample group.
+  useEffect(() => {
+    if (!allow('settings.manage')) return;
+    fetch('/v1/setup/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { sample?: boolean } | null) => setSample(Boolean(body?.sample)))
+      .catch(() => setSample(false));
+  }, [allow, state.sites]);
   const atAll: AtAll = (p) => siteIds.every((s) => allow(p, s));
   const showCost = atAll('costs.view');
   const canEdit = atAll('rota.edit');
@@ -372,6 +398,12 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
 
         <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
+            {sample && !account?.demo && activeTab !== 'setup' && (
+              <div className="notice">
+                You are looking at the sample group, not your business.{' '}
+                <button className="link" onClick={() => setTab('setup')}>Set up your own</button>
+              </div>
+            )}
             {account?.demo && (
               <div className="notice demo-banner">
                 <span>
@@ -436,6 +468,8 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'sites' && scopeSites.length > 1 && (
                 <TravelPanel
                   sites={scopeSites}
+                  entities={state.entities.filter((e) => scopeSites.some((x) => x.entityId === e.id))}
+                  onSetTravelPay={allow('settings.manage') ? actions.setTravelPay : undefined}
                   onSetLocation={actions.setSiteLocation}
                   onRefresh={actions.refreshTravel}
                   onSetTravel={actions.setTravel}
@@ -543,6 +577,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
               )}
+              {activeTab === 'setup' && <SetupView state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} today={today} onOpen={setTab} />
               )}
