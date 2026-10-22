@@ -12,13 +12,13 @@ import { CoachView } from './CoachView';
 import { AccessView } from './access/AccessView';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
-import { actingAsDemo, canSwitchDemo, demoPeople, signInAsDemo } from './api';
 import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { ForecastView } from './ForecastView';
 import { dayLabel } from './format';
+import { DemoBanner, DemoPicker } from './DemoPicker';
 import { OrgPicker } from './OrgPicker';
 import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
@@ -103,8 +103,9 @@ export function App() {
   if (state.sites.length === 0) {
     return (
       <div className="shell">
+        <DemoBanner me={me} />
         <p className="muted">Your roles do not reach any site yet. Ask whoever manages access to grant you one.</p>
-        <DemoSwitch me={me} />
+        <div className="demo-standalone"><DemoPicker me={me} /></div>
       </div>
     );
   }
@@ -340,6 +341,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
         <OrgPicker account={account} />
+        <DemoPicker me={me} />
         <SideNav groups={nav} active={activeTab} onOpen={openSection} />
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
@@ -354,12 +356,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
       </aside>
 
       <div className="content">
+        <DemoBanner me={me} />
         <header className="mast">
           <div className="mast-top">
             <span className="eyebrow">{section.label}</span>
-            <div className="mast-controls">
-              <DemoSwitch me={me} />
-            </div>
           </div>
           <div className="mast-title">
             {section.scope === 'org'
@@ -780,24 +780,3 @@ function describeChange(before: Shift | null, after: Shift, state: { employees: 
   return `${name(after.employeeId)} now ${when(after)}`;
 }
 
-interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
-
-/** Demo only: sign in as any seeded person to see what their roles allow. Absent outside the demo. */
-function DemoSwitch({ me }: { me: Me | null }) {
-  const [people, setPeople] = useState<DemoPerson[] | null>(null);
-  useEffect(() => {
-    if (canSwitchDemo) void demoPeople<DemoPerson[]>().then(setPeople).catch(() => setPeople(null));
-  }, []);
-  if (!people) return null;
-  return (
-    <label className="demo-switch">
-      <span className="muted small">Demo: acting as</span>
-      <select value={actingAsDemo ? me?.user?.id ?? '' : ''} onChange={(e) => signInAsDemo(e.target.value || null)}>
-        <option value="">My own sign-in</option>
-        {people.filter((p) => p.status === 'active').map((p) => (
-          <option key={p.id} value={p.id}>{p.name}{p.jobTitle ? `, ${p.jobTitle}` : ''}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
