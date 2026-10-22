@@ -6,7 +6,10 @@ import type { PayrollVariance, RosterVsActual } from '../engine/timesheet';
 import type { RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
 import { BreakShortfalls } from './BreakShortfalls';
+import { BreakRule, BreakSteps } from './guides/breaks';
+import { HelpModal } from './HelpModal';
 import { hours, money, money2, pct } from './format';
+import { NOT_YOURS, type Allow } from './permissions';
 
 interface Employer {
   entityId: string;
@@ -30,10 +33,14 @@ interface Props {
   state: RotaState;
   siteId: string;
   week: string;
+  allow: Allow;
+  simulator: boolean;
   onChanged: () => Promise<void>;
+  onOpenGuide: (id: string) => void;
 }
 
-export function PayrollView({ state, siteId, week, onChanged }: Props) {
+export function PayrollView({ state, siteId, week, allow, simulator, onChanged, onOpenGuide }: Props) {
+  const [confirmApprove, setConfirmApprove] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [compare, setCompare] = useState<RosterVsActual[]>([]);
@@ -44,16 +51,25 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
   const [busy, setBusy] = useState(false);
   const [employerDraft, setEmployerDraft] = useState<Record<string, string>>({});
   const end = addDays(week, 6);
-  const isSimulator = status?.provider.includes('simulator');
+  // Demo controls depend on running against the simulator, which /v1/me says for those who cannot read payroll.
+  const isSimulator = status ? status.provider.includes('simulator') : simulator;
+
+  const seesTime = allow('time.record', siteId) || allow('time.approve', siteId) || allow('payroll.view');
+  const seesPayroll = allow('payroll.view');
+  const sends = allow('payroll.send');
+  const approves = allow('time.approve', siteId);
+  const records = allow('time.record', siteId);
 
   const refresh = useCallback(async () => {
+    // Ask only for what this person may read; the API would refuse the rest.
+    const none = <T,>(v: T) => Promise.resolve(v);
     const [st, te, cmp, sb, rn, ob] = await Promise.all([
-      api.get<Status>('/v1/integrations/payroll'),
-      api.get<TimeEntry[]>(`/v1/time-entries?siteId=${siteId}&from=${week}&to=${end}`),
-      api.get<RosterVsActual[]>(`/v1/time-entries/compare?siteId=${siteId}&weekStart=${week}`),
-      api.get<Submission[]>('/v1/payroll/submissions'),
-      api.get<PayRun[]>('/v1/payroll/runs'),
-      api.get<OutboxItem[]>('/v1/integrations/payroll/outbox'),
+      seesPayroll ? api.get<Status>('/v1/integrations/payroll') : none(null),
+      seesTime ? api.get<TimeEntry[]>(`/v1/time-entries?siteId=${siteId}&from=${week}&to=${end}`) : none([]),
+      seesTime ? api.get<RosterVsActual[]>(`/v1/time-entries/compare?siteId=${siteId}&weekStart=${week}`) : none([]),
+      seesPayroll ? api.get<Submission[]>('/v1/payroll/submissions') : none([]),
+      seesPayroll ? api.get<PayRun[]>('/v1/payroll/runs') : none([]),
+      seesPayroll ? api.get<OutboxItem[]>('/v1/integrations/payroll/outbox') : none([]),
     ]);
     setStatus(st);
     setEntries(te);
@@ -61,7 +77,7 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
     setSubs(sb.filter((s) => s.periodStart === week));
     setRuns(rn.filter((r) => r.periodStart === week));
     setFailed(ob.filter((i) => i.status === 'failed'));
-  }, [siteId, week, end]);
+  }, [siteId, week, end, seesPayroll, seesTime]);
 
   useEffect(() => {
     void refresh();
@@ -100,8 +116,28 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
   const ranFor = employers.filter((e) => latestRunOf(e.entityId));
   const missingEmployer = employers.filter((e) => !e.employerId);
 
+  const approveAll = () => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }));
+
   return (
     <div className="payroll">
+      {confirmApprove && (
+        <HelpModal
+          title={`${shortWaiting} ${shortWaiting === 1 ? 'shift is' : 'shifts are'} below the legal break minimum`}
+          onClose={() => setConfirmApprove(false)}
+          actions={
+            <>
+              <button onClick={() => setConfirmApprove(false)}>Review them first</button>
+              <button className="primary" onClick={() => { setConfirmApprove(false); void approveAll(); }}>I have checked them, approve all</button>
+              <span className="spacer" />
+              <button className="link" onClick={() => { setConfirmApprove(false); onOpenGuide('breaks'); }}>Full guide</button>
+            </>
+          }
+        >
+          <BreakRule />
+          <p>Before you approve, check each flagged shift:</p>
+          <BreakSteps />
+        </HelpModal>
+      )}
       <section className="pipeline">
         <Step n={1} title="People in TeamPay" done={!!status && status.employees.synced === status.employees.total && missingEmployer.length === 0}>
           {employers.length > 1 ? (
@@ -111,16 +147,16 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
               </div>
             ))
           ) : (
-            <div>{status ? `${status.employees.synced} of ${status.employees.total} set up` : '...'}</div>
+            <div>{status ? `${status.employees.synced} of ${status.employees.total} set up` : seesPayroll ? '...' : 'For those who run payroll'}</div>
           )}
-          <button disabled={busy || !status || status.employees.synced === status.employees.total} onClick={() => step('Sync people', () => api.post('/v1/integrations/payroll/sync-employees'))}>
+          <button disabled={busy || !sends || !status || status.employees.synced === status.employees.total} title={sends ? undefined : NOT_YOURS} onClick={() => step('Sync people', () => api.post('/v1/integrations/payroll/sync-employees'))}>
             Set up in TeamPay
           </button>
         </Step>
         <Step n={2} title="Clocked hours" done={entries.length > 0}>
           <div>{entries.length} records, {count('open')} still clocked in</div>
           {isSimulator && (
-            <button disabled={busy} onClick={() => step('Simulate clocking', () => api.post('/v1/dev/simulate-clocking', { siteId, weekStart: week }))}>
+            <button disabled={busy || !records} title={records ? undefined : NOT_YOURS} onClick={() => step('Simulate clocking', () => api.post('/v1/dev/simulate-clocking', { siteId, weekStart: week }))}>
               Simulate clocking
             </button>
           )}
@@ -128,7 +164,7 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
         <Step n={3} title="Manager approval" done={entries.length > 0 && unapproved === 0}>
           <div>{count('approved')} approved, {unapproved} waiting</div>
           {shortBreaks.length > 0 && <div className="warn-text">{shortBreaks.length} below the legal break minimum</div>}
-          <button disabled={busy || count('submitted') === 0} onClick={() => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }))}>
+          <button disabled={busy || !approves || count('submitted') === 0} title={approves ? 'Your own hours are left for someone else to approve' : NOT_YOURS} onClick={() => (shortWaiting ? setConfirmApprove(true) : approveAll())}>
             {shortWaiting ? `Approve all (${shortWaiting} short of break)` : 'Approve all'}
           </button>
         </Step>
@@ -143,8 +179,8 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
           )}
           <button
             className="primary"
-            disabled={busy || count('approved') === 0 || unapproved > 0 || missingEmployer.length > 0}
-            title={missingEmployer.length ? 'Set a TeamPay employer for every company first' : undefined}
+            disabled={busy || !sends || count('approved') === 0 || unapproved > 0 || missingEmployer.length > 0}
+            title={!sends ? NOT_YOURS : missingEmployer.length ? 'Set a TeamPay employer for every company first' : undefined}
             onClick={() => step('Send hours', () => api.post('/v1/payroll/submissions', { weekStart: week }))}
           >
             {sent ? 'Resend' : 'Send to TeamPay'}
@@ -164,15 +200,18 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
             })
           )}
           {isSimulator && (
-            <button disabled={busy || !allSent} onClick={() => step('Run payroll', () => api.post('/v1/dev/teampay/run-payroll', { weekStart: week }))}>
+            <button disabled={busy || !sends || !allSent} title={sends ? undefined : NOT_YOURS} onClick={() => step('Run payroll', () => api.post('/v1/dev/teampay/run-payroll', { weekStart: week }))}>
               Run payroll (simulator)
             </button>
           )}
         </Step>
       </section>
 
+      {!seesPayroll && (
+        <p className="notice">You see this site's hours. Payroll submissions and pay runs are for those who run payroll.</p>
+      )}
       <p className="muted small">
-        Connected to {status?.provider ?? '...'}. Hours go to payroll only once approved, every change is queued and retried
+        {status ? `Connected to ${status.provider}. ` : ''}Hours go to payroll only once approved, every change is queued and retried
         until TeamPay confirms it, and the period locks once sent. Tronc stays in TeamPay Tronc, fed by the same hours.
         {status && status.outbox.pending > 0 && ` ${status.outbox.pending} change(s) on their way.`}
       </p>
@@ -183,12 +222,14 @@ export function PayrollView({ state, siteId, week, onChanged }: Props) {
         name={name}
         busy={busy}
         onCorrect={(id, breakMinutes) => void step('Correct break', () => api.patch(`/v1/time-entries/${id}`, { breakMinutes }))}
+        onOpenGuide={() => onOpenGuide('breaks')}
       />
       {missingEmployer.length > 0 && (
         <div className="notice error">
           <strong>Each company runs its own PAYE scheme, so each needs its own TeamPay employer.</strong> Nothing is sent
           to TeamPay until every company with hours has one.
-          {missingEmployer.map((e) => (
+          {!allow('settings.manage') && <div>Whoever manages settings sets each company's TeamPay employer.</div>}
+          {allow('settings.manage') && missingEmployer.map((e) => (
             <div key={e.entityId} className="employer-row">
               <span>{e.name}{e.payeReference ? ` (PAYE ${e.payeReference})` : ''}</span>
               <input
@@ -309,11 +350,18 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
   );
 }
 
-const LABELS: Record<string, string> = { stillOpen: 'still clocked in', belowBreakMinimum: 'below the legal break minimum' };
+const WORDS: Record<string, string> = {
+  approved: 'approved',
+  ownSkipped: 'your own, left for someone else to approve',
+  stillOpen: 'still clocked in',
+  belowBreakMinimum: 'below the legal break minimum',
+  created: 'created',
+  queued: 'queued',
+};
 
 function summarise(res: object) {
   return Object.entries(res)
-    .filter(([, v]) => typeof v === 'number')
-    .map(([k, v]) => `${k in LABELS ? `${v} ${LABELS[k]}` : `${k} ${v}`}`)
+    .filter(([k, v]) => typeof v === 'number' && !((k === 'ownSkipped' || k === 'belowBreakMinimum') && v === 0))
+    .map(([k, v]) => `${v} ${WORDS[k] ?? k}`)
     .join(', ');
 }

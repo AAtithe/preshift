@@ -11,6 +11,10 @@ interface Props {
   today: string;
   onSetGeofence: (siteId: string, fence: { lat: number; lng: number; radiusMetres: number } | null) => Promise<unknown>;
   onSetBadge: (employeeId: string, badgeId: string | null) => Promise<unknown>;
+  /** The site's clocking area is a site setting: settings.manage. */
+  canSetFence: boolean;
+  /** Issuing cards is the team's to manage at the site. */
+  canEnrolCards: boolean;
   /** A public demo visitor: staff app logins are not available in the demo. */
   demo?: boolean;
 }
@@ -40,7 +44,7 @@ const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not 
  * USB reader (which types the card number and presses Enter), or on the phone's NFC, or pick their
  * name. Signing in by name checks this device's location against the site's geofence.
  */
-export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, demo }: Props) {
+export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, canSetFence, canEnrolCards, demo }: Props) {
   const site = state.sites.find((s) => s.id === siteId)!;
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [geo, setGeo] = useState<GeoState>({ status: 'off' });
@@ -254,9 +258,11 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, dem
         )}
       </section>
 
+      {(canSetFence || canEnrolCards) && (
       <details className="clock-card">
         <summary className="strong">Clock-in setup for {site.name}</summary>
 
+        {canSetFence && (<>
         <h3>Site location</h3>
         <p className="muted small">
           Staff signing in by name on a phone or tablet must be inside this circle. Stand at the entrance to set it.
@@ -306,6 +312,8 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, dem
           )}
         </div>
 
+        </>)}
+        {canEnrolCards && (<>
         <h3>RFID cards</h3>
         <p className="muted small">
           Choose Enrol card, then tap the person's card on this screen's reader. Enrol on the same kind of reader the site uses for
@@ -336,6 +344,7 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, dem
           </table>
         </div>
 
+        {/* Staff logins answer to team.manage at this site, as the server checks. */}
         {demo ? (
           <p className="small muted">
             In the live product, staff can also clock in and out on their own phones once you invite them. Staff app logins are
@@ -344,7 +353,9 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, dem
         ) : (
           <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
         )}
+        </>)}
       </details>
+      )}
     </div>
   );
 }

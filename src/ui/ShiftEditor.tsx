@@ -6,16 +6,19 @@ import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/t
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
+import { travelIssues } from '../engine/travel';
 
 interface Props {
   state: RotaState;
   shift: Shift;
+  /** The marginal cost is pay, shown only to those who may see it. */
+  showCost: boolean;
   onSave: (shift: Shift) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }
 
-export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) {
+export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose }: Props) {
   const [draft, setDraft] = useState<Shift>(shift);
   const isNew = !state.shifts.some((s) => s.id === shift.id);
   const employee = state.employees.find((e) => e.id === draft.employeeId)!;
@@ -31,11 +34,12 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);
     const share = employedShare(employee, ws);
-    const without = employeeWeekCost(employee, week, undefined, share);
-    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share);
+    const without = employeeWeekCost(employee, week, undefined, share, state.sites);
+    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share, state.sites);
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
       marginal: {
+        travelHours: withShift.travelHours - without.travelHours,
         total: withShift.total - without.total,
         ni: withShift.employerNi - without.employerNi,
         parts: {
@@ -45,7 +49,9 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
           pension: Math.max(0, withShift.pension - without.pension),
         },
       },
-      issues: checkEmployeeWeek(employee, ws, [...context, draft]).filter((i) => i.shiftId === draft.id || !i.shiftId),
+      issues: [...checkEmployeeWeek(employee, ws, [...context, draft]), ...travelIssues(employee, [...context, draft], state.sites)].filter(
+        (i) => i.shiftId === draft.id || !i.shiftId,
+      ),
     };
   }, [draft, employee, others, ws]);
 
@@ -123,7 +129,7 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
 
         <DayLine site={site} start={draft.startMinute} end={draft.endMinute} />
 
-        <div className="cost-box">
+        {showCost && <div className="cost-box">
           <div>
             <div className="muted small">What this shift adds to the week</div>
             <div className="big">{money2(marginal.total)}</div>
@@ -139,8 +145,10 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
               : marginal.total === 0
                 ? 'Covered by guaranteed hours you already pay for.'
                 : `Includes ${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
+            {marginal.travelHours > 0.005 &&
+              ` It also pays ${Math.round(marginal.travelHours * 60)} minutes of travel from another site that day, which is working time.`}
           </div>
-        </div>
+        </div>}
 
         {draftSite && draftSite.entityId !== employee.entityId && (
           <p className="muted small">

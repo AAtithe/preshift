@@ -55,6 +55,26 @@ export interface Site {
   closeMinute: number;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Where the site is, for journeys between sites. Set from its postcode. */
+  location?: SiteLocation;
+  /** Journey times from this site to others, by destination site id. */
+  travel?: Record<string, SiteTravel>;
+}
+
+export interface SiteLocation {
+  lat: number;
+  lng: number;
+  postcode?: string;
+}
+
+/** A journey time between two sites, and where it came from. */
+export interface SiteTravel {
+  minutes: number;
+  /** TfL's journey planner, a straight-line estimate, or set by hand (which a refresh keeps). */
+  source: 'tfl' | 'estimate' | 'manual';
+  /** The modes the journey uses, as TfL names them. */
+  mode?: string;
+  checkedAt: string;
 }
 
 /** A circle round the site's front door. */
@@ -102,6 +122,23 @@ export interface RightToWork {
   evidence?: string;
   /** Time-limited permission: a follow-up check is due before this date. */
   expiry?: string;
+  /** Copies of what was seen. Managed by the server: the files are kept apart from the record. */
+  documents?: RightToWorkDocument[];
+}
+
+/**
+ * A copy of a right to work document. The statutory excuse needs a clear copy of each document
+ * checked, kept for the whole employment and two years after it ends.
+ */
+export interface RightToWorkDocument {
+  id: string;
+  fileName: string;
+  contentType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  bytes: number;
+  /** SHA-256 of the file as received, so a copy can be shown to be the one uploaded. */
+  sha256: string;
+  uploadedAt: string;
+  uploadedBy: string;
 }
 
 /** Holiday position that is not derived from shifts and leave dates. All figures in hours. */
@@ -156,6 +193,8 @@ export interface Employee {
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
+  /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
+  payHidden?: boolean;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
@@ -310,6 +349,16 @@ export interface TimeEntry {
   approvedAt?: string;
 }
 
+/** Takings for one trading day at one site, net of VAT: what the till actually rang, not the forecast. */
+export interface DaySales {
+  siteId: string;
+  date: string;
+  netSales: number;
+  covers?: number;
+  /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
+  source: 'till' | 'manual' | 'import';
+}
+
 export interface RotaState {
   entities: Entity[];
   sites: Site[];
@@ -318,4 +367,6 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  /** Actual takings by day. Absent on organisations saved before takings were recorded. */
+  sales?: DaySales[];
 }

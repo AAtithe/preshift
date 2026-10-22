@@ -5,7 +5,9 @@ import { buildApp } from './app';
 import { loadApiKeys } from './auth';
 import { ASSISTANT_CALLS, assistantCallsSetting, MAX_SANDBOXES_PER_ADDRESS, MAX_SANDBOXES_PER_DAY, SANDBOX_ROUTES, sandboxRouteAllowed, sweepSandboxes } from './demo';
 import { signHmac, TeamPayProvider } from './integrations/payroll/teampay';
+import { hashToken } from './routes/users';
 import { londonDate, nextLondonMidnight, sandboxExpired } from './sandbox';
+import { COOKIE, createSession } from './session';
 import { MemoryStore, PgStore, type Query, type Store } from './store';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
@@ -20,7 +22,9 @@ const livePayroll = () => new TeamPayProvider({ baseUrl: 'http://127.0.0.1:9', a
 
 async function boot(options: { store?: Store; demo?: boolean; env?: NodeJS.ProcessEnv } = {}) {
   const store = options.store ?? new MemoryStore(['demo'], '2026-10-21');
-  const { app, ctx, routes } = await buildApp({ apiKeys: [], store, provider: livePayroll(), autoDispatch: false, demo: options.demo ?? true, env: options.env ?? {} });
+  // Postcode and TfL lookups never leave the test.
+  const offline = (async () => new Response('{}', { status: 503 })) as unknown as typeof fetch;
+  const { app, ctx, routes } = await buildApp({ apiKeys: [], store, provider: livePayroll(), autoDispatch: false, demo: options.demo ?? true, env: options.env ?? {}, fetch: offline });
   const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie'] ?? '').split(';')[0];
   const call = (method: string, url: string, cookie?: string, body?: unknown, headers: Record<string, string> = {}) =>
     app.inject({
@@ -60,11 +64,13 @@ describe('demo route allowlist', () => {
     expect(api.length).toBeGreaterThan(60);
     const undecided = api.filter((r) => !(r in SANDBOX_ROUTES));
     expect(undecided, `Add these to SANDBOX_ROUTES in server/demo.ts, true or false: ${undecided.join(', ')}`).toEqual([]);
+    // And the list names no route that has gone, so it always reads as the system it guards.
+    expect(Object.keys(SANDBOX_ROUTES).filter((r) => !api.includes(r))).toEqual([]);
   });
 
   it('refuses anything not listed', () => {
     expect(sandboxRouteAllowed('GET', '/v1/sites')).toBe(true);
-    expect(sandboxRouteAllowed('GET', '/v1/users')).toBe(false);
+    expect(sandboxRouteAllowed('POST', '/v1/users')).toBe(false);
     expect(sandboxRouteAllowed('POST', '/v1/something-new')).toBe(false);
     expect(sandboxRouteAllowed('GET', undefined)).toBe(false);
   });
@@ -79,7 +85,11 @@ describe('public demo on the live system', () => {
     const [orgA, orgB] = [await t.orgOf(a), await t.orgOf(b)];
     expect(orgA).toMatch(/^sandbox-/);
     expect(orgA).not.toBe(orgB);
-    expect((await t.call('GET', '/auth/me', a)).json()).toMatchObject({ role: 'admin', demo: true });
+    expect((await t.call('GET', '/auth/me', a)).json()).toMatchObject({ demo: true });
+    // No access record in their sandbox, so the visitor holds its full access; the Access screen
+    // lists the demo's fictional team, none of whom has an account.
+    expect((await t.call('GET', '/v1/me', a)).json()).toMatchObject({ withoutRecord: true });
+    expect((await t.call('GET', '/v1/users', a)).json().length).toBeGreaterThan(5);
     expect((await t.call('GET', '/auth/me', customer)).json()).not.toHaveProperty('demo');
 
     const customerBefore = (await t.call('GET', '/v1/employees', customer)).json();
@@ -98,29 +108,58 @@ describe('public demo on the live system', () => {
     expect((await t.call('GET', '/v1/employees', b)).json().some((e: { name: string }) => e.name === 'Visitor Hire')).toBe(false);
   });
 
-  it('refuses visitors accounts, keys, email settings and staff logins, which customers keep', async () => {
+  it('refuses visitors invitations, resets, keys, email, identity documents and staff logins, which customers keep', async () => {
     const t = await boot();
     const customer = await t.owner();
     const visitor = await t.visit();
     const person = (await t.call('GET', '/v1/employees', visitor)).json()[0].id;
     const denied: [string, string, unknown?][] = [
-      ['GET', '/v1/users'],
-      ['POST', '/v1/users', { email: 'x@example.com', password: 'a long enough password', role: 'admin' }],
-      ['POST', `/v1/users/${encodeURIComponent(OWNER.email)}/reset-link`, {}],
+      ['POST', '/v1/users', { name: 'Real Person', email: 'someone@customer.example', roleId: 'viewer' }],
+      ['POST', '/v1/users/usr_am_shd/resend-invite', {}],
+      ['POST', '/v1/users/usr_viewer/reactivate', {}],
+      ['POST', '/v1/users/usr_ops/reset-password', {}],
+      ['POST', '/v1/users/usr_ops/reset-authenticator', {}],
+      ['POST', '/v1/me/authenticator/start', {}],
       ['GET', '/v1/settings'],
       ['PUT', '/v1/settings/claude-api-key', { claudeApiKey: 'sk-ant-aaaaaaaaaaaaaaaaaaaaaaaa' }],
       ['PUT', '/v1/settings/email', { resendApiKey: 're_x', from: 'a@example.com', appUrl: 'https://example.com' }],
       ['GET', '/v1/staff-logins'],
       ['POST', `/v1/staff-logins/${person}/invite`, {}],
+      ['POST', `/v1/employees/${person}/right-to-work/documents`, {}],
+      ['POST', '/v1/sites/travel/refresh', {}],
     ];
     for (const [method, url, body] of denied) {
       const res = await t.call(method, url, visitor, body);
       expect(res.statusCode, `${method} ${url}`).toBe(403);
       expect(res.json().error).toBe('demo');
     }
+    // Customers answer to their own access rules, never the demo's.
+    for (const [method, url, body] of denied) {
+      const res = await t.call(method, url.replace(person, 'nobody'), customer, body);
+      expect(res.statusCode === 403 ? res.json().error : 'not refused', `${method} ${url}`).not.toBe('demo');
+    }
     expect((await t.call('GET', '/v1/users', customer)).statusCode).toBe(200);
-    expect((await t.call('GET', '/v1/settings', customer)).statusCode).toBe(200);
     expect((await t.call('GET', '/v1/staff-logins', customer)).statusCode).toBe(200);
+  });
+
+  it('never opens a sandbox to a real account, or an invitation into one', async () => {
+    const t = await boot();
+    const customer = await t.owner();
+    const visitor = await t.visit();
+    const orgId = await t.orgOf(visitor);
+    // Even with the sandbox in its memberships and a validly signed session for it.
+    await t.store.updateUser(OWNER.email, { orgs: ['demo', orgId] });
+    const forged = await createSession({ email: OWNER.email, orgId }, await t.store.sessionSecret());
+    expect((await t.call('GET', '/v1/sites', `${COOKIE}=${forged}`)).statusCode).toBe(401);
+    expect((await t.call('GET', '/v1/sites', customer)).statusCode).toBe(200);
+
+    const org = await t.store.load(orgId);
+    const token = `${orgId}.invitation`;
+    org.inviteTokens[hashToken(token)] = { userId: 'usr_am_shd', expiresAt: '2099-01-01', kind: 'invite' };
+    await t.store.save(org);
+    const accept = await t.form('/auth/accept', { token, password: 'a long enough password', confirm: 'a long enough password' });
+    expect(accept.headers.location).toMatch(/error=badlink/);
+    expect(await t.store.getUser('zoe@marylebonegroup.example')).toBeNull();
   });
 
   it('never lets a visitor account sign in by password, change one or reset one', async () => {
@@ -176,7 +215,7 @@ describe('public demo on the live system', () => {
     // An unknown organisation answers exactly as a bad signature does, and is not created.
     const unknown = await t.app.inject({ method: 'POST', url: '/v1/integrations/teampay/webhook/made-up-org', headers: { 'content-type': 'application/json' }, payload: body });
     expect(unknown.statusCode).toBe(401);
-    expect(await t.store.exists('made-up-org')).toBe(false);
+    expect(await t.store.has('made-up-org')).toBe(false);
   });
 
   it('creates nothing on opening the page, and only from its own origin', async () => {
@@ -260,7 +299,7 @@ describe('midnight reset', () => {
     expect(await sweepSandboxes(store)).toBe(1);
     expect(await store.sandboxIds()).toEqual([]);
     expect(await store.getUser(email)).toBeNull();
-    expect(await store.exists('demo')).toBe(true);
+    expect(await store.has('demo')).toBe(true);
     expect((await t.call('GET', '/v1/sites', customer)).statusCode).toBe(200);
   });
 
@@ -268,7 +307,7 @@ describe('midnight reset', () => {
     for (const store of [new MemoryStore(['demo'], '2026-10-21'), new PgStore(pglite(), ['demo'], '2026-10-21')]) {
       await store.load('demo');
       await expect(store.deleteSandbox('demo')).rejects.toThrow(/only demo sandboxes/);
-      expect(await store.exists('demo')).toBe(true);
+      expect(await store.has('demo')).toBe(true);
     }
   });
 

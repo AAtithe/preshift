@@ -65,7 +65,8 @@ export function reviewEmployee(
     push('dates', 'block', 'Leaving date is before the start date.');
   }
 
-  if (employee.payBasis === 'hourly' && !Number.isNaN(age)) {
+  // Withheld pay reads as nought; the wage checks are for whoever may see it.
+  if (employee.payBasis === 'hourly' && !Number.isNaN(age) && !employee.payHidden) {
     const band = minimumWageFor(age, rates);
     if (band && employee.hourlyRate < band.hourly) {
       push('minimum-wage', 'block', `£${employee.hourlyRate.toFixed(2)}/h is below the ${band.label} of £${band.hourly.toFixed(2)}.`);
@@ -76,7 +77,7 @@ export function reviewEmployee(
       }
     }
   }
-  if (employee.payBasis === 'salaried' && !Number.isNaN(age) && employee.maxWeeklyHours > 0) {
+  if (employee.payBasis === 'salaried' && !Number.isNaN(age) && employee.maxWeeklyHours > 0 && !employee.payHidden) {
     // Salaried staff still have to clear minimum wage on the hours they actually work.
     const effective = employee.annualSalary / 52 / employee.maxWeeklyHours;
     const band = minimumWageFor(age, rates);
@@ -102,6 +103,15 @@ export function reviewEmployee(
     push('right-to-work', 'block', `Right to work expired on ${rtw.expiry}. They cannot work until a follow-up check is done.`);
   } else if (rtw.expiry && rtw.expiry <= addDays(today, LOOKAHEAD_DAYS)) {
     push('right-to-work-expiring', 'warn', `Right to work expires on ${rtw.expiry}. Book the follow-up check now.`);
+  }
+  const copies = rtw?.documents?.length ?? 0;
+  // Once someone has left, retention may already have removed the copy and the date on purpose.
+  const left = Boolean(employee.leaveDate && employee.leaveDate < today);
+  if (rtw?.checked && copies === 0 && !left) {
+    push('right-to-work-copy', 'warn', 'Checked, but no copy of the documents is held. Without a copy there is no statutory excuse.');
+  }
+  if (rtw?.checked && !rtw.checkedOn && !left) {
+    push('right-to-work-date', 'warn', 'Record the date the right to work check was done. The statutory excuse needs it.');
   }
 
   if (!employee.pensionEnrolled && age >= rates.pensionMinAge && age < rates.pensionMaxAge) {

@@ -7,18 +7,23 @@ import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
-import { accessRoutes, signInRoutes } from './routes/access';
+import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
 import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
+import { documentCipherFromEnv } from './documentCrypto';
+import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
+import { authenticatorRoutes } from './routes/authenticator';
+import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
+import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
@@ -42,6 +47,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** Outbound HTTP for postcode and journey lookups (tests pass a stub). */
+  fetch?: typeof fetch;
   /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
   /** The demo's start page. Defaults to site/demo.html in the repository. */
@@ -95,6 +102,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   const sandboxPayroll = new TeamPaySimulator(randomBytes(32).toString('hex'));
   const providerFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.provider);
   const simulatorFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.simulator);
+  const documents = documentCipherFromEnv(env, store instanceof PgStore);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
@@ -104,6 +112,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
+    documentCipher: documents.cipher,
+    fetch: options.fetch ?? fetch,
+    tflAppKey: env.TFL_APP_KEY || undefined,
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -123,6 +134,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     }
   });
 
+  // Uploaded files arrive as the raw request body. The route checks what the bytes really are.
+  app.addContentTypeParser(UPLOAD_CONTENT_TYPES, { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES }, (_req, body, done) => {
+    done(null, body);
+  });
+
   await app.register(swagger, {
     openapi: {
       info: {
@@ -131,7 +147,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         description:
           'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
           'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
-          'to reconcile against the labour accrual.',
+          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.',
       },
       components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } },
       security: [{ bearer: [] }],
@@ -158,6 +174,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       payroll: payroll.provider.name,
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
+      documents: documents.status,
     });
   });
 
@@ -179,7 +196,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store);
   demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
-  signInRoutes(app, store, { demo });
+  signInRoutes(app, ctx, { demo });
   staffRoutes(app, store);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -193,9 +210,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url)) return;
       return auth(req, reply);
     });
-    // Demo visitors reach only the routes on the sandbox allowlist. Customers are not affected.
+    // Demo visitors reach only the routes on the sandbox allowlist, refused before the body is even
+    // validated. Customers are not affected.
     const guard = sandboxGuard(demo);
-    api.addHook('preHandler', async (req) => {
+    api.addHook('preValidation', async (req) => {
       if (!isWebhook(req.url)) await guard(req);
     });
     // Load the organisation once per request; webhooks name it in the path, everything else by API key.
@@ -203,12 +221,16 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
       // A webhook names its organisation in an unauthenticated path, so it must never create one.
       // The handler checks the signature first, so the reply does not say which organisations exist.
-      if (isWebhook(req.url) && !(await store.exists(orgId))) return;
+      if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
-      if (!req.org || req.method === 'GET' || reply.statusCode >= 400) return payload;
+      if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
+        await store.save(req.org).catch(() => undefined);
+        return payload;
+      }
+      if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
       try {
         await store.save(req.org);
         return payload;
@@ -220,14 +242,19 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
-    hrRoutes(api);
+    hrRoutes(api, ctx);
+    documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
+    travelRoutes(api, ctx);
     payrollRoutes(api, ctx);
+    userRoutes(api, ctx);
+    authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);
-    accessRoutes(api, store);
-    staffAdminRoutes(api, store);
+    settingsRoutes(api, ctx);
+    // People who manage are on userRoutes; staff app logins answer to the same access rules.
+    staffAdminRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

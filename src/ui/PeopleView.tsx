@@ -9,7 +9,8 @@ interface Props {
   siteId: string;
   today: string;
   onEdit: (employee: Employee) => void;
-  onAdd: () => void;
+  /** Absent when the person cannot add starters at this site. */
+  onAdd?: () => void;
 }
 
 type Filter = 'current' | 'starter' | 'leaving' | 'left' | 'attention' | 'all';
@@ -79,7 +80,7 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
         e.dateOfBirth,
         roleName(e.roleIds[0]),
         e.payBasis,
-        e.payBasis === 'salaried' ? e.annualSalary : e.hourlyRate,
+        e.payHidden ? '' : e.payBasis === 'salaried' ? e.annualSalary : e.hourlyRate,
         e.contractedHours,
         e.pensionEnrolled ? 'Yes' : 'No',
         e.email ?? '',
@@ -131,7 +132,7 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
         <div className="people-actions">
           <input type="search" placeholder="Search name" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search employees" />
           <button onClick={exportMovements} disabled={counts.starter + counts.leaving + counts.left === 0}>Starters and leavers CSV</button>
-          <button className="primary" onClick={onAdd}>Add employee</button>
+          {onAdd && <button className="primary" onClick={onAdd}>Add employee</button>}
         </div>
       </div>
 
@@ -169,7 +170,7 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
                     {(status === 'leaving' || status === 'left') && <div className="muted small">last day {e.leaveDate}</div>}
                   </td>
                   <td className="muted">{e.roleIds.map(roleName).join(', ')}</td>
-                  <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>
+                  <td className="num">{e.payHidden ? <span className="muted">Withheld</span> : e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>
                   <td className="num">{e.contractedHours ? `${e.contractedHours}h` : 'Flexible'}</td>
                   <td className="muted">{e.startDate ?? 'Not recorded'}</td>
                   <td>
@@ -180,6 +181,9 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
                     ) : (
                       <span className="muted">Unlimited</span>
                     )}
+                    <div className={`small ${rtw?.checked && !rtw.documents?.length ? 'warn-text' : 'muted'}`}>
+                      {rtw?.documents?.length ? `${rtw.documents.length} cop${rtw.documents.length === 1 ? 'y' : 'ies'} held` : 'No copy held'}
+                    </div>
                   </td>
                   <td>
                     {checks.length === 0 ? (

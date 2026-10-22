@@ -6,6 +6,7 @@ import { sessionUser } from './auth';
 import { HttpError } from './context';
 import { hashPassword } from './passwords';
 import { isSandbox, londonDate, nextLondonMidnight, sandboxExpired, sandboxId } from './sandbox';
+import { seedUsers } from './seedUsers';
 import { createSession, SESSION_SECONDS, sessionCookie } from './session';
 import { audit, type Store } from './store';
 
@@ -106,24 +107,67 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PATCH /v1/privacy/requests/:id': true,
   'POST /v1/privacy/subjects/:id/export': true,
   'POST /v1/privacy/subjects/:id/erase': true,
-  // Refused: accounts, keys and email settings are the live system's, not a visitor's.
-  'GET /v1/users': false,
+  'GET /v1/sales': true,
+  'PUT /v1/sales': true,
+  'DELETE /v1/sales': true,
+  'PUT /v1/sites/:id/travel/:toId': true,
+  'DELETE /v1/sites/:id/travel/:toId': true,
+  // The access controls, shown on the sandbox's fictional team. None of them has an account, and
+  // anything that issues an invitation, a reset link or touches an authenticator is refused below.
+  'GET /v1/me': true,
+  'GET /v1/me/authenticator': true,
+  'GET /v1/access/catalogue': true,
+  'GET /v1/access/health': true,
+  'GET /v1/access/emails': true,
+  'GET /v1/access/reviews': true,
+  'POST /v1/access/reviews': true,
+  'GET /v1/access/audit': true,
+  'GET /v1/users': true,
+  'GET /v1/users/:id': true,
+  'PATCH /v1/users/:id': true,
+  'POST /v1/users/:id/grants': true,
+  'PATCH /v1/users/:id/grants/:mid': true,
+  'DELETE /v1/users/:id/grants/:mid': true,
+  'POST /v1/users/:id/suspend': true,
+  'DELETE /v1/users/:id/invite': true,
+  // Refused: each of these issues an invitation or a reset link, which could bring a real person
+  // into a sandbox, or acts on an account's password or authenticator.
   'POST /v1/users': false,
-  'PATCH /v1/users/:email': false,
-  'DELETE /v1/users/:email': false,
-  'POST /v1/users/:email/reset-link': false,
+  'POST /v1/users/bulk': false,
+  'POST /v1/users/:id/reactivate': false,
+  'POST /v1/users/:id/resend-invite': false,
+  'POST /v1/users/:id/reset-password': false,
+  'POST /v1/users/:id/reset-authenticator': false,
+  'POST /v1/me/authenticator/start': false,
+  'POST /v1/me/authenticator/confirm': false,
+  'POST /v1/me/authenticator/verify': false,
+  'POST /v1/me/authenticator/recovery-codes': false,
+  // Refused: keys and email are the live system's, not a visitor's.
   'GET /v1/settings': false,
   'PUT /v1/settings/claude-api-key': false,
   'PUT /v1/settings/email': false,
   'DELETE /v1/settings/email': false,
+  'POST /v1/access/emails/:id/check': false,
+  // Refused: right to work copies are identity documents. A prospect must not be invited to put a
+  // real passport into a public demo, and there are none in it to read.
+  'POST /v1/employees/:id/right-to-work/documents': false,
+  'GET /v1/employees/:id/right-to-work/documents/:docId': false,
+  'GET /v1/employees/:id/right-to-work/documents/:docId/access': false,
+  'DELETE /v1/employees/:id/right-to-work/documents/:docId': false,
+  // Refused: these call postcode and TfL services on the live system's quota at a visitor's say.
+  'PUT /v1/sites/:id/location': false,
+  'POST /v1/sites/travel/refresh': false,
   // Refused: staff logins are matched by email across the whole system, so a visitor creating one
   // could learn whether an address belongs to a customer's staff.
   'GET /v1/staff-logins': false,
   'POST /v1/staff-logins/:id/invite': false,
   'DELETE /v1/staff-logins/:id': false,
+  // Refused: for signing in as the seeded team in development only.
+  'GET /v1/dev/people': false,
   // Not reached with a visitor's session: signature-checked, or the staff app's own sign-in.
   'POST /v1/integrations/teampay/webhook/:orgId': false,
-  'GET /v1/staff/invite': false,
+  'POST /v1/integrations/resend/webhook/:orgId': false,
+  'POST /v1/staff/invite': false,
   'POST /v1/staff/join': false,
   'POST /v1/staff/login': false,
   'POST /v1/staff/logout': false,
@@ -147,7 +191,7 @@ export function sandboxGuard(enabled: boolean) {
     if (!isSandbox(req.principal?.orgId)) return;
     if (!enabled) throw refused('The public demo has been switched off.');
     if (!sandboxRouteAllowed(req.method, req.routeOptions.url)) {
-      throw refused('This is the public demo, so accounts, keys, email and staff app logins cannot be changed here.');
+      throw refused('This is the public demo, so invitations, passwords, keys, email, identity documents and staff app logins are switched off here.');
     }
   };
 }
@@ -269,10 +313,15 @@ export function demoRoutes(app: FastifyInstance, store: Store, options: { enable
     await writeDay(store, date, { ...day, sandboxes: day.sandboxes + 1, addresses: { ...day.addresses, [who]: (day.addresses[who] ?? 0) + 1 } });
 
     const orgId = sandboxId(now, randomBytes(6).toString('hex'));
-    if (await store.exists(orgId)) throw new HttpError(409, 'conflict', 'Try again.');
+    if (await store.has(orgId)) throw new HttpError(409, 'conflict', 'Try again.');
     const org = await store.load(orgId);
     org.state = seedState();
     org.hrRecords = seedHrRecords();
+    // The demo's fictional team, so the Access tab has people to show. None of them can sign in:
+    // they have no accounts. The visitor has no record, so they hold the sandbox's full access.
+    const people = seedUsers(londonDate(now));
+    org.users = people.users;
+    org.accessReviews = people.reviews;
     // An address no one can receive mail at, on no real domain. Nobody ever types the password:
     // the visitor is signed in by the cookie below, and password sign-in refuses sandbox accounts.
     const user = {
