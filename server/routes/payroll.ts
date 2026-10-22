@@ -237,7 +237,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Payroll'],
         description:
-          "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, its leave year start (MM-DD), and what it pays for travel between sites: the normal rate, the minimum wage for each person's age, or a fixed hourly rate (never below the minimum wage).",
+          "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, its leave year start (MM-DD), and what it pays for travel between sites: the normal rate, the minimum wage for each person's age, or a fixed hourly rate, lifted to the minimum wage on every hour unless `averaging` is set, when the pay period is topped up to average it instead.",
         params: idParam,
         body: {
           type: 'object',
@@ -253,6 +253,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
               properties: {
                 basis: { type: 'string', enum: ['normal', 'minimum', 'fixed'] },
                 hourly: { type: 'number', minimum: 0, maximum: 200 },
+                averaging: { type: 'boolean' },
               },
             },
           },
@@ -288,8 +289,13 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       if (req.body.travelPay !== undefined) {
         const t = req.body.travelPay;
         if (t.basis === 'fixed' && typeof t.hourly !== 'number') throw new HttpError(400, 'travel_rate_missing', 'A fixed travel rate needs an hourly amount.');
-        // Normal is the default, so it is stored as no policy at all.
-        entity.travelPay = t.basis === 'normal' ? undefined : t.basis === 'minimum' ? { basis: 'minimum' } : { basis: 'fixed', hourly: Math.round(t.hourly * 100) / 100 };
+        // Normal is stored as a choice, so a company that chose it is not asked again.
+        entity.travelPay =
+          t.basis === 'normal'
+            ? { basis: 'normal' }
+            : t.basis === 'minimum'
+              ? { basis: 'minimum' }
+              : { basis: 'fixed', hourly: Math.round(t.hourly * 100) / 100, ...(t.averaging ? { averaging: true } : {}) };
       }
       audit(org, actorName(g), 'entity.updated', { id: entity.id, fields: Object.keys(req.body) });
       return entity;

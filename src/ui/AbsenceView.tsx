@@ -48,7 +48,7 @@ export function AbsenceView({ state, siteIds, today, onOpen, onSaveAbsence }: Pr
   function exportCsv() {
     const header = ['Name', 'Type', 'From', 'To', 'Days', 'Reason', 'Fit note', 'Return to work', 'Excluded from triggers'];
     const lines = spells.map(({ e, a }) => [
-      e.name, ABSENCE_LABEL[a.type], a.from, a.to ?? 'Still off', absenceDays(a, today), a.reason ?? '',
+      e.name, a.type ? ABSENCE_LABEL[a.type] : 'Absent', a.from, a.to ?? 'Still off', absenceDays(a, today), a.reason ?? '',
       a.fitNote ? 'Yes' : 'No', a.returnToWorkOn ?? '', a.excludeFromTriggers ? 'Yes' : 'No',
     ]);
     download(`absence-${today}.csv`, [header, ...lines].map(csvLine).join('\n'));
@@ -113,7 +113,7 @@ export function AbsenceView({ state, siteIds, today, onOpen, onSaveAbsence }: Pr
                 return (
                   <tr key={a.id} className="clickable" tabIndex={0} onClick={() => onOpen(e, 'absence')} onKeyDown={(ev) => { if (ev.key === 'Enter') onOpen(e, 'absence'); }}>
                     <td className="strong">{e.name}</td>
-                    <td>{ABSENCE_LABEL[a.type]}{a.reason && <div className="muted small">{a.reason}</div>}</td>
+                    <td>{a.type ? ABSENCE_LABEL[a.type] : 'Absent'}{a.reason && <div className="muted small">{a.reason}</div>}</td>
                     <td>{a.from}</td>
                     <td>{a.to ?? <span className="warn-text">Still off</span>}</td>
                     <td className="num">{days}</td>
