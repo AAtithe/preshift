@@ -14,6 +14,7 @@ import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
+import { announceWeek } from './messages';
 
 type SiteWeek = { siteId: string; weekStart: string };
 type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
@@ -518,7 +519,13 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       org.publications.push({ siteId, weekStart: ws, publishedAt, by: actorName(g) });
     }
     audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
-    return { published };
+    // Everyone whose week changed hears it, in the app and on the channel they chose. A channel
+    // failing never stops the publish: the notice is in their thread either way.
+    const notices = await announceWeek(ctx, org, siteIds, ws, actorName(g)).catch((err) => {
+      req.log.error(err, 'rota notices not sent');
+      return null;
+    });
+    return { published, ...(notices ? { notices } : {}) };
   });
 
   app.get<{ Querystring: Range }>('/v1/forecast', { ...read, schema: { tags: ['Forecast'], querystring: rangeQuery } }, async (req) => {

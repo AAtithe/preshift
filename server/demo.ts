@@ -275,6 +275,31 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/clock-out': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
+  // Refused: the staff app is for real staff on their own phones, and nobody in a sandbox is one.
+  'GET /v1/staff/messages': false,
+  'POST /v1/staff/messages': false,
+  'POST /v1/staff/messages/read': false,
+  'GET /v1/staff/notifications': false,
+  'PUT /v1/staff/notifications': false,
+  // Refused: Meta posts replies here, signed for a real organisation, never a sandbox.
+  'GET /v1/integrations/whatsapp/webhook/:orgId': false,
+  'POST /v1/integrations/whatsapp/webhook/:orgId': false,
+  // Messages between the sandbox's own managers and its fictional staff. Nothing leaves it: a
+  // sandbox has no channels connected, as the settings below are refused.
+  'GET /v1/messages': true,
+  'GET /v1/messages/reach': true,
+  'GET /v1/messages/:id': true,
+  'POST /v1/messages/:id/read': true,
+  'POST /v1/messages/direct': true,
+  'POST /v1/messages/announcements': true,
+  // Refused: these hold keys to WhatsApp, Twilio, Slack and Teams, and would send from a visitor's say.
+  'GET /v1/settings/messaging': false,
+  'PUT /v1/settings/messaging/whatsapp': false,
+  'PUT /v1/settings/messaging/sms': false,
+  'DELETE /v1/settings/messaging/:channel': false,
+  'PUT /v1/settings/messaging/team': false,
+  'PUT /v1/settings/messaging/defaults': false,
+  'POST /v1/settings/messaging/test': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;

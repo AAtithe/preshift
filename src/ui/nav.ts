@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'clients' | 'billing';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'clients' | 'billing' | 'messages';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -71,6 +71,8 @@ export const NAV: NavGroup[] = [
       // Personnel files go by site, as the rest of the team's records do; cases are confidential.
       { id: 'hr', label: 'HR overview', scope: 'people', access: { scope: ['hr.view'] } },
       { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, access: { scope: ['team.manage', 'costs.view'] } },
+      // One thread per person, announcements and rota notices: for those who run the site's team.
+      { id: 'messages', label: 'Messages', scope: 'people', access: { scope: ['rota.edit', 'team.manage'] } },
       // Each new person's first weeks as one checklist: legal steps before day one, the rest after.
       { id: 'onboarding', label: 'Onboarding', scope: 'people', access: { scope: ['team.manage', 'hr.view'] } },
       // Balances are the team's records; the provision in pounds shows only with cost.

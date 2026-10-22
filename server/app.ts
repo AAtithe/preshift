@@ -39,6 +39,8 @@ import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
+import { releaseHeld } from './messaging';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -225,6 +227,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     await ctx.dispatcher.processDue();
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
+    await releaseAllHeld();
     await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
     // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
@@ -274,11 +277,26 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
   });
 
+  // Messages held for someone's quiet hours go once those hours are over. Run every quarter hour
+  // with the webhook retries, and daily with the dispatch for a plan without frequent cron jobs.
+  async function releaseAllHeld() {
+    for (const orgId of await store.orgIds()) {
+      if (isSandbox(orgId)) continue;
+      try {
+        const org = await store.load(orgId);
+        if (await releaseHeld(ctx, org)) await store.save(org);
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'held messages not released');
+      }
+    }
+  }
+
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
   // hears within the quarter hour of coming back, even from an organisation nobody is editing.
   app.get('/internal/webhooks', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await deliverAllWebhooks(store, options.webhookFetch);
+    await releaseAllHeld();
     return { ok: true };
   });
 
@@ -302,6 +320,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, auth);
   staffRoutes(app, store);
+  // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
+  staffMessageRoutes(app, ctx);
+  whatsappWebhookRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
     loginPage: options.loginPage ?? path.resolve('site/login.html'),
@@ -398,6 +419,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    messageRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

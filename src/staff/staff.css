@@ -21,3 +21,16 @@
 .staff-day { color: var(--muted); }
 .staff-breaks { display: grid; gap: 6px; }
 .staff-breaks p { margin: 0; }
+.staff-threads { list-style: none; margin: 0 0 12px; padding: 0; }
+.staff-threads > li { border-top: 1px solid var(--border); }
+.staff-threads > li:first-child { border-top: none; }
+.staff-thread { display: block; width: 100%; text-align: left; background: none; border: none; padding: 10px 0; font-size: 15px; }
+.staff-thread.new .strong::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-right: 6px; vertical-align: 1px; }
+.staff-bubbles { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.staff-bubbles li { background: var(--surface-2, #f1f4f7); border-radius: 10px; padding: 8px 10px; max-width: 88%; }
+.staff-bubbles li.mine { justify-self: end; background: var(--good-bg); }
+.staff-bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.staff-form textarea, .staff-form select { font-size: 16px; padding: 12px; }
+.staff-check { display: flex !important; gap: 8px; align-items: flex-start; color: var(--ink, inherit) !important; }
+.staff-check input { margin-top: 3px; }
+.staff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

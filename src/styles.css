@@ -1193,3 +1193,23 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .client-add .form { grid-template-columns: 1fr; }
   .client-add .form .span2 { grid-column: auto; }
 }
+
+/* Messages: threads on the left, the open one on the right; one column on a phone. */
+.messages { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 12px; align-items: start; }
+@media (max-width: 860px) { .messages { grid-template-columns: 1fr; } }
+.messages-main { display: grid; gap: 12px; min-width: 0; }
+.thread-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: calc(100vh - 220px); overflow: auto; }
+.thread-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--rule); padding: 10px 16px; border-radius: 0; }
+.thread-row.on { background: var(--paper-2); }
+.thread-name { font-weight: 600; }
+.thread-last { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bubbles { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 10px; }
+.bubble { max-width: 80%; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--card); }
+.bubble.staff { justify-self: start; }
+.bubble.manager { justify-self: end; background: var(--paper-2); }
+.bubble.system { justify-self: center; max-width: 100%; border-style: dashed; }
+.bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 2px 0; }
+.compose { display: grid; gap: 8px; }
+.compose textarea { width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
+.compose-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+ul.plain { list-style: none; padding: 0; margin: 6px 0; }

@@ -21,7 +21,7 @@ const INVITE_DAYS = 7;
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const sameHash = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-interface Staff {
+export interface Staff {
   login: StaffLogin;
   org: OrgData;
   employee: Employee;
@@ -40,7 +40,7 @@ async function staffOf(req: FastifyRequest, store: Store): Promise<Staff | null>
   return { login, org, employee };
 }
 
-async function requireStaff(req: FastifyRequest, store: Store): Promise<Staff> {
+export async function requireStaff(req: FastifyRequest, store: Store): Promise<Staff> {
   const staff = await staffOf(req, store);
   if (!staff) throw new HttpError(401, 'unauthorised', 'Sign in to continue.');
   return staff;

@@ -308,6 +308,8 @@ export interface ProcessingFlags {
   email: boolean;
   /** Payroll goes to the live TeamPay rather than the built-in simulator. */
   payrollLive: boolean;
+  /** Messaging channels connected under Settings, and how many messages are held. */
+  messaging?: { whatsapp: boolean; sms: boolean; slack: boolean; teams: boolean; messages: number; consents: number };
 }
 
 export interface ProcessingActivity {
@@ -438,6 +440,23 @@ export function processingRegister(
       held: flags.assistant ? live.length : 0,
     },
     {
+      activity: 'Messages and rota notices',
+      purpose: 'Telling staff their shifts and changes to them, and messages between staff and their managers',
+      lawfulBasis:
+        'Contract (6(1)(b)) for rota notices; legitimate interests (6(1)(f)) for messages. WhatsApp and text only with the person’s own consent, ' +
+        'given and withdrawn in the staff app (PECR does not apply to messages that are not marketing, but consent is kept as the record of their choice)',
+      categories: 'Message text, who sent it, when it was read, mobile number for WhatsApp or text, delivery reports. Team channels get a notice and a link, never what staff wrote',
+      recipients: [
+        flags.messaging?.whatsapp && 'Meta (WhatsApp)',
+        flags.messaging?.sms && 'Twilio (text)',
+        flags.email && 'Resend (email, for those who choose it)',
+        flags.messaging?.slack && 'Slack (notices only)',
+        flags.messaging?.teams && 'Microsoft (Teams notices only)',
+      ].filter(Boolean).join(', ') || 'None: staff app only',
+      retention: '13 months from the message; the number and choices removed on erasure',
+      held: flags.messaging?.messages ?? 0,
+    },
+    {
       activity: 'Manager accounts and audit log',
       purpose: 'Securing access and showing who changed what',
       lawfulBasis: 'Legitimate interests (6(1)(f)); security of processing (Article 32)',
@@ -472,6 +491,30 @@ export function processingRegister(
       location: 'United States',
       safeguard: 'Article 28 contract and the UK addendum or IDTA, with a transfer risk assessment',
       active: flags.email,
+    },
+    {
+      name: 'Meta (WhatsApp Business)',
+      role: 'Messages to staff who chose WhatsApp, and their replies',
+      data: 'Mobile number and message text',
+      location: 'United States and elsewhere',
+      safeguard: 'Meta’s WhatsApp Business data processing terms with the UK addendum or IDTA, and a transfer risk assessment',
+      active: !!flags.messaging?.whatsapp,
+    },
+    {
+      name: 'Twilio',
+      role: 'Text messages to staff who chose them',
+      data: 'Mobile number and message text',
+      location: 'United States',
+      safeguard: 'Article 28 contract and the UK addendum or IDTA, with a transfer risk assessment',
+      active: !!flags.messaging?.sms,
+    },
+    {
+      name: 'Slack and Microsoft Teams',
+      role: 'Notices to managers’ team channels',
+      data: 'Names of staff who sent a message or were told of a rota, with a link; never what staff wrote',
+      location: 'As the workspace is set up',
+      safeguard: 'The organisation’s own contract with Slack or Microsoft for its workspace',
+      active: !!flags.messaging?.slack || !!flags.messaging?.teams,
     },
     {
       name: 'Vercel and Neon',

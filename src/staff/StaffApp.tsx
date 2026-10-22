@@ -3,6 +3,8 @@ import { checkFence } from '../engine/clocking';
 import { formatMinute } from '../engine/time';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
+import { call, Problem, say } from './http';
+import { StaffMessages, StaffReach } from './StaffMessages';
 
 interface Entry {
   id: string;
@@ -31,25 +33,6 @@ interface Overview {
 }
 
 type GeoState = { status: 'locating' | 'denied' | 'unavailable' } | { status: 'ok'; fix: GeoFix };
-
-class Problem extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
-  }
-}
-
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Problem(res.status, data.error ?? 'http_error', data.message ?? 'Something went wrong. Try again.');
-  return data as T;
-}
-
-const say = (e: unknown) => (e instanceof Problem ? e.message : 'Could not reach Preshift. Check your signal and try again.');
 
 /**
  * The invite in the link, read once. Links carry it after #, which never reaches a server; links
@@ -326,6 +309,8 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
       </section>
 
+      <StaffMessages onSignedOut={onSignedOut} />
+
       <section className="staff-card">
         <h2>My shifts</h2>
         {data.shifts.length === 0 ? (
@@ -371,6 +356,8 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         )}
         <p className="muted small">Your manager checks hours and breaks, and corrects them if needed, before approval.</p>
       </section>
+
+      <StaffReach onSignedOut={onSignedOut} />
     </>
   );
 }

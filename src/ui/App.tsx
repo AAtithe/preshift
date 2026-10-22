@@ -35,6 +35,7 @@ import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
+import { MessagesView } from './MessagesView';
 import { ClientsView } from './ClientsView';
 import { BillingBanner, BillingView } from './BillingView';
 import { ProgrammeView } from './ProgrammeView';
@@ -595,6 +596,14 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
+              {shown === 'messages' && (
+                <MessagesView
+                  state={state}
+                  siteIds={sectionSites}
+                  canAnnounce={(id) => allow('rota.publish', id)}
+                  openThread={new URLSearchParams(window.location.search).get('thread') ?? undefined}
+                />
+              )}
               {shown === 'holiday' && (
                 <HolidayView
                   state={state}
@@ -646,7 +655,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
               {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
-              {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
+              {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} sites={state.sites} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>

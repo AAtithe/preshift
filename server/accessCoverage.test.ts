@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bmessenger\(|\bconversationOf\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -30,6 +30,13 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/me': "Staff app: the caller's own shifts and hours, under the staff session.",
   'POST /v1/staff/clock-in': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
   'POST /v1/staff/clock-out': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
+  'GET /v1/staff/messages': "Staff app: the caller's own thread and announcements to them, under the staff session.",
+  'POST /v1/staff/messages': "Staff app: the caller writing to their own managers, under the staff session.",
+  'POST /v1/staff/messages/read': 'Staff app: the caller marking their own thread read, under the staff session.',
+  'GET /v1/staff/notifications': "Staff app: the caller's own choice of channels, under the staff session.",
+  'PUT /v1/staff/notifications': 'Staff app: the caller giving or withdrawing their own consent, under the staff session.',
+  'GET /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta once to check the address; answers only with the organisation's own verify token.",
+  'POST /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta with a body signed by the organisation's app secret, never by a person.",
 };
 
 interface Route {
