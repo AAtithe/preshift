@@ -134,6 +134,12 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const e = org.state.employees.find((x) => x.id === req.params.id);
       if (!e) throw notFound(`Employee ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      // Someone else answers a request about you: it may cover an investigation you are not yet told
+      // of, and what may be withheld from you, such as a witness's statement, is theirs to decide.
+      if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else answers a request for your own data.');
+      // Cases go only to those who handle them, as everywhere else.
+      const records = org.hrRecords.filter((r) => r.employeeId === e.id && (r.kind !== 'case' || g.can('hr.cases')));
       const login = await ctx.store.getStaffLogin(org.orgId, e.id);
       const employer = org.state.entities.find((x) => x.id === e.entityId);
       const register = processingRegister(
@@ -155,7 +161,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         person: e,
         shifts: org.state.shifts.filter((s) => s.employeeId === e.id),
         timeEntries: org.timeEntries.filter((t) => t.employeeId === e.id),
-        hrRecords: org.hrRecords.filter((r) => r.employeeId === e.id),
+        hrRecords: records,
         payroll: {
           hoursSent: org.submissions
             .filter((s) => s.accrued[e.id] !== undefined)
@@ -167,7 +173,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         staffLogin: login
           ? { email: login.email ?? null, createdAt: login.createdAt, activatedAt: login.activatedAt ?? null, lastSignInAt: login.lastSignInAt ?? null }
           : null,
-        changes: org.audit.filter((a) => about(a.detail)),
+        changes: org.audit.filter((a) => about(a.detail) && (a.detail?.kind !== 'case' || g.can('hr.cases'))),
         requests: (org.privacy?.requests ?? []).filter((r) => r.employeeId === e.id).map(requestView),
         howWeUseIt: register,
         yourRights:

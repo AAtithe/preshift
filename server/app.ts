@@ -27,6 +27,7 @@ import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
+import { clientRoutes } from './routes/clients';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
@@ -372,6 +373,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
+    clientRoutes(api, ctx);
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);

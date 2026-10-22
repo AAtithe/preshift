@@ -33,6 +33,8 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { OnboardingView } from './OnboardingView';
+import { ClientsView } from './ClientsView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
@@ -175,13 +177,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const canPublish = atAll('rota.publish');
   // The bar is worked out over every site the person can see, so it keeps its shape as the scope changes.
   const allSiteIds = useMemo(() => state.sites.map((s) => s.id), [state.sites]);
-  const nav = visibleNav(allow, allSiteIds);
+  const nav = visibleNav(allow, allSiteIds, me?.user?.audience);
   const fallback = nav[0]?.items[0]?.id ?? 'profile';
-  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds)) ? tab : fallback;
+  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
   // Within the scope, the section reaches only the sites it is offered at.
   const sectionSites = sitesFor(section, allow, siteIds);
-  const notHere = section.access !== 'everyone' && !offered(section, allow, siteIds);
+  const notHere = section.access !== 'everyone' && !offered(section, allow, siteIds, me?.user?.audience);
   // A site-only section opened across several sites shows the site chooser instead.
   const needsSite = !notHere && !!section.siteOnly && !single;
   const shown = notHere || needsSite ? null : activeTab;
@@ -576,7 +578,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
-              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={account} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
+              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (
                 <PeopleView
@@ -585,6 +587,18 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   today={today}
                   onEdit={setEditingPerson}
                   onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
+                />
+              )}
+              {shown === 'onboarding' && (
+                <OnboardingView
+                  state={state}
+                  siteIds={sectionSites}
+                  today={today}
+                  hr={hr}
+                  allow={allow}
+                  onEdit={setEditingPerson}
+                  onOpenHr={openHr}
+                  onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
               {shown === 'holiday' && (
@@ -636,6 +650,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               )}
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
+              {shown === 'clients' && <ClientsView />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
