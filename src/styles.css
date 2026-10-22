@@ -950,6 +950,8 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .button-like { display: inline-block; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
 .button-like:hover { background: var(--surface-2); }
 .table tr.clickable { cursor: pointer; }
+.statement tr.memo th, .statement tr.memo td { padding-top: 0; font-size: 11px; color: var(--muted); font-style: italic; }
+.statement tr.memo th { padding-left: 28px; }
 .table tr.clickable:hover td { background: var(--surface-2); }
 .table tr.detail > td { background: var(--surface-2); padding: 4px 8px 10px 24px; }
 .table.compact td { padding: 4px 8px; border-bottom: none; }
