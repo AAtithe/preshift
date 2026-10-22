@@ -72,7 +72,8 @@ function shown(req: Parameters<typeof employeeView>[0], g: Guard, org: OrgData, 
 }
 
 export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
-  const read = { preHandler: requireScope('rota:read') };
+  // Staff records hold dates of birth, pay and right to work: a scope of their own, not rota:read.
+  const read = { preHandler: requireScope('employees:read') };
   const write = { preHandler: requireScope('rota:write') };
 
   app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => {
@@ -108,7 +109,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       // A starter's rate is pay like any other: without pay.edit they start at nought for someone who sets pay to fix.
       if (req.body.hourlyRate || req.body.annualSalary) g.allow('pay.edit', home.id);
       // A person's starter begins at nought, with their rate proposed to finance like any other change.
-      const proposal = (req.body.hourlyRate || req.body.annualSalary) && proposes(g)
+      const proposal = (req.body.hourlyRate || req.body.annualSalary) && proposes(g, org, ctx.store.todayISO())
         ? { payBasis: req.body.payBasis!, hourlyRate: req.body.hourlyRate ?? 0, annualSalary: req.body.annualSalary ?? 0 }
         : null;
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
@@ -153,7 +154,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const before = org.state.employees[i];
       const g = guard(ctx, req, org);
       // A person changing the rate proposes it: the pay in force stays until finance approves.
-      const proposal = changesRate(before, req.body) && proposes(g) ? proposedTerms(before, req.body) : null;
+      const proposal = changesRate(before, req.body) && proposes(g, org, ctx.store.todayISO()) ? proposedTerms(before, req.body) : null;
       const after: Employee = { ...before, ...req.body, id: before.id, ...(proposal ? payTermsOf(before) : {}) };
       if (Object.keys(req.body).some((k) => !PAY_FIELDS.includes(k as keyof Employee))) {
         g.allow('team.manage', before.siteId);
@@ -177,7 +178,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
       }
       if (PAYROLL_FIELDS.some((f) => before[f] !== after[f])) queueUpsert(org, after);
-      audit(org, actorName(g), 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
+      // A proposed rate has not changed the record: it is reported when finance approves it.
+      const changed = Object.keys(req.body).filter((k) => !proposal || !(['payBasis', 'hourlyRate', 'annualSalary'] as string[]).includes(k));
+      // Only the rate was asked for: the proposal is the event, and the record has not changed yet.
+      if (changed.length) audit(org, actorName(g), 'employee.updated', { id: after.id, fields: changed });
       await kick(ctx, org);
       return shown(req, g, org, after);
     },

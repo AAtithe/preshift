@@ -38,6 +38,8 @@ export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'ac
 
 export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
+  // Pay by person: hours batches carry rates, submissions and runs carry accrued and paid cost per person.
+  const pay = { preHandler: requireScope('employees:read') };
   const write = { preHandler: requireScope('payroll:write') };
 
   app.get('/v1/integrations/payroll', { ...read, schema: { tags: ['Payroll'], description: 'Payroll connection health, overall and for each PAYE scheme.' } }, async (req) => {
@@ -77,7 +79,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     return { queued: toSync.length };
   });
 
-  app.get('/v1/integrations/payroll/outbox', { ...read, schema: { tags: ['Payroll'] } }, async (req) => {
+  app.get('/v1/integrations/payroll/outbox', { ...pay, schema: { tags: ['Payroll'] } }, async (req) => {
     const org = orgOf(req);
     guard(ctx, req, org).allow('payroll.view');
     return org.outbox.slice(-200).reverse();
@@ -265,12 +267,12 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.get('/v1/payroll/submissions', { ...read, schema: { tags: ['Payroll'] } }, async (req) => {
+  app.get('/v1/payroll/submissions', { ...pay, schema: { tags: ['Payroll'] } }, async (req) => {
     const org = orgOf(req);
     guard(ctx, req, org).allow('payroll.view');
     return org.submissions.slice().reverse();
   });
-  app.get('/v1/payroll/runs', { ...read, schema: { tags: ['Payroll'], description: 'Completed TeamPay runs with rota-to-payroll variance.' } }, async (req) => {
+  app.get('/v1/payroll/runs', { ...pay, schema: { tags: ['Payroll'], description: 'Completed TeamPay runs with rota-to-payroll variance.' } }, async (req) => {
     const org = orgOf(req);
     guard(ctx, req, org).allow('payroll.view');
     return org.payRuns.slice().reverse();

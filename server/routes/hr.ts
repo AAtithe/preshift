@@ -262,7 +262,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt };
       validateRecord(org, after);
       org.hrRecords[i] = after;
-      audit(org, actorName(g), 'hr.record.updated', { id: after.id, employeeId: after.employeeId, fields: Object.keys(req.body) });
+      audit(org, actorName(g), 'hr.record.updated', { id: after.id, employeeId: after.employeeId, kind: after.kind, fields: Object.keys(req.body) });
       return after;
     },
   );

@@ -7,6 +7,7 @@ const WEEK = '2026-10-19';
 const KEYS = [
   { key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] },
   { key: 'gm', orgId: 'demo', name: 'GM', scopes: ['rota:read' as const, 'rota:write' as const] },
+  { key: 'records', orgId: 'demo', name: 'Payroll bureau', scopes: ['rota:read' as const, 'employees:read' as const] },
   { key: 'hr', orgId: 'demo', name: 'HR system', scopes: ['rota:read' as const, 'hr:read' as const, 'hr:write' as const] },
   { key: 'other', orgId: 'acme', name: 'Other org', scopes: ['*' as const] },
   // People, having entered their authenticator code: their roles decide.
@@ -37,11 +38,14 @@ async function setup() {
 describe('HR access', () => {
   it('keeps personnel files and health reasons away from rota keys', async () => {
     const { call } = await setup();
-    const gm = (await call('GET', '/v1/employees/mar-3', undefined, 'gm')).body;
-    expect(gm.hr).toBeUndefined();
-    expect(gm.absences.length).toBe(4);
-    expect(gm.absences[0]).toEqual({ id: 'abs-1', type: 'sickness', from: expect.any(String), to: expect.any(String) });
+    // A rota key sees no staff records at all; one with employees:read sees them without the personnel file.
+    expect((await call('GET', '/v1/employees/mar-3', undefined, 'gm')).status).toBe(403);
+    const records = (await call('GET', '/v1/employees/mar-3', undefined, 'records')).body;
+    expect(records.hr).toBeUndefined();
+    expect(records.absences.length).toBe(4);
+    expect(records.absences[0]).toEqual({ id: 'abs-1', type: 'sickness', from: expect.any(String), to: expect.any(String) });
     expect((await call('GET', '/v1/hr/records', undefined, 'gm')).status).toBe(403);
+    expect((await call('GET', '/v1/hr/records', undefined, 'records')).status).toBe(403);
     expect((await call('PUT', '/v1/employees/mar-3/hr', {}, 'gm')).status).toBe(403);
 
     const full = (await call('GET', '/v1/employees/mar-3', undefined, 'hr')).body;

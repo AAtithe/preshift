@@ -73,6 +73,26 @@ export function PayApprovalsView({ state, siteIds, today, allow, meId, meEmploye
     return null;
   }
 
+  // Opening a team in set-up proposes every rate at once; finance can approve those it may in one confirmed step.
+  const approvable = waiting.filter((w) => !blocked(w.c));
+  async function approveAll() {
+    const total = approvable.reduce((s, w) => s + (w.impact?.difference ?? 0), 0);
+    if (!confirm(`Approve ${approvable.length} pay changes, adding ${money(total)} to gross pay a year? Each is recorded as approved by you.`)) return;
+    let done = 0;
+    const failed: string[] = [];
+    for (const { c, e } of approvable) {
+      try {
+        await api.post(`/v1/pay-changes/${c.id}/approve`, {});
+        await onChanged(c.employeeId);
+        done++;
+      } catch (err) {
+        failed.push(`${e?.name ?? c.employeeId}: ${(err as Error).message}`);
+      }
+    }
+    setMessage(failed.length ? { text: `Approved ${done}. Not approved: ${failed.join('; ')}`, bad: true } : { text: `Approved ${done}. Payroll has been told.` });
+    await load();
+  }
+
   async function act(c: PayChange, verb: 'approve' | 'reject' | 'withdraw') {
     const name = person(c.employeeId)?.name ?? c.employeeId;
     let body: Record<string, string> = {};
@@ -123,7 +143,10 @@ export function PayApprovalsView({ state, siteIds, today, allow, meId, meEmploye
       {message && <p className={`notice${message.bad ? ' error' : ''}`}>{message.text}</p>}
       {changes === null && <p className="muted">Loading</p>}
 
-      <h3 className="section-title">Waiting</h3>
+      <div className="people-bar">
+        <h3 className="section-title">Waiting</h3>
+        {approvable.length > 1 && <button className="primary" onClick={() => void approveAll()}>Approve all {approvable.length}</button>}
+      </div>
       <div className="grid-wrap">
         <table className="table people">
           <thead>

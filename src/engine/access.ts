@@ -433,7 +433,7 @@ export interface Attention {
 /** The duties every site needs someone live to hold. */
 export const SITE_DUTIES: Permission[] = ['rota.publish', 'time.approve', 'team.manage', 'users.sites'];
 /** The duties the organisation needs someone live to hold. */
-export const ORG_DUTIES: Permission[] = ['users.manage', 'payroll.send', 'time.lock', 'close.export'];
+export const ORG_DUTIES: Permission[] = ['users.manage', 'payroll.send', 'time.lock', 'close.export', 'pay.approve'];
 
 export function holders(users: User[], p: Permission, today: string, siteId?: string): User[] {
   return users.filter((u) => can(u, p, today, siteId));

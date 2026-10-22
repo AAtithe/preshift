@@ -30,6 +30,9 @@ describe('pay changes need finance approval', () => {
     expect(res.body.hourlyRate).toBe(12.85);
     expect(res.body.contractedHours).toBe(20);
     expect(res.body.pendingPay).toMatchObject({ after: { hourlyRate: 13.5 }, requestedBy: 'Kate Morgan' });
+    // The record's update names what changed now, not the rate still waiting.
+    const org = await k.store.load('demo');
+    expect(org.audit.filter((a) => a.action === 'employee.updated').at(-1)?.detail?.fields).toEqual(['contractedHours']);
 
     const waiting = (await call('GET', '/v1/pay-changes?status=pending', undefined, 'nadia')).body as { employeeId: string }[];
     expect(waiting.map((c) => c.employeeId).sort()).toEqual(['mar-5', 'mar-8']);
@@ -52,6 +55,9 @@ describe('pay changes need finance approval', () => {
     expect((await call('GET', '/v1/employees/mar-8')).body.hourlyRate).toBe(13.5);
     expect(queued()).toBe(before + 1);
     expect(org.audit.map((a) => a.action)).toEqual(expect.arrayContaining(['pay.change_proposed', 'pay.change_approved']));
+    // Systems that follow employee changes hear of the new pay when it applies, not when it was proposed.
+    const updates = org.audit.filter((a) => a.action === 'employee.updated' && a.detail?.id === 'mar-8');
+    expect(updates.at(-1)?.detail?.fields).toEqual(['hourlyRate']);
     expect((await call('POST', `/v1/pay-changes/${change.id}/approve`, {}, 'nadia')).status).toBe(409);
   });
 
@@ -120,5 +126,19 @@ describe('pay changes need finance approval', () => {
     const direct = await call('POST', '/v1/employees', { ...starter, name: 'From the HR system' }, 'system');
     expect(direct.body.hourlyRate).toBe(13);
     expect(direct.body.pendingPay).toBeUndefined();
+  });
+
+  it('applies at once, and says so, when nobody else could approve', async () => {
+    const call = await setup();
+    const org = await k.store.load('demo');
+    // A business with no finance director yet: the owner and the people manager both set pay.
+    org.users.find((u) => u.id === 'usr_fd')!.status = 'suspended';
+    const res = await call('PATCH', '/v1/employees/mar-8', { hourlyRate: 13.5 });
+    expect(res.body.hourlyRate).toBe(13.5);
+    expect(res.body.pendingPay).toBeUndefined();
+    const change = (await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 13.75, reason: 'Year end review' })).body;
+    expect(change).toMatchObject({ status: 'approved', decidedBy: 'Kate Morgan' });
+    expect(change.note).toMatch(/Nobody else can approve/);
+    expect((await call('GET', '/v1/employees/mar-8')).body.hourlyRate).toBe(13.75);
   });
 });

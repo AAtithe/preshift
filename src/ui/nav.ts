@@ -3,7 +3,7 @@
 import { weekStart } from '../engine/time';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -59,6 +59,8 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
   {
     heading: 'Organisation',
     items: [
+      // Companies, sites, roles and the trading week the rota runs on.
+      { id: 'setup', label: 'Set-up', scope: 'org', offered: (_all, a) => a('settings.manage') },
       { id: 'integrations', label: 'Integrations', scope: 'org', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
       { id: 'privacy', label: 'GDPR', scope: 'org', offered: (_all, a) => a('privacy.manage') },
       { id: 'access', label: 'Access', scope: 'org', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },

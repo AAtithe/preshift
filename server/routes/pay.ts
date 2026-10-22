@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { heldPermissions } from '../../src/engine/access';
 import { reviewEmployee } from '../../src/engine/employees';
 import { payTermsOf, sameTerms } from '../../src/engine/payChanges';
 import type { Employee, PayChange, PayChangeStatus, PayChangeSummary, PayTerms } from '../../src/engine/types';
@@ -23,6 +24,8 @@ const termsBody = {
 
 const RATE_FIELDS = ['payBasis', 'hourlyRate', 'annualSalary'] as const;
 
+export const NO_APPROVER = 'Nobody else can approve pay changes yet, so it applied at once. Appoint a finance director in Access.';
+
 /** The terms a body asks for, on top of the terms in force. */
 export const proposedTerms = (e: Employee, body: Partial<PayTerms>): PayTerms => ({ ...payTermsOf(e), ...pick(body) });
 
@@ -33,8 +36,18 @@ function pick(body: Partial<PayTerms>): Partial<PayTerms> {
 /** Whether a body changes the rate, salary or basis, rather than the employer. */
 export const changesRate = (e: Employee, body: Partial<Employee>) => RATE_FIELDS.some((f) => body[f] !== undefined && body[f] !== e[f]);
 
-/** Whether this caller proposes rather than sets: anyone acting as a person. */
-export const proposes = (g: Guard) => g.actor.kind === 'user';
+/**
+ * Whether someone other than the caller holds pay.approve: an active person whose role carries it,
+ * even if their authenticator is still to be set up. Without one (a new business run by its owner
+ * alone) a change has nobody to wait for, so it applies at once and is recorded as such; the Access
+ * overview flags that nobody can approve pay.
+ */
+export function approverExists(org: OrgData, g: Guard, today: string): boolean {
+  return org.users.some((u) => u.status === 'active' && u.id !== g.user?.id && heldPermissions(u, today).has('pay.approve'));
+}
+
+/** Whether this caller proposes rather than sets: a person, when someone else can approve. */
+export const proposes = (g: Guard, org: OrgData, today: string) => g.actor.kind === 'user' && approverExists(org, g, today);
 
 /**
  * Records a proposal. The caller must already hold pay.edit for the person (allowPay). A rate below
@@ -76,7 +89,8 @@ export function pendingFor(org: OrgData, employeeId: string): PayChangeSummary |
 const sees = (g: Guard, c: PayChange) => g.can('pay.approve', c.siteId) || g.can('pay.edit', c.siteId);
 
 export function payRoutes(app: FastifyInstance, ctx: AppContext) {
-  const read = { preHandler: requireScope('rota:read') };
+  // Proposals carry pay: a key reads them with employees:read, as it reads staff records and rates.
+  const read = { preHandler: requireScope('employees:read') };
   const write = { preHandler: requireScope('rota:write') };
   const tags = ['Pay'];
   const today = () => ctx.store.todayISO();
@@ -135,6 +149,15 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       allowPay(g, e);
       const change = proposePayChange(org, g, e, proposedTerms(e, req.body), req.body.reason, today());
+      if (!approverExists(org, g, today())) {
+        // Nobody else can approve: the change applies now, and its record says why.
+        const before = { ...e };
+        Object.assign(e, change.after);
+        Object.assign(change, { status: 'approved', decidedBy: actorName(g), ...(g.user ? { decidedById: g.user.id } : {}), decidedAt: change.requestedAt, note: NO_APPROVER });
+        if (PAYROLL_FIELDS.some((f) => before[f] !== e[f])) queueUpsert(org, e);
+        audit(org, actorName(g), 'employee.updated', { id: e.id, fields: RATE_FIELDS.filter((f) => before[f] !== e[f]) });
+        await kick(ctx, org);
+      }
       return reply.code(201).send(change);
     },
   );
@@ -166,6 +189,8 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
       Object.assign(c, { status: 'approved', decidedBy: actorName(g), ...(g.user ? { decidedById: g.user.id } : {}), decidedAt: new Date().toISOString(), ...(req.body?.note ? { note: req.body.note } : {}) });
       if (PAYROLL_FIELDS.some((f) => before[f] !== e[f])) queueUpsert(org, e);
       audit(org, actorName(g), 'pay.change_approved', { id: c.id, employeeId: e.id });
+      // The record itself changed now, so systems that follow employee changes hear of it now.
+      audit(org, actorName(g), 'employee.updated', { id: e.id, fields: RATE_FIELDS.filter((f) => before[f] !== e[f]) });
       await kick(ctx, org);
       return c;
     },

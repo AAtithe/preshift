@@ -31,9 +31,10 @@ accrual so the P&L carries true labour before payroll has even run.
 | Reports | Labour trend over 4, 8 or 13 weeks on actual takings, with the target flexed to what each week took, labour from clocked time where a site clocks and the rota where it does not, and weeks over target counted by site. Cost by role: loaded labour by department and role with every on-cost, tying to the KPI bar and each wages nominal in the journal. Rota vs actual: the planned week against the latest estimate (clocked time for days worked, the rota for days left), per person hours and cost variance, shifts not clocked and unrostered clocking. Takings: net sales by site and day from a till feed (`PUT /v1/sales`), keyed in, or imported from the till's CSV export. Payroll accuracy: every pay run's accrual against what payroll cost, runs inside 1%, average miss, reruns replacing earlier runs, and people who miss the same way run after run. Every report exports to CSV and works for a site, an entity or the group. | `src/engine/reports.ts`, `src/ui/ReportsView.tsx`, `src/ui/TakingsEntry.tsx`, `src/ui/PayrollAccuracy.tsx` |
 | Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
+| Open API and webhooks | Any system can plug in without Preshift issuing anything. A person with the settings permission and their authenticator makes a key per system under Settings, ticks what it may do (never more than they can do across the organisation), sees it once (only its hash is kept), sees when it was last used and revokes it at once. Keys are rate limited. Webhooks post signed, thin events (ids, never pay or personal data) to a partner's https endpoint the moment a rota is published, a shift or starter changes, hours are approved, a pay run reconciles, or (only when named, and only for someone who reads personnel files) absence, training, reviews and right to work copies change, with absence reasons and disciplinary cases never sent; raised in the same save as the change and retried in order if the partner is down. A partner can register its own endpoint with a `webhooks:write` key. | `server/routes/developers.ts`, `server/webhooks.ts`, `src/ui/DeveloperSettings.tsx` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
 | Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. Rostering another site's person needs their agreement to cover it, unless the caller also runs their home site. A CI test fails any API route that does not visibly check access. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/`, `server/accessCoverage.test.ts` |
-| Pay approvals | A change to someone's rate, salary or pay basis by a person is a proposal: their pay in force stays until the finance director approves it (`pay.approve`, with an authenticator). Nobody approves their own proposal or their own pay. Each proposal shows its reason and what it adds to gross pay over a year, on contracted hours or the last four weeks of rota. A starter's proposed rate goes the same way, starting at nought. Approval refuses pay that has moved since the proposal; a newer proposal replaces a waiting one; rates below the legal minimum are refused at once. Every decision is kept, and payroll is told only on approval. Integration keys still set pay directly, in the audit trail. | `server/routes/pay.ts`, `src/engine/payChanges.ts`, `src/ui/PayApprovalsView.tsx` |
+| Pay approvals | A change to someone's rate, salary or pay basis by a person is a proposal: their pay in force stays until the finance director approves it (`pay.approve`, with an authenticator). Nobody approves their own proposal or their own pay. Each proposal shows its reason and what it adds to gross pay over a year, on contracted hours or the last four weeks of rota. A starter's proposed rate goes the same way, starting at nought. Approval refuses pay that has moved since the proposal; a newer proposal replaces a waiting one; rates below the legal minimum are refused at once. Every decision is kept, and payroll and webhook subscribers hear of new pay only on approval. In a business where nobody else can approve (a new one run by its owner alone) a change applies at once and its record says so, and the Access overview flags that nobody can approve pay. Pasting in a team at set-up proposes each rate, and finance can approve them all in one confirmed step. Integration keys still set pay directly, in the audit trail. | `server/routes/pay.ts`, `src/engine/payChanges.ts`, `src/ui/PayApprovalsView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 | Staff app | Staff clock in and out on their own phones at `/staff/`, record their breaks, and see their own published shifts and hours. Breaks are not location checked (they only lower paid time); recorded breaks set the entry's unpaid minutes at clock-out, the phone shows the legal minimum for the shift, and a card tap during a break ends the break. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
@@ -56,7 +57,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (432 across 40 files)
+npm test         # engine, UI rules, assistant and API tests (472 across 43 files)
 npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 ```
@@ -177,6 +178,33 @@ TeamPay, simulate clocking, approve, send hours, run payroll. Set the `TEAMPAY_*
 connect to real TeamPay and `PRESHIFT_DATABASE_URL` for Postgres; see `docs/API.md`, which also
 covers the Vercel deployment.
 
+## Business set-up
+
+Organisation, then Set-up, holds the business the rota runs on. It needs `settings.manage`, and so an
+authenticator (`src/ui/SetupView.tsx`, rules in
+`src/engine/setup.ts`, routes in `server/routes/setup.ts`):
+
+1. Companies: registered name, company number, PAYE reference, and an intercompany code once there
+   is more than one.
+2. Sites: company, opening hours, loaded labour target, Xero tracking category.
+3. Roles: starts from the standard hospitality roles, each mapped to a wages nominal code.
+4. Trading and staffing: a typical week's net sales per day and average spend for each site, and
+   covers or sales per person per hour for each role. Takings start blank on purpose.
+5. Review and save: weekly labour budget per site; anything incomplete blocks the save.
+6. Team: paste people from a spreadsheet or payroll export (Name, Roles, Rate or salary, Date of
+   birth, Contracted hours, Start date, Right to work checked on). Each goes through the starter
+   route, exactly as from People, so each is set up in TeamPay. Rows with problems are held back,
+   pay below the minimum wage band is flagged, and anyone without a right to work check is added
+   but cannot be rostered until it is recorded.
+
+A new live system starts on the sample group. Admins see a banner saying so, and set-up offers
+"Remove sample data" while nothing real exists: no own companies, sites or people, nothing in
+payroll, no clocked time, no staff logins, no HR records or data requests, and nobody real with
+access tied to a sample site. Clearing also removes the sample's fictional people and HR files.
+After that it is refused, and the sample can only be edited. Each site's typical week forecasts the next eight weeks, and the build fills any later week
+on demand. Figures from a sales system replace it week by week and are never overwritten. A company,
+site or role that people, rotas or clocked time still use cannot be removed.
+
 ## Public demo for prospects
 
 A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
@@ -214,12 +242,13 @@ Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 | `/app/` | Web app, served by the API function to signed-in people only (`server/routes/web.ts`) |
 | `/api/anthropic/v1/messages` | The rota assistant's route to Claude, using the key saved in Settings |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
+| `/internal/webhooks` | Vercel Cron every 15 minutes: webhook deliveries waiting on a retry (needs `CRON_SECRET`, and a Vercel plan that allows cron jobs more often than daily) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when
 the function cold starts: fine for a demo, not for customers. Preshift never reads the generic
 `DATABASE_URL`, so it cannot write into another system's database by accident. The hosted API has
-no public key: people reach it by signing in, and integrations need a key from `PRESHIFT_API_KEYS`.
+no public key: people reach it by signing in, and integrations use a key an admin makes under Settings.
 
 Set `PRESHIFT_DOCUMENT_KEY` (`openssl rand -base64 32`) before anyone uploads a right to work copy.
 Copies are encrypted with it and it is never stored in the database; without it, a database
