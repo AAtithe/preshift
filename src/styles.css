@@ -164,6 +164,36 @@ select:focus, input:focus { outline: none; border-color: var(--ink); box-shadow:
 .wp-jump { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 10px 10px 6px; border-top: 1px solid var(--rule); }
 .mast-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 26px 0 18px; flex-wrap: wrap; }
 .mast-title h1 { margin: 0; font: 700 48px/1 var(--serif); letter-spacing: -0.045em; color: var(--ink); }
+/* Scope picker: the heading itself chooses all sites, a company or a site */
+.scopepicker { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.sp-crumbs { display: flex; align-items: center; gap: 6px; font: 500 11px/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.sp-crumbs .link { font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 0; color: var(--muted); }
+.sp-crumbs .link:hover { color: var(--ink); }
+.sp-trigger {
+  font: inherit; letter-spacing: inherit; color: inherit; background: none; border: none; border-radius: 0; padding: 0 34px 4px 0;
+  position: relative; text-align: left; border-bottom: 2px solid transparent;
+}
+.sp-trigger:hover:not(:disabled) { border-color: transparent; border-bottom-color: var(--rule-strong); }
+.sp-trigger[aria-expanded="true"] { border-bottom-color: var(--ink); }
+.sp-trigger::after {
+  content: ''; position: absolute; right: 6px; top: 50%; width: 11px; height: 11px;
+  border-right: 2.5px solid var(--muted); border-bottom: 2.5px solid var(--muted); transform: translateY(-75%) rotate(45deg);
+}
+.sp-trigger:hover::after, .sp-trigger[aria-expanded="true"]::after { border-color: var(--ink); }
+.sp-menu {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: 340px; max-width: calc(100vw - 32px); max-height: 460px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--rule-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 6px;
+}
+.sp-search { width: 100%; margin-bottom: 6px; }
+.sp-group { border-top: 1px solid var(--rule); margin-top: 4px; padding-top: 4px; }
+.sp-option { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; text-align: left; border-color: transparent; background: transparent; padding: 8px 10px; }
+.sp-option:hover:not(:disabled), .sp-option:focus-visible { background: var(--paper-2); border-color: transparent; outline: none; }
+.sp-option.selected { background: var(--paper-2); border-color: var(--ink); }
+.sp-option .sp-name { color: var(--ink); }
+.sp-meta { font: 500 11px/1.3 var(--mono); letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; }
+.sp-all .sp-name, .sp-entity .sp-name { font-weight: 600; }
+.sp-menu.grouped .sp-site { padding-left: 24px; }
+.sp-none { padding: 8px 10px; margin: 0; }
 .mast-meta { display: flex; align-items: center; gap: 18px; }
 .stamp {
   font: 600 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; padding: 6px 10px;
@@ -631,6 +661,32 @@ a.link { color: var(--muted); }
 }
 .sidebar .wordmark { color: #fff; flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 10px; }
 .sidebar .wordmark-with { color: var(--ws-slate); }
+/* Organisation picker: top of the bar, above every company and site */
+.orgpicker { position: relative; }
+.op-trigger {
+  width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 3px; text-align: left; position: relative;
+  background: rgb(255 255 255 / 0.06); border: 1px solid rgb(255 255 255 / 0.16); border-radius: 6px; padding: 9px 30px 9px 10px; color: #fff;
+}
+.op-trigger:hover:not(:disabled), .op-trigger[aria-expanded="true"] { background: rgb(255 255 255 / 0.12); border-color: rgb(255 255 255 / 0.4); }
+.op-trigger::after {
+  content: ''; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-70%) rotate(45deg); opacity: 0.7;
+}
+.op-label { grid-column: 1 / -1; font: 500 10px/1.3 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ws-slate); }
+.op-name { grid-column: 1 / -1; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.op-count { grid-column: 1 / -1; font-size: 11px; color: var(--ws-slate); }
+.op-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 40; max-height: 360px; overflow-y: auto;
+  background: var(--card); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 6px;
+}
+.op-search { width: 100%; margin-bottom: 6px; }
+.op-option { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; text-align: left; border-color: transparent; background: transparent; padding: 8px 10px; color: var(--ink); }
+.op-option:hover:not(:disabled), .op-option:focus-visible { background: var(--paper-2); border-color: transparent; outline: none; }
+.op-option.selected { background: var(--paper-2); border-color: var(--ink); font-weight: 600; }
+.op-option-name { overflow-wrap: anywhere; }
+.op-tag { font: 600 10px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--rule-strong); border-radius: 3px; padding: 2px 4px; flex-shrink: 0; }
+.op-none { padding: 8px 10px; margin: 0; color: var(--muted); }
+.op-error { margin: 6px 0 0; color: #ffb4a8; }
 .side-nav { display: flex; flex-direction: column; gap: 16px; }
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
 .nav-items { display: flex; flex-direction: column; gap: 2px; }
@@ -904,6 +960,7 @@ dd.tone-good { color: var(--good); }
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; height: auto; padding: 12px 16px; gap: 10px; }
   .sidebar .wordmark { flex-direction: row; align-items: baseline; }
+  .orgpicker { max-width: 360px; }
   .side-nav { flex-direction: row; overflow-x: auto; gap: 12px; }
   .nav-group { flex-direction: row; align-items: center; flex-shrink: 0; }
   .nav-items { flex-direction: row; }
