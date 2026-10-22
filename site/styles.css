@@ -475,7 +475,7 @@ section {
 .shot-frame img {
   width: 100%;
   height: auto;
-  aspect-ratio: 1440 / 1000;
+  aspect-ratio: 1600 / 1111;
   object-fit: cover;
   object-position: top;
 }
