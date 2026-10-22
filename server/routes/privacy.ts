@@ -114,6 +114,9 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.
       const anonymised = new Set(result.applied.filter((a) => a.code === 'anonymise').map((a) => a.employeeId));
       org.hrRecords = org.hrRecords.filter((r) => !anonymised.has(r.employeeId));
+      // And what they wrote in the staff app and were told there: requests keep only what the rota needs.
+      for (const r of org.requests ?? []) if (anonymised.has(r.employeeId)) delete r.note;
+      org.notifications = (org.notifications ?? []).filter((n) => !anonymised.has(n.employeeId));
       for (const id of result.closeLoginsFor) await ctx.store.deleteStaffLogin(org.orgId, id);
       // The audit keeps ids and counts only, never the data that was removed.
       audit(org, actor(req), 'privacy.retention_applied', { applied: result.applied });
@@ -163,6 +166,9 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         shifts: org.state.shifts.filter((s) => s.employeeId === e.id),
         timeEntries: org.timeEntries.filter((t) => t.employeeId === e.id),
         hrRecords: records,
+        // What they asked for and were told in the staff app.
+        staffRequests: (org.requests ?? []).filter((r) => r.employeeId === e.id),
+        notifications: (org.notifications ?? []).filter((n) => n.employeeId === e.id),
         payroll: {
           hoursSent: org.submissions
             .filter((s) => s.accrued[e.id] !== undefined)

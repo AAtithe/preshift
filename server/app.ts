@@ -41,6 +41,9 @@ import { publicFetch } from './integrations/feeds';
 import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { requestRoutes } from './routes/requests';
+import { emailNotifications } from './notify';
+import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -290,6 +293,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true };
   });
 
+  // Each morning: every manager hears what staff have asked for that is theirs to decide. Once a
+  // day per organisation, however often it is called.
+  app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
+  });
+
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
   // midnight UK time in winter and summer alike. Runs whether or not the demo is switched on,
   // so switching it off still clears what visitors left.
@@ -311,7 +321,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   mcpRoutes(app, auth);
   // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
   oauthRoutes(app, store);
-  staffRoutes(app, store);
+  staffRoutes(app, ctx);
   kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -356,6 +366,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       try {
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
+        // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
+        await emailNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -411,6 +423,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    // What staff ask for in the staff app, decided here by whoever runs their rota or team.
+    requestRoutes(api, ctx);
     kioskAdminRoutes(api, ctx);
   });
 
