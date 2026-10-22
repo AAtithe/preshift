@@ -465,7 +465,9 @@ function RecordList({ records, hr }: { records: HrRecord[]; hr: HrRecords }) {
               <span className="spacer" />
               <span className="muted small">{r.date}</span>
               <button className="link" onClick={() => setEditing(r.id)}>Edit</button>
-              <button className="link" onClick={() => { if (confirm(`Delete "${r.title}"?`)) void hr.remove(r.id); }}>Delete</button>
+              {r.kind !== 'case' && (
+                <button className="link" onClick={() => { if (confirm(`Delete "${r.title}"?`)) void hr.remove(r.id); }}>Delete</button>
+              )}
             </div>
             <div className="muted small">
               {[
@@ -474,6 +476,7 @@ function RecordList({ records, hr }: { records: HrRecord[]; hr: HrRecords }) {
                 r.nextDue && `Next due ${r.nextDue}`,
                 r.warningExpires && `Warning live until ${r.warningExpires}`,
                 `Recorded by ${r.createdBy}`,
+                r.history?.length && `Changed ${r.history.length === 1 ? 'once' : `${r.history.length} times`}, last by ${r.history[r.history.length - 1].by}`,
               ].filter(Boolean).join('. ')}
             </div>
             {r.notes && <p className="hr-notes">{r.notes}</p>}
