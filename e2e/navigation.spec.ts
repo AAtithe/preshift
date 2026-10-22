@@ -42,7 +42,7 @@ test.afterEach(async ({ page }) => {
 
 for (const scope of ['All sites', 'Marylebone'] as const) {
   test(`every section opens with the right header controls: ${scope}`, async ({ page }) => {
-    if (scope !== 'All sites') await page.getByLabel('Site').selectOption({ label: scope });
+    if (scope !== 'All sites') await page.getByLabel('Site', { exact: true }).selectOption({ label: scope });
     // From one site, Sites steps back out to every site; that has its own test below.
     for (const label of scope === 'All sites' ? SECTIONS : SECTIONS.filter((l) => l !== 'Sites')) {
       await item(page, label).click();
@@ -53,7 +53,7 @@ for (const scope of ['All sites', 'Marylebone'] as const) {
       const choosing = scope === 'All sites' && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
       await expect(heading(page)).toHaveText(label === 'How to' ? 'Help' : ORG.includes(label) ? 'Organisation' : scope);
-      await expect(page.getByLabel('Site')).toHaveCount(ORG.includes(label) ? 0 : 1);
+      await expect(page.getByLabel('Site', { exact: true })).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('button', { name: 'Clear week' })).toHaveCount(PLANNING.includes(label) && !choosing ? 1 : 0);
@@ -80,9 +80,9 @@ test('the chooser only offers the sites in the chosen entity', async ({ page }) 
 });
 
 test('changing site keeps you in the section you are in', async ({ page }) => {
-  await page.getByLabel('Site').selectOption({ label: 'Marylebone' });
+  await page.getByLabel('Site', { exact: true }).selectOption({ label: 'Marylebone' });
   await item(page, 'Absence').click();
-  await page.getByLabel('Site').selectOption({ label: 'Shoreditch' });
+  await page.getByLabel('Site', { exact: true }).selectOption({ label: 'Shoreditch' });
   await expect(item(page, 'Absence')).toHaveAttribute('aria-current', 'page');
   await expect(heading(page)).toHaveText('Shoreditch');
 });
@@ -93,11 +93,11 @@ test('opening a site from the overview goes to its rota, and Sites steps back ou
   await expect(heading(page)).toHaveText('Marylebone');
   await item(page, 'Sites').click();
   await expect(heading(page)).toHaveText('All sites');
-  await expect(page.getByLabel('Site')).toHaveValue('');
+  await expect(page.getByLabel('Site', { exact: true })).toHaveValue('');
 });
 
 test('Back and refresh return to the same place', async ({ page }) => {
-  await page.getByLabel('Site').selectOption({ label: 'Fitzrovia' });
+  await page.getByLabel('Site', { exact: true }).selectOption({ label: 'Fitzrovia' });
   await item(page, 'Holiday').click();
   await item(page, 'Payroll').click();
   await page.getByLabel('Next week').click();
