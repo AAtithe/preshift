@@ -49,7 +49,8 @@ export function AssignPanel({ state, opening: initial, onPreview, onAdd, onClose
 
   function row(c: Candidate) {
     const disabled = !!c.blocker || length <= 0;
-    const trip = c.journey && c.journey.minutes > 0 ? ` · ${c.journey.minutes} min from ${c.homeSite}${c.journey.source === 'estimate' ? ' (estimate)' : ''}` : '';
+    const paid = c.travelMinutes > 0 ? ` · ${c.travelMinutes} min paid travel, in the cost` : '';
+    const trip = paid || (c.journey && c.journey.minutes > 0 ? ` · ${c.journey.minutes} min from ${c.homeSite}${c.journey.source === 'estimate' ? ' (estimate)' : ''}` : '');
     const status = c.blocker ?? (!c.trained ? `Not signed off as ${role?.name}` : c.warnings[0]?.message ?? `Available${trip}`);
     const tone = c.blocker ? 'bad' : !c.trained || c.warnings.length ? 'warn' : 'good';
     const dept = state.roles.find((r) => r.id === c.employee.roleIds[0])?.department ?? 'FOH';

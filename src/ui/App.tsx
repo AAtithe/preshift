@@ -7,6 +7,10 @@ import { addDays, formatMinute, toISODate, weekDates, weekStart } from '../engin
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
+import { AccessView } from './access/AccessView';
+import { AuthenticatorBar } from './access/Authenticator';
+import type { Me } from './access/model';
+import { actingAsDemo, canSwitchDemo, demoPeople, signInAsDemo } from './api';
 import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
@@ -27,7 +31,8 @@ import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
-import { SettingsView, type Me } from './SettingsView';
+import { SettingsView, type Account } from './SettingsView';
+import { allowFor, NOT_YOURS, type Allow } from './permissions';
 import { ShiftEditor } from './ShiftEditor';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -37,53 +42,64 @@ import { TravelPanel } from './TravelPanel';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'payroll' | 'close' | 'reports' | 'integrations' | 'privacy' | 'settings' | 'howto';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+
+/** Holds the permission at every site in scope: what an action over the scope needs. */
+type AtAll = Allow;
+type Offered = (atAll: AtAll, allow: Allow) => boolean;
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
-// Every item is always clickable, so the map never changes. A site-only item opened across several
-// sites asks which site; nothing is greyed out except Cases for non-admins.
+// Every item shown is clickable, so the map never changes. A site-only item opened across several
+// sites asks which site. An item is shown only to someone who can use it across the scope; the screen
+// still asks the server.
 // Each section says what it is scoped by, so the header only shows controls that change what is on screen:
 // week sections get the scope, the week and the P&L rail; people sections get the scope; organisation
 // sections get neither. Only the planning sections carry the build and clear actions.
 type Scope = 'week' | 'people' | 'org';
 // title heads an organisation section; it defaults to Organisation.
-type NavItem = { id: Tab; label: string; scope: Scope; title?: string; siteOnly?: boolean; plans?: boolean; adminOnly?: boolean };
+type NavItem = { id: Tab; label: string; scope: Scope; title?: string; siteOnly?: boolean; plans?: boolean; offered?: Offered };
 const NAV: { heading: string; items: NavItem[] }[] = [
-  { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true }] },
+  // Side by side labour cost by site: for those who see cost everywhere in scope.
+  { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true, offered: (all) => all('costs.view') }] },
   {
     heading: 'Scheduling',
     items: [
       { id: 'rota', label: 'Rota', scope: 'week', siteOnly: true, plans: true },
       { id: 'demand', label: 'Demand', scope: 'week', siteOnly: true, plans: true },
-      { id: 'clock', label: 'Clock in', scope: 'people', siteOnly: true },
+      { id: 'clock', label: 'Clock in', scope: 'people', siteOnly: true, offered: (all) => all('time.record') },
     ],
   },
   {
     heading: 'People',
     items: [
-      { id: 'hr', label: 'HR overview', scope: 'people' },
-      { id: 'people', label: 'Staff', scope: 'people', siteOnly: true },
-      { id: 'holiday', label: 'Holiday', scope: 'people' },
-      { id: 'absence', label: 'Absence', scope: 'people' },
-      { id: 'training', label: 'Training', scope: 'people' },
-      { id: 'reviews', label: 'Probation and reviews', scope: 'people' },
-      { id: 'cases', label: 'Cases', scope: 'people', adminOnly: true },
+      // Personnel files go by site, as the rest of the team's records do; cases are confidential.
+      { id: 'hr', label: 'HR overview', scope: 'people', offered: (all) => all('hr.view') },
+      { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, offered: (all) => all('team.manage') || all('costs.view') },
+      // Balances are the team's records; the provision in pounds shows only with cost.
+      { id: 'holiday', label: 'Holiday', scope: 'people', offered: (all) => all('team.manage') || all('costs.view') },
+      { id: 'absence', label: 'Absence', scope: 'people', offered: (all) => all('hr.view') },
+      { id: 'training', label: 'Training', scope: 'people', offered: (all) => all('hr.view') },
+      { id: 'reviews', label: 'Probation and reviews', scope: 'people', offered: (all) => all('hr.view') },
+      { id: 'cases', label: 'Cases', scope: 'people', offered: (_all, a) => a('hr.cases') },
     ],
   },
   {
     heading: 'Finance',
     items: [
       { id: 'team', label: 'Labour cost', scope: 'week' },
-      { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true },
-      { id: 'close', label: 'Close', scope: 'week' },
+      { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
+      { id: 'close', label: 'Close', scope: 'week', offered: (_all, a) => a('close.export') },
     ],
   },
-  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports', scope: 'week' }] },
+  // Labour cost against takings and payroll accuracy: money throughout, for those who see cost.
+  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports', scope: 'week', offered: (all) => all('costs.view') }] },
   {
     heading: 'Organisation',
     items: [
-      { id: 'integrations', label: 'Integrations', scope: 'org' },
-      { id: 'privacy', label: 'GDPR', scope: 'org' },
+      { id: 'integrations', label: 'Integrations', scope: 'org', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
+      { id: 'privacy', label: 'GDPR', scope: 'org', offered: (_all, a) => a('privacy.manage') },
+      { id: 'access', label: 'Access', scope: 'org', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },
+      // Everyone who signs in can change their own password there.
       { id: 'settings', label: 'Settings', scope: 'org' },
     ],
   },
@@ -128,7 +144,7 @@ function savedView(): RotaView {
 const MONTH = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 export function App() {
-  const { state, error, setError, actions } = useRotaStore();
+  const { state, me, error, setError, actions } = useRotaStore();
   if (!state) {
     return (
       <div className="shell">
@@ -137,12 +153,20 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} error={error} setError={setError} actions={actions} />;
+  if (state.sites.length === 0) {
+    return (
+      <div className="shell">
+        <p className="muted">Your roles do not reach any site yet. Ask whoever manages access to grant you one.</p>
+        <DemoSwitch me={me} />
+      </div>
+    );
+  }
+  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} />;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, error, setError, actions }: { state: NonNullable<Store['state']>; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
+function Workspace({ state, me, error, setError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [initial] = useState(() => readPlace(weekStart(toISODate(new Date()))));
   const [entityId, setEntityId] = useState(state.entities.some((e) => e.id === initial.entityId) ? initial.entityId : ALL);
@@ -161,17 +185,17 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   const [opening, setOpening] = useState<Opening | null>(null);
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
   const today = toISODate(new Date());
-  const [me, setMe] = useState<Me | null>(null);
+  // The signed-in account (sign-in), as against `me`, the access record and what it allows.
+  const [account, setAccount] = useState<Account | null>(null);
   const [hrPerson, setHrPerson] = useState<{ id: string; section?: HrSection } | null>(null);
   const hr = useHrRecords(setError);
-  const isAdmin = me?.role === 'admin';
   const openHr = (e: Employee, section?: HrSection) => setHrPerson({ id: e.id, section });
 
   useEffect(() => {
     fetch('/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: Me | null) => setMe(body))
-      .catch(() => setMe(null));
+      .then((body: Account | null) => setAccount(body))
+      .catch(() => setAccount(null));
   }, []);
 
   // While a shift is being dragged, or a name is hovered in the picker, every figure on the
@@ -190,8 +214,15 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
-  const available = (t: NavItem) => !t.adminOnly || isAdmin;
-  const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t)) ? tab : 'sites';
+  const allow = useMemo(() => allowFor(me), [me]);
+  const atAll: AtAll = (p) => siteIds.every((s) => allow(p, s));
+  const showCost = atAll('costs.view');
+  const canEdit = atAll('rota.edit');
+  const canPublish = atAll('rota.publish');
+  const offered = (t: NavItem) => !t.offered || t.offered(atAll, allow);
+  const nav = NAV.map((g) => ({ ...g, items: g.items.filter(offered) })).filter((g) => g.items.length > 0);
+  const fallback = nav[0]?.items[0]?.id ?? 'settings';
+  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
   // A site-only section opened across several sites shows the site chooser instead.
   const needsSite = !!section.siteOnly && !single;
@@ -322,7 +353,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
         <nav className="side-nav" aria-label="Management">
-          {NAV.map((group) => (
+          {nav.map((group) => (
             <div key={group.heading} className="nav-group">
               <div className="nav-heading">{group.heading}</div>
               {group.items.map((t) => (
@@ -330,8 +361,6 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   key={t.id}
                   className={activeTab === t.id ? 'active' : ''}
                   aria-current={activeTab === t.id ? 'page' : undefined}
-                  disabled={!available(t)}
-                  title={available(t) ? undefined : 'Admins only'}
                   onClick={() => openSection(t)}
                 >
                   {t.label}
@@ -342,9 +371,9 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
         </nav>
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {me && !me.demo && (
+          {account && !account.demo && (
             <>
-              <span className="small">Signed in as {me.email}</span>
+              <span className="small">Signed in as {account.email}</span>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
@@ -355,7 +384,10 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
         <header className="mast">
           <div className="mast-top">
             <span className="eyebrow">{section.label}</span>
-            {section.scope !== 'org' && <div className="mast-controls">
+            <div className="mast-controls">
+              <DemoSwitch me={me} />
+              <OrgSwitch account={account} />
+              {section.scope !== 'org' && <>
               <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
                 <option value={ALL}>All entities</option>
                 {state.entities.map((e) => (
@@ -375,7 +407,8 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rarr;</button>
                 </div>
               )}
-            </div>}
+              </>}
+            </div>
           </div>
           <div className="mast-title">
             <h1>{scopeName}</h1>
@@ -389,20 +422,22 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
           <div className="sections">
             {section.plans && !needsSite && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-              {single && <button onClick={() => setAssistantOpen(true)}>Ask the assistant</button>}
-              <button className="ghost" onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
+              {single && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
+              <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
                 Clear week
               </button>
-              <button onClick={runAutoBuild} className="primary">
+              <button onClick={runAutoBuild} className="primary" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>
                 {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
               </button>
             </div>}
           </div>
         </header>
 
+        <AuthenticatorBar me={me} />
+
         <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
-            {me?.demo && (
+            {account?.demo && (
               <div className="notice demo-banner">
                 <span>
                   <strong>Live demo.</strong> This is your own copy of a sample group of three London sites, so change anything:
@@ -496,12 +531,13 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   dates={dates}
                   metrics={metrics}
                   issues={issues}
-                  onEdit={setEditing}
-                  onPreview={setPreview}
-                  onCommit={commitChange}
+                  onEdit={canEdit ? setEditing : () => refuse(NOT_YOURS)}
+                  onPreview={canEdit ? setPreview : () => undefined}
+                  onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
                   onBlocked={refuse}
-                  onOpen={setOpening}
+                  onOpen={canEdit ? setOpening : () => refuse(NOT_YOURS)}
                   baseLabourCost={baseMetrics.labourCost}
+                  showCost={showCost}
                 />
               )}
               {activeTab === 'rota' && single && rotaView === 'people' && (
@@ -511,9 +547,10 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   dates={dates}
                   metrics={metrics}
                   issues={issues}
-                  onEdit={setEditing}
-                  onPreview={setPreview}
-                  onCommit={commitChange}
+                  showCost={showCost}
+                  onEdit={canEdit ? setEditing : undefined}
+                  onPreview={canEdit ? setPreview : () => undefined}
+                  onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
                   onBlocked={refuse}
                   baseLabourCost={baseMetrics.labourCost}
                 />
@@ -525,17 +562,19 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   today={today}
                   onSetGeofence={actions.setGeofence}
                   onSetBadge={actions.setBadge}
+                  canSetFence={allow('settings.manage')}
+                  canEnrolCards={allow('team.manage', single.id)}
                 />
               )}
               {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
-              {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} />}
+              {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {activeTab === 'people' && single && (
                 <PeopleView
                   state={state}
                   siteId={single.id}
                   today={today}
                   onEdit={setEditingPerson}
-                  onAdd={() => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today))}
+                  onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
                 />
               )}
               {activeTab === 'holiday' && (
@@ -544,7 +583,8 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   siteIds={siteIds}
                   today={today}
                   onEdit={setEditingPerson}
-                  onSetLeaveYear={actions.setLeaveYearStart}
+                  onSetLeaveYear={allow('settings.manage') ? actions.setLeaveYearStart : undefined}
+                  showCost={showCost}
                 />
               )}
               {activeTab === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
@@ -553,8 +593,8 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
               )}
               {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'cases' && isAdmin && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'reports' && (
                 <ReportsView
@@ -568,10 +608,11 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                 />
               )}
               {activeTab === 'integrations' && (
-                <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
+                <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} singleSite={!!single} today={today} onOpen={setTab} />
               )}
-              {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
-              {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
+              {activeTab === 'access' && <AccessView state={state} />}
+              {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} />}
               {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
@@ -584,9 +625,11 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
             metrics={metrics}
             issues={issues}
             canPublish={blocks === 0 && weekShifts.length > 0 && !published}
+            publishRefused={canPublish ? undefined : NOT_YOURS}
             published={published}
             blocks={blocks}
             onPublish={() => void actions.publish(siteIds, week)}
+            showCost={showCost}
           />}
         </div>
       </div>
@@ -628,7 +671,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
           employee={state.employees.find((e) => e.id === hrPerson.id)!}
           hr={hr}
           today={today}
-          isAdmin={isAdmin}
+          isAdmin={allow('hr.cases')}
           initialSection={hrPerson.section}
           onSaveProfile={actions.saveHrProfile}
           onSaveAbsence={actions.saveAbsence}
@@ -641,10 +684,12 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
         <EmployeeEditor
           state={state}
           employee={editingPerson}
+          canEditPay={allow('pay.edit', editingPerson.siteId) && me?.user?.employeeId !== editingPerson.id}
           today={today}
           onSave={async (employee) => {
             const isNew = !state.employees.some((e) => e.id === employee.id);
-            if (await actions.saveEmployee(employee, isNew)) setEditingPerson(null);
+            const withPay = allow('pay.edit', employee.siteId) && me?.user?.employeeId !== employee.id;
+            if (await actions.saveEmployee(employee, isNew, withPay)) setEditingPerson(null);
           }}
           onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
           onAddDocument={actions.addRightToWorkDocument}
@@ -658,6 +703,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
         <ShiftEditor
           state={state}
           shift={editing}
+          showCost={showCost}
           onSave={async (shift) => {
             const isNew = !state.shifts.some((s) => s.id === shift.id);
             if (await actions.saveShift(shift, isNew)) setEditing(null);
@@ -677,4 +723,53 @@ function describeChange(before: Shift | null, after: Shift, state: { employees: 
   if (before.employeeId !== after.employeeId) return `Moved ${name(before.employeeId)}'s shift to ${name(after.employeeId)}, ${when(after)}`;
   if (before.date !== after.date) return `Moved ${name(after.employeeId)} to ${when(after)}`;
   return `${name(after.employeeId)} now ${when(after)}`;
+}
+
+interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
+
+/**
+ * For someone who works in more than one organisation: moves the session to another, then
+ * starts the app again there, as everything on screen belongs to the one it came from.
+ */
+function OrgSwitch({ account }: { account: Account | null }) {
+  const [error, setError] = useState<string | null>(null);
+  const orgs = account?.organisations ?? [];
+  if (orgs.length < 2 || actingAsDemo) return null;
+  async function choose(orgId: string) {
+    setError(null);
+    const res = await fetch('/auth/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) }).catch(() => null);
+    if (res?.ok) return location.reload();
+    setError((await res?.json().catch(() => null))?.message ?? 'Could not switch. Check your connection and try again.');
+  }
+  return (
+    <label className="demo-switch">
+      <span className="muted small">Organisation</span>
+      <select value={account!.orgId} onChange={(e) => void choose(e.target.value)} aria-label="Organisation">
+        {orgs.map((o) => (
+          <option key={o.orgId} value={o.orgId}>{o.name}</option>
+        ))}
+      </select>
+      {error && <span className="small bad-text" role="alert">{error}</span>}
+    </label>
+  );
+}
+
+/** Demo only: sign in as any seeded person to see what their roles allow. Absent outside the demo. */
+function DemoSwitch({ me }: { me: Me | null }) {
+  const [people, setPeople] = useState<DemoPerson[] | null>(null);
+  useEffect(() => {
+    if (canSwitchDemo) void demoPeople<DemoPerson[]>().then(setPeople).catch(() => setPeople(null));
+  }, []);
+  if (!people) return null;
+  return (
+    <label className="demo-switch">
+      <span className="muted small">Demo: acting as</span>
+      <select value={actingAsDemo ? me?.user?.id ?? '' : ''} onChange={(e) => signInAsDemo(e.target.value || null)}>
+        <option value="">My own sign-in</option>
+        {people.filter((p) => p.status === 'active').map((p) => (
+          <option key={p.id} value={p.id}>{p.name}{p.jobTitle ? `, ${p.jobTitle}` : ''}</option>
+        ))}
+      </select>
+    </label>
+  );
 }

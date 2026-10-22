@@ -31,6 +31,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
+| Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
 | Shift sign-in | Clock in tab for a tablet at the site entrance: staff tap an RFID card (USB keyboard reader, or a phone's NFC on Android Chrome) or sign in by name. Each site can have a geofence; signing in by name on a device must happen inside it, and the location is kept on the time entry. Repeat reads of one tap are ignored. | `src/ui/ClockView.tsx`, `server/routes/clocking.ts`, `src/engine/clocking.ts` |
 | Staff app | Staff clock in and out on their own phones at `/staff/`, record their breaks, and see their own published shifts and hours. Breaks are not location checked (they only lower paid time); recorded breaks set the entry's unpaid minutes at clock-out, the phone shows the legal minimum for the shift, and a card tap during a break ends the break. A manager sends a one-time invite link from Clock in setup (valid 7 days; a new one resets a forgotten password). Phone clocking needs the site's geofence, both ways. Staff logins are separate from manager accounts and reach nothing else; closing a login or marking a leaver ends it at once. | `src/staff/`, `staff/index.html`, `server/routes/staff.ts` |
@@ -40,7 +41,7 @@ accrual so the P&L carries true labour before payroll has even run.
 | Service timeline | The default rota view. Each day is drawn over its own forecast sales curve, with shifts as bars grouped front of house, bar and back of house, and a strip under each day reading hours short or over against demand. Bars drag along the day, by their ends, or up and down to another day, with the same live costing and leave and availability rules as the person grid, which stays one click away. | `src/ui/Timeline.tsx`, `src/ui/useShiftDrag.ts` |
 | Add a shift | On the timeline, drag across empty space on a day to draw a shift, click or tap for a four hour block, or click a red short hour to fill that gap with the role that is shortest. A picker asks who should work it: the site's team ranked trained and clear first, then cheapest, where cost is what the shift adds to that person's loaded week (nothing for guaranteed hours, more for anyone over the NI threshold). Leave, availability, double booking and other blocks are shown with the reason. Hovering a name previews them across the whole page, including the P&L. | `src/ui/assign.ts`, `src/ui/AssignPanel.tsx` |
 | Borrow across sites | The picker also offers people from the group's other sites who are set up to cover this one, under their own heading, with the reason anyone cannot take it. Cost is shown twice: what the shift adds to the group, and what it puts on the host site's labour, because cost follows the work. It says when borrowing is cheaper for the group or the only option, flags a same-day shift at another site with under an hour to get across, and rest and hours rules count the person's whole week at every site. Borrowed people are tagged on the timeline and grid. Borrowing follows each person's cover sites from their People record, and anyone employed by another company is marked as an intercompany recharge. Close lists cross-site labour by pair of sites, with a CSV, beside the intercompany recharges the journal books. | `src/ui/assign.ts`, `src/ui/AssignPanel.tsx`, `src/ui/CloseView.tsx` |
-| Travel between sites | Each site has a location from its postcode (postcodes.io), and journey times between every pair come from the TfL journey planner for a weekday at 17:00 by public transport or on foot, with times set by hand kept and a labelled straight-line estimate where TfL has no answer. The compliance check blocks a same-day move between sites that cannot be made in time and flags one with less than ten minutes to spare, everywhere: drag, the editor, the picker, the auto-build and the API. Borrowed people in the picker show their journey from their home site. Set postcodes and refresh on the Sites overview. | `src/engine/travel.ts`, `server/routes/travel.ts`, `server/integrations/travel/journeys.ts`, `src/ui/TravelPanel.tsx` |
+| Travel between sites | Each site has a location from its postcode (postcodes.io), and journey times between every pair come from the TfL journey planner for a weekday at 17:00 by public transport or on foot, with times set by hand kept and a labelled straight-line estimate where TfL has no answer. The compliance check blocks a same-day move between sites that cannot be made in time and flags one with less than ten minutes to spare, everywhere: drag, the editor, the picker, the auto-build and the API. Borrowed people in the picker show their journey from their home site. Set postcodes and refresh on the Sites overview. The journey is also paid: travel between workplaces within a working day is working time for the National Minimum Wage (only home to work is excluded), so the cost engine adds it to the person's week, where it carries holiday, NI and pension and can tip them over a threshold, and charges it to the shift travelled to, so it lands on the site that asked for the move. The P&L shows it as a memo line, the picker and shift editor include it in the cost, and the same rule runs on clocked actuals and adds the travel hours to the payroll line for the site travelled to, so the accrual and TeamPay agree. | `src/engine/travel.ts`, `server/routes/travel.ts`, `server/integrations/travel/journeys.ts`, `src/ui/TravelPanel.tsx` |
 | Rota P&L | Beside every screen: forecast sales, wages, holiday, employer NI and pension in brackets, labour cost tied to the journal, contribution after labour, labour % against target, day by day, compliance, and sign-off to publish. | `src/ui/PnlRail.tsx` |
 | GDPR | UK GDPR for staff data under Admin. A request log for access, erasure, rectification, restriction, portability and objection, with the one calendar month deadline (three when extended) and overdue flags. One-click subject access export of everything held on a person, with how it is used and their rights. Erasure for leavers only, keeping what the law requires (Article 17(3)). A retention schedule that strips clocking locations after 3 months, contact details, card and staff login 3 months after leaving, right to work detail 2 years after leaving, and anonymises the person 6 years after the tax year they left, keeping shifts and pay for the accounts; statutory floors cannot be undercut. An Article 30 record of processing built from what is held, with lawful basis, retention and processors (TeamPay, Anthropic, Resend, hosting), exportable as CSV. Acting on personal data is admin only and audited by id. | `src/engine/gdpr.ts`, `server/routes/privacy.ts`, `src/ui/PrivacyView.tsx` |
 
@@ -53,7 +54,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (240 across 23 files)
+npm test         # engine, UI rules and API tests (244 across 23 files)
 npm run build    # typecheck and production build
 ```
 
@@ -78,14 +79,64 @@ environment variables.
 
 Accounts, password hashes (scrypt), the session signing key and the Claude key all live in the
 Preshift database. Sessions last 12 hours in an HttpOnly cookie and are checked against the database
-on every request, so removing someone or resetting their password takes effect at once. Five wrong
+on every request, so suspending someone or resetting their password takes effect at once. Five wrong
 passwords lock an account for 15 minutes. The web app carries no API key: it calls the API with the
-session. On Vercel the app's files are served by the API function only to signed-in people. People who
-forget their password use "Forgot your password?" on the sign-in page: a single-use link, valid for 30
-minutes, is emailed through Resend once an admin saves a Resend key, a from address and the app's address
-under Settings. The reply never says whether an account exists, one account gets at most three emails an
-hour, and the link's token sits after `#` so it never reaches a server log. Until email is set up, an admin
-makes a 24 hour link with "Reset link" and hands it over. Known limit: two roles only.
+session. On Vercel the app's files are served by the API function only to signed-in people.
+
+An account is how a person signs in; what they may do is their access record on the Access tab,
+found by the same email. People are invited there, and set their own password from the invitation
+link (seven days, single use) on the sign-in page. "Reset password" on the Access tab ends the old
+password and every session at once, and sends a link, valid a day, to choose a new one. Nobody ever chooses or learns another
+person's password. Someone who signs in with an account but no access record keeps full access in
+the account's own organisation, as every account had before roles, and the Access overview lists
+them as Fix now until they have one.
+
+One person can work in several organisations, as a Williams, Stanley & Co. manager does across
+clients: one account, one password, one authenticator, and an access record in each organisation.
+Each organisation controls only its own record of them.
+- Someone who already signs in to Preshift accepts another organisation's invitation by signing in
+  with the password they have. The link never sets a new one, since whoever holds it, including an
+  inviter when email is not set up, would then hold every organisation the account opens.
+- The header switches between their organisations. The authenticator code entered once a session
+  counts in all of them, and sign-in returns them to where they last worked.
+- The account belongs to its home organisation, the one where it was made. Only there can its
+  password or authenticator be reset, and a reset of an account that opens other organisations is
+  only ever emailed, never handed over.
+- Anywhere else the organisation suspends or removes the person's access to itself, which leaves
+  their other organisations, and their sessions there, as they were.
+- No organisation learns which others a person works in.
+
+Roles that touch pay, payroll, the journal, settings or access need an authenticator app. After
+signing in, the app asks for its 6-digit code before switching those rights on for the session, and
+walks anyone without one through setting it up (QR code, then ten single-use recovery codes, shown
+once). The first owner sets theirs up before inviting anyone. Authenticator secrets are encrypted
+with a key kept in the database, or, stronger, with `PRESHIFT_SECRET_KEY` (64 hex characters,
+`openssl rand -hex 32`) so the key never sits in the database it protects; never change it once
+people have enrolled. The demo's enrolled people share the published secret
+`JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP` locally, never in production.
+
+Email goes through Resend once someone with settings rights saves a Resend key, a from address on a
+verified domain and the app's address under Settings. Invitations and resets are then emailed to the
+person and the link is never shown to whoever sent it, so nobody else can set their password; until
+then the link is shown once, to hand over in person. People who forget their password use "Forgot your
+password?" on the sign-in page: a single-use link, valid for 30 minutes, emailed only once email is set
+up. Its reply never says whether an account exists, and one account gets at most three emails an hour;
+invitations are capped at three sends an hour too. Every link's token sits after `#`, so it never
+reaches a server log, and only its hash is kept.
+
+What became of each email shows on the Access tab against the person: sent, delivered, delayed,
+bounced, marked as spam or failed. Resend reports it to a webhook at
+`/v1/integrations/resend/webhook/<organisation>`; Settings shows the address to give Resend and takes
+its signing secret (`whsec_...`), and a report without a valid signature from the last five minutes
+is refused. Without the webhook, "Check now" on the person asks Resend. A bounce, a spam complaint or
+a failure goes on the Access overview with the receiving server's reason until it stops mattering
+(the invitation is accepted or withdrawn, or the person signs in after the reset), and the person's
+panel offers to hand a new link over instead of emailing it again. Preshift keeps who each email went
+to and its reports for 180 days, never its content or link, and does not track opens or clicks.
+
+Known limit: a reset link is built on the home organisation's saved app address and sent through its
+Resend account, so the home organisation's admins are trusted with the account; a person who works
+for several clients is best made at home in the organisation they belong to.
 
 The demo runs a small group: West End Dining Ltd (Marylebone and Fitzrovia) and East Canteen &
 Kitchen Ltd (Shoreditch), with realistic teams, rates and forecasts, against a TeamPay simulator.

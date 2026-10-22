@@ -7,12 +7,12 @@ const SECTIONS = [
   'Sites', 'Rota', 'Demand', 'Clock in',
   'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
   'Labour cost', 'Payroll', 'Close', 'Reports',
-  'Integrations', 'GDPR', 'Settings', 'How to',
+  'Integrations', 'GDPR', 'Access', 'Settings', 'How to',
 ];
 const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Staff', 'Payroll'];
 const PLANNING = ['Sites', 'Rota', 'Demand'];
 const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close', 'Reports'];
-const ORG = ['Integrations', 'GDPR', 'Settings', 'How to'];
+const ORG = ['Integrations', 'GDPR', 'Access', 'Settings', 'How to'];
 
 const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });
 const heading = (page: Page) => page.locator('.mast-title h1');
