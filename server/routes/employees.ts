@@ -72,6 +72,15 @@ export function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
   if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else changes your own pay.');
 }
 
+/**
+ * Nobody changes their own staff record, whatever their roles: holiday carried over is paid out at
+ * leaving, contracted hours set what they are owed, and a right to work check signed off by the
+ * person it is about is no check at all.
+ */
+function notOwnRecord(g: Guard, e: Pick<Employee, 'id'>) {
+  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own staff record.');
+}
+
 export function queueUpsert(org: OrgData, e: Employee) {
   enqueue(org, {
     type: 'employee.upsert',
@@ -185,6 +194,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (Object.keys(req.body).some((k) => !PAY_FIELDS.includes(k as keyof Employee))) {
         g.allow('team.manage', before.siteId);
         if (after.siteId !== before.siteId) g.allow('team.manage', after.siteId);
+        notOwnRecord(g, before);
       }
       if (payChanged(before, req.body)) allowPay(g, before);
       // The list of stored copies is the server's: editing the check never adds or drops a file.
@@ -230,6 +240,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!e) throw notFound(`Employee ${req.params.id}`);
       const g = guard(ctx, req, org);
       g.allow('team.manage', e.siteId);
+      notOwnRecord(g, e);
       if (e.status === 'leaver') throw new HttpError(409, 'conflict', `${e.name} is already a leaver`);
       e.status = 'leaver';
       e.leaveDate = req.body.leaveDate;
