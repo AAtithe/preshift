@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addDays } from './time';
-import { employeeNi, employerNi, markWeekPaid, tipsPayBy, troncCompliance, troncRun, troncSchemeProblems } from './tronc';
+import { employeeNi, employerNi, markWeekPaid, markWeekUnpaid, tipsPayBy, troncCompliance, troncRun, troncSchemeProblems } from './tronc';
 import type { Employee, RotaState, TimeEntry, TipsTaken, TroncScheme } from './types';
 
 const WEEK = '2026-10-19'; // a Monday
@@ -181,6 +181,19 @@ describe('compliance', () => {
     const paid = { ...st, tips: markWeekPaid(st.tips ?? [], 'mar', WEEK, '2026-10-30') };
     expect(codes(paid, '2026-12-01')).not.toContain('tips-overdue');
     expect(allocate(paid, 'mar', WEEK, NEXT).paid).toBe(true);
+  });
+
+  it('marks paid only what had been taken by the payment date, and takes back one payment at a time', () => {
+    const tips: TipsTaken[] = [tip(80), { ...tip(40), id: 'later', date: addDays(WEEK, 4) }];
+    const first = markWeekPaid(tips, 'mar', WEEK, addDays(WEEK, 2));
+    expect(first.map((t) => t.paidOn)).toEqual([addDays(WEEK, 2), undefined]);
+    const both = markWeekPaid(first, 'mar', WEEK, addDays(WEEK, 6));
+    expect(both.map((t) => t.paidOn)).toEqual([addDays(WEEK, 2), addDays(WEEK, 6)]);
+    // Undoing the second payment leaves the first standing.
+    expect(markWeekUnpaid(both, 'mar', WEEK, addDays(WEEK, 6)).map((t) => t.paidOn)).toEqual([addDays(WEEK, 2), undefined]);
+    // Another site's or another week's payments are left alone.
+    expect(markWeekUnpaid(both, 'shd', WEEK, addDays(WEEK, 2))).toEqual(both);
+    expect(markWeekUnpaid(both, 'mar', NEXT, addDays(WEEK, 2))).toEqual(both);
   });
 
   it('flags tips taken with no scheme at all', () => {

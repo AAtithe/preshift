@@ -251,9 +251,26 @@ export function troncCompliance(state: RotaState, entries: TimeEntry[], siteId: 
 }
 
 /** Marks every tip in the week as paid through payroll on `date`. */
+/**
+ * Marks a site's unpaid tips for the week as paid on `date`. Only tips taken on or before that date:
+ * money cannot reach staff before it was taken, so later days stay unpaid for the next run.
+ */
 export function markWeekPaid(tips: TipsTaken[], siteId: string, weekStartDate: string, date: string): TipsTaken[] {
   const week = new Set(weekDates(weekStartDate));
-  return tips.map((t) => (t.siteId === siteId && week.has(t.date) && !t.paidOn ? { ...t, paidOn: date } : t));
+  return tips.map((t) => (t.siteId === siteId && week.has(t.date) && !t.paidOn && t.date <= date ? { ...t, paidOn: date } : t));
+}
+
+/**
+ * Takes one payment back off the week, for a payment marked in error. Only the tips marked paid on
+ * that date: other payments in the same week stand.
+ */
+export function markWeekUnpaid(tips: TipsTaken[], siteId: string, weekStartDate: string, paidOn: string): TipsTaken[] {
+  const week = new Set(weekDates(weekStartDate));
+  return tips.map((t) => {
+    if (t.siteId !== siteId || !week.has(t.date) || t.paidOn !== paidOn) return t;
+    const { paidOn: _paidOn, ...unpaid } = t;
+    return unpaid;
+  });
 }
 
 /** The tips record for one worker over a period, for a request under the Act. */

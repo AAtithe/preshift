@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { tipsStatement, troncCompliance, troncRun } from '../engine/tronc';
 import { addDays, weekDates } from '../engine/time';
 import type { RotaState, TimeEntry, TipsTaken, TroncScheme } from '../engine/types';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { dayLabel, download, hours, money, money2 } from './format';
 import { Kpi } from './Kpi';
 import { TroncSchemeEditor } from './TroncSchemeEditor';
@@ -30,12 +30,42 @@ export function TroncView(props: Props) {
   if (failed || error) return <p className="muted">{failed ?? error}</p>;
   if (!feed || !entries) return <p className="muted">Loading tips and clocked hours.</p>;
   const saved = (scheme: TroncScheme) => setFeed({ ...feed, troncSchemes: [...feed.troncSchemes.filter((s) => s.siteId !== scheme.siteId), scheme] });
-  return <Tronc {...props} state={{ ...props.state, ...feed }} entries={entries} onSaved={saved} />;
+  // The server answers with the week's tips as they now stand: they replace the same week's in the feed.
+  const paid = (week: TipsTaken[]) => {
+    const ids = new Set(week.map((t) => t.id));
+    setFeed({ ...feed, tips: [...feed.tips.filter((t) => !ids.has(t.id)), ...week] });
+  };
+  return <Tronc {...props} state={{ ...props.state, ...feed }} entries={entries} onSaved={saved} onPaid={paid} />;
 }
 
-function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved }: Props & { entries: TimeEntry[]; onSaved: (scheme: TroncScheme) => void }) {
+type TroncProps = Props & { entries: TimeEntry[]; onSaved: (scheme: TroncScheme) => void; onPaid: (tips: TipsTaken[]) => void };
+
+function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved, onPaid }: TroncProps) {
   const scheme = state.troncSchemes?.find((s) => s.siteId === siteId);
   const [editing, setEditing] = useState(false);
+  const [paidOn, setPaidOn] = useState(asOf);
+  const [paying, setPaying] = useState(false);
+  const [payNote, setPayNote] = useState<string | null>(null);
+  const weekTips = (state.tips ?? []).filter((t) => t.siteId === siteId && weekDates(week).includes(t.date));
+  const unpaidTips = weekTips.filter((t) => !t.paidOn);
+  // Each payment made that week, by its date, with what it paid: each can be taken back on its own.
+  const payments = [...new Set(weekTips.flatMap((t) => (t.paidOn ? [t.paidOn] : [])))]
+    .sort()
+    .map((date) => ({ date, amount: weekTips.filter((t) => t.paidOn === date).reduce((s, t) => s + t.amount, 0) }));
+
+  async function markPaid(change: { paidOn: string } | { undo: string }) {
+    setPaying(true);
+    setPayNote(null);
+    try {
+      const res = await api.post<{ count: number; amount: number; tips: TipsTaken[] }>('/v1/tronc/tips/paid', { siteId, weekStart: week, ...change });
+      onPaid(res.tips);
+      setPayNote('paidOn' in change ? `${money2(res.amount)} marked paid on ${dayLabel(change.paidOn).date}.` : `${money2(res.amount)} taken back off. It counts as unpaid again.`);
+    } catch (err) {
+      setPayNote(err instanceof ApiError || err instanceof Error ? err.message : String(err));
+    } finally {
+      setPaying(false);
+    }
+  }
   const run = useMemo(() => troncRun(state, entries, siteId, week, asOf), [state, entries, siteId, week, asOf]);
   const issues = useMemo(() => troncCompliance(state, entries, siteId, week, asOf), [state, entries, siteId, week, asOf]);
   const employee = (id: string) => state.employees.find((e) => e.id === id);
@@ -230,6 +260,28 @@ function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved }: Props &
               </table>
             </div>
           )}
+          {canEdit && weekTips.length > 0 && (
+            <div className="row-actions">
+              {unpaidTips.length > 0 && (
+                <>
+                  <label className="small">
+                    Paid through payroll on{' '}
+                    <input type="date" max={asOf} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+                  </label>
+                  <button disabled={paying || !paidOn} onClick={() => void markPaid({ paidOn })}>
+                    Mark {money2(unpaidTips.reduce((s, t) => s + t.amount, 0))} paid
+                  </button>
+                </>
+              )}
+              {payments.map((p) => (
+                <span key={p.date} className="small">
+                  {money2(p.amount)} paid on {dayLabel(p.date).date}.{' '}
+                  <button className="link" disabled={paying} onClick={() => void markPaid({ undo: p.date })}>Undo</button>
+                </span>
+              ))}
+            </div>
+          )}
+          {payNote && <p className="small">{payNote}</p>}
           <p className="small muted">
             Tips never count towards minimum wage and are not labour cost: they pass through. Any worker can ask for their
             tips record and must have it within four weeks; "Tips record" gives the last twelve weeks.

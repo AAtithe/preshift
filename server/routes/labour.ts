@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { troncSchemeProblems } from '../../src/engine/tronc';
+import { markWeekPaid, markWeekUnpaid, troncSchemeProblems } from '../../src/engine/tronc';
+import { weekDates, weekStart } from '../../src/engine/time';
 import type { Dish, DishSales, Purchase, StockCount, TipsTaken, TroncScheme } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
@@ -93,6 +94,49 @@ export function labourRoutes(app: FastifyInstance, ctx: AppContext) {
       org.state.troncSchemes = [...(org.state.troncSchemes ?? []).filter((s) => s.siteId !== siteId), scheme];
       audit(org, actorName(g), 'tronc.scheme_saved', { siteId, fields, independent: scheme.independent });
       return scheme;
+    },
+  );
+
+  // Payroll confirms the week's tips reached the team: what clears the Act's deadline on the Tronc
+  // and Compliance risk screens. `undo` takes one payment marked in error back off, by its date,
+  // leaving any other payment that week standing. Both are audited.
+  app.post<{ Body: { siteId: string; weekStart: string; paidOn?: string; undo?: string } }>(
+    '/v1/tronc/tips/paid',
+    {
+      ...write,
+      schema: {
+        tags: ['Labour'],
+        description: "Marks a site's unpaid tips for one week as paid through payroll on paidOn, or takes the payment made on undo back off. One of the two. For payroll: payroll.send or pay.approve.",
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['siteId', 'weekStart'],
+          properties: { siteId: { type: 'string' }, weekStart: ISO_DATE, paidOn: ISO_DATE, undo: ISO_DATE },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const { siteId, weekStart: week, paidOn, undo } = req.body;
+      if (!paidOn === !undo) throw new HttpError(400, 'invalid_request', 'Give either paidOn, to mark the week paid, or undo, to take one payment back off.');
+      if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
+      const g = guard(ctx, req, org);
+      allowTronc(g);
+      if (weekStart(week) !== week) throw new HttpError(400, 'invalid_week', 'weekStart must be the Monday the week starts on.');
+      if (paidOn && paidOn > g.today) throw new HttpError(422, 'future_date', 'Tips cannot be marked paid on a date still to come.');
+
+      const days = new Set(weekDates(week));
+      const inWeek = (t: TipsTaken) => t.siteId === siteId && days.has(t.date);
+      const tips = org.state.tips ?? [];
+      const next = paidOn ? markWeekPaid(tips, siteId, week, paidOn) : markWeekUnpaid(tips, siteId, week, undo!);
+      const changed = next.filter((t, i) => t !== tips[i]);
+      if (changed.length === 0) {
+        throw new HttpError(409, 'nothing_to_mark', paidOn ? 'No unpaid tips that week had been taken by that date.' : 'No tips that week were marked paid on that date.');
+      }
+      org.state.tips = next;
+      const amount = Math.round(changed.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+      audit(org, actorName(g), paidOn ? 'tronc.tips_paid' : 'tronc.tips_unpaid', { siteId, weekStart: week, count: changed.length, paidOn: paidOn ?? undo });
+      return { count: changed.length, amount, tips: next.filter(inWeek) };
     },
   );
 
