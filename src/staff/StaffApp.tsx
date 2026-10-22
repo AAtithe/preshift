@@ -28,6 +28,15 @@ interface Overview {
   recent: Entry[];
   /** The legal minimum break for the shift they are on, when there is one. */
   breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
+  /** Their own contact details, which they keep up to date. */
+  details: Details;
+}
+
+interface Details {
+  phone: string;
+  address: string;
+  postcode: string;
+  emergencyContact: { name: string; relationship?: string; phone: string } | null;
 }
 
 type GeoState = { status: 'locating' | 'denied' | 'unavailable' } | { status: 'ok'; fix: GeoFix };
@@ -371,7 +380,60 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         )}
         <p className="muted small">Your manager checks hours and breaks, and corrects them if needed, before approval.</p>
       </section>
+
+      <MyDetails details={data.details} onSaved={onChange} />
     </>
+  );
+}
+
+/** Their phone, address and emergency contact, kept up to date by them rather than chased by the manager. */
+function MyDetails({ details, onSaved }: { details: Details; onSaved: (o: Overview) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  const missing = !details.phone || !details.address || !details.emergencyContact;
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const text = (k: string) => String(f.get(k) ?? '').trim();
+    const body: Record<string, unknown> = {};
+    for (const k of ['phone', 'address', 'postcode']) if (text(k)) body[k] = text(k);
+    if (text('ecName') || text('ecPhone')) {
+      if (!text('ecName') || !text('ecPhone')) return setMessage({ tone: 'bad', text: 'Give your emergency contact a name and a phone number.' });
+      body.emergencyContact = { name: text('ecName'), relationship: text('ecRelationship') || undefined, phone: text('ecPhone') };
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      onSaved(await call<Overview>('PUT', '/v1/staff/details', body));
+      setMessage({ tone: 'good', text: 'Saved. Your manager sees the change on your record.' });
+    } catch (err) {
+      setMessage({ tone: 'bad', text: say(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const ec = details.emergencyContact;
+  return (
+    <form className="staff-card staff-form" onSubmit={submit}>
+      <h2>My details</h2>
+      <p className="muted small">
+        {missing
+          ? 'Some of your details are missing. Your manager needs a phone number, your address and someone to call in an emergency.'
+          : 'Keep these up to date so your manager can reach you, and someone you choose if you are taken ill at work.'}
+      </p>
+      <label>Mobile <input type="tel" name="phone" autoComplete="tel" defaultValue={details.phone} maxLength={30} /></label>
+      <label>Address <input name="address" autoComplete="street-address" defaultValue={details.address} maxLength={500} /></label>
+      <label>Postcode <input name="postcode" autoComplete="postal-code" defaultValue={details.postcode} maxLength={10} /></label>
+      <h2>Emergency contact</h2>
+      <label>Name <input name="ecName" defaultValue={ec?.name ?? ''} maxLength={120} /></label>
+      <label>Relationship to you <input name="ecRelationship" defaultValue={ec?.relationship ?? ''} maxLength={60} placeholder="For example, partner or parent" /></label>
+      <label>Their phone <input type="tel" name="ecPhone" defaultValue={ec?.phone ?? ''} maxLength={30} /></label>
+      <button className="staff-big" disabled={busy}>{busy ? 'Saving' : 'Save my details'}</button>
+      {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
+      <p className="muted small">Your NI number and pay are changed by your manager, so a mistake cannot reach payroll.</p>
+    </form>
   );
 }
 

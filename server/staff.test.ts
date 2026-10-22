@@ -110,6 +110,29 @@ describe('staff logins', () => {
     expect(JSON.stringify((await t.call('GET', '/v1/staff/me', undefined, me)).body)).not.toMatch(/mar-2/);
   });
 
+  it('lets a person keep their own contact details, and nothing else on their file', async () => {
+    const t = await boot();
+    expect((await t.call('PUT', '/v1/staff/details', { phone: '07700 900111' })).status).toBe(401);
+    const me = (await t.join('mar-1', 'priya@example.com')).cookie;
+    const before = (await t.manager('GET', '/v1/employees/mar-1')).body;
+    const res = await t.call('PUT', '/v1/staff/details', {
+      phone: ' 07700 900111 ', address: '1 Baker Street, London', postcode: 'nw1 6xe',
+      emergencyContact: { name: 'Sam Shah', relationship: 'Brother', phone: '07700 900222' },
+      niNumber: 'QQ123456C', payRate: 99,
+    }, me);
+    expect(res.status).toBe(200);
+    expect(res.body.details).toEqual({ phone: '07700 900111', address: '1 Baker Street, London', postcode: 'NW1 6XE', emergencyContact: { name: 'Sam Shah', relationship: 'Brother', phone: '07700 900222' } });
+    const after = (await t.manager('GET', '/v1/employees/mar-1')).body;
+    expect(after.phone).toBe('07700 900111');
+    expect(after.hr).toMatchObject({ address: '1 Baker Street, London', postcode: 'NW1 6XE', emergencyContact: { name: 'Sam Shah' } });
+    // NI number and pay are the manager's: anything else sent is ignored.
+    expect(after.hr.niNumber).toBe(before.hr?.niNumber);
+    expect(after.payRate).toBe(before.payRate);
+    // Blank values never clear what is on file.
+    expect((await t.call('PUT', '/v1/staff/details', { phone: '' }, me)).status).toBe(400);
+    expect((await t.manager('GET', '/v1/employees/mar-1')).body.phone).toBe('07700 900111');
+  });
+
   it('never lets a staff session into the manager app or API', async () => {
     const t = await boot();
     const staff = (await t.join('mar-1', 'priya@example.com')).cookie;

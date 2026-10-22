@@ -93,6 +93,13 @@ function overview({ org, employee, login }: Staff) {
       .filter((s) => s.employeeId === employee.id && s.published && s.date >= today && s.date <= addDays(today, 13))
       .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
       .map((s) => ({ id: s.id, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes, siteName: siteName(s.siteId), roleName: roleName(s.roleId) })),
+    // Their own contact details, which they keep up to date themselves.
+    details: {
+      phone: employee.phone ?? '',
+      address: employee.hr?.address ?? '',
+      postcode: employee.hr?.postcode ?? '',
+      emergencyContact: employee.hr?.emergencyContact ?? null,
+    },
     recent: org.timeEntries
       .filter((t) => t.employeeId === employee.id && t.date >= addDays(today, -13) && t.status !== 'open')
       .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn - a.clockIn)
@@ -217,6 +224,67 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
       clockOut(org, entry, { method: 'phone', location: req.body?.location });
       audit(org, `staff:${employee.id}`, 'time.phone_clock_out', { id: entry.id });
       await store.save(org);
+      return overview(staff);
+    },
+  );
+
+  // A person keeps their own phone, address and emergency contact up to date, which their first day
+  // checklist needs and only they reliably know. Their NI number and pay stay with the manager: a
+  // mistake there changes payroll. Nothing is cleared from here, only corrected.
+  app.put<{ Body: { phone?: string; address?: string; postcode?: string; emergencyContact?: { name: string; relationship?: string; phone: string } } }>(
+    '/v1/staff/details',
+    {
+      schema: {
+        hide: true,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            phone: { type: 'string', minLength: 1, maxLength: 30 },
+            address: { type: 'string', minLength: 1, maxLength: 500 },
+            postcode: { type: 'string', minLength: 1, maxLength: 10 },
+            emergencyContact: {
+              type: 'object',
+              required: ['name', 'phone'],
+              additionalProperties: false,
+              properties: { name: { type: 'string', minLength: 1, maxLength: 120 }, relationship: { type: 'string', maxLength: 60 }, phone: { type: 'string', minLength: 1, maxLength: 30 } },
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const b = req.body;
+      const trim = (v: string) => v.trim();
+      const fields: string[] = [];
+      if (b.phone !== undefined && trim(b.phone) && trim(b.phone) !== employee.phone) {
+        employee.phone = trim(b.phone);
+        fields.push('phone');
+      }
+      const hr = { ...employee.hr };
+      if (b.address !== undefined && trim(b.address) && trim(b.address) !== hr.address) {
+        hr.address = trim(b.address);
+        fields.push('address');
+      }
+      if (b.postcode !== undefined && trim(b.postcode) && trim(b.postcode).toUpperCase() !== hr.postcode) {
+        hr.postcode = trim(b.postcode).toUpperCase();
+        fields.push('postcode');
+      }
+      if (b.emergencyContact && trim(b.emergencyContact.name) && trim(b.emergencyContact.phone)) {
+        const next = { name: trim(b.emergencyContact.name), relationship: b.emergencyContact.relationship?.trim() || undefined, phone: trim(b.emergencyContact.phone) };
+        if (JSON.stringify(next) !== JSON.stringify(hr.emergencyContact)) {
+          hr.emergencyContact = next;
+          fields.push('emergencyContact');
+        }
+      }
+      if (fields.length) {
+        employee.hr = hr;
+        // Recorded like a manager's change to the file, so it shows on the person's record.
+        audit(org, `staff:${employee.id}`, 'hr.profile.updated', { id: employee.id, fields, bySelf: true });
+        await store.save(org);
+      }
       return overview(staff);
     },
   );
