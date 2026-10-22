@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { isSandbox, sandboxExpired } from './sandbox';
+import { ACCESS_PREFIX, oauthPrincipal } from './oauth';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
 import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
@@ -189,6 +190,11 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
           await users.putApiKey({ ...stored, lastUsedAt: new Date().toISOString() });
         }
       }
+    }
+    if (!keyed && token.startsWith(ACCESS_PREFIX)) {
+      // A connection a person approved through Sign in with Preshift (server/oauth.ts).
+      keyed = (await oauthPrincipal(token, users)) ?? undefined;
+      if (!keyed) return reply.code(401).send({ error: 'unauthorised', message: 'That connection has expired or been disconnected. Connect to Preshift again.' });
     }
     if (keyed) {
       req.apiCall = { orgId: keyed.orgId, keyId: keyed.keyId ?? `env:${keyed.name}`, started: Date.now() };
