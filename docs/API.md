@@ -38,10 +38,13 @@ People and access (`/v1/users`, `/v1/access/*`) are managed by people only, neve
 key; settings (`/v1/settings`) need a signed-in person with `settings.manage`, and staff data
 requests (`/v1/privacy/*` beyond the register) a person with `privacy.manage`. Personnel files
 (`/v1/hr/*`) need `hr.view` or `hr.manage` where the person works, and cases `hr.cases`. Integrations use bearer API keys, each bound to one organisation with scopes (see Plugging in,
-below). `programme:lead` is never implied by `*` and cannot be given to a key made in the app: it is held
-by Williams, Stanley & Co. alone, in a deployment key, because programme sign-offs, baselines,
-verifications and the gain share set the fee an operator pays. A key with it can also name a person
-as the WS lead in its organisation (`PUT /v1/programme-leads/:email`). A GM key can build rotas and approve
+below). Programme sign-offs, baselines, verifications and the gain share set the fee an operator
+pays, so they need the `programme.lead` permission, which only the WS client partner role carries,
+or a deployment key Williams, Stanley & Co. holds with the `programme:lead` scope. That scope is never
+implied by `*` and cannot be given to a key made in the app. WS roles are granted only by the WS
+client partner or by that key, which may also invite the first partner (`POST /v1/users` with
+`audience: "ws"`) and is refused any operator role; the operator's owner, and a sign-in with no access
+record, can remove WS people but never appoint or change them. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -279,7 +282,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Bookings | `PUT /v1/bookings` (push by the booking system's reference; only date, time, covers, status, made and cancelled dates are kept, anything else is dropped), `POST /v1/bookings/import` (a CSV export; columns found by name, UK dates unless `usDates`), `GET /v1/bookings`, `GET /v1/bookings/status` |
 | Till actuals | `GET/PUT /v1/actuals` (hourly sales and covers as traded: what the model learns from and accuracy is measured against) |
 | Coach | `POST /v1/coach/moves` (works out and records this week's moves), `POST /v1/coach/apply` (takes a move exactly as offered; refuses a stale one or one that now breaks a rule), `POST /v1/coach/dismiss` (with the reason), `GET /v1/coach/history` (with the saving each taken move actually realised), `GET /v1/scorecard?siteId=&weeks=` |
-| Programme | `GET /v1/programmes`, `PUT /v1/programmes/:siteId`, `PUT /v1/programmes/:siteId/baseline`, `POST /v1/programmes/:siteId/signoffs`, `DELETE /v1/programmes/:siteId/signoffs/:milestoneId`, `POST /v1/programmes/:siteId/verifications` (all writes need `programme:lead`) |
+| Programme | `GET /v1/programmes`, `PUT /v1/programmes/:siteId`, `PUT /v1/programmes/:siteId/baseline`, `POST /v1/programmes/:siteId/signoffs`, `DELETE /v1/programmes/:siteId/signoffs/:milestoneId`, `POST /v1/programmes/:siteId/verifications` (all writes need the WS client partner, or a WS key with `programme:lead`) |
 | Benchmarks | `PUT /v1/settings/benchmarking` (the operator's admin opts in), `GET /v1/benchmarks` (quartiles from other opted-in operators only) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve` (returns `belowBreakMinimum`, recorded in the audit), `GET /compare`, `GET /break-check` (finished shifts below the legal rest break: `short` or `split`) |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. A card tap from a reader fixed on site under its own API key (no person behind it) is not location checked and may send `at` for a tap held offline, never in the future. A card tap from a signed-in person's tablet or phone is location checked like a device clock. Any clock from a person is timed by the server; an `at` more than two minutes off is refused (`time_set_by_server`). Employee records carry `personalHidden: true` and `under18` for readers without `team.manage` or `hr.view` at the person's sites: date of birth, right to work detail and card number are withheld. |

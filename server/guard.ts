@@ -27,7 +27,9 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
     if (email && req.principal.homeOrgId && req.principal.homeOrgId !== org.orgId) {
       throw new HttpError(403, 'forbidden', 'You have no access to this organisation.');
     }
-    return { kind: 'system', name: req.principal.name };
+    // A deployment key WS holds: never implied by `*`, so the operator's own keys never carry it.
+    const ws = !email && req.principal.scopes.includes('programme:lead');
+    return { kind: 'system', name: req.principal.name, ...(ws ? { ws } : {}) };
   }
   // Signing in proves the email, so it accepts a waiting invitation.
   if (user.status === 'invited' && email) {

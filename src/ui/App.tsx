@@ -576,7 +576,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
-              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={account} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
+              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (
                 <PeopleView
