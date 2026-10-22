@@ -353,3 +353,7 @@ button.link.danger { color: var(--bad); }
 }
 .cal-wd { display: none; }
 @media (max-width: 720px) { .cal-wd { display: inline; } }
+.chip.booked { background: var(--surface-2); color: var(--text); }
+.chip.booked.ahead { font-weight: 650; }
+.chip.party { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.reminder.kind-bookings { border-left-color: var(--good); }

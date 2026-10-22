@@ -17,6 +17,7 @@ import { timeRoutes } from './routes/time';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
+import { bookingRoutes } from './routes/bookings';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { webRoutes } from './routes/web';
@@ -229,6 +230,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
+    bookingRoutes(api, ctx);
     payrollRoutes(api, ctx);
     devRoutes(api, ctx);
     accessRoutes(api, store);

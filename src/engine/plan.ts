@@ -1,8 +1,9 @@
 import type { DailyWeather, ForecastAdjustment, LocalEvent, RotaState } from './types';
+import { bookingSignals, type BookingSignal } from './bookings';
 import { occasionEffect, occasionsBetween, type Occasion } from './calendar';
 import { eventWindow, learnEventEffect, type EventEffect } from './events';
 import { siteHistory } from './history';
-import { addDays, parseISODate } from './time';
+import { addDays, formatMinute, parseISODate, weekday } from './time';
 import { describeWeather, learnWeatherEffect, seasonalTemp, weatherFactor, type WeatherEffect } from './weather';
 
 // Planning ahead: everything known about the coming weeks at a site (the
@@ -11,6 +12,7 @@ import { describeWeather, learnWeatherEffect, seasonalTemp, weatherFactor, type 
 // and into reminders where it does not, or where something needs doing first.
 
 export type AutoKind = 'occasion' | 'event' | 'weather';
+export type ReminderKind = AutoKind | 'bookings';
 
 /** An adjustment the model made itself, with the evidence behind it. Never zero: only a person can close a site. */
 export interface AutoAdjustment extends ForecastAdjustment {
@@ -28,12 +30,14 @@ export interface CalendarDay {
   adjustments: AutoAdjustment[];
   /** Manual adjustments people have set for the day. */
   manual: ForecastAdjustment[];
+  /** What the books say, by daypart. */
+  bookings: BookingSignal[];
 }
 
 export interface Reminder {
   /** Stable across refreshes, so a dismissal sticks. */
   key: string;
-  kind: AutoKind;
+  kind: ReminderKind;
   date: string;
   /** From when it should be shown. */
   dueFrom: string;
@@ -55,8 +59,12 @@ export interface Plan {
   reminders: Reminder[];
   weatherEffect: WeatherEffect;
   eventEffects: EventEffect[];
+  /** Every booking signal in the range, for the model run to set against its own covers. */
+  bookingSignals: BookingSignal[];
 }
 
+/** Pace well ahead of or behind usual must be at least this many covers before it is a reminder. */
+export const PACE_MIN_COVERS = 10;
 const pctText = (f: number) => `${f >= 1 ? '+' : ''}${Math.round((f - 1) * 100)}%`;
 const money = (n: number) => `£${Math.round(n).toLocaleString('en-GB')}`;
 const span = (from?: number, to?: number) => (from === undefined && to === undefined ? '' : ` ${String(from ?? 0).padStart(2, '0')}:00 to ${String(to ?? 24).padStart(2, '0')}:00`);
@@ -115,6 +123,17 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
   const occasionDays = new Set([...unusual].filter((d) => !events.some((e) => e.date === d)));
   const feedIds = [...new Set(events.map((e) => e.feedId).filter((f): f is string => !!f))];
   const eventEffects = feedIds.map((feedId) => learnEventEffect(h, events, feedId, today, unusual, occasionDays));
+
+  const weatherAt = (date: string) => {
+    const w = weather.find((x) => x.date === date && !x.observed);
+    return w ? weatherFactor(weatherEffect, w, seasonalTemp(weather, date)) : 1;
+  };
+  const signals = bookingSignals(state.bookings ?? [], state.bookingPace ?? [], state.actuals ?? [], siteId, from, to, today, {
+    unusual,
+    weatherFactor: weatherAt,
+    historyFactors: historyWeatherFactors(state, siteId, weatherEffect),
+  });
+  const dayName = (d: string) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][weekday(d)];
 
   const occs = occasionsBetween(from, addDays(to, 0));
   const reminders: Reminder[] = [];
@@ -230,6 +249,46 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
       }
     }
 
+    const daySignals = signals.filter((sg) => sg.date === date);
+    for (const sg of daySignals) {
+      for (const p of sg.largeParties) {
+        reminders.push({
+          key: `bookings:party:${p.id}`,
+          kind: 'bookings',
+          date,
+          dueFrom: addDays(date, -14),
+          title: `Party of ${p.covers}, ${formatMinute(p.startMinute)}`,
+          advice: 'Roster for it by name: a server who owns the table, the kitchen told the numbers and timing, and the deposit and pre-order checked.',
+          applied: [],
+          needsInput: false,
+          fromHour: sg.fromHour,
+          toHour: sg.toHour,
+        });
+      }
+      // Pace well ahead of or behind a normal day, in the next fortnight, is worth a look before the rota is built.
+      // A percentage on small numbers is noise: four booked against seven is not worth a GM's attention. It must be
+      // at least ten covers and a quarter either side of usual.
+      const gap = sg.usualAtLead === null ? 0 : sg.booked - sg.usualAtLead;
+      const material = sg.usualAtLead !== null && Math.abs(gap) >= Math.max(PACE_MIN_COVERS, 0.25 * sg.usualAtLead);
+      if (sg.usable && sg.pace !== null && sg.lead <= 14 && material && sg.expected !== null) {
+        const ahead = sg.pace >= 1;
+        reminders.push({
+          key: `bookings:pace:${date}:${sg.daypart}`,
+          kind: 'bookings',
+          date,
+          dueFrom: addDays(date, -14),
+          title: `${dayName(date)} ${sg.label.toLowerCase()} pacing ${ahead ? '+' : ''}${Math.round((sg.pace - 1) * 100)}% on a normal ${dayName(date)}`,
+          advice:
+            `${sg.booked} covers booked against ${sg.usualAtLead} usually on the books at this point. Expect ${sg.expected} covers. ` +
+            (ahead ? 'Build the forecast again and check the rota covers it before you publish.' : 'Check whether the rota still needs everyone on it before you publish.'),
+          applied: [],
+          needsInput: false,
+          fromHour: sg.fromHour,
+          toHour: sg.toHour,
+        });
+      }
+    }
+
     // One occasion and one event per day at most: two occasions on a day (Valentine's on Shrove Tuesday) or
     // the same match listed by two feeds are one effect, not two. The strongest stands.
     const strongest = (kind: AutoKind) =>
@@ -238,14 +297,14 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
     // Each is held to a sensible range, and the model caps them in total too. An occasion can genuinely
     // double a lunch (Mothering Sunday), so it gets more room than weather or an event.
     const kept = manualWins(single, manual).map((a) => ({ ...a, factor: a.kind === 'occasion' ? Math.min(2.5, Math.max(0.5, a.factor)) : Math.min(1.6, Math.max(0.6, a.factor)) }));
-    days.push({ date, occasions: dayOccasions, events: dayEvents, weather: w, weatherText: w ? describeWeather(w) : undefined, adjustments: kept, manual: manual.filter((m) => m.date === date) });
+    days.push({ date, occasions: dayOccasions, events: dayEvents, weather: w, weatherText: w ? describeWeather(w) : undefined, adjustments: kept, manual: manual.filter((m) => m.date === date), bookings: daySignals });
   }
 
   // A reminder only shows what survived a person's own decision.
   const keptIds = new Set(days.flatMap((d) => d.adjustments.map((a) => a.id)));
   for (const r of reminders) r.applied = r.applied.filter((a) => keptIds.has(a.id));
 
-  return { siteId, from, to, days, reminders: reminders.sort((a, b) => a.date.localeCompare(b.date)), weatherEffect, eventEffects };
+  return { siteId, from, to, days, reminders: reminders.sort((a, b) => a.date.localeCompare(b.date)), weatherEffect, eventEffects, bookingSignals: signals };
 }
 
 /** Reminders that are due now: on or after their due date and not yet past. */

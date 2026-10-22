@@ -1,4 +1,6 @@
-import type { DemandRule, Employee, Entity, HourActual, HourForecast, Role, RotaState, Site } from './types';
+import type { Booking, BookingPace, DemandRule, Employee, Entity, HourActual, HourForecast, Role, RotaState, Site } from './types';
+import { PACE_LEADS } from './bookings';
+import { daypartOf, DAYPARTS } from './forecast';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -182,8 +184,63 @@ function actuals(start: string, today: string): HourActual[] {
   return rows;
 }
 
+/** Share of a day's final bookings already made `lead` days out: most come in the last fortnight. */
+const filled = (lead: number) => Math.exp(-lead / 9);
+const BOOKED_SHARE = 0.6;
+
+/**
+ * Marylebone takes bookings: twelve weeks of how its days filled up, and the
+ * next three weeks on the books, with next Saturday's dinner pacing well ahead
+ * and a party of 24 booked for Halloween. The other sites are walk-in led.
+ */
+function bookingDemo(start: string, today: string, actualRows: HourActual[], forecastRows: HourForecast[]): { bookings: Booking[]; pace: BookingPace[] } {
+  const pace: BookingPace[] = [];
+  const covers = (rows: { date: string; hour: number; covers: number; siteId: string }[], date: string, dp: string) =>
+    rows.filter((r) => r.siteId === 'mar' && r.date === date && daypartOf(r.hour).id === dp).reduce((s, r) => s + r.covers, 0);
+  const pastDays = [...new Set(actualRows.filter((a) => a.siteId === 'mar' && a.date < addDays(today, -1)).map((a) => a.date))];
+  for (const date of pastDays) {
+    for (const dp of DAYPARTS) {
+      const final = dp.id === 'lunch' || dp.id === 'dinner' ? Math.round(covers(actualRows, date, dp.id) * BOOKED_SHARE) : 0;
+      pace.push({ siteId: 'mar', date, daypart: dp.id, booked: PACE_LEADS.map((l) => Math.round(final * filled(l))), leads: [...PACE_LEADS] });
+    }
+  }
+  const bookings: Booking[] = [];
+  const saturday = addDays(start, 5);
+  for (let d = today; d < addDays(today, 21); d = addDays(d, 1)) {
+    for (const dp of ['lunch', 'dinner'] as const) {
+      const lift = d === saturday && dp === 'dinner' ? 1.45 : 1;
+      const final = Math.round(covers(forecastRows, d, dp) * BOOKED_SHARE * lift);
+      const lead = Math.round((Date.parse(d) - Date.parse(today)) / 86_400_000);
+      const n = Math.max(0, Math.round(final / 4));
+      for (let i = 1; i <= n; i++) {
+        // The i-th of n bookings is made when the day is i/n filled; only those already made are on the books today.
+        const madeLead = Math.round(-9 * Math.log(i / n));
+        if (madeLead < lead) continue;
+        bookings.push({
+          id: `resdiary:demo-${d}-${dp}-${i}`,
+          siteId: 'mar',
+          source: 'resdiary',
+          date: d,
+          startMinute: (dp === 'lunch' ? 12 * 60 : 19 * 60) + (i % 4) * 30,
+          covers: 2 + (i % 3) * 2,
+          status: 'booked',
+          createdAt: addDays(d, -madeLead),
+        });
+      }
+    }
+  }
+  const halloween = `${today.slice(0, 4)}-10-31`;
+  if (halloween >= today && halloween < addDays(today, 21)) {
+    bookings.push({ id: 'resdiary:demo-party', siteId: 'mar', source: 'resdiary', date: halloween, startMinute: 19 * 60 + 30, covers: 24, status: 'booked', createdAt: addDays(today, -12) });
+  }
+  return { bookings, pace };
+}
+
 export function seedState(today = toISODate(new Date())): RotaState {
   const start = weekStart(today);
+  const history = actuals(start, today);
+  const fc = forecast(start);
+  const demo = bookingDemo(start, today, history, fc);
   return {
     // West End Dining claims for the group. Payroll to last Sunday left £1,850, so it runs out this week or next.
     entities: entities.map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
@@ -191,9 +248,11 @@ export function seedState(today = toISODate(new Date())): RotaState {
     roles,
     employees: employees(today),
     shifts: [],
-    forecast: forecast(start),
+    forecast: fc,
     demandRules: rules,
-    actuals: actuals(start, today),
+    actuals: history,
     forecastAdjustments: [],
+    bookings: demo.bookings,
+    bookingPace: demo.pace,
   };
 }

@@ -21,7 +21,7 @@ Lead with that. A scheduling vendor can say labour fell. We can show it in the a
 
 | Weeks | Phase | What the site must do | How it is proved |
 | --- | --- | --- | --- |
-| 1 to 2 | Baseline | Measure true labour: labour % by site and daypart, clocked time against the rota, hours rostered over demand. Load eight weeks of hourly till sales. Agree targets with the owner and GM. | Baseline recorded from the management accounts, or from till and approved time over whole weeks. Kick-off signed off by the lead. |
+| 1 to 2 | Baseline | Measure true labour: labour % by site and daypart, clocked time against the rota, hours rostered over demand. Load eight weeks of hourly till sales and, for sites that take bookings, three months of booking history. Agree targets with the owner and GM. | Baseline recorded from the management accounts, or from till and approved time over whole weeks. Kick-off signed off by the lead. |
 | 3 to 6 | Control | Build every week from the forecast. Publish at least seven days ahead with nothing blocking. Review variance with the GM every week. | Ladder rung 1 held three weeks in four. Weekly review signed off. |
 | 7 to 10 | Optimise | Hit target within one point. Tighten shift edges by daypart. Take the weekly moves. Agree cross-site cover with the people willing to do it. | Rungs 2 and 3 held. Half or more of the moves taken. Cover agreement signed off. |
 | 11 to 12 | Embed | Own the forecast. Close labour by working day 3. Sign the saving off in the accounts. Hand over to business as usual. | Rung 4 held. Clocked time within 1% of the rota. Day-3 close signed off. Saving verified. |
@@ -59,6 +59,8 @@ Thirty minutes, same day each week, the GM and the lead.
 4. Coming up. Open the Calendar tab together: what is due (Mothering Sunday five weeks out,
    party season ten), what the forecast already allows for and why, and what needs the GM's view.
    An occasion with no history is a judgement call: ask the GM what bookings say, then set it.
+   Look at the booking pace: a day well ahead of usual at this point needs the rota checked before
+   it is published, and a large party needs a named server and the kitchen told.
 5. This week. Build the forecast, check it, build the rota, take the moves, publish on time.
 
 ## Coaching notes for leads

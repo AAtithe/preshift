@@ -68,10 +68,15 @@ export function ForecastView({ state, siteId, week, onChanged }: Props) {
 
   const runModel = () =>
     act(async () => {
-      const r = await api.post<{ rows: number; skipped: string[]; trend: number; bankHolidayFactor: number | null }>('/v1/forecast/model', { siteId, weekStart: week });
+      const r = await api.post<{ rows: number; skipped: string[]; trend: number; bankHolidayFactor: number | null; automatic?: { kind: string }[] }>('/v1/forecast/model', { siteId, weekStart: week });
       const trend = r.trend === 1 ? 'no trend' : `trend ${signed(r.trend - 1)}`;
       const skipped = r.skipped.length ? ` No history for ${r.skipped.map((d) => dayLabel(d).short).join(', ')}: set those by hand.` : '';
-      return `Forecast built from till history: ${r.rows} trading hours, ${trend}. Your overrides were kept.${skipped}`;
+      const booked = (r.automatic ?? []).filter((a) => a.kind === 'bookings').length;
+      const other = (r.automatic ?? []).length - booked;
+      const applied = [booked ? `bookings moved ${booked} ${booked === 1 ? 'daypart' : 'dayparts'}` : '', other ? `${other} occasion, event or weather ${other === 1 ? 'effect' : 'effects'} applied` : '']
+        .filter(Boolean)
+        .join('; ');
+      return `Forecast built from till history: ${r.rows} trading hours, ${trend}${applied ? `; ${applied}` : ''}. Your overrides were kept; see the Calendar tab for why.${skipped}`;
     });
 
   function addAdjustment(e: FormEvent) {

@@ -90,7 +90,7 @@ export function baselineForecast(history: HourActual[], siteId: string, dates: s
   const historyFactors = options.historyFactors ?? new Map<string, number>();
   const adjustments = (options.adjustments ?? []).filter((a) => a.siteId === siteId);
   // Days people adjusted were not normal trade; the model's own adjustments are all for dates ahead.
-  const adjustedDays = new Set(adjustments.filter((a) => a.source !== 'auto').map((a) => a.date));
+  const adjustedDays = new Set(adjustments.filter((a) => a.source === undefined).map((a) => a.date));
 
   const byHour = new Map<string, Totals>();
   const tradedDays = new Set<string>();
@@ -179,9 +179,11 @@ export function baselineForecast(history: HourActual[], siteId: string, dates: s
       const here = adjustments.filter((a) => a.date === date && (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour));
       // What people set applies as given. What the model added by itself is held to a range in total,
       // so an occasion, an event and the weather on the same hours cannot compound into nonsense.
-      const people = here.filter((a) => a.source !== 'auto').reduce((m, a) => m * a.factor, 1);
+      const people = here.filter((a) => a.source === undefined).reduce((m, a) => m * a.factor, 1);
       const automatic = clamp(here.filter((a) => a.source === 'auto').reduce((m, a) => m * a.factor, 1), AUTO_MIN, AUTO_MAX);
-      const adj = people * automatic;
+      // Covers already booked are evidence, not a guess, so they are not held to the automatic cap (they carry their own).
+      const booked = here.filter((a) => a.source === 'bookings').reduce((m, a) => m * a.factor, 1);
+      const adj = people * automatic * booked;
       const sales = Math.round(base.sales * trend * factor * adj);
       const covers = Math.round(base.covers * trend * factor * adj);
       // An hour an adjustment closes is kept at zero, so a merge clears what was forecast before.

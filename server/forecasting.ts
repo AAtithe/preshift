@@ -1,3 +1,4 @@
+import { bookingAdjustments, clipAround, compactBookings, type BookingAdjustment } from '../src/engine/bookings';
 import { baselineForecast, mergeModelForecast, type BaselineResult } from '../src/engine/forecast';
 import { siteHistory } from '../src/engine/history';
 import { autoAdjustmentsFor, historyWeatherFactors, planAhead, unusualDays, type AutoAdjustment } from '../src/engine/plan';
@@ -14,20 +15,23 @@ import { audit, type OrgData } from './store';
  * then the occasions, local events and weather ahead applied automatically.
  * People's own adjustments win, and hours someone overrode keep their figure.
  */
-export function modelDates(org: OrgData, siteId: string, dates: string[], today: string): BaselineResult & { automatic: AutoAdjustment[] } {
+export function modelDates(org: OrgData, siteId: string, dates: string[], today: string): BaselineResult & { automatic: AutoAdjustment[]; bookings: BookingAdjustment[] } {
   const state = org.state;
   const sorted = [...dates].sort();
   const plan = planAhead(state, siteId, sorted[0], sorted[sorted.length - 1], today);
-  const automatic = autoAdjustmentsFor(plan, dates);
   const unusual = unusualDays(state, siteId);
   const effect = learnWeatherEffect(siteHistory(state.actuals ?? [], siteId), state.weather ?? [], siteId, unusual);
-  const result = baselineForecast(state.actuals ?? [], siteId, dates, {
-    adjustments: [...(state.forecastAdjustments ?? []), ...automatic],
-    unusualDays: unusual,
-    historyFactors: historyWeatherFactors(state, siteId, effect),
-  });
+  const people = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId);
+  const options = { unusualDays: unusual, historyFactors: historyWeatherFactors(state, siteId, effect) };
+  // First pass: the model's own covers with only people's adjustments, the base the bookings are set against.
+  // Nothing from it is kept.
+  const base = baselineForecast(state.actuals ?? [], siteId, dates, { ...options, adjustments: state.forecastAdjustments ?? [] });
+  const bookings = bookingAdjustments(plan.bookingSignals.filter((s) => dates.includes(s.date)), base.rows, people, siteId);
+  // Second pass: the bookings speak for their hours, so other automatic effects keep only the hours they do not.
+  const automatic = clipAround(autoAdjustmentsFor(plan, dates), bookings);
+  const result = baselineForecast(state.actuals ?? [], siteId, dates, { ...options, adjustments: [...(state.forecastAdjustments ?? []), ...automatic, ...bookings] });
   state.forecast = mergeModelForecast(state.forecast, result.rows);
-  return { ...result, automatic };
+  return { ...result, automatic, bookings };
 }
 
 export const feedConfig = (env: NodeJS.ProcessEnv): FeedConfig => ({
@@ -91,6 +95,10 @@ export async function fetchOutside(ctx: AppContext, org: OrgData, today: string,
  */
 export function applyOutside(org: OrgData, fetched: Fetched, today: string, actor: string): RefreshOutcome[] {
   const out: RefreshOutcome[] = [];
+  // Yesterday's bookings become pace history, so booking detail is kept for a day or two at most.
+  const compacted = compactBookings(org.state.bookings ?? [], org.state.bookingPace ?? [], today);
+  org.state.bookings = compacted.bookings;
+  org.state.bookingPace = compacted.pace;
   for (const siteId of fetched.siteIds) {
     if (!org.state.sites.some((s) => s.id === siteId)) continue;
     const r: RefreshOutcome = { siteId, errors: [] };

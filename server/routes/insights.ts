@@ -203,7 +203,10 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
         trend: result.trend,
         bankHolidayFactor: result.bankHolidayFactor,
         // What the model applied by itself, with why, so the GM can see and overrule it.
-        automatic: result.automatic.map(({ date, factor, kind, note, fromHour, toHour, evidence }) => ({ date, factor, kind, note, fromHour, toHour, evidence })),
+        automatic: [
+          ...result.automatic.map(({ date, factor, kind, note, fromHour, toHour, evidence }) => ({ date, factor, kind, note, fromHour, toHour, evidence })),
+          ...result.bookings.map(({ date, factor, note, fromHour, toHour, evidence }) => ({ date, factor, kind: 'bookings', note, fromHour, toHour, evidence })),
+        ],
       };
     },
   );

@@ -79,7 +79,7 @@ Phase 2, first live sites (8 to 10 weeks):
 - Fortnightly, four-weekly and monthly pay schedules.
 
 Phase 3:
-- Booking feeds (OpenTable, ResDiary, SevenRooms) into the forecast: covers already booked beat any model for occasions.
+- Direct booking connections once ResDiary, SevenRooms and OpenTable grant API access (bookings already flow in by export and push).
 - School holidays by local authority, which move family trade and staff availability.
 - Tronc and tips allocation under the Employment (Allocation of Tips) Act 2023, with the
   troncmaster audit trail.

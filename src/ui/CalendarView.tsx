@@ -10,6 +10,8 @@ import { dayLabel } from './format';
 interface Feed { id: string; siteId: string; kind: 'ics' | 'ticketmaster'; label: string; url?: string; lastRefreshedAt?: string; lastError?: string }
 type StatefulReminder = Reminder & { siteId: string; status: 'open' | 'done' | 'dismissed'; decidedBy?: string };
 interface CalendarResponse { days: CalendarDay[]; reminders: StatefulReminder[]; weatherEffect: WeatherEffect; eventEffects: EventEffect[] }
+interface BookingStatus { siteId: string; bookingsAhead: number; coversAhead: number; furthestAhead: string | null; historyDays: number; lastLoadedAt: string | null }
+interface Imported { imported: number; from?: string; to?: string; skipped: number; notRead: string[]; problems: { line: number; reason: string }[] }
 interface Refreshed { siteId: string; weatherDays?: number; events?: number; modelled?: number; errors: string[] }
 
 interface Props {
@@ -40,15 +42,20 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
   const [expect, setExpect] = useState<Record<string, string>>({});
   const [feed, setFeed] = useState({ label: '', url: '' });
   const [manual, setManual] = useState({ date: addDays(today, 7), name: '', time: '' });
+  const [bookingStatus, setBookingStatus] = useState<BookingStatus | null>(null);
+  const [upload, setUpload] = useState<{ source: string; usDates: boolean; file: File | null }>({ source: 'resdiary', usDates: false, file: null });
+  const [lastImport, setLastImport] = useState<Imported | null>(null);
   const [where, setWhere] = useState({ lat: String(site.location?.lat ?? site.geofence?.lat ?? ''), lng: String(site.location?.lng ?? site.geofence?.lng ?? '') });
   const from = weekStart(today);
 
   const load = useCallback(async () => {
     try {
-      const [c, f] = await Promise.all([
+      const [c, f, b] = await Promise.all([
         api.get<CalendarResponse>(`/v1/calendar?siteId=${site.id}&from=${from}&to=${addDays(from, 83)}`),
         api.get<Feed[]>('/v1/event-feeds'),
+        api.get<BookingStatus[]>('/v1/bookings/status'),
       ]);
+      setBookingStatus(b.find((x) => x.siteId === site.id) ?? null);
       setCal(c);
       setFeeds(f.filter((x) => x.siteId === site.id));
     } catch (e) {
@@ -92,6 +99,21 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
       await api.post('/v1/event-feeds', { siteId: site.id, kind: 'ics', label: feed.label, url: feed.url });
       setFeed({ label: '', url: '' });
       return 'Feed added. Refresh to fetch its events.';
+    });
+  }
+
+  function importFile(e: FormEvent) {
+    e.preventDefault();
+    if (!upload.file) return;
+    const file = upload.file;
+    void act(async () => {
+      if (file.size > 12 * 1024 * 1024) throw new Error('That file is over 12 MB. Export a shorter date range.');
+      const csv = await file.text();
+      const r = await api.post<Imported>('/v1/bookings/import', { siteId: site.id, source: upload.source, csv, usDates: upload.usDates });
+      setLastImport(r);
+      return r.imported
+        ? `Read ${r.imported} bookings from ${dayLabel(r.from!).date} to ${dayLabel(r.to!).date}${r.skipped ? `, skipped ${r.skipped}` : ''}. Build the forecast to use them.`
+        : 'No bookings could be read from that file.';
     });
   }
 
@@ -194,6 +216,14 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
                   </div>
                 ))}
                 {d.weatherText && <div className="cal-weather small">{d.weather?.observed ? 'Was ' : ''}{d.weatherText}</div>}
+                {d.bookings.filter((b) => b.booked > 0).map((b) => (
+                  <div key={b.daypart} className={`chip booked ${b.usable && b.pace !== null && b.pace >= 1.25 ? 'ahead' : ''}`} title={b.pace !== null ? `${b.usualAtLead} usually on the books by now` : undefined}>
+                    {b.label} {b.booked} booked{b.expected !== null && b.usable ? `, expect ${b.expected}` : ''}
+                  </div>
+                ))}
+                {d.bookings.flatMap((b) => b.largeParties).map((p) => (
+                  <div key={p.id} className="chip party">Party of {p.covers}, {formatMinute(p.startMinute)}</div>
+                ))}
                 {d.adjustments.map((a) => (
                   <div key={a.id} className="chip auto" title={a.evidence}>{pctText(a.factor)} {a.kind}{hoursText(a.fromHour, a.toHour)}</div>
                 ))}
@@ -206,7 +236,7 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
         </div>
         <p className="muted small">
           Green chips are what the forecast allows for by itself: hover for the evidence. Blue are what people have set, and those
-          always win. Build the forecast on the Forecast tab to bring any change into the rota.
+          always win. Grey are covers on the books; bold when well ahead of a normal day at this point. Build the forecast on the Forecast tab to bring any change into the rota.
         </p>
       </section>
 
@@ -230,6 +260,61 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
           </ul>
         </section>
       )}
+
+      <section className="settings-card">
+        <h2>Bookings</h2>
+        <p className="muted small">
+          Covers already booked beat any model. Load your booking system's export (ResDiary, SevenRooms, OpenTable or similar,
+          as CSV): the next few weeks for what is on the books, and the last few months once so the site learns how its days fill
+          up. Only date, time, covers, status and when each was made or cancelled are read; guest names, phone numbers, emails
+          and notes are left behind and never stored.
+        </p>
+        {bookingStatus && (
+          <p className="small">
+            {bookingStatus.bookingsAhead
+              ? `${bookingStatus.coversAhead} covers on the books in ${bookingStatus.bookingsAhead} bookings, to ${dayLabel(bookingStatus.furthestAhead!).date}. `
+              : 'No bookings ahead loaded. '}
+            {bookingStatus.historyDays >= 28
+              ? `${bookingStatus.historyDays} days of booking history to learn from.`
+              : `${bookingStatus.historyDays} days of booking history: load at least four weeks (twelve is better) so pickup can be learnt.`}
+            {bookingStatus.lastLoadedAt ? ` Last loaded ${dayLabel(bookingStatus.lastLoadedAt.slice(0, 10)).date}.` : ''}
+          </p>
+        )}
+        <form className="settings-form" onSubmit={importFile}>
+          <label>
+            From
+            <select value={upload.source} onChange={(e) => setUpload({ ...upload, source: e.target.value })}>
+              <option value="resdiary">ResDiary</option>
+              <option value="sevenrooms">SevenRooms</option>
+              <option value="opentable">OpenTable</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Export file (CSV)
+            <input type="file" accept=".csv,text/csv" required onChange={(e) => setUpload({ ...upload, file: e.target.files?.[0] ?? null })} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={upload.usDates} onChange={(e) => setUpload({ ...upload, usDates: e.target.checked })} /> Dates are month first
+          </label>
+          <button disabled={busy || !upload.file}>Import</button>
+        </form>
+        {lastImport && (
+          <div className="small">
+            {lastImport.notRead.length > 0 && <p className="muted">Not read, and not kept: {lastImport.notRead.join(', ')}.</p>}
+            {lastImport.problems.length > 0 && (
+              <ul className="adjustments">
+                {lastImport.problems.map((p) => <li key={p.line}>Line {p.line}: {p.reason}</li>)}
+                {lastImport.skipped > lastImport.problems.length && <li>and {lastImport.skipped - lastImport.problems.length} more</li>}
+              </ul>
+            )}
+          </div>
+        )}
+        <p className="muted small">
+          A direct connection to ResDiary, SevenRooms or OpenTable needs API access granted by each of them; once it is, bookings
+          arrive through the same route (PUT /v1/bookings) every few minutes instead of by file.
+        </p>
+      </section>
 
       <div className="split">
         <section className="settings-card">

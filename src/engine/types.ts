@@ -197,8 +197,11 @@ export interface ForecastAdjustment {
   note?: string;
   fromHour?: number;
   toHour?: number;
-  /** Set when the model added it itself from history; people's adjustments have none. */
-  source?: 'auto';
+  /**
+   * Set when the model added it itself: 'auto' from history (occasions, events, weather), 'bookings'
+   * from covers already on the books. People's adjustments have none.
+   */
+  source?: 'auto' | 'bookings';
 }
 
 /** How a role's demand is driven by the forecast. */
@@ -252,6 +255,42 @@ export interface RotaState {
   weather?: DailyWeather[];
   /** Things on near a site: matches, concerts, markets. From feeds or entered by hand. */
   localEvents?: LocalEvent[];
+  /** Table bookings for days still to come, and the last day or two. No guest details are ever kept. */
+  bookings?: Booking[];
+  /** How past days filled up: covers on the books at set lead times, kept once the bookings themselves are gone. */
+  bookingPace?: BookingPace[];
+}
+
+export type BookingStatus = 'booked' | 'cancelled' | 'no_show' | 'completed';
+
+/**
+ * One table booking, as the booking system reports it, reduced to what the
+ * forecast needs: when, how many, and when it was made or cancelled. Names,
+ * phone numbers, emails and notes are never accepted or stored.
+ */
+export interface Booking {
+  /** The booking system's own reference, prefixed with its source. */
+  id: string;
+  siteId: string;
+  source: string;
+  date: string;
+  startMinute: number;
+  covers: number;
+  status: BookingStatus;
+  /** When the booking was made. Without it, a booking counts only on the day itself. */
+  createdAt?: string;
+  /** When it was cancelled, for a cancelled booking. */
+  cancelledAt?: string;
+}
+
+/** Covers on the books for one site, date and daypart at each of PACE_LEADS days before. */
+export interface BookingPace {
+  siteId: string;
+  date: string;
+  daypart: string;
+  booked: number[];
+  /** The lead times `booked` is read at, kept with the row so changing them later never misreads old rows. */
+  leads?: number[];
 }
 
 export interface DailyWeather {
