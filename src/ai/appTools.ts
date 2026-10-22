@@ -20,10 +20,13 @@ import type { ToolDefinition } from './rotaTools';
 
 // Kept in step with Tab in src/ui/nav.ts; appTools.test.ts checks they match.
 export const SCREENS = [
-  'sites', 'rota', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'close', 'reports', 'hr', 'absence',
+  'sites', 'rota', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
   'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'howto',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
+
+/** Said on any card that sets pay: a person's pay change waits for the finance director. */
+export const PAY_APPROVAL = 'The pay goes to the finance director for approval. Until it is approved their current pay stays in force (nought for a starter).';
 
 export const ABSENCE_TYPES: AbsenceType[] = ['sickness', 'unauthorised', 'compassionate', 'dependants', 'family', 'unpaid', 'other'];
 
@@ -420,6 +423,7 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         };
         const warnings = ['No right to work check is on file yet, so they cannot be rostered until one is recorded in People.'];
         if (age < 18) warnings.push('Under 18: young worker limits apply (8 hours a day, 40 a week, a 30 minute break after 4.5 hours).');
+        warnings.push(PAY_APPROVAL);
         const proposal: Proposal = {
           id: proposalId(),
           kind: 'add_starter',
@@ -472,7 +476,8 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         if (next.contractedHours !== old.contractedHours) next.irregularHours = next.contractedHours === 0;
         const low = old.dateOfBirth ? payProblem(old.dateOfBirth, ctx.now.date, next.payBasis, next.hourlyRate) : null;
         if (low) throw new InputError(low);
-        const proposal: Proposal = { id: proposalId(), kind: 'update_person', employee: next, summary: `Update ${old.name}'s record`, details: changes, warnings: [] };
+        const payMoves = next.hourlyRate !== old.hourlyRate || next.annualSalary !== old.annualSalary;
+        const proposal: Proposal = { id: proposalId(), kind: 'update_person', employee: next, summary: `Update ${old.name}'s record`, details: changes, warnings: payMoves ? [PAY_APPROVAL] : [] };
         return { result: { proposed: true, awaiting_confirmation: true }, label: proposal.summary, proposal };
       }
 

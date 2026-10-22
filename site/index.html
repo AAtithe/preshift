@@ -154,24 +154,27 @@
             <div class="shot-bar">
               <i></i><i></i><i></i>
               <div class="shot-tabs" role="tablist" aria-label="Product screens">
-                <button role="tab" aria-selected="true" data-shot="rota">Rota</button>
-                <button role="tab" aria-selected="false" data-shot="demand">Demand</button>
-                <button role="tab" aria-selected="false" data-shot="editor">Shift editor</button>
-                <button role="tab" aria-selected="false" data-shot="close">Close</button>
+                <button role="tab" id="tab-sites" aria-controls="shot-panel" aria-selected="false" tabindex="-1" data-shot="sites">Group P&amp;L</button>
+                <button role="tab" id="tab-rota" aria-controls="shot-panel" aria-selected="true" tabindex="0" data-shot="rota">Rota</button>
+                <button role="tab" id="tab-editor" aria-controls="shot-panel" aria-selected="false" tabindex="-1" data-shot="editor">Shift editor</button>
+                <button role="tab" id="tab-demand" aria-controls="shot-panel" aria-selected="false" tabindex="-1" data-shot="demand">Demand</button>
+                <button role="tab" id="tab-payroll" aria-controls="shot-panel" aria-selected="false" tabindex="-1" data-shot="payroll">Payroll</button>
+                <button role="tab" id="tab-close" aria-controls="shot-panel" aria-selected="false" tabindex="-1" data-shot="close">Close</button>
+                <button role="tab" id="tab-hr" aria-controls="shot-panel" aria-selected="false" tabindex="-1" data-shot="hr">HR</button>
               </div>
             </div>
-            <div class="shot-frame">
+            <div class="shot-frame" id="shot-panel" role="tabpanel" aria-labelledby="tab-rota">
               <img
                 id="shot-img"
                 src="img/rota.webp"
-                width="1440"
-                height="1000"
-                alt="Preshift Rota weekly grid with forecast sales, loaded labour cost, labour percentage against target and compliance flags"
+                width="1600"
+                height="1111"
+                alt="Rota service timeline for Marylebone: each day's shifts over its sales curve, hours short or over beneath, day labour percentage and the rota P&amp;L"
               />
             </div>
             <p class="shot-caption" id="shot-caption">
-              The week at a glance: forecast sales, fully loaded labour, labour % against the site target and anything that
-              needs a second look before you publish.
+              Each day's shifts laid over its sales curve, with the hours short or over beneath and the day's labour % beside
+              it. Drag a shift to move it; the rota P&amp;L on the right updates as you go.
             </p>
           </div>
 

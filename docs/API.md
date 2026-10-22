@@ -56,7 +56,9 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Rest breach overrides: record, withdraw | `rota.publish` where the short rest is worked, and a person: never a system key. Listing them needs `rota.view` |
 | Forecast upload, forecast from takings | `demand.manage` at every site in the upload or the build |
 | Rota week's cost, staff pay rates | `costs.view` or `pay.edit`; otherwise `metrics` is null and pay reads nought with `payHidden`. A key also needs `employees:read` for cost by person and by shift |
-| Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record |
+| Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record. From a person this proposes the change (the response carries `pendingPay`) rather than applying it |
+| Pay changes | `GET /v1/pay-changes` (`pay.edit` or `pay.approve` at the site; a key also needs `employees:read`), `POST /v1/employees/:id/pay-changes` (`pay.edit`), `POST /v1/pay-changes/:id/approve` and `/reject` (`pay.approve`, never on your own proposal or pay; reject needs a `note`), `/withdraw` (`pay.edit`). Approval answers `409 stale` if the pay in force moved since the proposal |
+| Rostering another site's person | `rota.edit` at the shift's site, and either their agreement to cover it or `rota.edit` or `team.manage` at their home site (`403 not_cover`) |
 | Clocking, card taps, manual entries, edits | `time.record` |
 | Site clocking area (geofence) | `settings.manage`: a wider fence lets people clock in from elsewhere |
 | RFID cards | `team.manage` at the person's home site |
@@ -152,6 +154,63 @@ Webhook endpoints: `GET /v1/webhooks/events`, `GET/POST /v1/webhooks`, `PATCH/DE
 `POST /v1/webhooks/:id/test`, `POST /v1/webhooks/:id/rotate-secret`, `GET /v1/webhooks/deliveries`,
 `POST /v1/webhooks/deliveries/:id/retry`.
 
+## Plugging in: Claude and other MCP clients
+
+Preshift is also an MCP (Model Context Protocol) server, so Claude, or any assistant that speaks
+MCP, can read the rota, cost and compliance and run the week in plain English: "what is labour
+at Marylebone next week against target", "build the group for the 26th and tell me what will
+not publish", "approve Friday's clocked time at the bar".
+
+- The connector is `POST /mcp` on the same server (Streamable HTTP, stateless, JSON responses).
+  There is no event stream, so `GET /mcp` answers 405. Protocol versions `2025-06-18`,
+  `2025-03-26` and `2024-11-05` are accepted.
+- It authenticates exactly as the API does: `Authorization: Bearer psk_...`, a key made under
+  Settings, API keys. Make one key per assistant, named after it ("Claude, finance team"), with
+  only the scopes it needs. A key with `rota:read` alone gives a read-only connector that can
+  never change the rota.
+- Every tool is a call to a `/v1` route made with the caller's own key. The connector adds no
+  authority: scopes, site access, paired duties, compliance blocks, the audit trail and webhooks
+  apply exactly as they would to the same key calling the API. `tools/list` shows only the tools
+  the key may run, each marked read-only or not, and removing a shift is marked destructive so a
+  client asks before it runs.
+- A refusal comes back as the tool's result with Preshift's reason (a compliance block, a missing
+  permission), so the model can put it right rather than fail. An unknown tool or method is a
+  JSON-RPC error.
+- Each tool call is two requests against the key's 300 a minute: one to `/mcp`, one to the API.
+- A request carrying an `Origin` header from another site is refused, so a web page cannot drive
+  the connector with a signed-in person's cookie.
+
+| Tool | Scope | Calls |
+| --- | --- | --- |
+| `list_sites` | `rota:read` | `GET /v1/sites` |
+| `list_roles` | `rota:read` | `GET /v1/roles` |
+| `list_employees` | `employees:read` | `GET /v1/employees` |
+| `get_rota_week` | `rota:read` | `GET /v1/rota/week` |
+| `list_shifts` | `rota:read` | `GET /v1/shifts` |
+| `get_forecast` | `rota:read` | `GET /v1/forecast` |
+| `get_sales` | `rota:read` | `GET /v1/sales` |
+| `list_time_entries` | `rota:read` | `GET /v1/time-entries` |
+| `compare_rota_to_clocked` | `rota:read` | `GET /v1/time-entries/compare` |
+| `get_labour_journal` | `rota:read` | `GET /v1/journal` |
+| `list_payroll_runs` | `employees:read` | `GET /v1/payroll/runs` |
+| `build_rota` | `rota:write` | `POST /v1/rota/build` |
+| `add_shift` | `rota:write` | `POST /v1/shifts` |
+| `remove_shift` | `rota:write` | `DELETE /v1/shifts/:id` |
+| `publish_rota` | `rota:write` | `POST /v1/rota/publish` |
+| `approve_time` | `time:approve` | `POST /v1/time-entries/approve` |
+
+Connecting Claude: in claude.ai, Settings, Connectors, add a custom connector with the URL
+`https://<your Preshift address>/mcp`, and give it the key as a bearer token where the client
+asks for one. In Claude Code:
+
+```bash
+claude mcp add --transport http preshift https://<your Preshift address>/mcp \
+  --header "Authorization: Bearer psk_..."
+```
+
+Locally, `npm run dev` serves it at `http://localhost:8787/mcp` with `dev-key`. Add a tool in
+`server/mcp.ts`: name the route it calls and the scope it needs; the route does the rest.
+
 ## Users and access
 
 The model follows Signal. A user record grants nothing. Access comes from memberships: a role,
@@ -163,7 +222,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | No granting beyond your own | You can only grant permissions you hold where you grant them. The Owner and the WS client partner may appoint to their side without holding each duty, so the Owner can appoint a payroll manager without sending pay. |
 | Site managers | A GM or area manager grants site roles at their own sites only, and sees only the people at those sites. |
 | Sides | Operator roles are granted by the operator, WS roles by the WS client partner, outside roles always carry an end date. |
-| Paired duties | Checked across every role a person holds. Pay rates with sending payroll is refused. Starters with payroll, approving hours with pay rates, and access management with payroll need an accepted reason, which is kept on the grant. |
+| Paired duties | Checked across every role a person holds. Pay rates with sending payroll is refused. Proposing pay with approving it needs an accepted reason, and approving your own proposal is refused regardless. Starters with payroll, approving hours with pay rates, and access management with payroll need an accepted reason, which is kept on the grant. |
 | Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until the session has entered a code from it. The session cookie then names the enrolment it proved, so a reset or a new enrolment ends every older proof. A personal API key counts only if issued with `"mfa": true`. |
 | Yourself | Nobody changes their own access. |
 | Last administrator | Nothing removes, suspends or resets the last person who can manage access for the organisation. |
@@ -202,6 +261,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Rest overrides | `GET /v1/rota/overrides`, `POST /v1/rota/overrides` with `{weekStart, key, reason}`, `DELETE /v1/rota/overrides/:id`. Daily and weekly rest breaches carry an `overrideKey`; a person with the right to publish the rota at the breach's site (never a system key) posts it with a reason of at least 15 characters, and the breach publishes as a warning naming them and their reason. The key covers that breach as it stood: moving either shift, or changing the days worked, makes a new breach that blocks again. Overrides and withdrawals go to the audit log, and each publish records the overrides it went out under. |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here). Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. `POST /v1/forecast/from-takings` `{siteId or siteIds, weekStart, replace?}` works the week out of each site's own takings: the same day 52 weeks back scaled by the last four weeks against the same weeks a year earlier (at least six matched days, a change between half and double), else the last six same weekdays with takings, the latest counting most and the highest and lowest dropped from five or more. Days with no takings count as closed. Hours split the day as the site's past forecasts for that weekday did, else a standard lunch and dinner curve; covers follow the site's own spend per head. Days already forecast are left alone unless `replace` is true; each day comes back with its basis, the takings days it used and a note |
 | Takings | `GET/PUT/DELETE /v1/sales` (a till or EPOS integration pushes each day's net takings per site; `PUT` adds or replaces by site and day, `DELETE ?siteId&date` removes one so reports fall back to the forecast) |
+| EPOS | `GET /v1/integrations/epos` (the connected till, which site takes which location, the last sync), `GET /v1/integrations/epos/locations`, `POST /v1/integrations/epos/sync` (`{from?, to?}`, defaults to the last seven finished days, at most 92 days; keeps days keyed in by hand). Connecting, matching and disconnecting need a signed-in person with settings.manage; syncing needs demand.manage at every matched site, the same right as keying takings in. |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve` (returns `belowBreakMinimum`, recorded in the audit), `GET /compare`, `GET /break-check` (finished shifts below the legal rest break: `short` or `split`) |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. A card tap from a reader fixed on site under its own API key (no person behind it) is not location checked and may send `at` for a tap held offline, never in the future. A card tap from a signed-in person's tablet or phone is location checked like a device clock. Any clock from a person is timed by the server; an `at` more than two minutes off is refused (`time_set_by_server`). Employee records carry `personalHidden: true` and `under18` for readers without `team.manage` or `hr.view` at the person's sites: date of birth, right to work detail and card number are withheld. |
 | Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (returns a one-time link, valid 7 days), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |

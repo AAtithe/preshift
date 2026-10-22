@@ -184,13 +184,14 @@ export function seedState(today = toISODate(new Date())): RotaState {
   const start = weekStart(today);
   return {
     // West End Dining claims for the group. Payroll to last Sunday left £1,850, so it runs out this week or next.
-    entities: entities.map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
-    sites,
-    roles,
+    // Copies, so one organisation's edits can never reach another seeded from the same data (demo sandboxes, tests).
+    entities: structuredClone(entities).map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
+    sites: structuredClone(sites),
+    roles: structuredClone(roles),
     employees: withHr(employees(today), today),
     shifts: [],
     forecast: forecast(start),
-    demandRules: rules,
+    demandRules: structuredClone(rules),
     sales: takings(forecast(start), today),
   };
 }

@@ -15,6 +15,8 @@ import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
+import { eposRoutes, syncAllTills } from './routes/epos';
+import { payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
@@ -29,6 +31,7 @@ import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
+import { mcpRoutes } from './mcp';
 import { MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
@@ -52,6 +55,8 @@ export interface BuildOptions {
   fetch?: typeof fetch;
   /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
+  /** The clock (tests fix it). */
+  now?: () => Date;
   /** How webhooks reach partner systems. Defaults to fetch; tests supply a recorder. */
   webhookFetch?: Fetch;
   /** Requests per minute per API key. */
@@ -109,6 +114,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     documentCipher: documents.cipher,
     fetch: options.fetch ?? fetch,
     tflAppKey: env.TFL_APP_KEY || undefined,
+    now: options.now ?? (() => new Date()),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -189,6 +195,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
     if (demo) await sweepSandboxes(store);
     return { ok: true };
@@ -213,6 +220,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     );
   }
   signInRoutes(app, ctx, { demo });
+  // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
+  mcpRoutes(app, auth);
   staffRoutes(app, store);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -251,12 +260,14 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    payRoutes(api, ctx);
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     travelRoutes(api, ctx);
+    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
     authenticatorRoutes(api, ctx);

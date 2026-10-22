@@ -30,10 +30,10 @@ export interface Kit {
   form: (url: string, fields: Record<string, string>) => Promise<{ status: number; location?: string; cookie?: string }>;
 }
 
-export async function kit(options: { store?: Store; keys?: { key: string; orgId: string; name: string; scopes: ['*']; userId?: string; mfa?: boolean }[]; accounts?: boolean } = {}): Promise<Kit> {
+export async function kit(options: { store?: Store; keys?: { key: string; orgId: string; name: string; scopes: ['*']; userId?: string; mfa?: boolean }[]; accounts?: boolean; fetch?: typeof fetch; now?: () => Date } = {}): Promise<Kit> {
   const store = options.store ?? new MemoryStore(['demo'], TODAY);
   if (options.accounts !== false) await seedAccounts(store);
-  const { app } = await buildApp({ apiKeys: options.keys ?? [], store, provider: new TeamPaySimulator(), autoDispatch: false });
+  const { app } = await buildApp({ apiKeys: options.keys ?? [], store, provider: new TeamPaySimulator(), autoDispatch: false, fetch: options.fetch, now: options.now });
   const cookieOf = (set: unknown) => (typeof set === 'string' ? set.split(';')[0] : Array.isArray(set) ? String(set[0]).split(';')[0] : undefined);
   const kitObj: Kit = {
     app,

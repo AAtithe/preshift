@@ -1,3 +1,4 @@
+import { EposSetup } from './EposSetup';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 import { ApiKeys, Webhooks } from './DeveloperSettings';
@@ -32,7 +33,7 @@ const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD',
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
-export function SettingsView({ account, canSettings }: { account: Account | null; canSettings: boolean }) {
+export function SettingsView({ account, canSettings, onSalesChanged }: { account: Account | null; canSettings: boolean; onSalesChanged?: () => void }) {
   if (account?.demo) {
     return (
       <div className="settings">
@@ -45,6 +46,7 @@ export function SettingsView({ account, canSettings }: { account: Account | null
           </p>
           <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
         </section>
+        <EposSetup onSynced={onSalesChanged} />
       </div>
     );
   }
@@ -58,6 +60,7 @@ export function SettingsView({ account, canSettings }: { account: Account | null
           nobody else ever knows it.
         </p>
       </section>
+      {canSettings && <EposSetup onSynced={onSalesChanged} />}
       {canSettings && <ClaudeKey />}
       {canSettings && <EmailSetup />}
       {canSettings && <ApiKeys />}
