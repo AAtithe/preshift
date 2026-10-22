@@ -366,7 +366,7 @@ assumptions until checked against the API reference:
 - How TeamPay treats a resubmitted hours batch for the same period (replace or add).
 - Pay schedules other than weekly. Preshift periods are weekly in this build.
 
-Because WS runs TeamPay, these can be settled in one working session. Change that file, run
+Because WS runs TeamPay, these can be settled in one working session: `docs/TEAMPAY_CONFIRMATION.md` is the agenda, with a live check to run against the sandbox. Change that file, run
 `npm test`, and the rest of the system is unaffected.
 
 ## Weather and local events
