@@ -1,8 +1,8 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
-import { checkEmployeeWeek, requiredBreakMinutes } from '../engine/compliance';
+import { breakFor, checkEmployeeWeek, complianceOptions } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
 import { employedShare } from '../engine/employees';
-import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/time';
+import { addDays, formatMinute, parseClock, weekStart } from '../engine/time';
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
@@ -29,7 +29,8 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
   const others = state.shifts.filter((s) => s.id !== draft.id);
   const length = draft.endMinute - draft.startMinute;
   const site = state.sites.find((x) => x.id === draft.siteId)!;
-  const neededBreak = requiredBreakMinutes(length, ageOn(employee.dateOfBirth, draft.date));
+  const options = useMemo(() => complianceOptions(state, employee), [state, employee]);
+  const neededBreak = breakFor(employee, draft.date, length, options.nation);
 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);
@@ -49,11 +50,11 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
           pension: Math.max(0, withShift.pension - without.pension),
         },
       },
-      issues: [...checkEmployeeWeek(employee, ws, [...context, draft], state.restOverrides), ...travelIssues(employee, [...context, draft], state.sites)].filter(
+      issues: [...checkEmployeeWeek(employee, ws, [...context, draft], state.restOverrides, undefined, options), ...travelIssues(employee, [...context, draft], state.sites)].filter(
         (i) => i.shiftId === draft.id || !i.shiftId,
       ),
     };
-  }, [draft, employee, others, ws, state.restOverrides]);
+  }, [draft, employee, others, ws, state.restOverrides, options]);
 
   const setClock = (key: 'startMinute' | 'endMinute') => (e: ChangeEvent<HTMLInputElement>) => {
     let minute = parseClock(e.target.value);

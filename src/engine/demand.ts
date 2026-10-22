@@ -44,9 +44,12 @@ export function dayDemand(state: RotaState, siteId: string, roleId: string, date
   const forecast = new Map(
     state.forecast.filter((f) => f.date === date && f.siteId === siteId).map((f) => [f.hour, f]),
   );
+  // A closure set on the forecast closes the floor too, so nobody is rostered to a shut site.
+  const closures = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId && a.date === date && a.factor === 0);
+  const closed = (hour: number) => closures.some((a) => (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour));
   return Array.from({ length: 24 }, (_, hour) => {
     const f = forecast.get(hour);
-    const required = requiredHeadcount(rule, site, f, hour);
+    const required = closed(hour) ? 0 : requiredHeadcount(rule, site, f, hour);
     const scheduled = headcountAt(state.shifts, date, hour, roleId, siteId);
     return { hour, sales: f?.sales ?? 0, covers: f?.covers ?? 0, required, scheduled, gap: required - scheduled };
   });

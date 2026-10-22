@@ -1,4 +1,4 @@
-import { checkEmployeeWeek, checkWeek, requiredBreakMinutes } from '../engine/compliance';
+import { breakFor, checkEmployeeWeek, checkWeek, complianceOptions } from '../engine/compliance';
 import { shiftPaidHours } from '../engine/cost';
 import { employeeStatus, isEmployedOn, newEmployee } from '../engine/employees';
 import { holidayBalance, workedShifts } from '../engine/holiday';
@@ -20,7 +20,7 @@ import type { ToolDefinition } from './rotaTools';
 
 // Kept in step with Tab in src/ui/nav.ts; appTools.test.ts checks they match.
 export const SCREENS = [
-  'sites', 'rota', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
+  'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
   'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'howto',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
@@ -559,11 +559,11 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         const shift: Shift = {
           id: `s-${Date.now().toString(36)}-${(seq++).toString(36)}`,
           employeeId: e.id, roleId, siteId: s.id, date: day, startMinute, endMinute,
-          breakMinutes: requiredBreakMinutes(endMinute - startMinute, ageOn(e.dateOfBirth, day)),
+          breakMinutes: breakFor(e, day, endMinute - startMinute, complianceOptions(ctx.state, e).nation),
         };
         const ws = weekStart(day);
         const context = ctx.state.shifts.filter((x) => x.date >= addDays(ws, -1) && x.date <= addDays(ws, 7));
-        const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter((i) => i.shiftId === shift.id || !i.shiftId);
+        const issues = checkEmployeeWeek(e, ws, [...context, shift], ctx.state.restOverrides, undefined, complianceOptions(ctx.state, e)).filter((i) => i.shiftId === shift.id || !i.shiftId);
         const blocks = issues.filter((i) => i.severity === 'block');
         if (blocks.length) throw new InputError(`Not allowed: ${blocks.map((i) => i.message).join(' ')}`);
         const proposal: Proposal = {

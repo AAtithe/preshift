@@ -16,13 +16,15 @@ export type Scope =
   | 'hr:write'
   | 'webhooks:write'
   | 'users:manage'
+  /** Never implied by `*` and never offered for an app-made key: it belongs to Williams, Stanley & Co. alone. */
+  | 'programme:lead'
   | '*';
 
 /**
  * What each scope allows, as shown to a person choosing them for a new key. users:manage is never
- * offered: access is managed by people, never by a key.
+ * offered: access is managed by people, never by a key. Nor is programme:lead: only a key WS holds carries it.
  */
-export const SCOPES: Record<Exclude<Scope, '*' | 'users:manage'>, string> = {
+export const SCOPES: Record<Exclude<Scope, '*' | 'users:manage' | 'programme:lead'>, string> = {
   'rota:read': 'Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals',
   'employees:read': 'Read staff records and pay: names, dates of birth, rates, right to work, cost and pay by person, clock locations',
   'rota:write': 'Change shifts and people, build and publish rotas, load the forecast',
@@ -49,7 +51,8 @@ export interface ApiKey {
   /** Set for a key made in the app, so it can be revoked by id. */
   keyId?: string;
   /** Set when the caller is a signed-in person rather than an integration key. */
-  user?: { email: string; role: UserRecord['role'] };
+  /** `lead`: Williams, Stanley & Co.'s programme lead in the organisation signed in to. */
+  user?: { email: string; role: UserRecord['role']; lead?: boolean };
   /**
    * A personal key acts as that person: their roles decide, not the key's scopes alone.
    * Keys without a user are system keys with organisation-wide authority.
@@ -202,7 +205,7 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
       orgId: claims.orgId,
       name: user.email,
       scopes: ['*'],
-      user: { email: user.email, role: user.role },
+      user: { email: user.email, role: user.role, lead: (user.leadOrgs ?? []).includes(claims.orgId) },
       email: user.email,
       sessionMfa: claims.mfa,
       accountMfaId: user.authenticator?.secret ? user.authenticator.id : undefined,

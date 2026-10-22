@@ -86,3 +86,9 @@ export function londonParts(at: Date): { date: string; minute: number } {
   );
   return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
 }
+
+/** The London date and minute of an instant given as an ISO string. */
+export const londonClock = (isoInstant: string): { date: string; minute: number } => londonParts(new Date(isoInstant));
+
+/** The London calendar date of an instant, so a publish just after midnight in summer time lands on the right day. */
+export const londonDate = (isoInstant: string): string => londonParts(new Date(isoInstant)).date;

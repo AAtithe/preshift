@@ -7,6 +7,8 @@ import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } f
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
+import { CalendarView, RemindersBanner } from './CalendarView';
+import { CoachView } from './CoachView';
 import { AccessView } from './access/AccessView';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
@@ -15,6 +17,7 @@ import { ClockView } from './ClockView';
 import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
+import { ForecastView } from './ForecastView';
 import { dayLabel, isoWeek } from './format';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
@@ -30,6 +33,7 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { RestBreaches } from './RestBreaches';
@@ -437,6 +441,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               </div>
             )}
 
+            {section.scope !== 'org' ? (
+              <RemindersBanner key={`${siteIds.join()}:${activeTab}`} siteIds={siteIds} sites={state.sites} today={today} onOpen={(id) => { setSiteId(id); setTab('calendar'); }} />
+            ) : null}
+
             {error && (
               <div className="notice error">
                 {error} <button className="link" onClick={() => setError(null)}>Dismiss</button>
@@ -574,6 +582,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onForecast={allow('demand.manage', single.id) ? (replace) => actions.forecastFromTakings([single.id], week, replace) : undefined}
                 />
               )}
+              {activeTab === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+              {activeTab === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
+              {activeTab === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
+              {activeTab === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={account} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
               {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {activeTab === 'people' && single && (
                 <PeopleView

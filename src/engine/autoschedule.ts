@@ -1,9 +1,9 @@
 import type { RotaState, Shift } from './types';
-import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from './compliance';
+import { breakFor, checkEmployeeWeek, complianceOptions, type Issue } from './compliance';
 import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
 import { isEmployedOn } from './employees';
-import { addDays, ageOn, weekDates, weekStart } from './time';
+import { addDays, weekDates, weekStart } from './time';
 import { travelIssues } from './travel';
 
 export interface AutoScheduleOptions {
@@ -167,7 +167,7 @@ function trimOverstaffedEdges(state: RotaState, ids: Set<string>, minShiftHours:
       else if (lastHour < 24 && demand[lastHour]?.gap < 0) next = { ...shift, endMinute: shift.endMinute - 60 };
       if (!next) break;
       const employee = state.employees.find((e) => e.id === next!.employeeId)!;
-      next.breakMinutes = requiredBreakMinutes(next.endMinute - next.startMinute, ageOn(employee.dateOfBirth, next.date));
+      next.breakMinutes = breakFor(employee, next.date, next.endMinute - next.startMinute, complianceOptions(state, employee).nation);
       shifts = shifts.map((s) => (s.id === id ? next! : s));
     }
   }
@@ -222,11 +222,12 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       id: newId(),
       employeeId: e.id,
       ...slot,
-      breakMinutes: requiredBreakMinutes(length, ageOn(e.dateOfBirth, slot.date)),
+      breakMinutes: breakFor(e, slot.date, length, complianceOptions(state, e).nation),
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     // Checked without overrides: a manager's reason covers a breach they chose, never one the build makes.
-    const check = (shifts: Shift[]) => [...checkEmployeeWeek(e, ws, shifts), ...travelIssues(e, shifts, state.sites)];
+    // The site's school calendar is passed, so anyone of school age is held to the child rules.
+    const check = (shifts: Shift[]) => [...checkEmployeeWeek(e, ws, shifts, [], undefined, complianceOptions(state, e)), ...travelIssues(e, shifts, state.sites)];
     // Short rest is flagged on the later shift, so a new shift placed before an existing one shows up
     // against the existing one: anything new on their other shifts rules them out too.
     const key = (i: Issue) => `${i.code}|${i.shiftId}`;
@@ -235,7 +236,7 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       (i) =>
         i.shiftId === shift.id ||
         (i.shiftId !== undefined && !before.has(key(i))) ||
-        i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
+        ['young-weekly', 'child-weekly', 'max-hours', 'wtr-48', 'weekly-rest'].includes(i.code),
     );
     // Auto-build never creates a breach: anything flagged on the new shift rules the person out,
     // except being under contract, which the shift itself is helping to fix.

@@ -2,7 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
-import { HttpError, type AppContext } from './context';
+import { HttpError, londonToday, type AppContext } from './context';
+import { addDays } from '../src/engine/time';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
@@ -27,6 +28,11 @@ import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
+import { insightRoutes } from './routes/insights';
+import { calendarRoutes } from './routes/calendar';
+import { bookingRoutes } from './routes/bookings';
+import { applyOutside, feedConfig, fetchOutside } from './forecasting';
+import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
@@ -53,7 +59,7 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
-  /** Outbound HTTP for postcode and journey lookups (tests pass a stub). */
+  /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
   /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
@@ -126,6 +132,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     autoDispatch: options.autoDispatch ?? true,
     documentCipher: documents.cipher,
     fetch: options.fetch ?? fetch,
+    // Feed addresses are typed in by people, so the server's own reads of them are kept to public https.
+    feedFetch: options.fetch ?? publicFetch,
+    feeds: feedConfig(env),
     tflAppKey: env.TFL_APP_KEY || undefined,
     now: options.now ?? (() => new Date()),
   };
@@ -210,7 +219,52 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     await ctx.dispatcher.processDue();
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
-    return { ok: true };
+    // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
+    // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
+    // waiting go first, the run stops before the function's time runs out, and one organisation failing
+    // never stops the rest.
+    const today = londonToday(ctx);
+    const started = Date.now();
+    const due: { orgId: string; last: string }[] = [];
+    for (const orgId of await store.orgIds()) {
+      // Demo sandboxes last a day and fetch nothing from outside.
+      if (isSandbox(orgId)) continue;
+      const org = await store.load(orgId);
+      if (org.lastOutsideRefresh === today) continue;
+      // Somewhere to look for weather or events, or pushed bookings waiting to become pace history.
+      const outside = org.state.sites.some((s) => s.location || s.geofence) || org.eventFeeds.length > 0;
+      const bookingsToCompact = (org.state.bookings ?? []).some((b) => b.date < addDays(today, -2));
+      if (!outside && !bookingsToCompact) continue;
+      due.push({ orgId, last: org.lastOutsideRefresh ?? '' });
+    }
+    due.sort((a, b) => a.last.localeCompare(b.last));
+    let refreshed = 0;
+    const failed: string[] = [];
+    for (const { orgId } of due) {
+      if (Date.now() - started > 40_000) break;
+      try {
+        // Fetch once. If someone saved the organisation meanwhile, lay the same results over a fresh copy
+        // with the same merges, so their change survives; never copy whole lists across.
+        const org = await store.load(orgId);
+        const fetched = await fetchOutside(ctx, org, today);
+        applyOutside(org, fetched, today, 'scheduled refresh');
+        org.lastOutsideRefresh = today;
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          const fresh = await store.load(orgId);
+          applyOutside(fresh, fetched, today, 'scheduled refresh');
+          fresh.lastOutsideRefresh = today;
+          await store.save(fresh);
+        }
+        refreshed++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'outside refresh failed');
+        failed.push(orgId);
+      }
+    }
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
@@ -288,6 +342,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
+    insightRoutes(api, ctx);
+    calendarRoutes(api, ctx);
+    bookingRoutes(api, ctx);
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);

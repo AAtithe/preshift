@@ -29,7 +29,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       setMe(await api.get<Me>('/v1/me'));
-      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides] = await Promise.all([
+      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
@@ -39,8 +39,10 @@ export function useRotaStore() {
         api.get<RotaState['forecast']>('/v1/forecast'),
         api.get<DaySales[]>('/v1/sales'),
         api.get<RestOverride[]>('/v1/rota/overrides'),
+        api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
       ]);
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides });
+      // Till actuals stay on the server: the screens that need them ask for them.
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments });
       setError(null);
     } catch (e) {
       setError((e as Error).message);

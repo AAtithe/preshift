@@ -3,6 +3,10 @@ import type { AccessReview, User } from '../src/engine/access';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
+import type { MoveRecord } from '../src/engine/coach';
+import type { Programme } from '../src/engine/programme';
+import type { EventFeed } from './integrations/feeds';
+import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
@@ -93,6 +97,19 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  /** Every weekly move offered to a GM, and whether it was taken. */
+  moves: MoveRecord[];
+  /** When each site's week was published, for measuring notice. */
+  publications: Publication[];
+  /** The labour programme each site is on, if any. */
+  programmes: Programme[];
+  settings: OrgSettings;
+  /** Where each site's local events come from. */
+  eventFeeds: EventFeed[];
+  /** Reminders someone has dealt with or set aside, so they stop showing. */
+  reminderStates: ReminderState[];
+  /** The London date weather and events were last fetched for this organisation by the daily run. */
+  lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
   /** Events waiting to reach, or recently sent to, those systems. */
@@ -117,6 +134,23 @@ export interface OrgData {
   epos?: EposConnection;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
+}
+
+export interface ReminderState {
+  key: string;
+  siteId: string;
+  status: 'done' | 'dismissed';
+  at: string;
+  by: string;
+  note?: string;
+}
+
+export interface OrgSettings {
+  /**
+   * Shares this organisation's site figures, anonymised, with other operators who also share, and
+   * in return sees the cohort's. Off until an admin turns it on: give to get.
+   */
+  benchmarking?: boolean;
 }
 
 export type UserRole = 'admin' | 'member';
@@ -147,6 +181,8 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
+  /** Organisations where this account is Williams, Stanley & Co.'s programme lead: signs off milestones and savings. Set only by a WS key. */
+  leadOrgs?: string[];
   /** SHA-256 of the one outstanding reset link; a new link replaces it. Never the token itself. */
   resetTokenHash?: string;
   /** Epoch seconds the reset link stops working. */
@@ -343,13 +379,21 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
     // A copy each: the seed's objects are shared, and one organisation's change must not show in another's.
-    state: seeded ? structuredClone(seedState(today)) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
+    state: seeded
+      ? structuredClone(seedState(today))
+      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [], schoolHolidays: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
     outbox: [],
     processedWebhookIds: new Set(),
     audit: [],
+    moves: [],
+    publications: [],
+    programmes: [],
+    settings: {},
+    eventFeeds: [],
+    reminderStates: [],
     users: people.users,
     accessReviews: people.reviews,
     inviteTokens: {},
@@ -378,7 +422,20 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees, sales: state.sales ?? [] };
+  return {
+    ...state,
+    entities,
+    sites,
+    employees,
+    sales: state.sales ?? [],
+    actuals: state.actuals ?? [],
+    forecastAdjustments: state.forecastAdjustments ?? [],
+    weather: state.weather ?? [],
+    localEvents: state.localEvents ?? [],
+    bookings: state.bookings ?? [],
+    bookingPace: state.bookingPace ?? [],
+    schoolHolidays: state.schoolHolidays ?? [],
+  };
 }
 
 export class MemoryStore implements Store {
@@ -991,6 +1048,13 @@ function deserialise(data: unknown, version: number): OrgData {
     mail: raw.mail ?? {},
     authenticators: raw.authenticators ?? {},
     processedWebhookIds: new Set(raw.processedWebhookIds),
+    // Organisations saved before coaching and the programme existed.
+    moves: raw.moves ?? [],
+    publications: raw.publications ?? [],
+    programmes: raw.programmes ?? [],
+    settings: raw.settings ?? {},
+    eventFeeds: raw.eventFeeds ?? [],
+    reminderStates: raw.reminderStates ?? [],
     version,
   };
 }

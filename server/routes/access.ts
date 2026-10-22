@@ -230,6 +230,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
       email: session.user.email,
       orgId: session.claims.orgId,
       organisations: await organisationsOf(session.user, session.claims.orgId),
+      lead: (session.user.leadOrgs ?? []).includes(session.claims.orgId),
       ...(isSandbox(session.claims.orgId) ? { demo: true } : {}),
     };
   });
