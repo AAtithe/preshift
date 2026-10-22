@@ -1,8 +1,8 @@
 import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
-import { employedShare, isEmployedOn } from '../engine/employees';
-import { addDays, ageOn, weekStart } from '../engine/time';
+import { employedShare, isEmployedOn, ruleAge } from '../engine/employees';
+import { addDays, weekStart } from '../engine/time';
 import { journeyBetween, travelIssues, type Journey } from '../engine/travel';
 import type { Employee, RotaState, Shift } from '../engine/types';
 import { dropBlocker, MIN_SHIFT_MINUTES, SNAP_MINUTES } from './drag';
@@ -110,7 +110,7 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
         date: opening.date,
         startMinute: opening.startMinute,
         endMinute: opening.endMinute,
-        breakMinutes: requiredBreakMinutes(length, ageOn(employee.dateOfBirth, opening.date)),
+        breakMinutes: requiredBreakMinutes(length, ruleAge(employee, opening.date)),
       };
       const week = shiftsInWeek(state.shifts, ws).filter((s) => s.employeeId === employee.id);
       const share = employedShare(employee, ws);

@@ -213,6 +213,14 @@ export interface Employee {
   leaveDate?: string;
   /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
   payHidden?: boolean;
+  /**
+   * Set by the API when the reader may not see personal details: the date of birth then reads as empty,
+   * right to work as checked or not (with an expiry only when it falls within the rota's reach), and the
+   * holiday record and card are withheld. `under18` then carries what the young worker rules need.
+   */
+  personalHidden?: boolean;
+  /** With personalHidden: whether the person is under 18 today. */
+  under18?: boolean;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */

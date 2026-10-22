@@ -2,8 +2,8 @@ import type { RotaState, Shift } from './types';
 import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from './compliance';
 import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
-import { isEmployedOn } from './employees';
-import { addDays, ageOn, weekDates, weekStart } from './time';
+import { isEmployedOn, ruleAge } from './employees';
+import { addDays, weekDates, weekStart } from './time';
 import { travelIssues } from './travel';
 
 export interface AutoScheduleOptions {
@@ -167,7 +167,7 @@ function trimOverstaffedEdges(state: RotaState, ids: Set<string>, minShiftHours:
       else if (lastHour < 24 && demand[lastHour]?.gap < 0) next = { ...shift, endMinute: shift.endMinute - 60 };
       if (!next) break;
       const employee = state.employees.find((e) => e.id === next!.employeeId)!;
-      next.breakMinutes = requiredBreakMinutes(next.endMinute - next.startMinute, ageOn(employee.dateOfBirth, next.date));
+      next.breakMinutes = requiredBreakMinutes(next.endMinute - next.startMinute, ruleAge(employee, next.date));
       shifts = shifts.map((s) => (s.id === id ? next! : s));
     }
   }
@@ -222,7 +222,7 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       id: newId(),
       employeeId: e.id,
       ...slot,
-      breakMinutes: requiredBreakMinutes(length, ageOn(e.dateOfBirth, slot.date)),
+      breakMinutes: requiredBreakMinutes(length, ruleAge(e, slot.date)),
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     // Checked without overrides: a manager's reason covers a breach they chose, never one the build makes.

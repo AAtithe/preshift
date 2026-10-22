@@ -1,8 +1,8 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { checkEmployeeWeek, requiredBreakMinutes } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
-import { employedShare } from '../engine/employees';
-import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/time';
+import { employedShare, ruleAge } from '../engine/employees';
+import { addDays, formatMinute, parseClock, weekStart } from '../engine/time';
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
@@ -29,7 +29,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
   const others = state.shifts.filter((s) => s.id !== draft.id);
   const length = draft.endMinute - draft.startMinute;
   const site = state.sites.find((x) => x.id === draft.siteId)!;
-  const neededBreak = requiredBreakMinutes(length, ageOn(employee.dateOfBirth, draft.date));
+  const neededBreak = requiredBreakMinutes(length, ruleAge(employee, draft.date));
 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);

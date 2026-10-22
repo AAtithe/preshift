@@ -1,7 +1,6 @@
 import type { Issue } from '../engine/compliance';
-import { isEmployedOn } from '../engine/employees';
+import { isEmployedOn, ruleAge } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
-import { ageOn } from '../engine/time';
 import type { RotaState } from '../engine/types';
 import { hours, money } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
@@ -71,7 +70,7 @@ export function TeamView({ state, siteIds, metrics, issues, dates, showCost }: P
               totals.pension += c.pension;
               totals.total += c.total;
             }
-            const age = ageOn(e.dateOfBirth, new Date().toISOString().slice(0, 10));
+            const age = ruleAge(e, new Date().toISOString().slice(0, 10));
             return (
               <tr key={e.id}>
                 <td>

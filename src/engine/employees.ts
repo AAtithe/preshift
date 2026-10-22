@@ -32,6 +32,12 @@ export interface RecordCheck {
   message: string;
 }
 
+/** Age for the working time rules. Without personal details only under 18 or not is known, read as 17 or 18. */
+export function ruleAge(employee: Employee, on: string): number {
+  if (employee.personalHidden) return employee.under18 ? 17 : 18;
+  return ageOn(employee.dateOfBirth, on);
+}
+
 /** The next birthday that moves the person into a higher minimum wage band, if it falls soon. */
 function nextWageStep(employee: Employee, today: string, rates: UkRates) {
   const age = ageOn(employee.dateOfBirth, today);
@@ -52,11 +58,13 @@ export function reviewEmployee(
 ): RecordCheck[] {
   const checks: RecordCheck[] = [];
   const push = (code: string, severity: Severity, message: string) => checks.push({ code, severity, message });
-  const age = employee.dateOfBirth ? ageOn(employee.dateOfBirth, today) : NaN;
+  // Without personal details the checks on age and right to work are for whoever may see them.
+  const hidden = Boolean(employee.personalHidden);
+  const age = !hidden && employee.dateOfBirth ? ageOn(employee.dateOfBirth, today) : NaN;
 
   if (!employee.name.trim()) push('name', 'block', 'Name is required.');
   if (employee.roleIds.length === 0) push('roles', 'block', 'Give them at least one role.');
-  if (!employee.dateOfBirth || Number.isNaN(age)) {
+  if (!hidden && (!employee.dateOfBirth || Number.isNaN(age))) {
     push('dob', 'block', 'Date of birth is required to check minimum wage and young worker limits.');
   } else if (age < 16) {
     push('dob', 'block', 'Under school leaving age. Needs a local authority permit and cannot work in a bar or kitchen.');
@@ -89,7 +97,7 @@ export function reviewEmployee(
   if (employee.contractedHours > employee.maxWeeklyHours) {
     push('hours', 'block', `Contracted ${employee.contractedHours}h is more than their ${employee.maxWeeklyHours}h maximum.`);
   }
-  if (age < 18) {
+  if (hidden ? employee.under18 : age < 18) {
     if (employee.optedOutOf48) push('opt-out', 'block', 'Under 18s cannot opt out of the 48 hour limit.');
     if (employee.maxWeeklyHours > 40) push('young-hours', 'warn', 'Under 18s are capped at 40 hours a week.');
   } else if (employee.maxWeeklyHours > 48 && !employee.optedOutOf48) {
@@ -107,10 +115,10 @@ export function reviewEmployee(
   const copies = rtw?.documents?.length ?? 0;
   // Once someone has left, retention may already have removed the copy and the date on purpose.
   const left = Boolean(employee.leaveDate && employee.leaveDate < today);
-  if (rtw?.checked && copies === 0 && !left) {
+  if (rtw?.checked && copies === 0 && !left && !hidden) {
     push('right-to-work-copy', 'warn', 'Checked, but no copy of the documents is held. Without a copy there is no statutory excuse.');
   }
-  if (rtw?.checked && !rtw.checkedOn && !left) {
+  if (rtw?.checked && !rtw.checkedOn && !left && !hidden) {
     push('right-to-work-date', 'warn', 'Record the date the right to work check was done. The statutory excuse needs it.');
   }
 

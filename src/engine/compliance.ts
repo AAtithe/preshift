@@ -1,8 +1,8 @@
 import type { Employee, RestOverride, RotaState, Shift } from './types';
 import { shiftPaidMinutes } from './cost';
-import { isEmployedOn } from './employees';
+import { isEmployedOn, ruleAge } from './employees';
 import { isAbsentOn } from './hr';
-import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { absoluteMinute, addDays, weekDates, weekday } from './time';
 import { travelIssues } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
@@ -73,7 +73,7 @@ export function checkEmployeeWeek(
   const week = mine.filter((s) => inWeek.has(s.date));
   // Someone not on the books this week, and not rostered, has nothing to check.
   if (week.length === 0 && !dates.some((d) => isEmployedOn(employee, d))) return [];
-  const age = ageOn(employee.dateOfBirth, weekStartDate);
+  const age = ruleAge(employee, weekStartDate);
   const young = age < 18;
   const push = (i: Omit<Issue, 'employeeId'>) => issues.push({ employeeId: employee.id, ...i });
   // A rest breach a manager has overridden still shows, as a warning carrying who and why.
@@ -127,9 +127,9 @@ export function checkEmployeeWeek(
       push({ ...base, code: 'not-trained', severity: 'warn', message: 'Not signed off for this role.' });
     }
     if (employee.payBasis === 'hourly') {
-      const band = minimumWageFor(ageOn(employee.dateOfBirth, shift.date), rates);
-      // Withheld pay reads as nought; the API, which holds the real rate, makes this check for that reader.
-      if (band && !employee.payHidden && employee.hourlyRate < band.hourly) {
+      const band = minimumWageFor(ruleAge(employee, shift.date), rates);
+      // Withheld pay or age reads as nought or a guess; the API, which holds both, makes this check for that reader.
+      if (band && !employee.payHidden && !employee.personalHidden && employee.hourlyRate < band.hourly) {
         push({
           ...base,
           code: 'minimum-wage',
