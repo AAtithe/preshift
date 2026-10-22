@@ -31,6 +31,8 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
   const sales = Math.round(metrics.forecastSales);
   const over = metrics.varianceToTarget > 0;
   const empty = metrics.labourCost === 0;
+  // No sales forecast: labour % and the budget have nothing to be judged against.
+  const noForecast = metrics.forecastSales === 0;
   const scaleMax = Math.max(metrics.targetPct * 1.5, metrics.labourPct * 1.05);
   const dayMax = Math.max(metrics.targetPct * 1.5, ...metrics.days.map((d) => d.labourPct));
   const name = (id: string) => state.employees.find((e) => e.id === id)?.name.split(' ')[0] ?? '';
@@ -49,6 +51,18 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
         </div>
       )}
       {showCost && (<>
+      {noForecast ? (
+      <div className="rail-section">
+        <div className="eyebrow">Rota P&amp;L · forecast</div>
+        <div className="rail-verdict">
+          <span className="rail-pct muted">No forecast</span>
+        </div>
+        <p className="muted small">
+          There is no sales forecast for this week, so labour % and the budget cannot be judged. Target {pct(metrics.targetPct, 0)}.
+          {!empty && ` Labour rostered so far: ${money(metrics.labourCost)}.`}
+        </p>
+      </div>
+      ) : (
       <div className="rail-section">
         <div className="eyebrow">Rota P&amp;L · forecast</div>
         <div className="rail-verdict">
@@ -69,6 +83,7 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
           </p>
         )}
       </div>
+      )}
 
       <table className="statement">
         <tbody>
@@ -116,7 +131,11 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
             <div key={d.date} className="rail-day">
               <span>{dayLabel(d.date).short}</span>
               <Bullet mini value={d.labourPct} target={metrics.targetPct} max={dayMax} />
-              <span className={`tnum ${d.labourCost ? (d.labourPct > metrics.targetPct ? 'bad-text' : 'good-text') : 'muted'}`}>{pct(d.labourPct)}</span>
+              {d.forecastSales === 0 ? (
+                <span className="muted small">No forecast</span>
+              ) : (
+                <span className={`tnum ${d.labourCost ? (d.labourPct > metrics.targetPct ? 'bad-text' : 'good-text') : 'muted'}`}>{pct(d.labourPct)}</span>
+              )}
             </div>
           ))}
         </div>

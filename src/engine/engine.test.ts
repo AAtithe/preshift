@@ -286,6 +286,16 @@ describe('multi-site', () => {
     const wdl = scopeMetrics(next, ['mar', 'fitz'], WEEK);
     expect(wdl.sites.map((m) => m.siteId)).toEqual(['mar', 'fitz']);
   });
+
+  it('keeps the sites\' own target for a week with no forecast, rather than 0%', () => {
+    const noForecast = { ...next, forecast: [] };
+    const group = scopeMetrics(noForecast, all, WEEK);
+    expect(group.forecastSales).toBe(0);
+    expect(group.labourCost).toBeGreaterThan(0);
+    const own = all.map((id) => noForecast.sites.find((s) => s.id === id)!.labourTargetPct);
+    expect(group.targetPct).toBeCloseTo(own.reduce((a, b) => a + b, 0) / own.length, 6);
+    expect(group.targetPct).toBeGreaterThan(0.2);
+  });
 });
 
 describe('employment allowance', () => {
