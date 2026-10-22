@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Preshift Rota live demo</title>
+    <meta name="description" content="Try Preshift Rota on a sample group of three London sites. No sign-up." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f4d3a%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 font-family=%22sans-serif%22 font-weight=%22700%22 fill=%22white%22 text-anchor=%22middle%22%3EP%3C/text%3E%3C/svg%3E" />
+    <style>
+      :root {
+        --bg: #f6f5f2; --surface: #ffffff; --border: #e2dfd8; --text: #1c1b19; --muted: #6d6a63;
+        --accent: #1f4d3a; --accent-text: #ffffff; --good-bg: #e3f1e8;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131412; --surface: #1c1d1a; --border: #34352f; --text: #ecebe6; --muted: #a09d94;
+          --accent: #5fb88a; --accent-text: #0e1a13; --good-bg: #1d3326;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+        background: var(--bg); color: var(--text);
+        font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      main { width: min(480px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+      .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
+      .mark { width: 32px; height: 32px; border-radius: 7px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; }
+      .name { font-weight: 700; font-size: 18px; }
+      .sub { color: var(--muted); font-size: 12px; }
+      h1 { font-size: 20px; margin: 0 0 8px; }
+      p { margin: 0 0 14px; }
+      ul { margin: 0 0 18px; padding-left: 18px; }
+      li { margin-bottom: 6px; }
+      .button { display: block; width: 100%; font: inherit; text-align: center; font-weight: 600; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+      form { margin: 0; }
+      .msg { font-size: 13px; padding: 8px 10px; border-radius: 8px; margin-bottom: 14px; background: var(--good-bg); }
+      .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+      .foot a { color: inherit; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">P</span>
+        <div>
+          <div class="name">Preshift</div>
+          <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
+        </div>
+      </div>
+      <p class="msg" id="busy" hidden>The demo has had a lot of visitors today. Try again tomorrow, or book a demo with us.</p>
+      <p class="msg" id="origin" hidden>Start the demo from this page.</p>
+      <h1>Try Preshift Rota</h1>
+      <p>You get your own copy of a sample group: two companies, three London sites, real teams, rates and forecasts. No sign-up, and nobody else sees what you change. It is kept apart from every customer's data.</p>
+      <ul>
+        <li>Build a site's week from the sales forecast and watch labour % against target.</li>
+        <li>Edit a shift and see what it really adds, with holiday pay, employer NI and pension.</li>
+        <li>Try to roster something illegal and see the compliance engine stop it.</li>
+        <li>Clock people in at the site, send hours to the TeamPay simulator and run payroll.</li>
+        <li>Post the labour accrual journal, intercompany recharge included.</li>
+      </ul>
+      <form method="post" action="/demo/start">
+        <button class="button" type="submit">Start the demo</button>
+      </form>
+      <p class="foot">Your copy is wiped at midnight UK time. Starting the demo signs this browser out of any Preshift account. Want to see it on your own sites? <a href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>.</p>
+    </main>
+    <script>
+      const error = new URLSearchParams(location.search).get('error');
+      if (error === 'busy' || error === 'origin') document.getElementById(error).hidden = false;
+    </script>
+  </body>
+</html>

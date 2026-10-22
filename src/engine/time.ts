@@ -57,3 +57,38 @@ export function ageOn(dateOfBirth: string, on: string): number {
   if (beforeBirthday) age -= 1;
   return age;
 }
+
+/** UK tax year a date falls in, e.g. '2026/27'. The year runs 6 April to 5 April. */
+export function taxYearOf(iso: string): string {
+  const year = Number(iso.slice(0, 4));
+  const start = iso >= `${year}-04-06` ? year : year - 1;
+  return `${start}/${String((start + 1) % 100).padStart(2, '0')}`;
+}
+
+export function taxYearStartDate(taxYear: string): string {
+  return `${taxYear.slice(0, 4)}-04-06`;
+}
+
+/** Local date and minute in London for an instant: clocking and rotas are always UK wall-clock time. */
+export function londonParts(at: Date): { date: string; minute: number } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(at)
+      .map((p) => [p.type, p.value]),
+  );
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+
+/** The London date and minute of an instant given as an ISO string. */
+export const londonClock = (isoInstant: string): { date: string; minute: number } => londonParts(new Date(isoInstant));
+
+/** The London calendar date of an instant, so a publish just after midnight in summer time lands on the right day. */
+export const londonDate = (isoInstant: string): string => londonParts(new Date(isoInstant)).date;

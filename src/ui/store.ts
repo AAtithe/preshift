@@ -1,121 +1,360 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { RotaState } from '../engine/types';
-import { checkClockIn, endClock, startClock } from '../engine/clocking';
-import { checkWeek } from '../engine/compliance';
-import { seedDemo } from '../engine/simulate';
-import { toISODate } from '../engine/time';
-import { applyChange, type Change, type Command } from '../shared/commands';
-import { api, ApiError } from './api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { UnfilledGap } from '../engine/autoschedule';
+import type { Issue } from '../engine/compliance';
+import type { DayForecast } from '../engine/forecasting';
+import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, PayChange, PayTerms, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
+import { weekDates } from '../engine/time';
+import type { Me } from './access/model';
+import { api } from './api';
 
-// v8 adds the menu, dish sales, purchases and stock counts; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v8';
-
-function loadDemo(): RotaState {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as RotaState;
-  } catch {
-    // Storage blocked or corrupt: fall back to the demo data.
-  }
-  return seedDemo();
+/** One entry in a stored copy's access log, as the API returns it. */
+export interface DocumentAccess {
+  action: 'added' | 'viewed' | 'deleted';
+  at: string;
+  actor: string;
+  via: 'session' | 'api key';
+  ip?: string;
 }
 
 /**
- * The offline demo's stand-in for the server: the same command, the same
- * rules where the server enforces them, the same changes back. Time comes
- * from the demo clock the screen passes in.
+ * Loads the organisation from the API and writes every change back through it.
+ * The engine also runs in the browser on the same data, so costs and
+ * compliance update as you type, and the server re-checks on save.
  */
-function localChanges(state: RotaState, cmd: Command): Change[] {
-  const today = { date: toISODate(new Date()), minute: 0 };
-  switch (cmd.type) {
-    case 'upsertShift':
-      return [{ type: 'upsertShift', shift: { ...cmd.shift, published: false } }];
-    case 'deleteShift':
-      return [cmd];
-    case 'replaceWeek':
-      return [cmd];
-    case 'clearWeek':
-      return [{ type: 'replaceWeek', siteId: cmd.siteId, weekStart: cmd.weekStart, shifts: [] }];
-    case 'publishWeek': {
-      const blocks = checkWeek(state, cmd.weekStart, cmd.siteId).filter((i) => i.severity === 'block');
-      if (blocks.length) throw new ApiError(409, blocks[0].message);
-      return [cmd];
-    }
-    case 'applyCut': {
-      // A live change to a published rota: it stays published, the person is told on the floor.
-      const shift = state.shifts.find((s) => s.id === cmd.shiftId)!;
-      return [{ type: 'upsertShift', shift: { ...shift, endMinute: cmd.endMinute, breakMinutes: cmd.breakMinutes } }];
-    }
-    case 'clockIn': {
-      const { date, minute } = cmd.demoAt ?? today;
-      const check = checkClockIn(state, cmd.employeeId, cmd.siteId, date, minute, cmd.position);
-      if (!check.ok) throw new ApiError(409, check.reason);
-      const employee = state.employees.find((e) => e.id === cmd.employeeId)!;
-      return [{ type: 'putClock', clock: startClock(cmd.employeeId, cmd.siteId, employee.roleIds[0], date, minute, check.shift, cmd.position ? 'geofence' : 'manager') }];
-    }
-    case 'clockOut': {
-      const open = state.clocks.find((c) => c.id === cmd.id)!;
-      return [{ type: 'putClock', clock: endClock(open, (cmd.demoAt ?? today).minute, cmd.breakMinutes) }];
-    }
-    case 'approveClocks':
-    case 'updateTroncScheme':
-    case 'markTipsPaid':
-      return [cmd];
-    case 'seedDemo':
-      return [{ type: 'replaceState', state: seedDemo() }];
-  }
-}
-
-export interface Store {
-  state: RotaState | null;
-  /** Runs a command; resolves false if it was refused, with the reason in `error`. */
-  run: (cmd: Command) => Promise<boolean>;
-  error: string | null;
-  clearError: () => void;
-}
-
-export function useRotaStore(mode: 'demo' | 'server'): Store {
-  const [state, setState] = useState<RotaState | null>(() => (mode === 'demo' ? loadDemo() : null));
+export function useRotaStore() {
+  const [state, setState] = useState<RotaState | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (mode !== 'server') return;
-    api.state().then((r) => setState(r.state), (e: Error) => setError(e.message));
-  }, [mode]);
-
-  useEffect(() => {
-    if (mode !== 'demo' || !state) return;
+  const load = useCallback(async () => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch {
-      // Non-fatal: the rota still works for this session.
+      setMe(await api.get<Me>('/v1/me'));
+      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
+        api.get<RotaState['entities']>('/v1/entities'),
+        api.get<RotaState['sites']>('/v1/sites'),
+        api.get<RotaState['roles']>('/v1/roles'),
+        api.get<RotaState['demandRules']>('/v1/demand-rules'),
+        api.get<RotaState['employees']>('/v1/employees'),
+        api.get<Shift[]>('/v1/shifts'),
+        api.get<RotaState['forecast']>('/v1/forecast'),
+        api.get<DaySales[]>('/v1/sales'),
+        api.get<RestOverride[]>('/v1/rota/overrides'),
+        api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
+      ]);
+      // Till actuals stay on the server: the screens that need them ask for them.
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments });
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
     }
-  }, [mode, state]);
+  }, []);
 
-  const run = useCallback(
-    async (cmd: Command) => {
-      try {
-        let changes: Change[];
-        if (mode === 'server') changes = (await api.command(cmd)).changes;
-        else {
-          if (!state) return false;
-          changes = localChanges(state, cmd);
-        }
-        setState((s) => (s ? changes.reduce(applyChange, s) : s));
-        setError(null);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const refreshShifts = useCallback(async () => {
+    const shifts = await api.get<Shift[]>('/v1/shifts');
+    setState((s) => (s ? { ...s, shifts } : s));
+  }, []);
+
+  // The last refusal, readable at once by callers that show it themselves (Shifty's cards).
+  const lastError = useRef<string | null>(null);
+  const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      setError(null);
+      lastError.current = null;
+      return await fn();
+    } catch (e) {
+      setError((e as Error).message);
+      lastError.current = (e as Error).message;
+      return undefined;
+    }
+  }, []);
+
+  const refreshSales = useCallback(async () => {
+    const sales = await api.get<DaySales[]>('/v1/sales');
+    setState((s) => (s ? { ...s, sales } : s));
+  }, []);
+
+  const refreshForecast = useCallback(async () => {
+    const forecast = await api.get<RotaState['forecast']>('/v1/forecast');
+    setState((s) => (s ? { ...s, forecast } : s));
+  }, []);
+
+  const actions = {
+    reload: load,
+    /** Works the week's forecast out of past takings; only empty days unless replace is set. */
+    forecastFromTakings: (siteIds: string[], weekStart: string, replace = false) =>
+      guard(async () => {
+        const res = await api.post<{ filled: number; days: (DayForecast & { filled: boolean })[] }>('/v1/forecast/from-takings', { siteIds, weekStart, replace });
+        await refreshForecast();
+        return res;
+      }),
+    refreshShifts,
+    refreshSales,
+    /** Records takings for the days given and removes the ones cleared. */
+    saveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) =>
+      guard(async () => {
+        if (rows.length) await api.put('/v1/sales', { rows: rows.map((r) => ({ ...r, source })) });
+        for (const c of cleared) await api.del(`/v1/sales?siteId=${encodeURIComponent(c.siteId)}&date=${c.date}`);
+        await refreshSales();
         return true;
+      }),
+    saveShift: (shift: Shift, isNew: boolean) =>
+      guard(async () => {
+        const { id, employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = shift;
+        const body = { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes };
+        const res = isNew
+          ? await api.post<{ shift: Shift; issues: Issue[] }>('/v1/shifts', { id, ...body })
+          : await api.patch<{ shift: Shift; issues: Issue[] }>(`/v1/shifts/${id}`, body);
+        setState((s) => s && { ...s, shifts: isNew ? [...s.shifts, res.shift] : s.shifts.map((x) => (x.id === id ? res.shift : x)) });
+        return res;
+      }),
+    deleteShift: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/shifts/${id}`);
+        setState((s) => s && { ...s, shifts: s.shifts.filter((x) => x.id !== id) });
+        return true;
+      }),
+    build: (siteIds: string[], weekStart: string) =>
+      guard(async () => {
+        const res = await api.post<{ unfilled: UnfilledGap[] }>('/v1/rota/build', { siteIds, weekStart });
+        await refreshShifts();
+        return res.unfilled;
+      }),
+    clear: (siteIds: string[], weekStart: string) =>
+      guard(async () => {
+        await api.post('/v1/rota/clear', { siteIds, weekStart });
+        await refreshShifts();
+      }),
+    /** Records a manager's reason for publishing through a rest breach. */
+    overrideRest: (weekStart: string, key: string, reason: string) =>
+      guard(async () => {
+        const override = await api.post<RestOverride>('/v1/rota/overrides', { weekStart, key, reason });
+        setState((s) => s && { ...s, restOverrides: [...(s.restOverrides ?? []), override] });
+        return override;
+      }),
+    withdrawOverride: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/rota/overrides/${id}`);
+        setState((s) => s && { ...s, restOverrides: (s.restOverrides ?? []).filter((o) => o.id !== id) });
+      }),
+    publish: (siteIds: string[], weekStart: string) =>
+      guard(async () => {
+        await api.post('/v1/rota/publish', { siteIds, weekStart });
+        await refreshShifts();
+        return true;
+      }),
+    /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
+    /** Re-reads one person, after a change made elsewhere (a pay change approved) moved their record. */
+    refreshEmployee: async (id: string) => {
+      const employee = await api.get<Employee>(`/v1/employees/${id}`);
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === id ? employee : x)) });
+      return employee;
+    },
+    /** Proposes new pay: it goes to finance, and the person's pay stays as it is until approved. */
+    proposePay: (employeeId: string, terms: PayTerms, reason: string) =>
+      guard(async () => {
+        const change = await api.post<PayChange>(`/v1/employees/${employeeId}/pay-changes`, { ...terms, ...(reason.trim() ? { reason: reason.trim() } : {}) });
+        const employee = await api.get<Employee>(`/v1/employees/${employeeId}`);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+        return change;
+      }),
+    saveEmployee: (employee: Employee, isNew: boolean, withPay = true) =>
+      guard(async () => {
+        // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
+        // The personnel file and absence have routes of their own and are never sent back here.
+        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _ab, payHidden, pendingPay: _pp, ...fields } = employee;
+        // Pay this reader never received is left out, never sent back as nought; without pay rights it is not sent at all.
+        const { hourlyRate: _r, annualSalary: _a, ...unpaid } = fields;
+        const kept = payHidden || !withPay ? unpaid : fields;
+        // Right to work copies are added and removed through their own routes.
+        const { documents: _d, ...rightToWork } = kept.rightToWork ?? { checked: false };
+        const body = kept.rightToWork ? { ...kept, rightToWork } : kept;
+        const saved = isNew
+          ? await api.post<Employee>('/v1/employees', body)
+          : await api.patch<Employee>(`/v1/employees/${id}`, body);
+        setState((s) => s && { ...s, employees: isNew ? [...s.employees, saved] : s.employees.map((x) => (x.id === id ? saved : x)) });
+        await refreshShifts();
+        return saved;
+      }),
+    /** Marks a leaver: the server removes later shifts and tells TeamPay. */
+    markLeaver: (id: string, leaveDate: string) =>
+      guard(async () => {
+        const res = await api.post<{ employee: Employee; shiftsRemoved: number }>(`/v1/employees/${id}/leaver`, { leaveDate });
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === id ? res.employee : x)) });
+        await refreshShifts();
+        return res;
+      }),
+    /** Sets or clears the area staff must be inside to clock in on a device. Errors are left to the caller to show. */
+    setGeofence: async (siteId: string, fence: GeoFence | null) => {
+      const site = fence
+        ? await api.put<Site>(`/v1/sites/${siteId}/geofence`, fence)
+        : await api.del<Site>(`/v1/sites/${siteId}/geofence`);
+      setState((s) => s && { ...s, sites: s.sites.map((x) => (x.id === siteId ? site : x)) });
+      return site;
+    },
+    /** Enrols or removes a person's RFID card. Errors are left to the caller to show. */
+    setBadge: async (employeeId: string, badgeId: string | null) => {
+      const employee = badgeId
+        ? await api.put<Employee>(`/v1/employees/${employeeId}/badge`, { badgeId })
+        : await api.del<Employee>(`/v1/employees/${employeeId}/badge`);
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+      return employee;
+    },
+    /** Stores a copy of a right to work document. Errors are left to the caller to show. */
+    addRightToWorkDocument: async (employeeId: string, file: Blob, fileName: string) => {
+      const employee = await api.upload<Employee>(
+        `/v1/employees/${employeeId}/right-to-work/documents?fileName=${encodeURIComponent(fileName)}`,
+        file,
+      );
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+      return employee;
+    },
+    /** Deletes a stored copy (admins only). Errors are left to the caller to show. */
+    deleteRightToWorkDocument: async (employeeId: string, documentId: string) => {
+      const employee = await api.del<Employee>(`/v1/employees/${employeeId}/right-to-work/documents/${documentId}`);
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+      return employee;
+    },
+    /** Who added, viewed and deleted a copy (admins only). Errors are left to the caller to show. */
+    rightToWorkDocumentHistory: (employeeId: string, documentId: string) =>
+      api.get<DocumentAccess[]>(`/v1/employees/${employeeId}/right-to-work/documents/${documentId}/access`),
+    /** Sets the first day of a company's leave year (MM-DD); every holiday balance in it moves with it. */
+    setLeaveYearStart: (entityId: string, leaveYearStart: string) =>
+      guard(async () => {
+        const entity = await api.patch<Entity>(`/v1/entities/${entityId}`, { leaveYearStart });
+        setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
+        return entity;
+      }),
+    /** Sets what a company pays for travel between sites; every cost and payroll line follows it. */
+    setTravelPay: (entityId: string, travelPay: TravelPay) =>
+      guard(async () => {
+        const entity = await api.patch<Entity>(`/v1/entities/${entityId}`, { travelPay });
+        setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
+        return entity;
+      }),
+    /**
+     * Saves an accepted assistant draft for every site it covered in a single all-or-nothing call.
+     * The server refuses it if any site's week changed since the draft began (baselines) or if it
+     * would move a shift that has started, and records the instructions in the audit log.
+     */
+    applyDraft: async (weekStart: string, draft: Shift[], baselines: Record<string, string>, instructions: string[]): Promise<string | null> => {
+      const dates = weekDates(weekStart);
+      const sites = Object.entries(baselines).map(([siteId, baseline]) => ({
+        siteId,
+        baseline,
+        shifts: draft
+          .filter((s) => s.siteId === siteId && dates.includes(s.date))
+          .map(({ id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes }) => ({
+            id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes,
+          })),
+      }));
+      try {
+        await api.put('/v1/rota/weeks', { weekStart, sites, source: 'assistant', instruction: instructions.join('\n').slice(0, 2000) });
+        return null;
       } catch (e) {
-        setError((e as Error).message);
-        // Anything other than a refusal means this copy may be stale: reload from the server.
-        if (mode === 'server' && !(e instanceof ApiError && [400, 403, 404, 409].includes(e.status))) {
-          api.state().then((r) => setState(r.state), () => undefined);
-        }
-        return false;
+        // Returned rather than shown behind the assistant, so the manager sees why and can redraft.
+        return (e as Error).message;
+      } finally {
+        await refreshShifts();
       }
     },
-    [mode, state],
-  );
+    /** Sets where a site is from its postcode; journeys to and from it are looked up again on refresh. */
+    setSiteLocation: (siteId: string, postcode: string) =>
+      guard(async () => {
+        await api.put<Site>(`/v1/sites/${siteId}/location`, { postcode });
+        const sites = await api.get<Site[]>('/v1/sites');
+        setState((s) => s && { ...s, sites });
+        return sites;
+      }),
+    /** Plans journeys between every pair of sites with TfL, keeping times set by hand. */
+    refreshTravel: () =>
+      guard(async () => {
+        const res = await api.post<{ sites: Site[]; fromTfl: number; estimated: number; failures: string[] }>('/v1/sites/travel/refresh');
+        setState((s) => s && { ...s, sites: res.sites });
+        return res;
+      }),
+    /** Sets a journey time between two sites by hand, both ways, or clears it when minutes is null. */
+    setTravel: (siteId: string, toId: string, minutes: number | null) =>
+      guard(async () => {
+        const sites =
+          minutes === null
+            ? await api.del<Site[]>(`/v1/sites/${siteId}/travel/${toId}`)
+            : await api.put<Site[]>(`/v1/sites/${siteId}/travel/${toId}`, { minutes });
+        setState((s) => s && { ...s, sites });
+        return sites;
+      }),
+    /** Replaces a person's personnel file details. */
+    saveHrProfile: (employeeId: string, profile: HrProfile) =>
+      guard(async () => {
+        const employee = await api.put<Employee>(`/v1/employees/${employeeId}/hr`, profile);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+        return employee;
+      }),
+    /** Records or corrects an absence. Returns the rostered shifts it now clashes with. */
+    saveAbsence: (employeeId: string, absence: Absence, isNew: boolean) =>
+      guard(async () => {
+        const { id, ...body } = absence;
+        const res = isNew
+          ? await api.post<{ employee: Employee; clashes: string[] }>(`/v1/employees/${employeeId}/absences`, body)
+          : await api.patch<{ employee: Employee; clashes: string[] }>(`/v1/employees/${employeeId}/absences/${id}`, body);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? res.employee : x)) });
+        return res;
+      }),
+    deleteAbsence: (employeeId: string, absenceId: string) =>
+      guard(async () => {
+        const employee = await api.del<Employee>(`/v1/employees/${employeeId}/absences/${absenceId}`);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+        return employee;
+      }),
+    guard,
+    /** Why the most recent action was refused, or null if it succeeded. */
+    lastError: () => lastError.current,
+  };
 
-  return { state, run, error, clearError: () => setError(null) };
+  return { state, me, error, setError, actions };
 }
 
+type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>;
+
+/** Personnel file entries, loaded once for the HR screens. Cases arrive only for admins. */
+export function useHrRecords(setError: (message: string | null) => void) {
+  const [records, setRecords] = useState<HrRecord[] | null>(null);
+
+  useEffect(() => {
+    api.get<HrRecord[]>('/v1/hr/records').then(setRecords).catch((e) => { setRecords([]); setError((e as Error).message); });
+  }, [setError]);
+
+  const run = async <T,>(fn: () => Promise<T>) => {
+    try {
+      setError(null);
+      return await fn();
+    } catch (e) {
+      setError((e as Error).message);
+      return undefined;
+    }
+  };
+
+  return {
+    records,
+    save: (record: HrRecord, isNew: boolean) =>
+      run(async () => {
+        const { id, createdBy: _b, createdAt: _a, ...body } = record;
+        const saved = isNew
+          ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
+          : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);
+        setRecords((list) => (isNew ? [...(list ?? []), saved] : (list ?? []).map((r) => (r.id === id ? saved : r))));
+        return saved;
+      }),
+    remove: (id: string) =>
+      run(async () => {
+        await api.del(`/v1/hr/records/${id}`);
+        setRecords((list) => (list ?? []).filter((r) => r.id !== id));
+        return true;
+      }),
+  };
+}
+
+export type HrRecords = ReturnType<typeof useHrRecords>;

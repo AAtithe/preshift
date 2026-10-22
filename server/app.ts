@@ -1,199 +1,363 @@
-import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import cookie from '@fastify/cookie';
-import type { Command } from '../src/shared/commands';
-import {
-  acceptInvite,
-  createInvite,
-  logIn,
-  logOut,
-  memberships,
-  MIN_PASSWORD,
-  SESSION_DAYS,
-  sessionUser,
-  signUp,
-  switchOrganisation,
-  type SessionUser,
-} from './auth';
-import { londonNow } from './clock';
-import { execute, HttpError } from './commands';
-import { withOrg, type Db } from './db';
-import { can, permissionsFor, visibleState, type MemberRole } from './permissions';
-import { loadState } from './repo';
+import Fastify, { type FastifyInstance } from 'fastify';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
+import { authenticate, loadApiKeys, type ApiKey } from './auth';
+import { HttpError, londonToday, type AppContext } from './context';
+import { addDays } from '../src/engine/time';
+import type { PayrollProvider } from './integrations/payroll/provider';
+import { TeamPaySimulator } from './integrations/payroll/simulator';
+import { TeamPayProvider } from './integrations/payroll/teampay';
+import { OutboxDispatcher } from './outbox';
+import { settingsRoutes, signInRoutes } from './routes/access';
+import { assistantRoutes } from './routes/assistant';
+import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { isSandbox } from './sandbox';
+import { devRoutes } from './routes/dev';
+import { developerRoutes } from './routes/developers';
+import { documentCipherFromEnv } from './documentCrypto';
+import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
+import { employeeRoutes } from './routes/employees';
+import { eposRoutes, syncAllTills } from './routes/epos';
+import { payRoutes } from './routes/pay';
+import { hrRoutes } from './routes/hr';
+import { payrollRoutes } from './routes/payroll';
+import { privacyRoutes } from './routes/privacy';
+import { rotaRoutes } from './routes/rota';
+import { setupRoutes } from './routes/setup';
+import { timeRoutes } from './routes/time';
+import { authenticatorRoutes } from './routes/authenticator';
+import { userRoutes } from './routes/users';
+import { clockingRoutes } from './routes/clocking';
+import { insightRoutes } from './routes/insights';
+import { calendarRoutes } from './routes/calendar';
+import { bookingRoutes } from './routes/bookings';
+import { applyOutside, feedConfig, fetchOutside } from './forecasting';
+import { publicFetch } from './integrations/feeds';
+import { travelRoutes } from './routes/travel';
+import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { webRoutes } from './routes/web';
+import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+import { neon } from '@neondatabase/serverless';
+import { mcpRoutes } from './mcp';
+import { MemoryStore, PgStore, type Store } from './store';
+import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
-export interface AppOptions {
-  db: Db;
-  /** Lets anyone create an organisation. Off in production: WS sets clients up. */
-  allowSignup?: boolean;
-  /** Lets an owner load the demo over their organisation's data. Demo and test servers only. */
-  allowDemoSeed?: boolean;
-  /** Secure cookies need HTTPS; on everywhere but local development. */
-  secureCookies?: boolean;
-  /** The server's clock, replaceable in tests. */
+export interface BuildOptions {
+  apiKeys?: ApiKey[];
+  store?: Store;
+  /** Supply a provider directly (tests). Otherwise TeamPay if configured, else the simulator. */
+  provider?: PayrollProvider;
+  autoDispatch?: boolean;
+  logger?: boolean;
+  env?: NodeJS.ProcessEnv;
+  /** Where the Swagger UI assets live when the server is bundled (Vercel). */
+  docsBaseDir?: string;
+  /** The sign-in page. Defaults to site/login.html in the repository. */
+  loginPage?: string;
+  /** The built web app, served at /app/ to signed-in people only. Unset in development, where Vite serves it. */
+  appDir?: string;
+  /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
+  staffDir?: string;
+  /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
+  fetch?: typeof fetch;
+  /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
+  demo?: boolean;
+  /** The demo's start page. Defaults to site/demo.html in the repository. */
+  demoPage?: string;
+  /** The clock (tests fix it). */
   now?: () => Date;
-  /** Log server faults. Off in tests. */
-  logErrors?: boolean;
+  /** How webhooks reach partner systems. Defaults to fetch; tests supply a recorder. */
+  webhookFetch?: Fetch;
+  /** Requests per minute per API key. */
+  rateLimit?: number;
 }
 
-const COOKIE = 'ps_session';
-const ROLES: MemberRole[] = ['owner', 'finance', 'gm', 'troncmaster', 'staff'];
-
-/** Ten wrong passwords per address and email in fifteen minutes, then wait. In memory: one server for now. */
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_ATTEMPTS = 10;
-
-export function buildApp(options: AppOptions) {
-  const { db } = options;
-  const now = () => londonNow(options.now?.() ?? new Date());
-  const app = Fastify({ logger: options.logErrors ? { level: 'error' } : false, bodyLimit: 5 * 1024 * 1024 });
-  app.register(cookie);
-  const attempts = new Map<string, { count: number; until: number }>();
-
-  const setSession = (reply: FastifyReply, token: string) =>
-    reply.setCookie(COOKIE, token, {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: options.secureCookies ?? true,
-      maxAge: SESSION_DAYS * 24 * 60 * 60,
-    });
-
-  async function requireUser(request: FastifyRequest): Promise<SessionUser> {
-    const user = await sessionUser(db, request.cookies[COOKIE]);
-    if (!user) throw new HttpError(401, 'Please sign in.');
-    return user;
-  }
-
-  app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof HttpError) return reply.status(error.status).send({ error: error.message });
-    const { statusCode: status, message } = error as { statusCode?: number; message?: string };
-    if (status && status < 500) return reply.status(status).send({ error: message });
-    app.log.error(error);
-    return reply.status(500).send({ error: 'Something went wrong.' });
-  });
-
-  // Cross-site request forgery: a browser will not send JSON cross-site without a preflight this
-  // server never answers, and the session cookie is SameSite=Lax. Every write must be JSON.
-  app.addHook('preHandler', async (request) => {
-    if (request.method !== 'GET' && !String(request.headers['content-type'] ?? '').startsWith('application/json')) {
-      throw new HttpError(415, 'Send JSON.');
-    }
-  });
-
-  app.post<{ Body: { organisationName: string; name: string; email: string; password: string } }>('/api/auth/signup', async (request, reply) => {
-    if (!options.allowSignup) throw new HttpError(403, 'Sign up is closed. Ask Williams, Stanley & Co. for an invite.');
-    const { organisationName, name, email, password } = request.body ?? ({} as never);
-    if (!organisationName || !name || !email) throw new HttpError(400, 'Organisation, name and email are needed.');
-    if (!password || password.length < MIN_PASSWORD) throw new HttpError(400, `Use a password of at least ${MIN_PASSWORD} characters.`);
-    try {
-      const { token } = await signUp(db, organisationName, name, email, password);
-      setSession(reply, token);
-      return { ok: true };
-    } catch (e) {
-      if ((e as { code?: string }).code === '23505') throw new HttpError(409, 'That email already has an account. Sign in instead.');
-      throw e;
-    }
-  });
-
-  app.post<{ Body: { email: string; password: string } }>('/api/auth/login', async (request, reply) => {
-    const { email = '', password = '' } = request.body ?? {};
-    const key = `${request.ip}|${email.toLowerCase()}`;
-    const seen = attempts.get(key);
-    if (seen && seen.until > Date.now() && seen.count >= LOGIN_ATTEMPTS) throw new HttpError(429, 'Too many attempts. Try again in fifteen minutes.');
-    const token = await logIn(db, email, password);
-    if (!token) {
-      const fresh = !seen || seen.until <= Date.now();
-      attempts.set(key, { count: fresh ? 1 : seen.count + 1, until: fresh ? Date.now() + LOGIN_WINDOW_MS : seen.until });
-      throw new HttpError(401, 'Email or password not recognised.');
-    }
-    attempts.delete(key);
-    setSession(reply, token);
-    return { ok: true };
-  });
-
-  app.post('/api/auth/logout', async (request, reply) => {
-    const token = request.cookies[COOKIE];
-    if (token) await logOut(db, token);
-    reply.clearCookie(COOKIE, { path: '/' });
-    return { ok: true };
-  });
-
-  app.post<{ Body: { token: string; name: string; password: string } }>('/api/auth/accept-invite', async (request, reply) => {
-    const { token, name, password } = request.body ?? ({} as never);
-    if (!password || password.length < MIN_PASSWORD) throw new HttpError(400, `Use a password of at least ${MIN_PASSWORD} characters.`);
-    const session = await acceptInvite(db, token, name, password);
-    if (!session) throw new HttpError(400, 'That invite has expired or been used, or the password does not match the existing account.');
-    setSession(reply, session);
-    return { ok: true };
-  });
-
-  app.get('/api/me', async (request) => {
-    const user = await requireUser(request);
+function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
+  if (env.TEAMPAY_API_KEY) {
     return {
-      user: { id: user.userId, name: user.name, email: user.email },
-      organisation: { id: user.organisationId, name: user.organisationName },
-      membership: user.membership,
-      permissions: permissionsFor(user.membership),
-      organisations: await memberships(db, user.userId),
+      provider: new TeamPayProvider({
+        baseUrl: env.TEAMPAY_BASE_URL ?? 'https://api.team-pay.co.uk/v1',
+        apiKey: env.TEAMPAY_API_KEY,
+        webhookSecret: env.TEAMPAY_WEBHOOK_SECRET ?? '',
+        employerId: env.TEAMPAY_EMPLOYER_ID ?? '',
+      }),
     };
+  }
+  const simulator = new TeamPaySimulator();
+  return { provider: simulator, simulator };
+}
+
+/**
+ * Which database Preshift uses. PRESHIFT_DATABASE_URL wins. On Vercel only, the
+ * DATABASE_URL that the project's Neon integration sets is used otherwise; a
+ * generic DATABASE_URL anywhere else (a laptop, a CI box, a coding container)
+ * is ignored. Either way PgStore refuses a database that holds another
+ * system's tables.
+ */
+export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
+  const url = env.PRESHIFT_DATABASE_URL ?? (env.VERCEL === '1' ? env.DATABASE_URL : undefined);
+  if (!url) return new MemoryStore();
+  const sql = neon(url);
+  return new PgStore((text, params) => sql(text, params) as Promise<Record<string, unknown>[]>);
+}
+
+export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext; routes: string[] }> {
+  const env = options.env ?? process.env;
+  const demo = options.demo ?? env.PRESHIFT_DEMO === '1';
+  const app = Fastify({ logger: options.logger ?? false });
+  // Every route as "METHOD /pattern", so a test can check each has a decision for the demo.
+  const routes: string[] = [];
+  app.addHook('onRoute', (r) => {
+    for (const method of [r.method].flat()) if (method !== 'HEAD') routes.push(`${method} ${r.url}`);
+  });
+  const store = options.store ?? storeFromEnv(env);
+  const payroll = options.provider
+    ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
+    : payrollFromEnv(env);
+  // Demo sandboxes never reach real payroll. Their simulator's webhook secret is random and lives
+  // only in this process, so nobody outside can sign a payroll event into a sandbox.
+  const sandboxPayroll = new TeamPaySimulator(randomBytes(32).toString('hex'));
+  const providerFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.provider);
+  const simulatorFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.simulator);
+  const documents = documentCipherFromEnv(env, store instanceof PgStore);
+  const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
+  const ctx: AppContext = {
+    store,
+    providerFor,
+    simulatorFor,
+    employers,
+    simulator: payroll.simulator,
+    dispatcher: new OutboxDispatcher(store, providerFor, employers),
+    autoDispatch: options.autoDispatch ?? true,
+    documentCipher: documents.cipher,
+    fetch: options.fetch ?? fetch,
+    // Feed addresses are typed in by people, so the server's own reads of them are kept to public https.
+    feedFetch: options.fetch ?? publicFetch,
+    feeds: feedConfig(env),
+    tflAppKey: env.TFL_APP_KEY || undefined,
+    now: options.now ?? (() => new Date()),
+  };
+
+  // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, Object.fromEntries(new URLSearchParams(body as string)));
   });
 
-  app.post<{ Body: { organisationId: string } }>('/api/session/organisation', async (request) => {
-    const user = await requireUser(request);
-    if (!(await switchOrganisation(db, request.cookies[COOKIE]!, user.userId, request.body?.organisationId))) throw new HttpError(403, 'Not a member of that organisation.');
+  // Keep the raw body: webhook signatures are computed over the exact bytes sent.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    (req as unknown as { rawBody: string }).rawBody = body as string;
+    if (!body) return done(null, undefined);
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err) {
+      (err as { statusCode?: number }).statusCode = 400;
+      done(err as Error, undefined);
+    }
+  });
+
+  // Uploaded files arrive as the raw request body. The route checks what the bytes really are.
+  app.addContentTypeParser(UPLOAD_CONTENT_TYPES, { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  await app.register(swagger, {
+    openapi: {
+      info: {
+        title: 'Preshift API',
+        version: '1.0.0',
+        description:
+          'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
+          'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
+          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.\n\n' +
+          'Authenticate with `Authorization: Bearer psk_...`, a key a person with the settings permission makes under Settings, API keys, limited to the scopes ' +
+          'it needs. Each key reaches its own organisation only and may make 300 requests a minute. ' +
+          'Webhooks tell your system when something changes: register an https endpoint, then verify the ' +
+          '`preshift-signature` header (`t=<unix seconds>,v1=<hex HMAC-SHA256 of "t.body" with the endpoint secret>`) on every event. ' +
+          'Events carry ids, never personal data; fetch the detail with your key.',
+      },
+      tags: [
+        { name: 'Reference' },
+        { name: 'Employees' },
+        { name: 'Shifts' },
+        { name: 'Rota' },
+        { name: 'Forecast' },
+        { name: 'Webhooks', description: 'Signed event notifications to your own https endpoint.' },
+      ],
+      components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } },
+      security: [{ bearer: [] }],
+    },
+  });
+  await app.register(swaggerUi, { routePrefix: '/docs', ...(options.docsBaseDir ? { baseDir: options.docsBaseDir } : {}) });
+
+  app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof HttpError) {
+      return reply.code(err.statusCode).send({ error: err.code, message: err.message, details: err.details });
+    }
+    if (err.validation) return reply.code(400).send({ error: 'invalid_request', message: err.message });
+    if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: 'bad_request', message: err.message });
+    app.log.error(err);
+    return reply.code(500).send({ error: 'internal', message: 'Something went wrong' });
+  });
+
+  app.get('/health', { schema: { hide: true } }, async (_req, reply) => {
+    const database = store instanceof PgStore ? await store.status() : 'not configured';
+    const ok = database === 'ok' || database === 'not configured';
+    return reply.code(ok ? 200 : 503).send({
+      ok,
+      ...(demo ? { demo: true } : {}),
+      payroll: payroll.provider.name,
+      storage: store instanceof PgStore ? 'postgres' : 'memory',
+      database,
+      documents: documents.status,
+    });
+  });
+
+  // Scheduled retry of anything payroll has not yet confirmed (Vercel Cron sends CRON_SECRET).
+  app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await ctx.dispatcher.processDue();
+    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await deliverAllWebhooks(store, options.webhookFetch);
+    // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
+    // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
+    // waiting go first, the run stops before the function's time runs out, and one organisation failing
+    // never stops the rest.
+    const today = londonToday(ctx);
+    const started = Date.now();
+    const due: { orgId: string; last: string }[] = [];
+    for (const orgId of await store.orgIds()) {
+      // Demo sandboxes last a day and fetch nothing from outside.
+      if (isSandbox(orgId)) continue;
+      const org = await store.load(orgId);
+      if (org.lastOutsideRefresh === today) continue;
+      // Somewhere to look for weather or events, or pushed bookings waiting to become pace history.
+      const outside = org.state.sites.some((s) => s.location || s.geofence) || org.eventFeeds.length > 0;
+      const bookingsToCompact = (org.state.bookings ?? []).some((b) => b.date < addDays(today, -2));
+      if (!outside && !bookingsToCompact) continue;
+      due.push({ orgId, last: org.lastOutsideRefresh ?? '' });
+    }
+    due.sort((a, b) => a.last.localeCompare(b.last));
+    let refreshed = 0;
+    const failed: string[] = [];
+    for (const { orgId } of due) {
+      if (Date.now() - started > 40_000) break;
+      try {
+        // Fetch once. If someone saved the organisation meanwhile, lay the same results over a fresh copy
+        // with the same merges, so their change survives; never copy whole lists across.
+        const org = await store.load(orgId);
+        const fetched = await fetchOutside(ctx, org, today);
+        applyOutside(org, fetched, today, 'scheduled refresh');
+        org.lastOutsideRefresh = today;
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          const fresh = await store.load(orgId);
+          applyOutside(fresh, fetched, today, 'scheduled refresh');
+          fresh.lastOutsideRefresh = today;
+          await store.save(fresh);
+        }
+        refreshed++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'outside refresh failed');
+        failed.push(orgId);
+      }
+    }
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
+  });
+
+  // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
+  // hears within the quarter hour of coming back, even from an organisation nobody is editing.
+  app.get('/internal/webhooks', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await deliverAllWebhooks(store, options.webhookFetch);
     return { ok: true };
   });
 
-  app.get('/api/state', async (request) => {
-    const user = await requireUser(request);
-    const state = await withOrg(db, user.organisationId, loadState);
-    return { state: visibleState(state, user.membership), now: now() };
+  // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
+  // midnight UK time in winter and summer alike. Runs whether or not the demo is switched on,
+  // so switching it off still clears what visitors left.
+  app.get('/internal/demo-reset', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { removed: await sweepSandboxes(store) };
   });
 
-  app.post<{ Body: Command }>('/api/commands', async (request) => {
-    const user = await requireUser(request);
-    const changes = await withOrg(db, user.organisationId, (tx) =>
-      execute({ tx, user, now: now(), allowDemoSeed: options.allowDemoSeed ?? false }, request.body),
-    );
-    // A whole new state goes back through the same visibility filter as a load.
-    return { changes: changes.map((c) => (c.type === 'replaceState' ? { ...c, state: visibleState(c.state, user.membership) } : c)) };
+  const keys = options.apiKeys ?? loadApiKeys(env);
+  const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
+  demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
+  signInRoutes(app, ctx, { demo });
+  // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
+  mcpRoutes(app, auth);
+  staffRoutes(app, store);
+  assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
+  webRoutes(app, store, {
+    loginPage: options.loginPage ?? path.resolve('site/login.html'),
+    appDir: options.appDir,
+    staffDir: options.staffDir,
   });
-
-  app.get('/api/members', async (request) => {
-    const user = await requireUser(request);
-    if (!can(user.membership, 'org.invite')) throw new HttpError(403, 'Only an owner can see who has access.');
-    const { rows } = await db.query(
-      `select u.name, u.email, m.role, m.site_ids, m.employee_id from memberships m join users u on u.id = m.user_id
-        where m.organisation_id = $1 order by m.role, u.name`,
-      [user.organisationId],
-    );
-    return { members: rows.map((r) => ({ name: r.name, email: r.email, role: r.role, siteIds: r.site_ids, employeeId: r.employee_id })) };
-  });
-
-  app.post<{ Body: { email: string; role: MemberRole; siteIds: string[] | null; employeeId?: string | null } }>('/api/invites', async (request) => {
-    const user = await requireUser(request);
-    if (!can(user.membership, 'org.invite')) throw new HttpError(403, 'Only an owner can invite people.');
-    const { email, role, siteIds = null, employeeId = null } = request.body ?? ({} as never);
-    if (!email || !ROLES.includes(role)) throw new HttpError(400, 'An email and a valid role are needed.');
-    if ((role === 'staff' || role === 'troncmaster') && !employeeId) throw new HttpError(400, 'Link staff and troncmasters to their employee record.');
-    const token = await createInvite(db, user.organisationId, user.userId, { email, role, siteIds, employeeId });
-    return { token };
-  });
-
-  app.get<{ Querystring: { limit?: string } }>('/api/audit', async (request) => {
-    const user = await requireUser(request);
-    if (!can(user.membership, 'view.all')) throw new HttpError(403, 'Not available for your role.');
-    const limit = Math.min(500, Number(request.query.limit ?? 100));
-    const events = await withOrg(db, user.organisationId, async (tx) => {
-      const { rows } = await tx.query(
-        `select a.id, a.at, a.action, a.site_id, a.detail, u.name as user_name from audit_events a left join users u on u.id = a.user_id
-          order by a.id desc limit $1`,
-        [limit],
-      );
-      return rows;
+  await app.register(async (api) => {
+    const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
+    api.addHook('onRequest', async (req, reply) => {
+      if (isWebhook(req.url)) return;
+      return auth(req, reply);
     });
-    const scope = user.membership.siteIds;
-    return { events: events.filter((e) => scope === null || e.site_id === null || scope.includes(e.site_id)) };
+    // Demo visitors reach only the routes on the sandbox allowlist, refused before the body is even
+    // validated. Customers are not affected.
+    const guard = sandboxGuard(demo);
+    api.addHook('preValidation', async (req) => {
+      if (!isWebhook(req.url)) await guard(req);
+    });
+    // Load the organisation once per request; webhooks name it in the path, everything else by API key.
+    api.addHook('preHandler', async (req) => {
+      const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
+      // A webhook names its organisation in an unauthenticated path, so it must never create one.
+      // The handler checks the signature first, so the reply does not say which organisations exist.
+      if (isWebhook(req.url) && !(await store.has(orgId))) return;
+      req.org = await store.load(orgId);
+    });
+    // Save once, only after a successful write, so a failed request leaves nothing half done.
+    api.addHook('onSend', async (req, reply, payload) => {
+      if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
+        await store.save(req.org).catch(() => undefined);
+        return payload;
+      }
+      if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
+      try {
+        // Events this request raised go out now, inside it, so they are saved as sent with it.
+        if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
+        await store.save(req.org);
+        return payload;
+      } catch (err) {
+        const e = err instanceof HttpError ? err : new HttpError(500, 'internal', 'Could not save');
+        reply.code(e.statusCode).header('content-type', 'application/json; charset=utf-8');
+        return JSON.stringify({ error: e.code, message: e.message });
+      }
+    });
+    rotaRoutes(api, ctx);
+    employeeRoutes(api, ctx);
+    payRoutes(api, ctx);
+    setupRoutes(api, ctx);
+    hrRoutes(api, ctx);
+    documentRoutes(api, ctx);
+    timeRoutes(api, ctx);
+    clockingRoutes(api, ctx);
+    insightRoutes(api, ctx);
+    calendarRoutes(api, ctx);
+    bookingRoutes(api, ctx);
+    travelRoutes(api, ctx);
+    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    payrollRoutes(api, ctx);
+    userRoutes(api, ctx);
+    authenticatorRoutes(api, ctx);
+    privacyRoutes(api, ctx);
+    devRoutes(api, ctx);
+    settingsRoutes(api, ctx);
+    developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
+    // People who manage are on userRoutes; staff app logins answer to the same access rules.
+    staffAdminRoutes(api, ctx);
   });
 
-  return app;
+  return { app, ctx, routes };
 }
+

@@ -1,169 +1,223 @@
-import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
-import type { Db, Tx } from './db';
-import { withTx } from './db';
-import type { MemberRole, Membership } from './permissions';
+import { createHash } from 'node:crypto';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isSandbox, sandboxExpired } from './sandbox';
+import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
+import { cookieFrom, readSession, type SessionClaims } from './session';
+import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
 
-const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number, options: object) => Promise<Buffer>;
+export type Scope =
+  | 'rota:read'
+  | 'employees:read'
+  | 'rota:write'
+  | 'time:write'
+  | 'time:approve'
+  | 'payroll:write'
+  | 'hr:read'
+  | 'hr:write'
+  | 'webhooks:write'
+  | 'users:manage'
+  /** Never implied by `*` and never offered for an app-made key: it belongs to Williams, Stanley & Co. alone. */
+  | 'programme:lead'
+  | '*';
 
-const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-const KEY_LENGTH = 64;
-export const SESSION_DAYS = 14;
-export const INVITE_DAYS = 7;
-export const MIN_PASSWORD = 12;
+/**
+ * What each scope allows, as shown to a person choosing them for a new key. users:manage is never
+ * offered: access is managed by people, never by a key. Nor is programme:lead: only a key WS holds carries it.
+ */
+export const SCOPES: Record<Exclude<Scope, '*' | 'users:manage' | 'programme:lead'>, string> = {
+  'rota:read': 'Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals',
+  'employees:read': 'Read staff records and pay: names, dates of birth, rates, right to work, cost and pay by person, clock locations',
+  'rota:write': 'Change shifts and people, build and publish rotas, load the forecast',
+  'time:write': 'Clock in and out, and enter or edit time',
+  'time:approve': 'Approve clocked time for payroll',
+  'payroll:write': 'Send people and approved hours to payroll',
+  'hr:read': 'Read personnel files: contracts, training, reviews, absence reasons and documents (includes staff records)',
+  'hr:write': 'Change personnel files and record absence (includes reading them, and staff records)',
+  'webhooks:write': 'Register and remove webhook endpoints',
+};
 
-/** scrypt with a random salt, stored with its parameters so they can be raised later without breaking old hashes. */
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  const key = await scrypt(password, salt, KEY_LENGTH, SCRYPT);
-  return ['scrypt', SCRYPT.N, SCRYPT.r, SCRYPT.p, salt.toString('base64'), key.toString('base64')].join('$');
-}
+/** Keys made in the app start with this, so a leaked one is easy to recognise and search for. */
+export const KEY_PREFIX = 'psk_';
+export const hashKey = (key: string) => createHash('sha256').update(key).digest('hex');
 
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [scheme, n, r, p, salt, hash] = stored.split('$');
-  if (scheme !== 'scrypt') return false;
-  const expected = Buffer.from(hash, 'base64');
-  const key = await scrypt(password, Buffer.from(salt, 'base64'), expected.length, { N: Number(n), r: Number(r), p: Number(p), maxmem: SCRYPT.maxmem });
-  return timingSafeEqual(key, expected);
-}
+/** Requests one key may make each minute, on each server instance. */
+export const RATE_LIMIT = 300;
 
-/** Tokens go to the browser; only their hash is stored, so a database leak gives no working sessions. */
-export const newToken = () => randomBytes(32).toString('base64url');
-export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
-
-export interface SessionUser {
-  userId: string;
+export interface ApiKey {
+  key: string;
+  orgId: string;
   name: string;
-  email: string;
-  organisationId: string;
-  organisationName: string;
-  membership: Membership;
+  scopes: Scope[];
+  /** Set for a key made in the app, so it can be revoked by id. */
+  keyId?: string;
+  /** Set when the caller is a signed-in person rather than an integration key. */
+  /** `lead`: Williams, Stanley & Co.'s programme lead in the organisation signed in to. */
+  user?: { email: string; role: UserRecord['role']; lead?: boolean };
+  /**
+   * A personal key acts as that person: their roles decide, not the key's scopes alone.
+   * Keys without a user are system keys with organisation-wide authority.
+   */
+  userId?: string;
+  /** Set for a signed-in session: the person is found by this email in their organisation's access records. */
+  email?: string;
+  /** A session's verified authenticator enrolment id, from the cookie. */
+  sessionMfa?: string;
+  /** The id of the account's own authenticator, read each request, so a reset ends the proof at once. */
+  accountMfaId?: string;
+  /** The account's home organisation. A person with no access record has legacy access only there. */
+  homeOrgId?: string;
+  /**
+   * A personal key counts as having passed the authenticator only when its issuer says so.
+   * Keys are long-lived secrets, not people at a keyboard, so the default is no.
+   */
+  mfa?: boolean;
 }
 
-export async function createSession(tx: Tx, userId: string, organisationId: string): Promise<string> {
-  const token = newToken();
-  await tx.query(`insert into sessions (token_hash, user_id, organisation_id, expires_at) values ($1, $2, $3, now() + interval '${SESSION_DAYS} days')`, [
-    hashToken(token),
-    userId,
-    organisationId,
-  ]);
-  return token;
+declare module 'fastify' {
+  interface FastifyRequest {
+    principal: ApiKey;
+  }
 }
 
-export async function sessionUser(db: Db, token: string | undefined): Promise<SessionUser | null> {
+/**
+ * Keys come from PRESHIFT_API_KEYS as JSON: [{"key":"...","orgId":"...","name":"...","scopes":["*"],"userId":"optional","mfa":false}].
+ * Outside production a development key is available so the demo runs with no setup.
+ */
+export function loadApiKeys(env = process.env): ApiKey[] {
+  if (env.PRESHIFT_API_KEYS) {
+    const keys = JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
+    // Integration keys belong to customers. A key aimed at a demo sandbox is a mistake, so refuse to start.
+    if (keys.some((k) => isSandbox(k.orgId))) throw new Error('PRESHIFT_API_KEYS names a demo sandbox; keys are for customer organisations only');
+    return keys.map(keepEmployeeAccess);
+  }
+  if (env.NODE_ENV === 'production') return [];
+  // The demo acts as the seeded owner, so access rules apply locally as they would to a person.
+  // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
+  // Demo keys stand in for people who have entered their authenticator code.
+  const people = seedUsers(new Date().toISOString().slice(0, 10)).users;
+  return [
+    { key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: DEMO_OWNER_ID, mfa: true },
+    ...people.map((u) => ({ key: `dev-${u.id}`, orgId: 'demo', name: `${u.name} (demo)`, scopes: ['*' as const], userId: u.id, mfa: true })),
+  ];
+}
+
+/**
+ * Staff records and pay used to come with rota:read. Keys set by deployment before employees:read
+ * existed keep what they had, so splitting the scope breaks no running integration. Keys made in
+ * the app choose it explicitly.
+ */
+function keepEmployeeAccess(k: ApiKey): ApiKey {
+  return k.scopes.includes('rota:read') && !k.scopes.includes('employees:read') ? { ...k, scopes: [...k.scopes, 'employees:read'] } : k;
+}
+
+/** Scopes that carry another with them: personnel files are no use without the staff record they belong to. */
+const IMPLIED_BY: Partial<Record<Scope, Scope[]>> = { 'employees:read': ['hr:read', 'hr:write'] };
+
+/** Whether the caller holds the scope, one that implies it, or every scope. */
+export function hasScope(req: FastifyRequest, scope: Scope) {
+  const scopes = req.principal?.scopes ?? [];
+  return scopes.includes('*') || scopes.includes(scope) || (IMPLIED_BY[scope] ?? []).some((s) => scopes.includes(s));
+}
+
+/**
+ * The signed-in person behind a request, or null. Checked against the database each time,
+ * so removing someone or resetting their password takes effect on their next request.
+ */
+export async function sessionUser(cookieHeader: string | undefined, users: UserStore): Promise<UserRecord | null> {
+  return (await signedIn(cookieHeader, users))?.user ?? null;
+}
+
+/** The account and the session's own claims, which carry the authenticator proof. */
+export async function signedIn(cookieHeader: string | undefined, users: UserStore): Promise<{ user: UserRecord; claims: SessionClaims } | null> {
+  const token = cookieFrom(cookieHeader);
   if (!token) return null;
-  const { rows } = await db.query(
-    `select u.id, u.name, u.email, o.id as org_id, o.name as org_name, m.role, m.site_ids, m.employee_id
-       from sessions s
-       join users u on u.id = s.user_id
-       join organisations o on o.id = s.organisation_id
-       join memberships m on m.user_id = s.user_id and m.organisation_id = s.organisation_id
-      where s.token_hash = $1 and s.expires_at > now()`,
-    [hashToken(token)],
-  );
-  const r = rows[0];
-  if (!r) return null;
-  return {
-    userId: r.id,
-    name: r.name,
-    email: r.email,
-    organisationId: r.org_id,
-    organisationName: r.org_name,
-    membership: { role: r.role as MemberRole, siteIds: r.site_ids, employeeId: r.employee_id },
+  const claims = await readSession(token, await users.sessionSecret());
+  if (!claims) return null;
+  const user = await users.getUser(claims.email);
+  // A session works in one organisation at a time, which must be one the account has joined.
+  if (!user || !orgsOfAccount(user).includes(claims.orgId) || claims.issuedAt < user.sessionsValidFrom) return null;
+  // Sandboxes and customers never share an account. A sandbox is reached only by its own visitor
+  // account, which works nowhere else; a customer account never reaches a sandbox, whatever its
+  // memberships say, and keeps working in its own organisations.
+  if (isSandbox(claims.orgId) && claims.orgId !== user.orgId) return null;
+  if (isSandbox(user.orgId) && claims.orgId !== user.orgId) return null;
+  // A demo sandbox ends at midnight UK time, whether or not the reset has deleted it yet.
+  if (isSandbox(claims.orgId) && sandboxExpired(claims.orgId, Date.now())) return null;
+  return { user, claims };
+}
+
+const USED_EVERY_MS = 5 * 60_000;
+
+/** A fixed one minute window per key. Per instance, so a guard against runaway loops rather than a quota. */
+function rateLimiter(limit: number) {
+  const windows = new Map<string, { start: number; count: number }>();
+  return (id: string, now = Date.now()) => {
+    let w = windows.get(id);
+    if (!w || now - w.start >= 60_000) {
+      if (windows.size > 10_000) windows.clear();
+      w = { start: now, count: 0 };
+      windows.set(id, w);
+    }
+    w.count++;
+    return { allowed: w.count <= limit, remaining: Math.max(0, limit - w.count), resetSeconds: Math.ceil((w.start + 60_000 - now) / 1000) };
   };
 }
 
-export async function memberships(db: Db, userId: string) {
-  const { rows } = await db.query<{ organisation_id: string; name: string; role: MemberRole }>(
-    `select m.organisation_id, o.name, m.role from memberships m join organisations o on o.id = m.organisation_id where m.user_id = $1 order by o.name`,
-    [userId],
-  );
-  return rows.map((r) => ({ organisationId: r.organisation_id, name: r.name, role: r.role }));
-}
-
-/** A new organisation with its first owner. */
-export async function signUp(db: Db, organisationName: string, name: string, email: string, password: string) {
-  const passwordHash = await hashPassword(password);
-  return withTx(db, async (tx) => {
-    const org = await tx.query<{ id: string }>('insert into organisations (name) values ($1) returning id', [organisationName]);
-    const user = await tx.query<{ id: string }>('insert into users (email, name, password_hash) values (lower($1), $2, $3) returning id', [email, name, passwordHash]);
-    await tx.query("insert into memberships (user_id, organisation_id, role) values ($1, $2, 'owner')", [user.rows[0].id, org.rows[0].id]);
-    return { token: await createSession(tx, user.rows[0].id, org.rows[0].id), organisationId: org.rows[0].id };
-  });
-}
-
-// Verified against when the email is unknown, so a wrong email takes as long as a wrong password.
-const DUMMY_HASH = hashPassword('not-a-real-password-used-for-timing');
-
-/** Checks the password; the same answer and similar time whether the email exists or not. */
-export async function logIn(db: Db, email: string, password: string): Promise<string | null> {
-  const { rows } = await db.query<{ id: string; password_hash: string }>('select id, password_hash from users where email = lower($1)', [email]);
-  const user = rows[0];
-  const ok = await verifyPassword(password, user?.password_hash ?? (await DUMMY_HASH));
-  if (!user || !ok) return null;
-  const orgs = await memberships(db, user.id);
-  if (orgs.length === 0) return null;
-  return withTx(db, (tx) => createSession(tx, user.id, orgs[0].organisationId));
-}
-
-export async function logOut(db: Db, token: string): Promise<void> {
-  await db.query('delete from sessions where token_hash = $1', [hashToken(token)]);
-}
-
-/** Moves the session to another organisation the user belongs to: one login for an accountant with many clients. */
-export async function switchOrganisation(db: Db, token: string, userId: string, organisationId: string): Promise<boolean> {
-  const { rowCount } = await db.query(
-    'update sessions set organisation_id = $3 where token_hash = $1 and user_id = $2 and exists (select 1 from memberships where user_id = $2 and organisation_id = $3)',
-    [hashToken(token), userId, organisationId],
-  );
-  return rowCount === 1;
-}
-
-export interface InviteInput {
-  email: string;
-  role: MemberRole;
-  siteIds: string[] | null;
-  employeeId: string | null;
-}
-
-export async function createInvite(db: Db, organisationId: string, invitedBy: string, input: InviteInput): Promise<string> {
-  const token = newToken();
-  await db.query(
-    `insert into invites (token_hash, organisation_id, email, role, site_ids, employee_id, invited_by, expires_at)
-     values ($1, $2, lower($3), $4, $5, $6, $7, now() + interval '${INVITE_DAYS} days')`,
-    [hashToken(token), organisationId, input.email, input.role, input.siteIds, input.employeeId, invitedBy],
-  );
-  return token;
-}
-
-/** Accepts an invite: a new user sets a password; an existing one confirms theirs. Either way they join the organisation. */
-export async function acceptInvite(db: Db, token: string, name: string, password: string): Promise<string | null> {
-  return withTx(db, async (tx) => {
-    const { rows } = await tx.query(
-      'select organisation_id, email, role, site_ids, employee_id from invites where token_hash = $1 and accepted_at is null and expires_at > now() for update',
-      [hashToken(token)],
-    );
-    const invite = rows[0];
-    if (!invite) return null;
-    const existing = await tx.query<{ id: string; password_hash: string }>('select id, password_hash from users where email = $1', [invite.email]);
-    let userId: string;
-    if (existing.rows[0]) {
-      if (!(await verifyPassword(password, existing.rows[0].password_hash))) return null;
-      userId = existing.rows[0].id;
-    } else {
-      const created = await tx.query<{ id: string }>('insert into users (email, name, password_hash) values ($1, $2, $3) returning id', [
-        invite.email,
-        name,
-        await hashPassword(password),
-      ]);
-      userId = created.rows[0].id;
+/**
+ * Integrations authenticate with an API key: one an admin made under Settings (stored hashed),
+ * or one from PRESHIFT_API_KEYS. People in the web app authenticate with the signed session
+ * cookie from signing in, scoped to their own organisation, so the browser carries no key.
+ */
+export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, options: { rateLimit?: number } = {}) {
+  const byKey = new Map(keys.map((k) => [k.key, k]));
+  const limit = rateLimiter(options.rateLimit ?? RATE_LIMIT);
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const header = req.headers.authorization ?? '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    let keyed = byKey.get(token);
+    if (!keyed && token.startsWith(KEY_PREFIX)) {
+      const stored = await users.getApiKeyByHash(hashKey(token));
+      if (stored) {
+        keyed = { key: `key:${stored.id}`, keyId: stored.id, orgId: stored.orgId, name: `API key ${stored.name}`, scopes: stored.scopes as Scope[] };
+        if (!stored.lastUsedAt || Date.now() - Date.parse(stored.lastUsedAt) > USED_EVERY_MS) {
+          await users.putApiKey({ ...stored, lastUsedAt: new Date().toISOString() });
+        }
+      }
     }
-    await tx.query(
-      `insert into memberships (user_id, organisation_id, role, site_ids, employee_id) values ($1, $2, $3, $4, $5)
-       on conflict (user_id, organisation_id) do update set role = excluded.role, site_ids = excluded.site_ids, employee_id = excluded.employee_id`,
-      [userId, invite.organisation_id, invite.role, invite.site_ids, invite.employee_id],
-    );
-    await tx.query('update invites set accepted_at = now() where token_hash = $1', [hashToken(token)]);
-    return createSession(tx, userId, invite.organisation_id);
-  });
+    if (keyed) {
+      const rate = limit(keyed.key);
+      reply.header('x-ratelimit-limit', options.rateLimit ?? RATE_LIMIT).header('x-ratelimit-remaining', rate.remaining).header('x-ratelimit-reset', rate.resetSeconds);
+      if (!rate.allowed) {
+        return reply.code(429).header('retry-after', rate.resetSeconds).send({ error: 'rate_limited', message: `Slow down: this key has made more than ${options.rateLimit ?? RATE_LIMIT} requests this minute` });
+      }
+      req.principal = keyed;
+      return;
+    }
+    const session = await signedIn(req.headers.cookie, users);
+    if (!session) {
+      const message = token ? 'That API key is not valid. It may have been revoked.' : 'Sign in, or send a valid API key';
+      return reply.code(401).send({ error: 'unauthorised', message });
+    }
+    const { user, claims } = session;
+    // The scopes let a session reach every route; the person's access record then decides (server/guard.ts).
+    req.principal = {
+      key: `session:${user.email}`,
+      orgId: claims.orgId,
+      name: user.email,
+      scopes: ['*'],
+      user: { email: user.email, role: user.role, lead: (user.leadOrgs ?? []).includes(claims.orgId) },
+      email: user.email,
+      sessionMfa: claims.mfa,
+      accountMfaId: user.authenticator?.secret ? user.authenticator.id : undefined,
+      homeOrgId: user.orgId,
+    };
+  };
+}
+
+export function requireScope(scope: Scope) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!hasScope(req, scope)) {
+      return reply.code(403).send({ error: 'forbidden', message: `This key lacks the ${scope} scope` });
+    }
+  };
 }

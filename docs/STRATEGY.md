@@ -57,67 +57,33 @@ These are decisions for the founders, with the trade-offs.
 
 ## Roadmap
 
-Phase 1, done: engine, costing, compliance, forecast build, accrual journal.
+Phase 1, now: this build. Engine, costing, compliance, forecast build, accrual journal, and a
+rota assistant that writes and edits the week from plain English instructions through the same engine.
 
-Phase 1b, done: the actuals loop. Geofenced clocking against the rota, the cut call on live
-trading pace, rota-to-payroll variance by cause with manager approval, the labour flash on closed
-days, Working Time checks on clocked hours, and the accrual built from clocked hours. Engine and
-UI only; the clock-ins and sales are simulated in the demo.
+Done since phase 1: the API platform, time and attendance with approval, and native TeamPay
+payroll (starters, leavers, approved hours out; pay runs and variance back). See `docs/API.md`.
 
-Phase 1c, done: compliance priced. Minimum wage on clocked hours with arrears, penalty ceiling
-and headroom; right to work with student term-time limits and expiry; Working Time breaches on
-clocked hours; the Employment Rights Act 2025 zero and low hours measures on stated assumptions
-until the regulations are made; an exposure register per site and week.
-
-Phase 1d, done: tronc. Allocation on clocked hours and points with department splits, every
-penny passed on, NI saving from an independent troncmaster on each person's whole week, VAT on a
-mandatory service charge, the Act's policy, review, deadline and tips record requirements.
-
-Phase 1e, done: compliance pricing deepened. Monthly pay reference periods, the 48 hour limit
-as a 17 week average, and tips owed and NI at stake in the risk register.
-
-Phase 1f, done: the benchmark method. Nine measures per fully traded week from the same engines
-as the flash, an anonymous contribution record, peer groups with a minimum of 5 sites from 3
-businesses, quartile position and pounds to the median. Runs on an illustrative panel until real
-contributions are collected.
-
-Phase 1g, done: retention scoring. Nine transparent signals from clocked hours, early finishes,
-Working Time, closes, tenure and pay; replacement cost per person on stated assumptions; the
-share of risk the rota drives; no protected characteristics read.
-
-Phase 1h, done: prime cost. Cost of sales from stock counts and invoices, leakage against recipe
-cost, prime cost against a mix-weighted target, the kitchen's and bar's own numbers, daily prime
-on recipe cost, and menu engineering. Runs on simulated till, invoice and stock data.
+Done since: the labour programme as a product. A forecast model trained on each site's till
+history with accuracy and override scoring, the weekly moves (priced, one tap, measured against
+the clock), the GM scorecard and four-rung ladder, the twelve-week programme with a baseline and
+savings verified in the management accounts, and anonymised benchmarks across WS clients. This
+answers the "AI workforce management with step-by-step guidance" pitch from Stint and others with
+the one thing they cannot offer: a result signed off in the accounts. See `docs/PROGRAMME.md`.
 
 Phase 2, first live sites (8 to 10 weeks):
-- Done: persistence and auth. Postgres with row level security per organisation, scrypt
-  passwords and cookie sessions, owner, finance, GM, troncmaster and staff roles scoped to sites,
-  invites, server-enforced publishing and clocking, and an append-only audit trail.
-- Before the first live site: hosting in the UK with encrypted backups and point-in-time
-  recovery; invite and password reset emails; two-factor sign-in for owners and finance; a shared
-  store for login rate limits once there is more than one server; data processing agreements in
-  place between WS, Preshift and each client; a penetration test.
-- Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
-  device's location against the clocking rules already in the engine.
-- Till dish sales, supplier invoices (from the purchase ledger or an invoice capture tool) and
-  stock counts feeding prime cost, with recipe costs updated as invoice prices move.
-- Live sales feed from Preshift Reports into the hourly actuals, so the cut call and labour %
-  run on real trading through the day.
-- Payroll exports for the payrolls WS clients run, carrying approved clocked hours only.
-- The salaried hours work annual calculation, so the minimum wage test for salaried staff
-  matches HMRC's method over the year, not only each pay period.
-- Replace the Employment Rights Act assumptions with the regulations as each part commences.
+- Confirm the TeamPay client against the TeamPay API reference and run on sandbox keys.
+- Postgres persistence, staff accounts, the outbox as a separate worker.
+- Staff mobile app on the same API: see rota, swap shifts, set availability, request leave,
+  geofenced clocking.
+- Live sales feed from Preshift Reports into `PUT /v1/forecast` so labour % updates through the day.
+- Fortnightly, four-weekly and monthly pay schedules.
 
 Phase 3:
-- Forecasting model trained on each site's actuals, weather and local events.
-- Tronc: troncmaster sign-off of each run, and the three year record the Act requires, on top of
-  the scheme change history the audit trail now keeps.
-- Holiday entitlement balances, right to work document capture and Home Office online share code checks.
-- Retention: record leavers and reasons, then recalibrate the signal points against who actually
-  left; add the benchmark's turnover rate per 100 staff by concept.
-- Benchmark service: collect contributions server-side under signed data sharing terms, replace
-  the illustrative panel, add trend over time and suppression checks on every published cut.
-- Group view across sites with cross-site cover.
+- Direct booking connections once ResDiary, SevenRooms and OpenTable grant API access (bookings already flow in by export and push).
+- Tronc and tips allocation under the Employment (Allocation of Tips) Act 2023, with the
+  troncmaster audit trail.
+- 17 week WTR reference period tracking, holiday entitlement balances, right to work checks.
+- Benchmark cohorts by format (QSR, casual dining, wet-led) once the client base is large enough.
 
 ## Metrics that prove it works
 

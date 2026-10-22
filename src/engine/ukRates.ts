@@ -10,29 +10,18 @@ export interface UkRates {
   employerNiRate: number;
   /** Employer NI secondary threshold, per week. */
   niSecondaryThresholdWeekly: number;
-  /** Employee NI: primary threshold and upper earnings limit per week, main and upper rates. */
-  niPrimaryThresholdWeekly: number;
-  niUpperEarningsLimitWeekly: number;
-  employeeNiMainRate: number;
-  employeeNiUpperRate: number;
-  /** Standard VAT rate, which applies to a mandatory service charge. */
-  vatRate: number;
   /** Auto-enrolment qualifying earnings band, per week. */
   pensionLowerWeekly: number;
   pensionUpperWeekly: number;
   employerPensionRate: number;
+  /** Auto-enrolment earnings trigger, per week, and the age band it applies to. */
+  pensionTriggerWeekly: number;
+  pensionMinAge: number;
+  pensionMaxAge: number;
   /** Holiday accrual on hours worked for irregular-hours and hourly staff (5.6 / 46.4). */
   holidayAccrualRate: number;
   /** Annual Employment Allowance, offset against the employer NI bill at entity level. */
   employmentAllowance: number;
-  /** HMRC minimum wage penalty as a multiple of arrears, and its cap per worker. */
-  nmwPenaltyRate: number;
-  nmwPenaltyCapPerWorker: number;
-  /** Home Office civil penalty ceiling per illegal worker: first breach and repeat breach. */
-  illegalWorkingPenaltyFirst: number;
-  illegalWorkingPenaltyRepeat: number;
-  /** Employment tribunal award cap per worker under the tips legislation, on top of the tips owed. */
-  tipsTribunalAwardCap: number;
 }
 
 export const UK_RATES_2026_27: UkRates = {
@@ -45,21 +34,14 @@ export const UK_RATES_2026_27: UkRates = {
   apprenticeRate: 8.0,
   employerNiRate: 0.15,
   niSecondaryThresholdWeekly: 96,
-  niPrimaryThresholdWeekly: 242,
-  niUpperEarningsLimitWeekly: 967,
-  employeeNiMainRate: 0.08,
-  employeeNiUpperRate: 0.02,
-  vatRate: 0.2,
   pensionLowerWeekly: 120,
   pensionUpperWeekly: 967,
   employerPensionRate: 0.03,
+  pensionTriggerWeekly: 192,
+  pensionMinAge: 22,
+  pensionMaxAge: 66,
   holidayAccrualRate: 0.1207,
   employmentAllowance: 10_500,
-  nmwPenaltyRate: 2,
-  nmwPenaltyCapPerWorker: 20_000,
-  illegalWorkingPenaltyFirst: 45_000,
-  illegalWorkingPenaltyRepeat: 60_000,
-  tipsTribunalAwardCap: 5_000,
 };
 
 export function minimumWageFor(age: number, rates: UkRates = UK_RATES_2026_27) {

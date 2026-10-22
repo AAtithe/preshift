@@ -1,62 +1,81 @@
-import type { Change, Command } from '../shared/commands';
-import type { RotaState } from '../engine/types';
+// The web app is a client of the public Preshift API, with no private back door.
+// It authenticates with the sign-in session cookie and carries no key, locally as well as live.
+// One exception, in development builds only: someone may choose to act as a demo person, and then
+// that person's demo key is sent instead, until they go back to their own sign-in.
 
-export type Role = 'owner' | 'finance' | 'gm' | 'troncmaster' | 'staff';
+const env = (import.meta as unknown as { env: Record<string, string | boolean | undefined> }).env;
+const DEMO_KEY = 'preshift.demoKey';
 
-export interface Me {
-  user: { id: string; name: string; email: string };
-  organisation: { id: string; name: string };
-  membership: { role: Role; siteIds: string[] | null; employeeId: string | null };
-  permissions: string[];
-  organisations: { organisationId: string; name: string; role: Role }[];
+function storedKey(): string | null {
+  try {
+    return localStorage.getItem(DEMO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+const DEV_KEY = env.DEV ? storedKey() : null;
+
+/** Only a development build can act as a demo person. */
+export const canSwitchDemo = Boolean(env.DEV);
+/** Acting as a demo person rather than as the signed-in account. */
+export const actingAsDemo = Boolean(DEV_KEY);
+
+export function signInAsDemo(userId: string | null) {
+  try {
+    if (userId) localStorage.setItem(DEMO_KEY, `dev-${userId}`);
+    else localStorage.removeItem(DEMO_KEY);
+  } catch {
+    // Without storage the demo stays as the signed-in account.
+  }
+  location.reload();
+}
+
+/** The demo people, asked with the development key whoever is signed in. */
+export async function demoPeople<T>(): Promise<T> {
+  const res = await fetch('/v1/dev/people', { headers: { authorization: 'Bearer dev-key' } });
+  if (!res.ok) throw new Error('No demo');
+  return res.json();
 }
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
     super(message);
   }
 }
 
-async function call<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
+const UPLOAD_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const raw = body instanceof Blob;
+  const res = await fetch(path, {
     method,
-    credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    // The server decides what a file is from its bytes; an unfamiliar type goes as plain bytes so it gets that answer.
+    headers: {
+      ...(raw ? { 'content-type': UPLOAD_TYPES.includes(body.type) ? body.type : 'application/octet-stream' } : body !== undefined ? { 'content-type': 'application/json' } : {}),
+      // Development only, and only once someone has chosen a demo person: that person's key.
+      ...(DEV_KEY ? { authorization: `Bearer ${DEV_KEY}` } : {}),
+    },
+    body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
   });
-  const json = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null;
-  if (!res.ok || json === null) throw new ApiError(res.status, json?.error ?? 'The server is not available.');
-  return json as T;
-}
-
-export type Boot = { mode: 'demo' } | { mode: 'signin' } | { mode: 'server'; me: Me };
-
-/**
- * Finds out how the app is running. A server that answers means sign in or
- * carry on; no server at all means the offline demo, exactly as before.
- */
-export async function boot(): Promise<Boot> {
-  try {
-    return { mode: 'server', me: await call<Me>('GET', '/api/me') };
-  } catch (e) {
-    return e instanceof ApiError && e.status === 401 ? { mode: 'signin' } : { mode: 'demo' };
+  if (res.status === 401) {
+    // Session ended: back to sign-in, returning here afterwards.
+    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
   }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'http_error', message: res.statusText }));
+    throw new ApiError(res.status, err.error, err.message, err.details);
+  }
+  if (res.status === 204) return undefined as T;
+  return (res.headers.get('content-type') ?? '').includes('json') ? res.json() : ((await res.text()) as T);
 }
 
 export const api = {
-  me: () => call<Me>('GET', '/api/me'),
-  state: () => call<{ state: RotaState }>('GET', '/api/state'),
-  command: (cmd: Command) => call<{ changes: Change[] }>('POST', '/api/commands', cmd),
-  login: (email: string, password: string) => call('POST', '/api/auth/login', { email, password }),
-  signup: (organisationName: string, name: string, email: string, password: string) =>
-    call('POST', '/api/auth/signup', { organisationName, name, email, password }),
-  acceptInvite: (token: string, name: string, password: string) => call('POST', '/api/auth/accept-invite', { token, name, password }),
-  logout: () => call('POST', '/api/auth/logout', {}),
-  switchOrganisation: (organisationId: string) => call('POST', '/api/session/organisation', { organisationId }),
-  members: () => call<{ members: { name: string; email: string; role: Role; siteIds: string[] | null; employeeId: string | null }[] }>('GET', '/api/members'),
-  invite: (email: string, role: Role, siteIds: string[] | null, employeeId: string | null) =>
-    call<{ token: string }>('POST', '/api/invites', { email, role, siteIds, employeeId }),
+  get: <T>(path: string) => request<T>('GET', path),
+  post: <T>(path: string, body: unknown = {}) => request<T>('POST', path, body),
+  patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
+  put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
+  del: <T = void>(path: string) => request<T>('DELETE', path),
+  /** Sends a file as the raw request body, typed by the file itself. */
+  upload: <T>(path: string, file: Blob) => request<T>('POST', path, file),
 };
