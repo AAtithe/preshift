@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { PRICING, type Interval } from '../src/engine/pricing';
 import type { Store } from './store';
 
 // Billing for organisations that signed themselves up. Preshift sells to them through Stripe: one
@@ -20,8 +21,10 @@ import type { Store } from './store';
 export interface StripeConfig {
   secretKey: string;
   webhookSecret: string;
-  /** The recurring price, per site per month (or year): the subscription's quantity is the site count. */
+  /** The monthly price, graduated per site as src/engine/pricing.ts says: the subscription's quantity is the site count. */
   priceId: string;
+  /** The same, paid yearly. Without it only monthly billing is offered. */
+  annualPriceId?: string;
 }
 
 /** Stripe is configured only when all three are set: a half-configured Stripe charges nobody and pauses nobody. */
@@ -29,10 +32,11 @@ export function stripeFromEnv(env: NodeJS.ProcessEnv): StripeConfig | null {
   const secretKey = env.STRIPE_SECRET_KEY?.trim();
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
   const priceId = env.STRIPE_PRICE_ID?.trim();
-  return secretKey && webhookSecret && priceId ? { secretKey, webhookSecret, priceId } : null;
+  const annualPriceId = env.STRIPE_PRICE_ID_ANNUAL?.trim() || undefined;
+  return secretKey && webhookSecret && priceId ? { secretKey, webhookSecret, priceId, ...(annualPriceId ? { annualPriceId } : {}) } : null;
 }
 
-export const DEFAULT_TRIAL_DAYS = 14;
+export const DEFAULT_TRIAL_DAYS = PRICING.trialDays;
 
 export function trialDaysFromEnv(env: NodeJS.ProcessEnv): number {
   const days = Number(env.PRESHIFT_TRIAL_DAYS);
@@ -53,6 +57,8 @@ export interface BillingRecord {
   status?: SubscriptionStatus;
   /** Sites paid for. */
   quantity?: number;
+  /** Paid monthly or yearly. */
+  interval?: Interval;
   currentPeriodEnd?: string;
   cancelAtPeriodEnd?: boolean;
   /** The last invoice Stripe told us about, for the Billing page. Never card details. */
@@ -192,7 +198,7 @@ interface StripeSubscription {
   cancel_at_period_end?: boolean;
   current_period_end?: number;
   metadata?: Record<string, string>;
-  items?: { data?: { id: string; quantity?: number; current_period_end?: number }[] };
+  items?: { data?: { id: string; quantity?: number; current_period_end?: number; price?: { recurring?: { interval?: string } } }[] };
 }
 
 const iso = (unix: number | undefined) => (unix ? new Date(unix * 1000).toISOString() : undefined);
@@ -207,6 +213,7 @@ export function applySubscription(record: BillingRecord, sub: StripeSubscription
     itemId: item?.id ?? record.itemId,
     status: deleted ? 'canceled' : sub.status,
     quantity: item?.quantity ?? record.quantity,
+    interval: item?.price?.recurring?.interval === 'year' ? 'year' : item?.price?.recurring?.interval === 'month' ? 'month' : record.interval,
     // Newer Stripe API versions report the period on the item, older ones on the subscription.
     currentPeriodEnd: iso(item?.current_period_end ?? sub.current_period_end) ?? record.currentPeriodEnd,
     cancelAtPeriodEnd: !!sub.cancel_at_period_end,
