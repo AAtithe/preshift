@@ -40,6 +40,9 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/staff/cover/:id/decline': 'Staff app: the caller saying no to an offer made to them.',
   'GET /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta once to check the address; answers only with the organisation's own verify token.",
   'POST /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta with a body signed by the organisation's app secret, never by a person.",
+  'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
+  'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
+  'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",
 };
 
 interface Route {

@@ -37,7 +37,8 @@ import { signupRoutes } from './routes/signup';
 import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
-import { travelRoutes } from './routes/travel';
+import { refreshStaleTravel, travelRoutes } from './routes/travel';
+import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
 import { coverRoutes, staffCoverRoutes } from './routes/cover';
@@ -67,6 +68,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** The built kiosk page for shared iPads (hosted build). Public: it does nothing until the iPad is paired. */
+  kioskDir?: string;
   /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
   /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
@@ -276,7 +279,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         failed.push(orgId);
       }
     }
-    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
+    // Journey times between sites drift as routes and timetables change: plan any out of date
+    // ones again with what time is left. Sandboxes keep their seeded times.
+    const journeys = Date.now() - started < 40_000 ? await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey, today, { skip: isSandbox, deadline: started + 50_000 }) : 0;
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys };
   });
 
   // Messages held for someone's quiet hours go once those hours are over. Run every quarter hour
@@ -328,11 +334,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   staffMessageRoutes(app, ctx);
   staffCoverRoutes(app, ctx);
   whatsappWebhookRoutes(app, ctx);
+  kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
     loginPage: options.loginPage ?? path.resolve('site/login.html'),
     appDir: options.appDir,
     staffDir: options.staffDir,
+    kioskDir: options.kioskDir,
   });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
@@ -426,6 +434,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     staffAdminRoutes(api, ctx);
     messageRoutes(api, ctx);
     coverRoutes(api, ctx);
+    kioskAdminRoutes(api, ctx);
   });
 
   return { app, ctx, routes };
