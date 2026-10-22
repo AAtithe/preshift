@@ -7,11 +7,15 @@ export class ApiError extends Error {
   }
 }
 
+const UPLOAD_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const raw = body instanceof Blob;
   const res = await fetch(path, {
     method,
-    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    // The server decides what a file is from its bytes; an unfamiliar type goes as plain bytes so it gets that answer.
+    headers: raw ? { 'content-type': UPLOAD_TYPES.includes(body.type) ? body.type : 'application/octet-stream' } : body !== undefined ? { 'content-type': 'application/json' } : {},
+    body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {
     // Session ended: back to sign-in, returning here afterwards.
@@ -31,4 +35,6 @@ export const api = {
   patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
   del: <T = void>(path: string) => request<T>('DELETE', path),
+  /** Sends a file as the raw request body, typed by the file itself. */
+  upload: <T>(path: string, file: Blob) => request<T>('POST', path, file),
 };
