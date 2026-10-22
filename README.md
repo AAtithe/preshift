@@ -55,8 +55,13 @@ The product is meant to read like management accounts, not like a rota app, in W
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
 npm test         # engine, UI rules and API tests (244 across 23 files)
+npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 npm run build    # typecheck and production build
 ```
+
+To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
+`PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there. They only navigate; they
+never build, clear, publish or save.
 
 Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only
 exists when the API runs without a database, and is never created on the live system.
