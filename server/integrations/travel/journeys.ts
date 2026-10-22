@@ -81,3 +81,27 @@ export async function refreshTravel(sites: Site[], fetchImpl: Fetch, today: stri
   }
   return { sites: updated, fromTfl, estimated, failures };
 }
+
+/** How long a planned journey is trusted before the daily check plans it again. */
+export const TFL_REFRESH_DAYS = 30;
+/** An estimate stands in for TfL only until the next daily check can reach it. */
+const ESTIMATE_REFRESH_DAYS = 1;
+
+/**
+ * Whether any journey between located sites is missing or due to be planned again: TfL times
+ * after a month, as timetables and routes change, and estimates after a day. Times set by hand
+ * are never due.
+ */
+export function travelIsStale(sites: Site[], today: string): boolean {
+  const located = sites.filter((s) => siteLocation(s));
+  const age = (from: string) => (Date.parse(today) - Date.parse(from)) / 86_400_000;
+  return located.some((site) =>
+    located.some((other) => {
+      if (other.id === site.id) return false;
+      const held = site.travel?.[other.id];
+      if (!held) return true;
+      if (held.source === 'manual') return false;
+      return age(held.checkedAt) >= (held.source === 'tfl' ? TFL_REFRESH_DAYS : ESTIMATE_REFRESH_DAYS);
+    }),
+  );
+}

@@ -40,16 +40,27 @@ export interface Entity {
   payrollEmployerId?: string;
   /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
   leaveYearStart?: string;
-  /** What this company pays for travel between sites within a working day. Defaults to the normal rate. */
+  /**
+   * What this company pays for travel between sites within a working day. Unset means nobody has
+   * chosen yet: it is paid at the normal rate meanwhile, and set-up asks for a choice.
+   */
   travelPay?: TravelPay;
 }
 
 /**
  * The hourly rate for travel between sites: each person's normal rate, the minimum wage for their
- * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate never pays
- * below it.
+ * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate is lifted to
+ * it on every hour, unless the company opts to average over the pay period instead.
  */
-export type TravelPay = { basis: 'normal' } | { basis: 'minimum' } | { basis: 'fixed'; hourly: number };
+export type TravelPay =
+  | { basis: 'normal' }
+  | { basis: 'minimum' }
+  /**
+   * `averaging` lets the rate sit below the minimum wage, as the law allows, as long as the pay
+   * period's total pay over work and travel averages at least the minimum wage; any shortfall is
+   * topped up on the travel pay.
+   */
+  | { basis: 'fixed'; hourly: number; averaging?: boolean };
 
 export interface Site {
   id: string;
@@ -240,6 +251,8 @@ export interface Employee {
   hr?: HrProfile;
   /** Sickness and other absence. A shift on an absence day is blocked like leave. */
   absences?: Absence[];
+  /** One-off days the person has said they cannot work, on top of their weekly availability. */
+  unavailable?: Unavailability[];
   /** Set when the retention period ended and the record was anonymised under UK GDPR. */
   anonymisedOn?: string;
 }
@@ -297,6 +310,99 @@ export interface Absence {
   /** Disability or pregnancy related: kept out of absence triggers, as the Equality Act requires. */
   excludeFromTriggers?: boolean;
   notes?: string;
+  /** Copies of fit notes, stored encrypted like right to work copies and read only by those who read the file. */
+  fitNotes?: RightToWorkDocument[];
+  /** Set when the person reported it themselves in the staff app. */
+  reportedBy?: 'staff';
+}
+
+/** A day someone cannot work, outside their usual pattern: a hospital appointment, an exam, a wedding. */
+export interface Unavailability {
+  date: string;
+  note?: string;
+}
+
+/**
+ * Something a member of staff asks for in the staff app, decided by a manager. Every one is checked
+ * by the same engine as the manager's own action, and nothing changes the rota until it is approved.
+ */
+export type StaffRequestKind = 'holiday' | 'time_off' | 'sickness' | 'availability' | 'swap' | 'open_shift';
+/**
+ * pending: waiting for a manager (or, for a swap, for the colleague first). accepted: a swap the
+ * colleague has agreed, now waiting for a manager. approved and declined are final; cancelled is
+ * withdrawn by the person, or overtaken (another claim was approved, the shift changed).
+ */
+export type StaffRequestStatus = 'pending' | 'accepted' | 'approved' | 'declined' | 'cancelled';
+
+export interface StaffRequest {
+  id: string;
+  kind: StaffRequestKind;
+  employeeId: string;
+  /** The site whose manager decides: the person's home site, or the shift's site for swaps and open shifts. */
+  siteId: string;
+  status: StaffRequestStatus;
+  createdAt: string;
+  /** Holiday, time off and sickness: first and last day, inclusive. Sickness may run with no last day yet. */
+  from?: string;
+  to?: string;
+  /** Holiday: hours the request takes from the balance. */
+  hours?: number;
+  /** Time off: the kind of absence it becomes once approved. */
+  absenceType?: AbsenceType;
+  /** What the person wrote. For sickness and time off this is health or family data: personnel file readers only. */
+  note?: string;
+  /** Availability: the new weekly pattern, from the date it starts. */
+  availability?: Availability[];
+  /** Swap: the shift given away, the colleague asked (absent: anyone eligible), and the shift taken in return, if any. */
+  shiftId?: string;
+  toEmployeeId?: string;
+  returnShiftId?: string;
+  /** Swap: who agreed to take it. */
+  takerId?: string;
+  /** Open shift: the one claimed. */
+  openShiftId?: string;
+  /** Sickness: the absence the report recorded. */
+  absenceId?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  decisionNote?: string;
+}
+
+/** A shift a manager has posted for anyone eligible to claim. */
+export interface OpenShift {
+  id: string;
+  siteId: string;
+  roleId: string;
+  date: string;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  note?: string;
+  status: 'open' | 'filled' | 'withdrawn';
+  postedBy: string;
+  postedAt: string;
+  /** Set once filled: who and the shift it became. */
+  filledBy?: string;
+  shiftId?: string;
+  /** The shift released to make this one, when a manager posted someone's shift for cover. */
+  releasedFrom?: { shiftId: string; employeeId: string };
+}
+
+export type StaffNotificationKind =
+  | 'rota_published' | 'rota_changed' | 'shift_cancelled'
+  | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received';
+
+/** A message to one member of staff, shown in the staff app and emailed where an address is held. */
+export interface StaffNotification {
+  id: string;
+  employeeId: string;
+  kind: StaffNotificationKind;
+  at: string;
+  title: string;
+  body: string;
+  read?: boolean;
+  /** pending until the request that raised it is saved; then sent, none (no email set up or no address) or failed. */
+  email?: 'pending' | 'sent' | 'none' | 'failed';
 }
 
 export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';
@@ -436,7 +542,7 @@ export interface TimeEntry {
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
   /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
-  method?: 'card' | 'device' | 'phone';
+  method?: 'card' | 'device' | 'phone' | 'kiosk';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
   /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */

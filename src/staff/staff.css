@@ -21,3 +21,25 @@
 .staff-day { color: var(--muted); }
 .staff-breaks { display: grid; gap: 6px; }
 .staff-breaks p { margin: 0; }
+/* Self-service: tabs, requests and the inbox. */
+.staff { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+.staff-tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 10; }
+.staff-tabs button { background: none; border: none; padding: 10px 4px; font-size: 14px; font-weight: 600; color: var(--muted); border-radius: 8px; position: relative; }
+.staff-tabs button.active { color: var(--ink); background: var(--ws-tint, var(--bg)); }
+.staff-badge { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: var(--bad-fill); color: #fff; font-size: 12px; line-height: 18px; }
+.staff-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+.staff-buttons button { padding: 8px 12px; font-size: 15px; }
+.staff-actions li > span:last-child, .staff-list li > span:last-child { min-width: 0; }
+.staff-inset { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.staff-form select, .staff-form input[type='date'], .staff-form input[type='time'] { font-size: 16px; padding: 10px; }
+.staff-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.staff-figure { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 20px; }
+.staff-avail { display: grid; grid-template-columns: 1fr 96px 96px; gap: 6px; align-items: center; }
+.staff-avail input[type='time'] { padding: 8px; font-size: 15px; }
+.staff-check { display: flex !important; align-items: center; gap: 8px; color: var(--text) !important; font-size: 15px !important; }
+.staff-upload { display: block !important; text-align: center; padding: 12px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--ink) !important; font-weight: 600; cursor: pointer; }
+.staff-upload input { display: none; }
+.staff-card details summary { cursor: pointer; font-weight: 600; padding: 6px 0; color: var(--ink); }
+.staff-card details[open] summary { margin-bottom: 8px; }
+.staff-inbox li.unread .strong::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fill); margin-right: 6px; vertical-align: middle; }
+@media (max-width: 360px) { .staff-pair { grid-template-columns: 1fr; } .staff-avail { grid-template-columns: 1fr 84px 84px; } }

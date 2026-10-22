@@ -14,6 +14,8 @@ import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { notify, notifyPublished, syncTold } from '../notify';
+import { namesOf, shiftLine } from '../../src/engine/requests';
 import { travelIssues } from '../../src/engine/travel';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -252,6 +254,11 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (isWorked(org, shift)) throw workedError(shift, 'it cannot be removed. Record an absence on the timesheet instead.');
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
     audit(org, actorName(g), 'shift.deleted', { id: req.params.id });
+    // A shift the person has been shown is gone from their phone now, so they are told now, not at the next publish.
+    if (shift.published) {
+      notify(org, shift.employeeId, 'shift_cancelled', 'A shift has been cancelled', `${shiftLine(shift, namesOf(org.state))} is no longer on your rota.`, ctx.now());
+      syncTold(org, [shift.employeeId], [shift]);
+    }
     return reply.code(204).send();
   });
 
@@ -519,6 +526,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       org.publications.push({ siteId, weekStart: ws, publishedAt, by: actorName(g) });
     }
     audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
+    // Everyone whose week changed hears about it: the whole week the first time, what moved after that.
+    notifyPublished(org, siteIds, ws, ctx.now());
     return { published };
   });
 

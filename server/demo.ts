@@ -54,6 +54,16 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/demand-rules': true,
   'GET /v1/forecast': true,
   'GET /v1/hr/overview': true,
+  // Staff requests and open shifts work on the visitor's own sandbox, as the rota does.
+  'GET /v1/requests': true,
+  // The morning email: visitors may look at it; nothing is ever emailed from a sandbox.
+  'GET /v1/requests/digest': true,
+  'PUT /v1/requests/digest': true,
+  'POST /v1/requests/:id/approve': true,
+  'POST /v1/requests/:id/decline': true,
+  'GET /v1/open-shifts': true,
+  'POST /v1/open-shifts': true,
+  'DELETE /v1/open-shifts/:id': true,
   'GET /v1/hr/records': true,
   'GET /v1/time-entries': true,
   'GET /v1/time-entries/break-check': true,
@@ -95,6 +105,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/time-entries/clock-in': true,
   'POST /v1/time-entries/approve': true,
   'POST /v1/time-entries/tap': true,
+  // Kiosks in the sandbox can be listed and removed; pairing one is refused below.
+  'GET /v1/kiosks': true,
+  'DELETE /v1/kiosks/:id': true,
   'POST /v1/time-entries/:id/clock-out': true,
   'PATCH /v1/time-entries/:id': true,
   'POST /v1/integrations/payroll/sync-employees': true,
@@ -256,6 +269,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // real passport into a public demo, and there are none in it to read.
   'POST /v1/employees/:id/right-to-work/documents': false,
   'GET /v1/employees/:id/right-to-work/documents/:docId': false,
+  'GET /v1/employees/:id/absences/:absenceId/fit-notes/:docId': false,
   'GET /v1/employees/:id/right-to-work/documents/:docId/access': false,
   'DELETE /v1/employees/:id/right-to-work/documents/:docId': false,
   // Refused: these call postcode and TfL services on the live system's quota at a visitor's say.
@@ -266,6 +280,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/staff-logins': false,
   'POST /v1/staff-logins/:id/invite': false,
   'DELETE /v1/staff-logins/:id': false,
+  // Refused: pairing signs the visitor out of the iPad they pair, and with it their sandbox, and
+  // hands the device a credential lasting a year for a sandbox that ends at midnight.
+  'POST /v1/kiosks': false,
   'GET /v1/staff-logins/review': false,
   'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
@@ -283,6 +300,26 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/clock-out': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
+  'GET /v1/staff/notifications': false,
+  'POST /v1/staff/notifications/read': false,
+  'GET /v1/staff/team': false,
+  'GET /v1/staff/board': false,
+  'GET /v1/staff/shifts/:id/swap-options': false,
+  'POST /v1/staff/swaps': false,
+  'POST /v1/staff/swaps/:id/accept': false,
+  'POST /v1/staff/swaps/:id/decline': false,
+  'POST /v1/staff/open-shifts/:id/claim': false,
+  'POST /v1/staff/requests/holiday': false,
+  'POST /v1/staff/requests/time-off': false,
+  'POST /v1/staff/requests/availability': false,
+  'PUT /v1/staff/unavailable': false,
+  'POST /v1/staff/requests/:id/cancel': false,
+  'POST /v1/staff/sick': false,
+  'POST /v1/staff/sick/back': false,
+  'POST /v1/staff/fit-note': false,
+  'GET /v1/kiosk/board': false,
+  'POST /v1/kiosk/tap': false,
+  'POST /v1/kiosk/clock': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;

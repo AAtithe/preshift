@@ -1,0 +1,44 @@
+/* The kiosk: one screen on a shared iPad at the staff entrance. Thumb-sized everything,
+   readable from a step back, on top of the shared tokens in styles.css. */
+body { background: var(--page-wash, var(--bg)); }
+.kiosk { min-height: 100vh; padding: 20px 24px calc(20px + env(safe-area-inset-bottom)); display: grid; gap: 16px; align-content: start; max-width: 1180px; margin: 0 auto; font-size: 17px; }
+.kiosk-center { place-content: center; }
+.kiosk-card { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 18px 20px; }
+.kiosk-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+.kiosk-site { font-size: 34px; font-weight: 750; color: var(--ink); letter-spacing: -0.01em; }
+.kiosk-date { color: var(--muted); }
+.kiosk-time { font-size: 52px; font-weight: 700; color: var(--ink); line-height: 1; }
+.kiosk-reader label { display: block; font-size: 22px; font-weight: 650; color: var(--ink); margin-bottom: 8px; }
+.kiosk-reader input { width: 100%; font-size: 24px; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--rule-strong); }
+.kiosk-reader p { margin: 8px 0 0; }
+.kiosk-banner { padding: 18px 20px; border-radius: 12px; font-size: 22px; font-weight: 650; }
+.kiosk-banner.good { background: var(--good-bg); color: var(--good); }
+.kiosk-banner.bad { background: var(--bad-bg); color: var(--bad); }
+.kiosk-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.kiosk-person { display: grid; gap: 4px; text-align: left; padding: 16px; min-height: 110px; border-radius: 12px; border: 1px solid var(--rule); background: var(--card); border-left: 6px solid var(--rule-strong); cursor: pointer; }
+.kiosk-person:active { transform: scale(0.99); }
+.kiosk-person.status-in { border-left-color: var(--good-fill); }
+.kiosk-person.status-break { border-left-color: var(--warn-fill); }
+.kiosk-person.status-out { opacity: 0.7; }
+.kiosk-name { font-size: 20px; font-weight: 700; color: var(--ink); }
+.kiosk-shift { color: var(--muted); font-size: 15px; }
+.kiosk-status { font-size: 15px; font-weight: 600; }
+.status-in .kiosk-status { color: var(--good); }
+.status-break .kiosk-status { color: var(--warn); }
+.kiosk-empty { grid-column: 1 / -1; }
+.kiosk-foot { font-size: 13px; text-align: center; }
+.kiosk-button { display: inline-block; text-align: center; text-decoration: none; font-size: 20px; font-weight: 650; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink); cursor: pointer; }
+.kiosk-button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.kiosk-button.ghost { background: transparent; }
+.kiosk-sheet-backdrop { position: fixed; inset: 0; background: rgb(0 38 63 / 0.5); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.kiosk-sheet { background: var(--card); border-radius: 16px; padding: 24px; width: min(460px, 100%); display: grid; gap: 8px; }
+.kiosk-sheet h2 { margin: 0; font-size: 28px; color: var(--ink); }
+.kiosk-sheet-actions { display: grid; gap: 10px; margin-top: 10px; }
+.kiosk-setup { max-width: 560px; display: grid; gap: 8px; }
+.kiosk-setup h1 { margin: 6px 0 0; font-size: 26px; color: var(--ink); }
+.kiosk-setup ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+@media (max-width: 640px) {
+  .kiosk { padding: 16px; }
+  .kiosk-site { font-size: 26px; }
+  .kiosk-time { font-size: 38px; }
+}
