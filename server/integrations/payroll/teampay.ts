@@ -73,6 +73,13 @@ export class TeamPayProvider implements PayrollProvider {
           rate: l.rate,
           reference: l.entryIds.join(','),
         })),
+        // Sick days go only for people TeamPay knows; SSP is TeamPay's to pay, our estimate is for its checks.
+        sickness: (batch.sickness ?? []).filter((s) => s.payrollId).map((s) => ({
+          employee_id: s.payrollId,
+          dates: s.dates,
+          qualifying_days_per_week: s.qualifyingDaysPerWeek,
+          ssp_estimate: s.sspEstimate,
+        })),
       },
       idempotencyKey,
     );
@@ -92,6 +99,7 @@ export class TeamPayProvider implements PayrollProvider {
         holiday_pay: number;
         employer_ni: number;
         employer_pension: number;
+        ssp?: number;
       }[];
     }>(employerId, 'GET', `/pay-runs/${encodeURIComponent(id)}`);
     return {
@@ -107,6 +115,7 @@ export class TeamPayProvider implements PayrollProvider {
         holidayPay: e.holiday_pay,
         employerNi: e.employer_ni,
         employerPension: e.employer_pension,
+        ...(e.ssp !== undefined ? { ssp: e.ssp } : {}),
       })),
     };
   }

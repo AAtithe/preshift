@@ -8,6 +8,7 @@ import type { MoveRecord } from '../src/engine/coach';
 import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
+import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
@@ -42,6 +43,8 @@ export interface PayRunRecord {
   periodEnd: string;
   receivedAt: string;
   variance: PayrollVariance;
+  /** SSP paid against SSP due, when the payroll reports it. */
+  ssp?: SspCheckLine[];
   entityId?: string;
   employerId?: string;
 }

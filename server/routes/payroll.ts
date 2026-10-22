@@ -4,7 +4,8 @@ import { weekCost } from '../../src/engine/cost';
 import { employmentAllowanceIssues, employmentAllowanceWeek } from '../../src/engine/allowance';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/journal';
 import { addDays, weekDates } from '../../src/engine/time';
-import { entriesAsShifts, payrollHours, payrollVariance } from '../../src/engine/timesheet';
+import { sspEstimate, sspInPeriod, type SspCheckLine } from '../../src/engine/ssp';
+import { entriesAsShifts, payrollHours, payrollVariance, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
 import type { TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -53,6 +54,34 @@ export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'ac
       ? { ...org.state, shifts: [...org.state.shifts.filter((s) => !dates.has(s.date)), ...entriesAsShifts(actual)] }
       : org.state,
   };
+}
+
+/** Sickness with SSP due in the period, for the people a company employs. */
+export function sicknessIn(org: OrgData, entityId: string, from: string, to: string, today: string): PayrollSicknessLine[] {
+  return org.state.employees
+    .filter((e) => e.entityId === entityId && (e.absences ?? []).some((a) => a.type === 'sickness' && a.from <= to && (a.to ?? today) >= from))
+    .flatMap((e) => {
+      const estimate = sspEstimate(e, org.state.shifts, today < to ? today : to);
+      const days = estimate.spells.flatMap((s) => s.days).filter((d) => d.date >= from && d.date <= to);
+      if (!days.length) return [];
+      const perWeek = estimate.spells.find((s) => s.days.includes(days[0]))?.pattern.days.length ?? 5;
+      return [{ employeeId: e.id, ...(e.payrollId ? { payrollId: e.payrollId } : {}), dates: days.map((d) => d.date), qualifyingDaysPerWeek: perWeek, sspEstimate: sspInPeriod(estimate, from, to) }];
+    });
+}
+
+/**
+ * What payroll paid in SSP against what the absence record says was due, person by person. Only
+ * when the payroll reports SSP at all: a run without it has nothing to check.
+ */
+export function sspCheck(org: OrgData, entityId: string, from: string, to: string, paid: PayRunEmployee[], today: string): SspCheckLine[] | undefined {
+  if (!paid.some((p) => p.ssp !== undefined)) return undefined;
+  const expected = new Map(sicknessIn(org, entityId, from, to, today).map((l) => [l.employeeId, l.sspEstimate]));
+  const ids = new Set([...expected.keys(), ...paid.filter((p) => (p.ssp ?? 0) > 0).map((p) => p.employeeId)]);
+  return [...ids].map((employeeId) => {
+    const e = expected.get(employeeId) ?? 0;
+    const p = paid.find((x) => x.employeeId === employeeId)?.ssp ?? 0;
+    return { employeeId, expected: e, paid: p, difference: Math.round((p - e) * 100) / 100 };
+  });
 }
 
 export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -175,7 +204,9 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
             org.state.entities,
           ),
         }))
-        .filter((b) => b.batch.lines.length > 0);
+        .filter((b) => b.batch.lines.length > 0)
+        // Sickness goes with the hours, so payroll pays SSP for it and we can check what it paid.
+        .map((b) => ({ ...b, batch: { ...b.batch, sickness: sicknessIn(org, b.entity.id, periodStart, periodEnd, ctx.store.todayISO()) } }));
       if (batches.length === 0) throw new HttpError(422, 'no_hours', 'No approved hours in this period');
 
       // All or nothing: a group's payroll is not half sent because one company is not set up.
@@ -394,6 +425,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           .at(-1);
         const accrued = new Map(Object.entries(submission?.accrued ?? {}));
         const variance = payrollVariance(accrued, run.employees);
+        const ssp = sspCheck(org, entity.id, run.periodStart, run.periodEnd, run.employees, ctx.store.todayISO());
         org.payRuns.push({
           id: run.id,
           entityId: entity.id,
@@ -402,7 +434,10 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           periodEnd: run.periodEnd,
           receivedAt: new Date().toISOString(),
           variance,
+          ...(ssp ? { ssp } : {}),
         });
+        const wrong = ssp?.filter((l) => Math.abs(l.difference) >= 0.01) ?? [];
+        if (wrong.length) audit(org, 'TeamPay', 'payroll.ssp_mismatch', { run: run.id, entityId: entity.id, people: wrong.length, difference: Math.round(wrong.reduce((s, l) => s + l.difference, 0) * 100) / 100 });
         audit(org, 'TeamPay', 'payroll.run_completed', { run: run.id, entityId: entity.id, variance: variance.variance });
       } else if (event.type === 'payroll.run.flagged') {
         audit(org, 'TeamPay', 'payroll.run_flagged', event.data);

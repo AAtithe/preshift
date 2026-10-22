@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { UK_RATES_2026_27 } from '../../../src/engine/ukRates';
 import { weekOnCosts } from '../../../src/engine/cost';
 import type { Employee } from '../../../src/engine/types';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
@@ -94,11 +95,16 @@ export class TeamPaySimulator implements PayrollProvider {
       hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
       payByEmployee.set(l.employeeId, (payByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
     }
+    // SSP at the flat rate over the days a week the person works, as a payroll does with a
+    // fixed pattern. It knows nothing of 80% of earnings, so a low earner's SSP comes back too high,
+    // which is what the check on each pay run is there to catch.
+    const sspByEmployee = new Map((batch.sickness ?? []).map((s) => [s.employeeId, Math.round(s.dates.length * (UK_RATES_2026_27.ssp.weeklyRate / s.qualifyingDaysPerWeek) * 100) / 100]));
     const employees: PayRun['employees'] = [];
     for (const person of people) {
       if (!person.payrollId) continue;
       const hours = hoursByEmployee.get(person.id) ?? 0;
-      if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0) continue;
+      const ssp = sspByEmployee.get(person.id) ?? 0;
+      if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0 && ssp === 0) continue;
       // Salary is paid as salary; hourly pay is the lines, topped up to any guaranteed hours.
       const gross =
         person.payBasis === 'salaried'
@@ -113,6 +119,7 @@ export class TeamPaySimulator implements PayrollProvider {
         holidayPay: cost.holiday,
         employerNi: cost.employerNi,
         employerPension: cost.pension,
+        ssp,
       });
     }
     const run: PayRun = { id: `tp_run_${randomUUID().slice(0, 8)}`, periodStart, periodEnd, status: 'completed', employerId, employees };
