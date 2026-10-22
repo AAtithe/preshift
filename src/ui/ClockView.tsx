@@ -42,7 +42,8 @@ const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not 
 /**
  * The shift sign-in screen. Runs on a tablet at the site's entrance: staff tap an RFID card on a
  * USB reader (which types the card number and presses Enter), or on the phone's NFC, or pick their
- * name. Signing in by name checks this device's location against the site's geofence.
+ * name. Either way this screen is signed in as a person, so both check this device's location
+ * against the site's geofence. Only a reader fixed on site under its own API key skips the check.
  */
 export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, canSetFence, canEnrolCards, demo }: Props) {
   const site = state.sites.find((s) => s.id === siteId)!;
@@ -254,7 +255,7 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
           </table>
         </div>
         {!canSignInByName && (
-          <p className="muted small">Signing in by name needs this device inside the site's clocking area. Card taps still work.</p>
+          <p className="muted small">Clocking on this device, by card or by name, needs it inside the site's clocking area.</p>
         )}
       </section>
 
@@ -265,8 +266,8 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
         {canSetFence && (<>
         <h3>Site location</h3>
         <p className="muted small">
-          Staff signing in by name on a phone or tablet must be inside this circle. Stand at the entrance to set it.
-          Card taps are not location checked: the reader is fixed on site.
+          Staff clocking on a phone or tablet, by card or by name, must be inside this circle. Stand at the entrance to
+          set it. Only a reader fixed on site under its own API key is not location checked.
         </p>
         <div className="clock-setup-row">
           <span>
@@ -380,7 +381,7 @@ function tapText({ action, employee, entry }: TapResult): string {
 function LocationStatus({ geo, fence, siteName, hasFence }: { geo: GeoState; fence: ReturnType<typeof checkFence> | null; siteName: string; hasFence: boolean }) {
   if (geo.status === 'locating') return <span className="muted small">Finding this device location</span>;
   if (geo.status === 'denied') {
-    return <span className={`small ${hasFence ? 'bad-text' : 'muted'}`}>Location is blocked for this site in the browser settings{hasFence ? ', so only card taps work' : ''}.</span>;
+    return <span className={`small ${hasFence ? 'bad-text' : 'muted'}`}>Location is blocked for this site in the browser settings{hasFence ? ', so no one can clock in on this device' : ''}.</span>;
   }
   if (geo.status !== 'ok') return <span className={`small ${hasFence ? 'bad-text' : 'muted'}`}>This device cannot report its location.</span>;
   if (!hasFence || !fence) return <span className="muted small">Location check is off for {siteName}.</span>;

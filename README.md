@@ -165,7 +165,9 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Item | Specification |
 | --- | --- |
 | Geofence | Per site. Fix accuracy is allowed on top of the radius, up to the radius again. Fixes worse than 250 m are refused. |
-| Card taps | Not location checked, as the reader is fixed on site. Repeat reads of one tap are ignored. A tap during a break ends the break. |
+| Card taps | A reader fixed on site under its own API key is not location checked, and may send the time of a tap it held offline. A card read on a signed-in tablet or phone needs the device inside the geofence, like any device clock. Repeat reads of one tap are ignored. A tap during a break ends the break. |
+| Clock times | A clock from a person's screen is timed by the server: a time sent more than two minutes off is refused (`time_set_by_server`), so no one can clock a colleague in for a shift they never started. Missed clocks go in as manual entries for approval. |
+| Personal details | Date of birth, right to work evidence and expiry, holiday record and card number go only to those who manage the team or read HR at the person's site. Others, such as a supervisor, see whether someone is under 18 and whether their right to work is checked, with an expiry only when it falls within the next eight weeks of rota. |
 | Phone clocking | Requires the site's geofence, for clock-in and clock-out. Refused at a site with no fence. |
 | Breaks | Not location checked. Recorded as `{start, end}` and set unpaid minutes at clock-out. Clocking out ends a running break. |
 | Approval | Manager approval, rota against clock by person, period locked once sent to payroll. |

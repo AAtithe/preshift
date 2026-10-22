@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Employee } from '../../src/engine/types';
 import { requireScope } from '../auth';
+import { addDays, ageOn } from '../../src/engine/time';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { enqueue } from '../outbox';
@@ -30,10 +31,35 @@ function visible(g: Guard, e: Employee) {
   return sitesOfPerson(e).some((siteId) => at({ siteId }));
 }
 
-/** What a reader receives: pay withheld unless they see labour cost or set pay where the person works. */
+/** How far ahead the rota reaches: a right to work expiry inside it is shown so those shifts are blocked. */
+const ROTA_REACH_DAYS = 56;
+
+/**
+ * What a reader receives. Pay is withheld unless they see labour cost or set pay where the person
+ * works. Personal details are withheld unless they manage the team or read HR there: a supervisor
+ * running a shift needs who is on and who is under 18, not an adult's date of birth, the evidence of
+ * someone's immigration status, their holiday record or the number of the card that clocks them in.
+ */
 export function forReader(g: Guard, e: Employee): Employee {
-  if (sitesOfPerson(e).some((s) => g.can('costs.view', s) || g.can('pay.edit', s))) return e;
-  return { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
+  const sites = sitesOfPerson(e);
+  const seesPay = sites.some((s) => g.can('costs.view', s) || g.can('pay.edit', s));
+  const seesPersonal = sites.some((s) => g.can('team.manage', s) || g.can('hr.view', s));
+  // The holiday record is what the Holiday tab works from, offered to those who see cost.
+  const seesHoliday = seesPersonal || seesPay;
+  const out: Employee = seesPay ? { ...e } : { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
+  if (!seesHoliday) delete out.holiday;
+  if (!seesPersonal) {
+    const rtw = e.rightToWork;
+    // An expiry the rota can reach stays, so a shift after it is still blocked; others say only checked or not.
+    const expiry = rtw?.expiry && rtw.expiry <= addDays(g.today, ROTA_REACH_DAYS) ? rtw.expiry : undefined;
+    out.under18 = Boolean(e.dateOfBirth) && ageOn(e.dateOfBirth, g.today) < 18;
+    // Someone under 18 is held to limits that turn on their exact age and school leaving date.
+    if (!out.under18) out.dateOfBirth = '';
+    out.personalHidden = true;
+    out.rightToWork = rtw && { checked: rtw.checked, ...(expiry ? { expiry } : {}) };
+    delete out.badgeId;
+  }
+  return out;
 }
 
 function payChanged(before: Partial<Employee>, after: Partial<Employee>) {

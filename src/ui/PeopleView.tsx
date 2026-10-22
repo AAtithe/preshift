@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
-import { employeeStatus, reviewEmployee, type EmployeeStatus } from '../engine/employees';
-import { ageOn } from '../engine/time';
+import { employeeStatus, reviewEmployee, ruleAge, type EmployeeStatus } from '../engine/employees';
 import type { Employee, RotaState } from '../engine/types';
 import { download, money } from './format';
 
@@ -155,7 +154,7 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
               <tr><td colSpan={8} className="muted">No one matches this view.</td></tr>
             )}
             {visible.map(({ e, status, checks }) => {
-              const age = e.dateOfBirth ? ageOn(e.dateOfBirth, today) : null;
+              const age = e.personalHidden || e.dateOfBirth ? ruleAge(e, today) : null;
               const rtw = e.rightToWork;
               return (
                 <tr key={e.id} className="clickable" onClick={() => onEdit(e)} tabIndex={0} onKeyDown={(ev) => { if (ev.key === 'Enter') onEdit(e); }}>
@@ -174,16 +173,20 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
                   <td className="num">{e.contractedHours ? `${e.contractedHours}h` : 'Flexible'}</td>
                   <td className="muted">{e.startDate ?? 'Not recorded'}</td>
                   <td>
-                    {!rtw?.checked ? (
+                    {e.personalHidden ? (
+                      <span className="muted">{rtw?.checked ? 'Checked' : 'Not checked'}</span>
+                    ) : !rtw?.checked ? (
                       <span className="bad-text">Not checked</span>
                     ) : rtw.expiry ? (
                       <span className={rtw.expiry < today ? 'bad-text' : ''}>Until {rtw.expiry}</span>
                     ) : (
                       <span className="muted">Unlimited</span>
                     )}
-                    <div className={`small ${rtw?.checked && !rtw.documents?.length ? 'warn-text' : 'muted'}`}>
-                      {rtw?.documents?.length ? `${rtw.documents.length} cop${rtw.documents.length === 1 ? 'y' : 'ies'} held` : 'No copy held'}
-                    </div>
+                    {!e.personalHidden && (
+                      <div className={`small ${rtw?.checked && !rtw.documents?.length ? 'warn-text' : 'muted'}`}>
+                        {rtw?.documents?.length ? `${rtw.documents.length} cop${rtw.documents.length === 1 ? 'y' : 'ies'} held` : 'No copy held'}
+                      </div>
+                    )}
                   </td>
                   <td>
                     {checks.length === 0 ? (
