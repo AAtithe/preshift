@@ -7,11 +7,15 @@ import { checkFence } from '../../src/engine/clocking';
 import type { ClockLocation, Employee, GeoFix, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard } from '../guard';
 import { geoFixBody, idParam, rangeQuery, siteWeekQuery, timeEntryBody } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { inRange } from './rota';
 
 type Range = { siteId?: string; from?: string; to?: string };
+
+/** Who may read time: those who record it, approve it, or check it for payroll. */
+const TIME_READERS = ['time.record', 'time.approve', 'payroll.view'] as const;
 
 /** Approved time inside a period already sent to payroll is locked; corrections go in as a resubmission. */
 function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>) {
@@ -126,14 +130,15 @@ export function clockOut(org: OrgData, entry: TimeEntry, opts: ClockOptions): Ti
   return entry;
 }
 
-export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
+export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('time:write') };
   const approve = { preHandler: requireScope('time:approve') };
 
-  app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).timeEntries.filter(inRange(req.query)),
-  );
+  app.get<{ Querystring: Range }>('/v1/time-entries', { ...read, schema: { tags: ['Time'], querystring: rangeQuery } }, async (req) => {
+    const org = orgOf(req);
+    return org.timeEntries.filter(inRange(req.query)).filter(guard(ctx, req, org).at(...TIME_READERS));
+  });
 
   app.post<{ Body: { employeeId: string; siteId: string; roleId?: string; at?: string; location?: GeoFix } }>(
     '/v1/time-entries/clock-in',
@@ -161,6 +166,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const employee = org.state.employees.find((e) => e.id === req.body.employeeId);
       if (!employee) throw notFound(`Employee ${req.body.employeeId}`);
+      guard(ctx, req, org).allow('time.record', req.body.siteId);
       const entry = clockIn(org, employee, req.body.siteId, { method: 'device', ...req.body });
       return reply.code(201).send(entry);
     },
@@ -184,6 +190,7 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      guard(ctx, req, org).allow('time.record', entry.siteId);
       return clockOut(org, entry, { method: 'device', ...req.body });
     },
   );
@@ -194,10 +201,12 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       if (!org.state.employees.some((e) => e.id === req.body.employeeId)) throw notFound(`Employee ${req.body.employeeId}`);
+      const g = guard(ctx, req, org);
+      g.allow('time.record', req.body.siteId);
       if ((req.body.clockOut ?? 0) <= req.body.clockIn) throw new HttpError(422, 'invalid_time', 'Clock out must be after clock in');
       const entry: TimeEntry = { ...req.body, id: `te_${randomUUID().slice(0, 12)}`, status: 'submitted', source: 'manual' };
       org.timeEntries.push(entry);
-      audit(org, req.principal.name, 'time.manual_entry', { id: entry.id });
+      audit(org, actorName(g), 'time.manual_entry', { id: entry.id });
       return reply.code(201).send(entry);
     },
   );
@@ -220,9 +229,11 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const entry = org.timeEntries.find((t) => t.id === req.params.id);
       if (!entry) throw notFound(`Time entry ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      g.allow('time.record', entry.siteId);
       assertEditable(org, entry);
       Object.assign(entry, req.body, { status: entry.status === 'open' ? 'open' : 'submitted', approvedBy: undefined, approvedAt: undefined });
-      audit(org, req.principal.name, 'time.edited', { id: entry.id, fields: Object.keys(req.body) });
+      audit(org, actorName(g), 'time.edited', { id: entry.id, fields: Object.keys(req.body) });
       return entry;
     },
   );
@@ -233,7 +244,9 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
       ...approve,
       schema: {
         tags: ['Time'],
-        description: 'Manager sign-off. Only approved time is ever sent to payroll.',
+        description:
+          'Manager sign-off. Only approved time is ever sent to payroll. A person never approves their own hours: ' +
+          'by range they are skipped and counted in ownSkipped, by id they are refused.',
         body: {
           type: 'object',
           properties: {
@@ -248,25 +261,35 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const body = req.body as { ids?: string[]; siteId?: string; from?: string; to?: string };
+      const g = guard(ctx, req, org);
+      if (body.siteId) g.allow('time.approve', body.siteId);
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
-      const now = new Date().toISOString();
-      const done: TimeEntry[] = [];
-      for (const t of org.timeEntries) {
-        if (t.status === 'submitted' && match(t)) {
-          t.status = 'approved';
-          t.approvedBy = req.principal.name;
-          t.approvedAt = now;
-          done.push(t);
+      const own = (t: TimeEntry) => !!g.user?.employeeId && t.employeeId === g.user.employeeId;
+      const candidates = org.timeEntries.filter((t) => t.status === 'submitted' && match(t));
+      if (body.ids) {
+        for (const t of candidates) {
+          g.allow('time.approve', t.siteId);
+          if (own(t)) throw new HttpError(403, 'forbidden', 'Somebody else approves your own hours.', { id: t.id });
         }
       }
+      // By range, only what this person may approve: their sites, never their own hours.
+      const approvable = candidates.filter(g.at('time.approve')).filter((t) => !own(t));
+      const now = new Date().toISOString();
+      for (const t of approvable) {
+        t.status = 'approved';
+        t.approvedBy = actorName(g);
+        t.approvedAt = now;
+      }
+      const ownSkipped = candidates.filter(own).length;
       const stillOpen = org.timeEntries.filter((t) => t.status === 'open' && match(t)).length;
       // Approving is never blocked: the hours were worked and are owed. The shortfall is recorded with the approval.
-      const short = breakShortfalls(done, org.state.employees);
-      audit(org, req.principal.name, 'time.approved', {
-        approved: done.length,
+      const short = breakShortfalls(approvable, org.state.employees);
+      audit(org, actorName(g), 'time.approved', {
+        approved: approvable.length,
+        ownSkipped,
         ...(short.length ? { belowBreakMinimum: short.map((b) => b.entryId) } : {}),
       });
-      return { approved: done.length, stillOpen, belowBreakMinimum: short.length };
+      return { approved: approvable.length, ownSkipped, stillOpen, belowBreakMinimum: short.length };
     },
   );
 
@@ -285,7 +308,8 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      return breakShortfalls(org.timeEntries.filter(inRange(req.query)), org.state.employees);
+      // Who may see the hours sees their breaks: the same sites as the time entries themselves.
+      return breakShortfalls(org.timeEntries.filter(inRange(req.query)).filter(guard(ctx, req, org).at(...TIME_READERS)), org.state.employees);
     },
   );
 
@@ -294,6 +318,8 @@ export function timeRoutes(app: FastifyInstance, _ctx: AppContext) {
     { ...read, schema: { tags: ['Time'], description: 'Rostered against clocked hours per person.', querystring: siteWeekQuery } },
     async (req) => {
       const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      if (!g.at(...TIME_READERS)({ siteId: req.query.siteId })) g.allow('time.approve', req.query.siteId);
       return rosterVsActual(org.state, org.timeEntries, weekDates(req.query.weekStart), req.query.siteId);
     },
   );

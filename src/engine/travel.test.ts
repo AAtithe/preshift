@@ -49,3 +49,30 @@ describe('travel between sites', () => {
     expect(checkWeek(s, WEEK, ['mar']).find((i) => i.shiftId === 'b' && i.code === 'travel')?.severity).toBe('block');
   });
 });
+
+describe('travel in reports', () => {
+  it('costs travel the same on the rota and the clocked side, so worked-as-planned is no variance', async () => {
+    const { performanceTrend, rotaVsActual } = await import('./reports');
+    const { weekCost } = await import('./cost');
+    const s = seedState(WEEK);
+    const dev = s.employees.find((e) => e.name === 'Dev Kapoor')!;
+    const day = '2026-10-20';
+    s.shifts = [
+      { id: 'a', employeeId: dev.id, roleId: 'bar', siteId: 'shd', date: day, startMinute: 12 * 60, endMinute: 16 * 60, breakMinutes: 0 },
+      { id: 'b', employeeId: dev.id, roleId: 'bar', siteId: 'mar', date: day, startMinute: 17 * 60, endMinute: 21 * 60, breakMinutes: 0 },
+    ];
+    const entries = s.shifts.map((x) => ({
+      id: `e${x.id}`, employeeId: x.employeeId, roleId: x.roleId, siteId: x.siteId, date: x.date,
+      clockIn: x.startMinute, clockOut: x.endMinute, breakMinutes: 0, status: 'approved' as const,
+    }));
+    const report = rotaVsActual(s, entries as never, ['mar', 'shd'], WEEK, '2026-10-25');
+    // The report's rota figure is the P&L's, travel included.
+    const pnl = weekCost(s, WEEK, 'mar').total + weekCost(s, WEEK, 'shd').total;
+    expect(weekCost(s, WEEK, 'mar').travel.hours).toBeGreaterThan(0);
+    expect(report.rotaCost).toBeCloseTo(pnl, 1);
+    expect(Math.abs(report.costVariance)).toBeLessThan(0.05);
+    // Week by week, worked as planned is no variance either.
+    const [week] = performanceTrend(s, entries as never, ['mar'], WEEK, 1, '2026-10-25');
+    expect(week.sites[0].labour).toBeCloseTo(week.sites[0].rotaLabour, 1);
+  });
+});

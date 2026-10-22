@@ -1,25 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { buildApp } from './app';
-import { TeamPaySimulator } from './integrations/payroll/simulator';
-import { MemoryStore } from './store';
+import { enrol, kit } from './testkit';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 
+// The first account becomes the owner. Set-up needs settings.manage, a strong permission, so the
+// owner proves an authenticator first, as they would to change any other organisation setting.
 async function boot() {
-  const store = new MemoryStore(['demo'], '2026-10-21');
-  const { app } = await buildApp({ apiKeys: [{ key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] }], store, provider: new TeamPaySimulator(), autoDispatch: false });
-  const res = await app.inject({
-    method: 'POST',
-    url: '/auth/setup',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    payload: new URLSearchParams({ email: OWNER.email, password: OWNER.password, confirm: OWNER.password, next: '/app/' }).toString(),
-  });
-  const cookie = String(res.headers['set-cookie']).split(';')[0];
-  const call = async (method: string, url: string, body?: unknown, auth: Record<string, string> = { cookie }) => {
-    const r = await app.inject({ method: method as 'GET', url, headers: { ...auth, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, payload: body !== undefined ? JSON.stringify(body) : undefined });
-    return { status: r.statusCode, body: r.body ? r.json() : undefined };
+  const k = await kit({ accounts: false, keys: [{ key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] }] });
+  const created = await k.form('/auth/setup', { email: OWNER.email, password: OWNER.password, confirm: OWNER.password, next: '/app/' });
+  const { cookie } = await enrol(k, created.cookie!);
+  const unproved = created.cookie!;
+  const call = async (method: string, url: string, body?: unknown, who: { cookie?: string; key?: string } = { cookie }) => {
+    const r = await k.call(method, url, who, body);
+    return { status: r.status, body: r.body };
   };
-  return { call, store };
+  return { call, store: k.store, unproved };
 }
 
 const company = { id: 'co_ck', name: 'Clerkenwell Kitchen Ltd', companyNumber: '12345678', payeReference: '120/CK12345', intercompanyCode: '' };
@@ -33,11 +28,26 @@ const draft = { entities: [company], sites: [site], roles, demandRules: rules };
 
 describe('set-up', () => {
   it('starts on the sample group and clears it while nothing real exists', async () => {
-    const { call } = await boot();
+    const { call, store } = await boot();
     expect((await call('GET', '/v1/setup/status')).body).toMatchObject({ sample: true, canStartFresh: true, startFreshBlocks: [] });
     expect((await call('POST', '/v1/setup/start-fresh')).status).toBe(200);
     expect((await call('GET', '/v1/sites')).body).toEqual([]);
     expect((await call('GET', '/v1/setup/status')).body).toMatchObject({ empty: true, canStartFresh: false });
+    const org = await store.load('demo');
+    // The sample's fictional people and HR files go with it; the real owner stays.
+    expect(org.users.map((u) => u.email)).toEqual([OWNER.email]);
+    expect(org.hrRecords).toEqual([]);
+  });
+
+  it('will not clear the sample once a real person has access tied to one of its sites', async () => {
+    const { call, store } = await boot();
+    const org = await store.load('demo');
+    const owner = org.users.find((u) => u.email === OWNER.email)!;
+    org.users.push({ ...owner, id: 'usr_real_gm', email: 'gm@client.example', name: 'Real GM', memberships: [{ ...owner.memberships[0], id: 'm_gm', roleId: 'general_manager', siteIds: ['mar'] }] });
+    await store.save(org);
+    const fresh = await call('POST', '/v1/setup/start-fresh');
+    expect(fresh.status).toBe(409);
+    expect(fresh.body.details.join(' ')).toMatch(/Real GM has access tied to a sample site/);
   });
 
   it('saves a business, forecasts from the typical week, and then takes starters through payroll', async () => {
@@ -88,9 +98,12 @@ describe('set-up', () => {
     expect(row.source).toBeUndefined();
   });
 
-  it('is for signed-in admins only, not integration keys', async () => {
-    const { call } = await boot();
-    expect((await call('PUT', '/v1/setup', draft, { authorization: 'Bearer integration' })).status).toBe(403);
-    expect((await call('POST', '/v1/setup/start-fresh', undefined, { authorization: 'Bearer integration' })).status).toBe(403);
+  it('needs a person with settings.manage and a proved authenticator, never an integration key', async () => {
+    const { call, unproved } = await boot();
+    const refused = await call('POST', '/v1/setup/start-fresh', undefined, { cookie: unproved });
+    expect(refused.status).toBe(403);
+    expect(refused.body.message).toMatch(/authenticator/);
+    expect((await call('PUT', '/v1/setup', draft, { key: 'integration' })).status).toBe(403);
+    expect((await call('POST', '/v1/setup/start-fresh', undefined, { key: 'integration' })).status).toBe(403);
   });
 });

@@ -5,7 +5,8 @@ import { requiredBreakMinutes } from '../../src/engine/compliance';
 import { addDays, ageOn } from '../../src/engine/time';
 import type { Employee, GeoFix, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
-import { HttpError, londonParts, notFound, orgOf } from '../context';
+import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard } from '../guard';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
 import { geoFixBody, idParam } from '../schemas';
@@ -115,8 +116,10 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     return { login, org, employee };
   }
 
-  app.get<{ Querystring: { org?: string; person?: string; invite?: string } }>('/v1/staff/invite', hidden, async (req) => {
-    const { login, employee } = await invited(req.query.org ?? '', req.query.person ?? '', req.query.invite ?? '');
+  // Who an invite is for, so the phone can greet them. The token comes in the body, never the
+  // address, so it stays out of server and proxy logs.
+  app.post<{ Body: { org?: string; person?: string; invite?: string } }>('/v1/staff/invite', hidden, async (req) => {
+    const { login, employee } = await invited(req.body?.org ?? '', req.body?.person ?? '', req.body?.invite ?? '');
     return { name: employee.name, email: login.email ?? employee.email ?? '' };
   });
 
@@ -240,19 +243,30 @@ function breakRoutes(app: FastifyInstance, store: Store) {
   }
 }
 
-/** Managers invite staff and close logins. Registered inside the authenticated API. */
-export function staffAdminRoutes(app: FastifyInstance, store: Store) {
+/**
+ * Managers invite staff and close logins. Registered inside the authenticated API. A staff login
+ * is part of running the team, so it answers to team.manage at the person's home site, as
+ * changing their record does: a GM sees and issues logins for their own sites' people only.
+ */
+export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
+  const { store } = ctx;
   const write = { preHandler: requireScope('rota:write') };
-  const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
+  const actor = (req: FastifyRequest) => actorName(guard(ctx, req, orgOf(req)));
 
   const employeeOf = (req: FastifyRequest<{ Params: { id: string } }>) => {
     const employee = orgOf(req).state.employees.find((e) => e.id === req.params.id);
     if (!employee) throw notFound(`Employee ${req.params.id}`);
+    guard(ctx, req, orgOf(req)).allow('team.manage', employee.siteId);
     return employee;
   };
 
-  app.get('/v1/staff-logins', { ...write, schema: { tags: ['Staff app'], description: 'Who has a staff app login, and who has an invite waiting.' } }, async (req) =>
-    (await store.listStaffLogins(req.principal.orgId)).map((l) => ({
+  app.get('/v1/staff-logins', { ...write, schema: { tags: ['Staff app'], description: 'Who has a staff app login, and who has an invite waiting, at the sites the caller manages the team.' } }, async (req) => {
+    const org = orgOf(req);
+    const manages = guard(ctx, req, org).at('team.manage');
+    const home = new Map(org.state.employees.map((e) => [e.id, e.siteId]));
+    return (await store.listStaffLogins(req.principal.orgId))
+      .filter((l) => home.has(l.employeeId) && manages({ siteId: home.get(l.employeeId)! }))
+      .map((l) => ({
       employeeId: l.employeeId,
       email: l.email ?? null,
       status: l.hash ? 'active' : (l.inviteExpires ?? 0) > now() ? 'invited' : 'expired',
@@ -261,8 +275,8 @@ export function staffAdminRoutes(app: FastifyInstance, store: Store) {
       activatedAt: l.activatedAt ?? null,
       lastSignInAt: l.lastSignInAt ?? null,
       locked: l.lockedUntil > now(),
-    })),
-  );
+    }));
+  });
 
   app.post<{ Params: { id: string } }>(
     '/v1/staff-logins/:id/invite',
@@ -293,8 +307,9 @@ export function staffAdminRoutes(app: FastifyInstance, store: Store) {
       const expires = now() + INVITE_DAYS * 86_400;
       await store.putStaffLogin({ ...login, inviteHash: sha256(token), inviteExpires: expires, invitedBy: actor(req) });
       audit(orgOf(req), actor(req), 'staff.invited', { employeeId: employee.id });
-      const query = new URLSearchParams({ org: req.principal.orgId, person: employee.id, invite: token });
-      return reply.code(201).send({ path: `/staff/?${query}`, expiresAt: new Date(expires * 1000).toISOString() });
+      // After #, which browsers never send to a server or in a Referer header.
+      const fragment = new URLSearchParams({ org: req.principal.orgId, person: employee.id, invite: token });
+      return reply.code(201).send({ path: `/staff/#${fragment}`, expiresAt: new Date(expires * 1000).toISOString() });
     },
   );
 

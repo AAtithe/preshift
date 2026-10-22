@@ -3,13 +3,18 @@ import { buildApp } from './app';
 import { londonParts } from './context';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
+import { codeAt, stepAt } from './totp';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 
 async function boot() {
   const store = new MemoryStore(['demo'], '2026-10-21');
   const { app } = await buildApp({
-    apiKeys: [{ key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] }],
+    apiKeys: [
+      { key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] },
+      // The Marylebone GM, having entered their code: runs a site, does not handle data requests.
+      { key: 'gm', orgId: 'demo', name: 'GM', scopes: ['*'], userId: 'usr_gm_mar', mfa: true },
+    ],
     store,
     provider: new TeamPaySimulator(),
     autoDispatch: false,
@@ -20,7 +25,13 @@ async function boot() {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     payload: new URLSearchParams({ email: OWNER.email, password: OWNER.password, confirm: OWNER.password, next: '/app/' }).toString(),
   });
-  const admin = String(setup.headers['set-cookie']).split(';')[0];
+  const first = String(setup.headers['set-cookie']).split(';')[0];
+  // privacy.manage needs the authenticator: the owner sets one up, as they would on day one.
+  const enrolCall = (url: string, cookie: string, body?: unknown) =>
+    app.inject({ method: 'POST', url, headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+  const secret = (await enrolCall('/v1/me/authenticator/start', first)).json().secret as string;
+  const confirmed = await enrolCall('/v1/me/authenticator/confirm', first, { code: codeAt(secret, stepAt(Date.now())) });
+  const admin = String(confirmed.headers['set-cookie']).split(';')[0];
   const call = async (method: string, url: string, body?: unknown, auth: { cookie?: string; key?: string } = { cookie: admin }) => {
     const res = await app.inject({
       method: method as 'GET',
@@ -34,7 +45,7 @@ async function boot() {
     });
     return { status: res.statusCode, body: res.body ? res.json() : undefined };
   };
-  return { store, call };
+  return { store, call, unproved: first };
 }
 
 /** A person who left long enough ago that every retention period has run out, clocked with a location. */
@@ -54,16 +65,19 @@ async function oldLeaver(t: Awaited<ReturnType<typeof boot>>) {
 }
 
 describe('GDPR', () => {
-  it('shows the register and retention to readers, and keeps acting on personal data to admins', async () => {
+  it('shows the register to readers, and keeps everything naming a person to privacy.manage', async () => {
     const t = await boot();
     const reg = await t.call('GET', '/v1/privacy/register', undefined, { key: 'integration' });
     expect(reg.status).toBe(200);
     expect(reg.body.activities.map((a: { activity: string }) => a.activity)).toContain('Clocking location');
     expect(reg.body.processors.find((p: { name: string }) => p.name === 'TeamPay').active).toBe(false);
-    expect((await t.call('GET', '/v1/privacy/retention', undefined, { key: 'integration' })).status).toBe(200);
-    for (const [method, url] of [['GET', '/v1/privacy/requests'], ['POST', '/v1/privacy/retention/apply'], ['POST', '/v1/privacy/subjects/mar-1/export']]) {
+    expect((await t.call('GET', '/v1/privacy/retention')).status).toBe(200);
+    for (const [method, url] of [['GET', '/v1/privacy/retention'], ['GET', '/v1/privacy/requests'], ['POST', '/v1/privacy/retention/apply'], ['POST', '/v1/privacy/subjects/mar-1/export']]) {
       expect((await t.call(method, url, undefined, { key: 'integration' })).status).toBe(403);
+      expect((await t.call(method, url, undefined, { key: 'gm' })).status).toBe(403);
     }
+    // The owner without a code this session does not hold it either: it needs the authenticator.
+    expect((await t.call('GET', '/v1/privacy/requests', undefined, { cookie: t.unproved })).status).toBe(403);
   });
 
   it('logs a request with its one month deadline, extends it and closes it', async () => {

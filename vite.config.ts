@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import type { ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -20,6 +20,7 @@ export default defineConfig(() => {
     server: { proxy },
     preview: { proxy },
     // The Postgres tests run a real database engine in-process (PGlite), which is slow under parallel load.
-    test: { globals: true, environment: 'node', testTimeout: 30_000 },
+    // The browser checks in e2e/ run under Playwright, not vitest.
+    test: { globals: true, environment: 'node', testTimeout: 30_000, exclude: [...configDefaults.exclude, 'e2e/**'] },
   };
 });

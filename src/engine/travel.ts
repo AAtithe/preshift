@@ -58,6 +58,34 @@ export function journeyBetween(sites: Site[], fromId: string, toId: string): Jou
 }
 
 /**
+ * Paid travel for one person's shifts: when they move between sites within a working day, the
+ * journey is working time (National Minimum Wage Regulations 2015, reg. 34; only travel between
+ * home and work is excluded). Each journey is counted against the shift travelled to, so its cost
+ * lands on the site that asked for the move. Unknown journeys cost nothing until a time is held.
+ */
+export function travelMinutesInto(shifts: Shift[], sites: Site[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (shifts.length < 2 || sites.length === 0) return out;
+  const anchor = shifts.reduce((min, s) => (s.date < min ? s.date : min), shifts[0].date);
+  const at = (s: Shift) => ({ start: absoluteMinute(anchor, s.date, s.startMinute), end: absoluteMinute(anchor, s.date, s.endMinute) });
+  const byPerson = new Map<string, Shift[]>();
+  for (const s of shifts) byPerson.set(s.employeeId, [...(byPerson.get(s.employeeId) ?? []), s]);
+  for (const mine of byPerson.values()) {
+    const ordered = [...mine].sort((a, b) => at(a).start - at(b).start);
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1];
+      const next = ordered[i];
+      if (prev.siteId === next.siteId) continue;
+      const gap = at(next).start - at(prev).end;
+      if (gap < 0 || gap > SAME_TRIP_MINUTES) continue;
+      const journey = journeyBetween(sites, prev.siteId, next.siteId);
+      if (journey) out.set(next.id, (out.get(next.id) ?? 0) + journey.minutes);
+    }
+  }
+  return out;
+}
+
+/**
  * A person moving between sites on the same day must be able to make the journey. Too little
  * time to get there is blocking (nobody can be in two places), and only the journey's length of
  * slack is a warning. Travel between workplaces during the day also counts as working time for
@@ -99,7 +127,7 @@ export function travelIssues(employee: Employee, context: Shift[], sites: Site[]
         ...base,
         code: 'travel-tight',
         severity: 'warn',
-        message: `Tight move from ${route}: ${gap} minutes for a ${journey.minutes} minute journey (${journey.label}). Travel between sites counts as working time for minimum wage.`,
+        message: `Tight move from ${route}: ${gap} minutes for a ${journey.minutes} minute journey (${journey.label}). The journey is paid working time.`,
       });
     }
   }
