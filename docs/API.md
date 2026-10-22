@@ -44,10 +44,12 @@ confined to its key's organisation.
 | --- | --- |
 | Reference | `GET /v1/sites`, `/v1/roles`, `/v1/demand-rules` |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
+| Right to work copies | `POST /v1/employees/:id/right-to-work/documents?fileName=` with the file as the raw body (PDF, JPEG, PNG or WebP, up to 4 MB; the type is read from the bytes, anything else is 415), `GET .../documents/:docId` to view, `DELETE .../documents/:docId` (signed-in admins only), `GET .../documents/:docId/access` (the copy's access log, signed-in admins only). Each copy is listed on the employee's `rightToWork.documents` with its SHA-256, who added it and when. Editing the employee never changes that list. |
 | HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, type, from, to}`. Cases are returned to signed-in admins only, never to members. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
+| Takings | `GET/PUT/DELETE /v1/sales` (a till or EPOS integration pushes each day's net takings per site; `PUT` adds or replaces by site and day, `DELETE ?siteId&date` removes one so reports fall back to the forecast) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve` (returns `belowBreakMinimum`, recorded in the audit), `GET /compare`, `GET /break-check` (finished shifts below the legal rest break: `short` or `split`) |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. Card taps are not location checked, as the reader is fixed on site. |
 | Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (returns a one-time link, valid 7 days), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `GET /v1/staff/invite`, `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
@@ -131,6 +133,25 @@ without its delivery to TeamPay also being recorded.
 `PgStore` keeps each organisation as one JSONB document in its own `preshift` schema, using
 Neon's HTTPS driver (works from serverless functions). Tests run the same code on PGlite.
 
+Uploaded files (right to work copies) are kept in `preshift.documents`, one row per file, never
+inside the organisation document, so loading the rota never carries passport scans. The
+organisation document holds only each file's name, size, hash and who added it. A file written
+by a request whose save then fails is removed again, and a deleted file is only removed once the
+record no longer names it.
+
+Every file is encrypted with AES-256-GCM under `PRESHIFT_DOCUMENT_KEY`, a key held in the
+deployment's environment and never in the database, so a copy of the database alone yields no
+documents. The organisation and file id are bound into each file, so a file moved to another
+record or altered fails to decrypt and is not shown. Generate the key with
+`openssl rand -base64 32` and keep a copy somewhere safe: files cannot be read without it. With a
+database and no valid key, uploads and views are refused (503 `document_key_missing`), and
+`/health` reports `documents: "no key"` or `"invalid key"`. The in-memory demo uses a throwaway key.
+
+Every addition, view and deletion of a file is written to `preshift.document_access`, an
+append-only table that keeps the entry after the file is deleted: who (email or API key name),
+how (signed in or integration), when, and from which IP address. A view is logged before the file
+is sent; if the log cannot be written, the file is not shown.
+
 ## Deployment (Vercel)
 
 `npm run build:vercel` writes one deployment using Vercel's Build Output API:
@@ -152,3 +173,5 @@ net, not the main path.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.
 - Split the JSONB document into tables when cross-organisation reporting needs SQL.
+- Set `PRESHIFT_DOCUMENT_KEY` before anyone uploads a right to work copy, and store it outside
+  Vercel as well. Losing it loses every stored copy.
