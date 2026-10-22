@@ -292,7 +292,9 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
           'Creates a one-time invite link, valid for 7 days, for the person to set up their staff login on their phone. ' +
           'Sending a new one replaces any earlier link, and is also how a forgotten password is reset. ' +
           "Once email is set up under Settings it is emailed to the person's own address (their login's, else the one on their record) " +
-          'and not returned; `handOver: true`, no address or a refused send returns the link to pass on instead.',
+          'and not returned; `handOver: true`, no address or a refused send returns the link to pass on instead. ' +
+          'Once the person has set up their login, a new link only ever goes to the address they signed up with: it is never ' +
+          'returned, and without email set up it is refused (`email_only`), so nobody but the person can sign in as them and clock their hours.',
         params: idParam,
         body: { type: ['object', 'null'], properties: { handOver: { type: 'boolean' } }, additionalProperties: false },
       },
@@ -302,6 +304,23 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       if (employee.status === 'leaver') throw new HttpError(409, 'leaver', `${employee.name} has left.`);
       const token = randomBytes(24).toString('base64url');
       const existing = await store.getStaffLogin(req.principal.orgId, employee.id);
+      const org = orgOf(req);
+      const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
+      const handOver = req.body?.handOver === true;
+      // A login someone has set up opens their clocking, and clocked hours are pay: whoever held a
+      // link to it could sign in as them. So it only ever goes to their own inbox, checked before
+      // any link is made.
+      const joined = Boolean(existing?.hash);
+      if (joined && (handOver || !settings)) {
+        throw new HttpError(
+          409,
+          'email_only',
+          `${employee.name} has set up their login, so a new link only ever goes to their own email, never to anyone else. ` +
+            (handOver
+              ? `It cannot be handed over. If they no longer use ${existing!.email}, close their login and invite them again.`
+              : 'Set up email under Settings first, or close their login and invite them again.'),
+        );
+      }
       const login: StaffLogin = existing ?? {
         orgId: req.principal.orgId,
         employeeId: employee.id,
@@ -317,12 +336,9 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       const fragment = new URLSearchParams({ org: req.principal.orgId, person: employee.id, invite: token });
       const path = `/staff/#${fragment}`;
       const expiresAt = new Date(expires * 1000).toISOString();
-      const org = orgOf(req);
 
       // To the person's own inbox where there is one: the login's address once they have joined, else their record's.
       const to = (existing?.email ?? employee.email ?? '').trim().toLowerCase();
-      const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
-      const handOver = req.body?.handOver === true;
       const why = handOver ? 'handed_over' : !settings ? 'email_not_set_up' : !EMAIL.test(to) ? 'no_address' : null;
       if (why === null) {
         const site = org.state.sites.find((x) => x.id === employee.siteId)?.name ?? 'your site';
@@ -335,6 +351,8 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
           return reply.code(201).send({ emailed: true, to, expiresAt });
         }
         audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: false });
+        // Never handed back for a login they have set up, even when the email fails.
+        if (joined) return reply.code(201).send({ emailed: false, reason: 'send_failed', expiresAt, emailProblem: 'The email did not go. Check the email settings and send again; this link only ever goes to their own email.' });
         return reply.code(201).send({ emailed: false, reason: 'send_failed', path, expiresAt, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' });
       }
       audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: false });

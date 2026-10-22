@@ -133,6 +133,11 @@ export interface OrgData {
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
+  /**
+   * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
+   * it after that; the row is kept, with its audit trail, rather than deleted.
+   */
+  closed?: { at: string; by: string };
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }

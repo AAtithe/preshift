@@ -111,4 +111,44 @@ describe('clients', () => {
     expect((await k.call('POST', '/v1/clients/acme/owner-invite', sam)).status).toBe(404);
     expect((await k.call('POST', '/v1/clients/demo/owner-invite', sam)).status).toBe(404);
   });
+
+  it('removes a client nobody there has signed in to: the link dies, it leaves every list, the record stays', async () => {
+    const { k, sam } = await setUp();
+    const made = (await add(k, sam)).body;
+    const orgId = made.client.orgId as string;
+    expect(made.client.removable).toBe(true);
+    const token = decodeURIComponent(/#invite=([^\s"<]+)/.exec(sent[0].text)![1]);
+
+    // Only with the authenticator, and only the client partner.
+    expect((await k.call('DELETE', `/v1/clients/${orgId}`, await k.as(SAM))).status).toBe(403);
+    expect((await k.call('DELETE', `/v1/clients/${orgId}`, sam)).status).toBe(204);
+
+    // The owner's link no longer opens anything, and the client is gone from the partner's list and switcher.
+    expect((await k.form('/auth/accept', { token, password: OWNER.password, confirm: OWNER.password })).location).toMatch(/error=badlink/);
+    expect(await k.store.getUser(OWNER.email)).toBeNull();
+    expect((await k.call('GET', '/v1/clients', sam)).body.clients.map((c: { orgId: string }) => c.orgId)).toEqual(['demo']);
+    expect((await k.store.getUser(SAM))!.orgs ?? []).not.toContain(orgId);
+    // Nothing is deleted: the organisation is closed, everyone there suspended, the removal on its trail.
+    const client = await k.store.load(orgId);
+    expect(client.closed?.by).toBe('Sam Okoro');
+    expect(client.users.every((u) => u.status === 'suspended' && u.memberships.every((m) => !m.active))).toBe(true);
+    expect(client.audit.map((a) => a.action)).toEqual(expect.arrayContaining(['client.created', 'client.removed']));
+    // Gone means gone: a second removal, or a fresh invitation, finds nothing.
+    expect((await k.call('DELETE', `/v1/clients/${orgId}`, sam)).status).toBe(404);
+    expect((await k.call('POST', `/v1/clients/${orgId}/owner-invite`, sam)).status).toBe(404);
+  });
+
+  it('never removes a client once its owner has signed in, nor the organisation the partner is in', async () => {
+    const { k, sam } = await setUp();
+    const orgId = (await add(k, sam)).body.client.orgId as string;
+    const token = decodeURIComponent(/#invite=([^\s"<]+)/.exec(sent[0].text)![1]);
+    await k.form('/auth/accept', { token, password: OWNER.password, confirm: OWNER.password });
+    const listed = (await k.call('GET', '/v1/clients', sam)).body.clients.find((c: { orgId: string }) => c.orgId === orgId);
+    expect(listed.removable).toBe(false);
+    const refused = await k.call('DELETE', `/v1/clients/${orgId}`, sam);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('client_in_use');
+    expect((await k.store.load(orgId)).closed).toBeUndefined();
+    expect((await k.call('DELETE', '/v1/clients/demo', sam)).status).toBe(404);
+  });
 });

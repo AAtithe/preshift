@@ -26,6 +26,8 @@ export interface ClientSummary {
   lastActivity: string | null;
   steps: ClientStep[];
   attention: string[];
+  /** Nobody at the client has signed in yet, and nothing is set up: a client partner may remove it. */
+  removable: boolean;
 }
 
 const STAGE: Record<ClientSummary['stage'], { label: string; tone: string }> = {
@@ -98,6 +100,16 @@ export function ClientsView() {
     void run(async () => {
       const res = await api.post<{ emailed: boolean; emailProblem?: string; expiresAt: string }>(`/v1/clients/${encodeURIComponent(c.orgId)}/owner-invite`);
       setNotice(res.emailed ? `A new invitation has gone to ${c.owner?.name}, valid until ${day(res.expiresAt)}.` : res.emailProblem ?? 'The email did not go.');
+      await refresh();
+    });
+  }
+
+  function remove(c: ClientSummary) {
+    if (!confirm(`Remove ${c.name}? ${c.owner ? `${c.owner.name}'s invitation stops working and ` : ''}it leaves your list. Its record and audit trail are kept.`)) return;
+    void run(async () => {
+      await api.del(`/v1/clients/${encodeURIComponent(c.orgId)}`);
+      setOpen(null);
+      setNotice(`${c.name} has been removed.`);
       await refresh();
     });
   }
@@ -261,6 +273,9 @@ export function ClientsView() {
                             {!c.current && <button className="primary" disabled={busy} onClick={() => void run(() => openClient(c.orgId))}>Open {c.name}</button>}
                             {canAdd && c.owner && c.owner.status !== 'active' && c.roles.includes('ws_partner') && (
                               <button disabled={busy} onClick={() => resend(c)}>Send the owner a new invitation</button>
+                            )}
+                            {canAdd && c.removable && c.roles.includes('ws_partner') && !c.current && (
+                              <button className="danger" disabled={busy} onClick={() => remove(c)}>Remove client</button>
                             )}
                           </div>
                         </div>

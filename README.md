@@ -16,8 +16,11 @@ Past cards live in `docs/WHATS_NEW.md`.
 
 | For | What changed | Why it matters |
 | --- | --- | --- |
+| Owners | Self sign-up and Billing. A business starts a 14 day free trial from the sign-in page with no card: it confirms its email from a link, chooses a password and lands in Set-up as owner of its own new organisation. Organisation, then Billing, takes the subscription through Stripe Checkout, priced per site, with cards, VAT invoices and cancelling in Stripe's own portal. A lapsed trial or subscription pauses changes and keeps everything readable. | New customers onboard themselves and pay by card, so growth no longer waits on a set-up call or a manual invoice, and nobody is ever cut off from their own staff and pay records. |
 | GMs | People, then Onboarding: every person starting in the next 60 days or who started in the last 90, with one checklist each. Right to work and pay before any shift; written statement, NI number, emergency contact and clocking by day one; payroll and probation date in the first week; role training in the first month. Late steps go red and each opens the form that fixes it. | A new starter is finished once, properly, instead of being chased item by item for months. |
 | WS | Organisation, then Clients, for Williams, Stanley & Co. people: every client you hold a WS role in, its onboarding progress (owner accepted, companies, sites, team, payroll, email, first rota) and what needs attention. A WS client partner adds a new client from here: a new organisation with them on it, and its owner invited by email only. | Client onboarding is run and tracked in the product, and WS never holds a client owner's link. |
+| GMs | The heading is now the site and company picker: click All sites or a site's name for one list grouped by company, with a search once there are seven or more sites. The trail above a site's name steps back out to its company, then to every site. | One control instead of two dropdowns that had to agree with each other, and the name on screen is always the scope the figures cover. |
+| GMs | One week picker beside the week's status: arrows, a label saying where the week sits (This week, Next week, In 3 weeks), the week number with the month on both ends, a list of nearby weeks, a jump to any date, and Back to this week. | The manager knows which week they are planning at a glance, and a week across a month end no longer reads as the wrong dates. |
 | GMs | Left-hand management bar groups the app into Overview, Rota, People, Finance and Admin. Site-only sections stay visible at group level and ask for a site. | The map never moves, so nobody hunts for a tab when they switch from group to site. |
 | GMs | Clock in tab for a tablet at the door: RFID card tap (USB reader or Android NFC) or sign in by name inside the site's geofence. | Hours come from the door, not from memory, so the accrual and payroll start from evidence. |
 | Staff | Staff app at `/staff/`: clock in and out on their own phone, record breaks, see their own shifts and hours. Invite link from Clock in setup, valid 7 days. | Breaks are recorded when taken, so unpaid minutes are a fact at clock-out, not an argument at payroll. |
@@ -30,7 +33,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | GMs | Redesigned rota in WS colours: a service timeline drawn over each day's sales curve, drag to move or resize shifts, draw a shift on empty space, borrow cover from sister sites, and a rota P&L beside every screen. | Every edit shows its cost and legality as it is made, so the GM sees labour % move before they commit, not after. |
 | People | HR file per person, holiday entitlement balances per leave year, and a break check on finished shifts. | The records an employment tribunal or HMRC would ask for are kept where the rota is made. |
 | Admin | GDPR request log for staff data, an Integrations page showing every connection's health, and a public demo with a private sandbox per visitor. | Compliance and prospects are handled in the product, not in spreadsheets and screen shares. |
-| Everyone | CI typechecks and runs the full suite (722 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (764 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -70,9 +73,10 @@ accrual. If any step needs an explanation, that is the next thing to fix.
 | Integrations | One page under Admin showing every connection and whether it is working: TeamPay per PAYE scheme, Xero journal export, card readers and geofences, the staff app, Claude and Resend keys, and the API. EPOS, Talent Funnel, other ATS and TrustID are shown as not connected yet, each with what it would remove and the live numbers it would fix (sites with a forecast, starters, right to work checks missing or expiring). | `src/ui/IntegrationsView.tsx` |
 | API | Fastify REST API with OpenAPI docs at `/docs`, scoped API keys and per-organisation tenancy. The web app runs entirely on it. | `server/` |
 | Open API and webhooks | Any system can plug in without Preshift issuing anything. A person with the settings permission and their authenticator makes a key per system under Settings, ticks what it may do (never more than they can do across the organisation), sees it once (only its hash is kept), sees when it was last used and every call it has made (kept 13 months, refused calls and attempts after revocation included, downloadable as CSV for a breach investigation), and revokes it at once. Keys are rate limited. Webhooks post signed, thin events (ids, never pay or personal data) to a partner's https endpoint the moment a rota is published, a shift or starter changes, hours are approved, a pay run reconciles, or (only when named, and only for someone who reads personnel files) absence, training, reviews and right to work copies change, with absence reasons and disciplinary cases never sent; raised in the same save as the change and retried in order if the partner is down. A partner can register its own endpoint with a `webhooks:write` key. | `server/routes/developers.ts`, `server/webhooks.ts`, `src/ui/DeveloperSettings.tsx` |
-| MCP connector | Claude, or any MCP client, plugs into Preshift at `/mcp` with an API key and works the rota in plain English: sites, staff, the week with cost and compliance, forecast, takings, clocked time, rota against clocked, the labour accrual journal and pay runs; build, add or remove shifts, publish and approve time. Every tool calls the public API with the caller's own key, so scopes, site access, compliance blocks, audit and webhooks apply unchanged, and a key only sees the tools it may run. | `server/mcp.ts`, `docs/API.md` |
+| MCP connector | Claude, or any MCP client, plugs into Preshift at `/mcp` with an API key and works the rota in plain English: sites, staff, the week with cost and compliance, forecast, takings, clocked time, rota against clocked, the labour accrual journal and pay runs; build, add or remove shifts, publish and approve time. Every tool calls the public API with the caller's own key, so scopes, site access, compliance blocks, audit and webhooks apply unchanged, and a key only sees the tools it may run. In claude.ai it needs no key: the person signs in to Preshift, ticks what Claude may do, and the connection acts as them, their sites only, never with authenticator-only rights such as pay approval; it ends when they disconnect, leave or reset their password. | `server/mcp.ts`, `server/oauth.ts`, `docs/API.md` |
 | TeamPay, native | Starters, changes and leavers sync to TeamPay as they are saved. Approved clocked hours go to TeamPay through an idempotent, retrying outbox. Signed `payroll.run.completed` webhooks bring the pay run back and reconcile it to the accrual. | `server/integrations/payroll/`, `server/outbox.ts`, `src/ui/PayrollView.tsx` |
-| Clients | For Williams, Stanley & Co.: each WS person sees the client organisations they hold a WS role in, never anyone else's, with counts only (sites, people, starters, people not in payroll, accounts), a seven step onboarding checklist and what needs attention (owner invitation expired, still on the sample group, payroll gaps, nothing changed for 14 days). A WS client partner with their authenticator, working in their home organisation, adds a client: a new empty organisation named after its trading company, with them as its WS client partner and its owner invited. The owner's link only ever goes to the owner's own email, through the home organisation's Resend; without email set up nothing is created. While the owner has not accepted, the partner can send a fresh invitation (three an hour); once they accept, the client runs its own access and WS appoints nobody inside it. | `server/routes/clients.ts`, `src/ui/ClientsView.tsx`, `server/clients.test.ts` |
+| Sign-up and billing | A business signs itself up from the sign-in page: business name, its own name and email, then a single-use link (24 hours, token after `#`) to prove the inbox before any account exists, where it chooses its password. That makes a new empty organisation named after the business, with the person as owner, on a free trial, and opens Set-up. The page answers the same whether or not the email already has an account; an existing account is told in its own inbox. Billing (Organisation, then Billing, for `settings.manage`) subscribes through Stripe Checkout, priced per site and carrying any trial left, collects the billing address and VAT number, and opens Stripe's portal for cards, invoices and cancelling. Stripe's signed webhooks keep the subscription's status, sites and last invoice. When a trial ends unpaid, or a subscription is cancelled or stays unpaid after Stripe's retries, changes are refused (`402 billing_required`) while every read, paying, the person's own sign-in and GDPR requests carry on. Organisations billed under a WS engagement have no billing record and are never paused, nor is anyone on a system without Stripe configured. | `server/routes/signup.ts`, `server/billing.ts`, `server/routes/billing.ts`, `src/ui/BillingView.tsx`, `server/billing.test.ts` |
+| Clients | For Williams, Stanley & Co.: each WS person sees the client organisations they hold a WS role in, never anyone else's, with counts only (sites, people, starters, people not in payroll, accounts), a seven step onboarding checklist and what needs attention (owner invitation expired, still on the sample group, payroll gaps, nothing changed for 14 days). A WS client partner with their authenticator, working in their home organisation, adds a client: a new empty organisation named after its trading company, with them as its WS client partner and its owner invited. The owner's link only ever goes to the owner's own email, through the home organisation's Resend; without email set up nothing is created. While the owner has not accepted, the partner can send a fresh invitation (three an hour); once they accept, the client runs its own access and WS appoints nobody inside it. Until anyone at the client has signed in, and before any site or person is set up, the partner can remove the client: its owner link stops working, everyone's access there is suspended and it leaves every list and switcher. The organisation and its audit trail are kept, never deleted; once the client has signed in, only its owner can part company with WS. | `server/routes/clients.ts`, `src/ui/ClientsView.tsx`, `server/clients.test.ts` |
 | Users and access | Roles for operators, Williams, Stanley & Co. and outsiders, scoped by site with start and end dates. Nobody grants beyond their own access or changes their own. Paired duties (pay rates with payroll, starters with payroll) are refused or need a recorded reason. Strong rights need an authenticator code in each session (TOTP, with single-use recovery codes, encrypted secrets and a lockout). The last administrator is protected. Overview of what needs attention, site coverage of key duties, self-approval detection, quarterly access reviews, bulk actions, CSV export and a full audit trail. Every rota, time and payroll route enforces the same rules per site: a GM's key reaches only their site, pay is withheld from those who may not see it, nobody approves their own hours or changes their own pay. Rostering another site's person needs their agreement to cover it, unless the caller also runs their home site. A CI test fails any API route that does not visibly check access. | `src/engine/access.ts`, `server/routes/users.ts`, `src/ui/access/`, `server/accessCoverage.test.ts` |
 | Pay approvals | A change to someone's rate, salary or pay basis by a person is a proposal: their pay in force stays until the finance director approves it (`pay.approve`, with an authenticator). Nobody approves their own proposal or their own pay. Each proposal shows its reason and what it adds to gross pay over a year, on contracted hours or the last four weeks of rota. A starter's proposed rate goes the same way, starting at nought. Approval refuses pay that has moved since the proposal; a newer proposal replaces a waiting one; rates below the legal minimum are refused at once. Every decision is kept, and payroll and webhook subscribers hear of new pay only on approval. In a business where nobody else can approve (a new one run by its owner alone) a change applies at once and its record says so, and the Access overview flags that nobody can approve pay. Pasting in a team at set-up proposes each rate, and finance can approve them all in one confirmed step. Integration keys still set pay directly, in the audit trail. | `server/routes/pay.ts`, `src/engine/payChanges.ts`, `src/ui/PayApprovalsView.tsx` |
 | Time and attendance | Clock in and out (UK wall-clock time, overnight shifts), manual entries, manager approval, rota against clock by person, period locking once sent to payroll. | `server/routes/time.ts`, `src/engine/timesheet.ts` |
@@ -196,14 +200,14 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 722 tests across 65 files (engine, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 777 tests across 72 files (engine, sign-up and billing, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (722 across 65 files)
+npm test         # engine, UI rules, assistant and API tests (764 across 70 files)
 npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 ```
@@ -367,6 +371,48 @@ After that it is refused, and the sample can only be edited. Each site's typical
 on demand. Figures from a sales system replace it week by week and are never overwritten. A company,
 site or role that people, rotas or clocked time still use cannot be removed.
 
+## Self sign-up and billing
+
+A business can start on Preshift without a set-up call. Switch it on with `PRESHIFT_SIGNUP=1` once the
+first organisation has email set up under Settings, since its Resend account sends the confirmation
+links. The sign-in page then offers "Start a free trial", and the marketing site links to it.
+
+1. The visitor gives their business name, their own name and their work email.
+2. A single-use link goes to that inbox, valid 24 hours. Nothing is made until it is used, so nobody
+   can claim someone else's email. If the email already has an account, the inbox is told to sign
+   in instead and the page says exactly the same, so the form never reveals who is a customer. At most
+   three emails an hour per address, ten sign-ups a day per visitor address and 200 a day in total.
+3. Opening the link, they choose a password. A new empty organisation is made, named after the
+   business, with them as its owner, on a free trial (`PRESHIFT_TRIAL_DAYS`, default 14), and they
+   land in Set-up. Like any owner, they set up an authenticator before settings and billing open.
+
+Billing is for those organisations alone. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and
+`STRIPE_PRICE_ID` (a recurring price per site), and point a Stripe webhook at
+`/v1/integrations/stripe/webhook` (events listed in `docs/API.md`). Organisation, then Billing:
+
+- Subscribe opens Stripe Checkout for the organisation's own sites (the sample group's never count,
+  minimum one). Trial days left carry over, so paying early costs nothing. Checkout collects the
+  billing address and VAT number, and accepts promotion codes.
+- Manage billing opens Stripe's customer portal: card, VAT invoices, company details, cancelling.
+- When sites are added or closed, one button brings the sites paid for into line; Stripe prorates it.
+- The page shows the standing, renewal date and last invoice. Owners see a banner in the last week
+  of the trial, and when a payment fails.
+
+| Standing | When | What works |
+| --- | --- | --- |
+| Billed by WS | No billing record: the first organisation and every WS client | Everything, always |
+| Free trial | Trial days left and no subscription in force | Everything |
+| Subscribed | Stripe reports `active` or `trialing` | Everything |
+| Payment failed | Stripe reports `past_due` and is retrying the card | Everything, with a banner |
+| Lapsed | Trial over with no subscription, or cancelled, unpaid or expired | Every read, Billing, your profile and authenticator, GDPR requests. Every other change is refused with `402 billing_required` until someone pays |
+
+Nothing is paused on a system without Stripe configured: nobody is cut off who has no way to pay.
+Stripe's events are believed only with its signature over the exact bytes, from the last five
+minutes, and are applied to the organisation Preshift recorded when it made the Stripe customer,
+never one named in the event. Late or out-of-order events cannot undo a newer status. Preshift
+keeps the customer and subscription ids, status, sites paid for and the last invoice's amount and
+link: never a card. Demo sandboxes are never billed.
+
 ## Public demo for prospects
 
 The live system also hosts a public demo, kept apart from every customer. With `PRESHIFT_DEMO=1`,
@@ -429,6 +475,7 @@ Locally: `npm run dev:demo`, then open http://localhost:5173/demo. The dev accou
 | `/internal/webhooks` | Vercel Cron every 15 minutes: webhook deliveries waiting on a retry (needs `CRON_SECRET`, and a Vercel plan that allows cron jobs more often than daily) |
 | `/demo`, `/demo/start` | The public demo's start page and the form post that starts a sandbox (with `PRESHIFT_DEMO=1`) |
 | `/internal/demo-reset` | The demo's midnight reset, Vercel Cron at 23:05 and 00:05 UTC (needs `CRON_SECRET`) |
+| `/v1/integrations/stripe/webhook` | Stripe's signed billing events (with `STRIPE_*` set) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when
