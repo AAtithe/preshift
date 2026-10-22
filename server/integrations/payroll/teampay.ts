@@ -71,7 +71,9 @@ export class TeamPayProvider implements PayrollProvider {
           role: l.roleId,
           hours: l.hours,
           rate: l.rate,
-          reference: l.entryIds.join(','),
+          // Travel at its own rate is a line of its own; the reference names it so the payslip and
+          // the payroll team can tell it from the hours worked in the same role.
+          reference: l.travel ? `Travel between sites: ${l.entryIds.join(',')}` : l.entryIds.join(','),
         })),
       },
       idempotencyKey,

@@ -276,7 +276,7 @@ function AbsenceSection({ employee, today, onSave, onDelete }: {
           {list.length === 0 && <tr><td colSpan={7} className="muted">No absence recorded.</td></tr>}
           {list.map((a) => (
             <tr key={a.id}>
-              <td>{ABSENCE_LABEL[a.type]}{a.excludeFromTriggers && <span className="tag">Excluded</span>}{a.reason && <div className="muted small">{a.reason}</div>}</td>
+              <td>{a.type ? ABSENCE_LABEL[a.type] : 'Absent'}{a.excludeFromTriggers && <span className="tag">Excluded</span>}{a.reason && <div className="muted small">{a.reason}</div>}</td>
               <td>{a.from}</td>
               <td>{a.to ?? <span className="warn-text">Still off</span>}</td>
               <td className="num">{absenceDays(a, today)}</td>

@@ -37,7 +37,7 @@ import { signupRoutes } from './routes/signup';
 import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
-import { travelRoutes } from './routes/travel';
+import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
@@ -274,7 +274,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         failed.push(orgId);
       }
     }
-    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
+    // Journey times between sites drift as routes and timetables change: plan any out of date
+    // ones again with what time is left. Sandboxes keep their seeded times.
+    const journeys = Date.now() - started < 40_000 ? await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey, today, { skip: isSandbox, deadline: started + 50_000 }) : 0;
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
