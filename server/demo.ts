@@ -75,6 +75,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/rota/publish': true,
   'PUT /v1/rota/week': true,
   'PUT /v1/forecast': true,
+  'POST /v1/forecast/from-takings': true,
   'POST /v1/employees': true,
   'PATCH /v1/employees/:id': true,
   'POST /v1/employees/:id/leaver': true,

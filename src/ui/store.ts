@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
+import type { DayForecast } from '../engine/forecasting';
 import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
 import { weekDates } from '../engine/time';
 import type { Me } from './access/model';
@@ -74,8 +75,20 @@ export function useRotaStore() {
     setState((s) => (s ? { ...s, sales } : s));
   }, []);
 
+  const refreshForecast = useCallback(async () => {
+    const forecast = await api.get<RotaState['forecast']>('/v1/forecast');
+    setState((s) => (s ? { ...s, forecast } : s));
+  }, []);
+
   const actions = {
     reload: load,
+    /** Works the week's forecast out of past takings; only empty days unless replace is set. */
+    forecastFromTakings: (siteIds: string[], weekStart: string, replace = false) =>
+      guard(async () => {
+        const res = await api.post<{ filled: number; days: (DayForecast & { filled: boolean })[] }>('/v1/forecast/from-takings', { siteIds, weekStart, replace });
+        await refreshForecast();
+        return res;
+      }),
     refreshShifts,
     /** Records takings for the days given and removes the ones cleared. */
     saveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) =>

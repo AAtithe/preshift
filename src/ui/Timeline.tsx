@@ -312,8 +312,12 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
               {showCost && <aside className="tl-pnl">
                 <div className="tnum">{money(m.labourCost)}</div>
                 <div className="muted small">labour</div>
-                <div className={`tl-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</div>
-                {m.labourCost > 0 && (
+                {m.forecastSales === 0 ? (
+                  <div className="muted small">No forecast</div>
+                ) : (
+                  <div className={`tl-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</div>
+                )}
+                {m.labourCost > 0 && m.forecastSales > 0 && (
                   <div className={`small tnum ${over ? 'bad-text' : 'good-text'}`}>
                     {pts > 0 ? '+' : ''}
                     {pts.toFixed(1)} pts
