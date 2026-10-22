@@ -1,19 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
+import { NAV_ITEMS, type NavItem } from '../src/ui/nav';
 
 // The management bar: every section opens in every scope, the header only offers controls that
 // change what is on screen, and where you are survives Back and refresh. Site and entity names are
 // read from the page, so the same checks run against the local demo or a deployed site.
 
-const SECTIONS = [
-  'Sites', 'Rota', 'Demand', 'Clock in',
-  'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
-  'Labour cost', 'Payroll', 'Close', 'Reports',
-  'Integrations', 'GDPR', 'Access', 'Settings', 'How to',
-];
-const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Staff', 'Payroll'];
-const PLANNING = ['Sites', 'Rota', 'Demand'];
-const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close', 'Reports'];
-const ORG = ['Integrations', 'GDPR', 'Access', 'Settings', 'How to'];
+// The sections and their rules come from the bar itself, so a new section is checked as soon as it exists.
+// These checks sign in as an admin, who is offered every section.
+const SECTIONS = NAV_ITEMS.map((t) => t.label);
+const labels = (keep: (t: NavItem) => boolean) => NAV_ITEMS.filter(keep).map((t) => t.label);
+const SITE_ONLY = labels((t) => !!t.siteOnly);
+const PLANNING = labels((t) => !!t.plans);
+const WEEK = labels((t) => t.scope === 'week');
+const ORG = labels((t) => t.scope === 'org');
+const orgTitle = (label: string) => NAV_ITEMS.find((t) => t.label === label)?.title ?? 'Organisation';
 
 const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });
 const heading = (page: Page) => page.locator('.mast-title h1');
@@ -27,6 +27,13 @@ async function choices(page: Page, label: 'Site' | 'Entity') {
 }
 
 async function signIn(page: Page) {
+  // A deployed site with a public demo: each test gets a sandbox of its own, as any visitor would.
+  if (process.env.PRESHIFT_E2E_DEMO) {
+    await page.goto('/demo');
+    await page.getByRole('button', { name: 'Start the demo' }).click();
+    await expect(item(page, 'Settings')).toBeVisible();
+    return;
+  }
   await page.goto('/login?next=/app/');
   const form = page.locator('form[action="/auth/login"]');
   await form.locator('input[name=email]').fill(process.env.PRESHIFT_E2E_EMAIL ?? 'dev@preshift.local');
@@ -66,7 +73,7 @@ for (const scope of ['all sites', 'one site'] as const) {
 
       const choosing = several && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
-      await expect(heading(page)).toHaveText(label === 'How to' ? 'Help' : ORG.includes(label) ? 'Organisation' : title);
+      await expect(heading(page)).toHaveText(ORG.includes(label) ? orgTitle(label) : title);
       await expect(page.getByLabel('Site', { exact: true })).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);
