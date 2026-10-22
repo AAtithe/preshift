@@ -19,6 +19,7 @@ import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { ForecastView } from './ForecastView';
 import { dayLabel } from './format';
+import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
@@ -240,14 +241,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     return () => clearTimeout(t);
   }, [lastChange]);
 
-  function chooseEntity(id: string) {
-    setEntityId(id);
-    if (site && id && site.entityId !== id) setSiteId(ALL);
-    setUnfilled(null);
-  }
-
-  // Changing site keeps you in the section you are in. Only the Sites overview drops into the rota.
-  function chooseSite(id: string) {
+  // Changing scope keeps you in the section you are in. Only the Sites overview drops into a site's rota.
+  function chooseScope(entity: string, id: string) {
+    setEntityId(entity);
     setSiteId(id);
     setUnfilled(null);
     if (id && activeTab === 'sites') setTab('rota');
@@ -361,24 +357,12 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             <div className="mast-controls">
               <DemoSwitch me={me} />
               <OrgSwitch account={account} />
-              {section.scope !== 'org' && <>
-              <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
-                <option value={ALL}>All entities</option>
-                {state.entities.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
-              <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
-                <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
-                {scopeSites.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              </>}
             </div>
           </div>
           <div className="mast-title">
-            <h1>{scopeName}</h1>
+            {section.scope === 'org'
+              ? <h1>{scopeName}</h1>
+              : <ScopePicker entities={state.entities} sites={state.sites} entityId={entityId} siteId={site?.id ?? ALL} onChoose={chooseScope} />}
             {section.scope === 'week' && (
               <div className="mast-meta">
                 <WeekPicker week={week} onChange={setWeek} />
@@ -572,7 +556,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
-              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
+              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={(id) => chooseScope(entityId, id)} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (
                 <PeopleView
