@@ -116,8 +116,10 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     return { login, org, employee };
   }
 
-  app.get<{ Querystring: { org?: string; person?: string; invite?: string } }>('/v1/staff/invite', hidden, async (req) => {
-    const { login, employee } = await invited(req.query.org ?? '', req.query.person ?? '', req.query.invite ?? '');
+  // Who an invite is for, so the phone can greet them. The token comes in the body, never the
+  // address, so it stays out of server and proxy logs.
+  app.post<{ Body: { org?: string; person?: string; invite?: string } }>('/v1/staff/invite', hidden, async (req) => {
+    const { login, employee } = await invited(req.body?.org ?? '', req.body?.person ?? '', req.body?.invite ?? '');
     return { name: employee.name, email: login.email ?? employee.email ?? '' };
   });
 
@@ -305,8 +307,9 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       const expires = now() + INVITE_DAYS * 86_400;
       await store.putStaffLogin({ ...login, inviteHash: sha256(token), inviteExpires: expires, invitedBy: actor(req) });
       audit(orgOf(req), actor(req), 'staff.invited', { employeeId: employee.id });
-      const query = new URLSearchParams({ org: req.principal.orgId, person: employee.id, invite: token });
-      return reply.code(201).send({ path: `/staff/?${query}`, expiresAt: new Date(expires * 1000).toISOString() });
+      // After #, which browsers never send to a server or in a Referer header.
+      const fragment = new URLSearchParams({ org: req.principal.orgId, person: employee.id, invite: token });
+      return reply.code(201).send({ path: `/staff/#${fragment}`, expiresAt: new Date(expires * 1000).toISOString() });
     },
   );
 
