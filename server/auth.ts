@@ -76,6 +76,8 @@ export interface ApiKey {
 declare module 'fastify' {
   interface FastifyRequest {
     principal: ApiKey;
+    /** Set whenever a key is presented and recognised, refused or not, so the call can be logged. */
+    apiCall?: { orgId: string; keyId: string; refused?: 'revoked' | 'rate_limited'; started: number };
   }
 }
 
@@ -177,6 +179,11 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
     let keyed = byKey.get(token);
     if (!keyed && token.startsWith(KEY_PREFIX)) {
       const stored = await users.getApiKeyByHash(hashKey(token));
+      if (stored?.revokedAt) {
+        // Still recognised, so the attempt is logged against the key it used.
+        req.apiCall = { orgId: stored.orgId, keyId: stored.id, refused: 'revoked', started: Date.now() };
+        return reply.code(401).send({ error: 'unauthorised', message: 'That API key is not valid. It may have been revoked.' });
+      }
       if (stored) {
         keyed = { key: `key:${stored.id}`, keyId: stored.id, orgId: stored.orgId, name: `API key ${stored.name}`, scopes: stored.scopes as Scope[] };
         if (!stored.lastUsedAt || Date.now() - Date.parse(stored.lastUsedAt) > USED_EVERY_MS) {
@@ -185,9 +192,11 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
       }
     }
     if (keyed) {
+      req.apiCall = { orgId: keyed.orgId, keyId: keyed.keyId ?? `env:${keyed.name}`, started: Date.now() };
       const rate = limit(keyed.key);
       reply.header('x-ratelimit-limit', options.rateLimit ?? RATE_LIMIT).header('x-ratelimit-remaining', rate.remaining).header('x-ratelimit-reset', rate.resetSeconds);
       if (!rate.allowed) {
+        req.apiCall.refused = 'rate_limited';
         return reply.code(429).header('retry-after', rate.resetSeconds).send({ error: 'rate_limited', message: `Slow down: this key has made more than ${options.rateLimit ?? RATE_LIMIT} requests this minute` });
       }
       req.principal = keyed;

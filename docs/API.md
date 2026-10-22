@@ -91,6 +91,15 @@ labour, an in-house app, a partner product. Nobody at Preshift has to issue anyt
    or settings: that needs a person signed in.
 3. Revoking a key under Settings stops it on the next request. Each key shows when it was last used,
    so keys nobody uses any more are easy to find and remove.
+4. Every call made with a key is recorded: time, method, path and query, status, caller address and
+   response time, written before the response leaves so the log has no gaps. Refused calls are
+   recorded too, marked `revoked` or `rate_limited`. Revoking keeps the key's record, so an attempt
+   to use a leaked key after revocation is refused, logged against it and visible in its log.
+   People with `settings.manage` see each key's last 200 calls under Settings, API keys, Calls, and
+   download up to 1,000 as CSV from `GET /v1/api-keys/:id/calls?from=&to=&limit=&format=csv`
+   (deployment keys as `env:<name>`); each download is written to the audit trail. Calls are kept
+   396 days (the partner addendum's 12 months plus a month) and purged by the daily run. Requests
+   from people signed in to the app are in the audit trail instead.
 
 Staff records and pay sit behind `employees:read`, apart from `rota:read`, so a BI tool or EPOS can
 read labour totals without seeing anyone's date of birth, rate or pay. Without it, `/v1/rota/week`
