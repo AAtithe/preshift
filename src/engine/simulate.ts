@@ -1,7 +1,7 @@
-import type { ClockRecord, HourActual, RotaState, Shift, TipsTaken } from './types';
+import type { ClockRecord, DishSales, HourActual, Purchase, RotaState, SalesCategory, Shift, StockCount, TipsTaken } from './types';
 import { autoSchedule } from './autoschedule';
 import { addDays, toISODate, weekStart } from './time';
-import { seedState } from './seed';
+import { MENU, seedState } from './seed';
 
 /** Small deterministic generator so the demo week looks the same on every load. */
 export function random(seed: number) {
@@ -176,9 +176,99 @@ export function seedDemo(today = toISODate(new Date()), minute = DEMO_MINUTE): R
   const cut = new Set(
     traded.shifts.filter((s) => s.employeeId === 'mar-17' && s.date >= lastWeek && s.date < thisWeek).slice(1).map((s) => s.id),
   );
-  return {
-    ...traded,
-    shifts: traded.shifts.filter((s) => !cut.has(s.id)),
-    clocks: traded.clocks.filter((c) => !c.shiftId || !cut.has(c.shiftId)),
-  };
+  return simulateCostOfSales(
+    {
+      ...traded,
+      shifts: traded.shifts.filter((s) => !cut.has(s.id)),
+      clocks: traded.clocks.filter((c) => !c.shiftId || !cut.has(c.shiftId)),
+    },
+    today,
+  );
+}
+
+// How far actual usage runs over what the recipes say, by site and category: waste, over-portioning,
+// over-pouring and anything walking out of the back door. Shoreditch's bar is the problem.
+const LEAKAGE: Record<string, Record<SalesCategory, number>> = {
+  mar: { food: 1.03, drink: 1.05 },
+  shd: { food: 1.04, drink: 1.11 },
+};
+const DRINK_SHARE: Record<string, number> = { mar: 0.36, shd: 0.42 };
+const DELIVERIES: { category: SalesCategory; supplier: string; weekday: number; share: number }[] = [
+  { category: 'food', supplier: 'Fresh Direct', weekday: 0, share: 0.35 },
+  { category: 'food', supplier: 'Smithfield Meats', weekday: 2, share: 0.4 },
+  { category: 'food', supplier: 'Fresh Direct', weekday: 4, share: 0.25 },
+  { category: 'drink', supplier: 'Matthew Clark', weekday: 1, share: 0.6 },
+  { category: 'drink', supplier: 'Bibendum', weekday: 3, share: 0.4 },
+];
+
+/**
+ * Till sales by dish, supplier invoices and Sunday night stock counts that
+ * agree with the trading already simulated. Runs on its own random stream so
+ * the rest of the demo is unchanged.
+ */
+export function simulateCostOfSales(state: RotaState, today: string, seed = 5): RotaState {
+  const rnd = random(seed);
+  const dishSales: DishSales[] = [];
+  const purchases: Purchase[] = [];
+  const stockCounts: StockCount[] = [];
+  const thisWeek = weekStart(today);
+  const firstWeek = addDays(thisWeek, -21);
+
+  for (const site of state.sites) {
+    const menu = state.dishes.filter((d) => d.siteId === site.id);
+    const popularity = new Map(menu.map((d, i) => [d.id, MENU[i]?.[4] ?? 1]));
+    const usage = new Map<string, Record<SalesCategory, number>>();
+    const days = [...new Set(state.actuals.filter((a) => a.siteId === site.id && a.date < today).map((a) => a.date))].sort();
+
+    for (const date of days) {
+      const sales = state.actuals.filter((a) => a.siteId === site.id && a.date === date).reduce((sum, a) => sum + a.sales, 0);
+      const drinkShare = DRINK_SHARE[site.id] * (0.92 + rnd() * 0.16);
+      const used = { food: 0, drink: 0 };
+      for (const category of ['food', 'drink'] as const) {
+        const revenue = sales * (category === 'drink' ? drinkShare : 1 - drinkShare);
+        const items = menu.filter((d) => d.category === category);
+        const weights = items.map((d) => popularity.get(d.id)! * (0.8 + rnd() * 0.4));
+        const total = weights.reduce((sum, w) => sum + w, 0);
+        items.forEach((d, i) => {
+          const units = Math.round((revenue * weights[i]) / total / d.price);
+          if (units > 0) dishSales.push({ siteId: site.id, date, dishId: d.id, units });
+          used[category] += units * d.recipeCost * LEAKAGE[site.id][category] * (0.97 + rnd() * 0.06);
+        });
+      }
+      const week = weekStart(date);
+      const acc = usage.get(week) ?? { food: 0, drink: 0 };
+      acc.food += used.food;
+      acc.drink += used.drink;
+      usage.set(week, acc);
+    }
+
+    // Stock is counted every Sunday night. Each week's invoices are what was used plus the change in stock.
+    let opening = { food: 2_200 + rnd() * 400, drink: 7_200 + rnd() * 900 };
+    for (const category of ['food', 'drink'] as const) {
+      stockCounts.push({ siteId: site.id, date: addDays(firstWeek, -1), category, value: Math.round(opening[category] * 100) / 100 });
+    }
+    for (let week = firstWeek; week <= thisWeek; week = addDays(week, 7)) {
+      const used = usage.get(week) ?? { food: 0, drink: 0 };
+      const closed = week < thisWeek;
+      const closing = closed ? { food: 2_200 + rnd() * 400, drink: 7_200 + rnd() * 900 } : opening;
+      for (const category of ['food', 'drink'] as const) {
+        const bought = used[category] + closing[category] - opening[category];
+        for (const d of DELIVERIES.filter((x) => x.category === category)) {
+          const date = addDays(week, d.weekday);
+          if (date >= today) continue;
+          purchases.push({
+            id: `inv-${site.id}-${date}-${d.supplier.replace(/\s+/g, '-').toLowerCase()}`,
+            siteId: site.id,
+            date,
+            supplier: d.supplier,
+            category,
+            amount: Math.round(bought * d.share * 100) / 100,
+          });
+        }
+        if (closed) stockCounts.push({ siteId: site.id, date: addDays(week, 6), category, value: Math.round(closing[category] * 100) / 100 });
+      }
+      opening = closing;
+    }
+  }
+  return { ...state, dishSales, purchases, stockCounts };
 }

@@ -85,10 +85,16 @@ Phase 1g, done: retention scoring. Nine transparent signals from clocked hours, 
 Working Time, closes, tenure and pay; replacement cost per person on stated assumptions; the
 share of risk the rota drives; no protected characteristics read.
 
+Phase 1h, done: prime cost. Cost of sales from stock counts and invoices, leakage against recipe
+cost, prime cost against a mix-weighted target, the kitchen's and bar's own numbers, daily prime
+on recipe cost, and menu engineering. Runs on simulated till, invoice and stock data.
+
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
 - Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
   device's location against the clocking rules already in the engine.
+- Till dish sales, supplier invoices (from the purchase ledger or an invoice capture tool) and
+  stock counts feeding prime cost, with recipe costs updated as invoice prices move.
 - Live sales feed from Preshift Reports into the hourly actuals, so the cut call and labour %
   run on real trading through the day.
 - Payroll exports for the payrolls WS clients run, carrying approved clocked hours only.

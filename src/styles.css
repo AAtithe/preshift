@@ -269,3 +269,5 @@ tr.muted td { color: var(--muted); }
 .score-bar.warn { background: var(--warn); }
 .score-bar.good { background: var(--good); }
 .reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.prime .intro { max-width: 860px; margin-top: 0; }
+.legend { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 2px; }

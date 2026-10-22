@@ -24,6 +24,9 @@ export interface Site {
   location?: GeoPoint;
   /** Clock-in radius around `location`, in metres. */
   geofenceMetres?: number;
+  /** Cost of sales as a share of food and of drink sales the site is held to. */
+  foodCostTargetPct?: number;
+  drinkCostTargetPct?: number;
   /** What kind of site this is, for choosing benchmark peers. */
   concept?: Concept;
   region?: string;
@@ -193,6 +196,45 @@ export interface TroncScheme {
   lastReviewedOn?: string;
 }
 
+export type SalesCategory = 'food' | 'drink';
+
+/** One item on the menu: net selling price and the recipe cost of one portion or serve. */
+export interface Dish {
+  id: string;
+  siteId: string;
+  name: string;
+  category: SalesCategory;
+  /** Net of VAT. */
+  price: number;
+  recipeCost: number;
+}
+
+/** Units of one dish sold on one day, from the till. */
+export interface DishSales {
+  siteId: string;
+  date: string;
+  dishId: string;
+  units: number;
+}
+
+/** A supplier invoice or credit note, net of VAT. Credit notes are negative. */
+export interface Purchase {
+  id: string;
+  siteId: string;
+  date: string;
+  supplier: string;
+  category: SalesCategory;
+  amount: number;
+}
+
+/** Stock on hand at close of business on `date`, at cost. */
+export interface StockCount {
+  siteId: string;
+  date: string;
+  category: SalesCategory;
+  value: number;
+}
+
 export interface RotaState {
   sites: Site[];
   roles: Role[];
@@ -204,4 +246,8 @@ export interface RotaState {
   actuals: HourActual[];
   tips: TipsTaken[];
   troncSchemes: TroncScheme[];
+  dishes: Dish[];
+  dishSales: DishSales[];
+  purchases: Purchase[];
+  stockCounts: StockCount[];
 }

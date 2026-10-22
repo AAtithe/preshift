@@ -1,4 +1,4 @@
-import type { DemandRule, Employee, HourForecast, Role, RotaState, Site, TroncScheme } from './types';
+import type { DemandRule, Dish, Employee, HourForecast, Role, RotaState, SalesCategory, Site, TroncScheme } from './types';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -15,10 +15,12 @@ const sites: Site[] = [
   {
     id: 'mar', name: 'Marylebone', labourTargetPct: 0.28, trackingCode: 'Marylebone', openMinute: 11 * 60, closeMinute: 23 * 60,
     location: { lat: 51.5203, lng: -0.1515 }, geofenceMetres: 150, concept: 'restaurant', region: 'London',
+    foodCostTargetPct: 0.28, drinkCostTargetPct: 0.22,
   },
   {
     id: 'shd', name: 'Shoreditch', labourTargetPct: 0.27, trackingCode: 'Shoreditch', openMinute: 12 * 60, closeMinute: 24 * 60,
     location: { lat: 51.5246, lng: -0.0794 }, geofenceMetres: 150, concept: 'restaurant', region: 'London',
+    foodCostTargetPct: 0.28, drinkCostTargetPct: 0.22,
   },
 ];
 
@@ -120,6 +122,34 @@ const troncSchemes: TroncScheme[] = [
   },
 ];
 
+// One menu, priced net of VAT, with the recipe cost of each portion or serve: [name, category, price, cost, popularity].
+export const MENU: [string, SalesCategory, number, number, number][] = [
+  ['Burrata, blood orange', 'food', 10.0, 3.1, 0.9],
+  ['Crispy squid', 'food', 9.17, 2.2, 1.3],
+  ['Soup of the day', 'food', 6.67, 1.1, 0.5],
+  ['Steak frites', 'food', 24.17, 9.4, 1.6],
+  ['Roast chicken, salsa verde', 'food', 18.33, 4.4, 1.2],
+  ['Hake, mussels, cider', 'food', 21.67, 7.9, 0.7],
+  ['Wild mushroom risotto', 'food', 15.83, 2.9, 0.6],
+  ['Lamb shoulder for two', 'food', 45.83, 16.5, 0.35],
+  ['Cheeseburger', 'food', 15.0, 4.6, 1.4],
+  ['Sticky toffee pudding', 'food', 7.5, 1.4, 0.9],
+  ['Chocolate delice', 'food', 8.33, 2.1, 0.4],
+  ['Cheese board', 'food', 11.67, 4.9, 0.25],
+  ['House wine 175ml', 'drink', 6.67, 1.35, 1.6],
+  ['Rioja 175ml', 'drink', 9.17, 2.6, 0.6],
+  ['Champagne 125ml', 'drink', 12.5, 4.6, 0.3],
+  ['Draught lager pint', 'drink', 5.42, 1.25, 1.5],
+  ['Negroni', 'drink', 9.58, 2.2, 0.7],
+  ['Espresso martini', 'drink', 10.42, 2.4, 0.9],
+  ['Soft drink', 'drink', 3.33, 0.55, 0.8],
+  ['Coffee', 'drink', 2.92, 0.35, 0.9],
+];
+
+const dishes: Dish[] = ['mar', 'shd'].flatMap((siteId) =>
+  MENU.map(([name, category, price, recipeCost], i) => ({ id: `${siteId}-d${i + 1}`, siteId, name, category, price, recipeCost })),
+);
+
 const rules: DemandRule[] = [
   ...['mar', 'shd'].flatMap((siteId) => [
     { siteId, roleId: 'server', coversPerHour: 14, minimumWhileOpen: 1, maximum: 6 },
@@ -172,5 +202,9 @@ export function seedState(today = toISODate(new Date())): RotaState {
     actuals: [],
     tips: [],
     troncSchemes,
+    dishes,
+    dishSales: [],
+    purchases: [],
+    stockCounts: [],
   };
 }

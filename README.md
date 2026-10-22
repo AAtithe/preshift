@@ -51,6 +51,19 @@ Office or a tribunal would, because the firm that signs the accounts is the one 
 Penalties are ceilings, not predictions. Regulators reduce them for prompt disclosure, which is
 why finding the breach first is worth more than the penalty.
 
+## Prime cost
+
+Labour plus cost of sales over net sales: the number operators actually run on, closed the
+accountant's way and split to the people who control it.
+
+| Area | What it does | Where |
+| --- | --- | --- |
+| Cost of sales | Opening stock plus purchases (credit notes included) less closing stock, by food and drink, from Sunday night counts and supplier invoices. Until the count is in, recipe cost stands in and the screen says so. | `src/engine/prime.ts` |
+| Leakage | Actual cost of sales against what the recipes say the dishes sold should have cost: waste, over-portioning, over-pouring, theft and price rises not on the recipe, in pounds a week. | `src/engine/prime.ts` |
+| Prime cost | Clocked, loaded labour from the actuals loop plus cost of sales, against a target set from the site's labour, food and drink targets and the week's sales mix. Sales and labour reconcile to the labour flash. | `src/engine/prime.ts` |
+| Owners | Kitchen: kitchen labour and food cost over food sales, the head chef's number. Bar: bar labour and drink cost over drink sales. Floor and management labour over total sales. A daily figure on recipe cost. | `src/ui/PrimeView.tsx` |
+| Menu engineering | Each dish's mix, GP and cash margin, classed Star, Plowhorse, Puzzle or Dog within its category, with what to do about each. | `src/engine/prime.ts` |
+
 ## Tronc
 
 Tips and service charge, run the way the Employment (Allocation of Tips) Act 2023 and HMRC
@@ -107,7 +120,8 @@ make. Salaried managers work the long weeks they do in practice, one of them on 
 not cover the hours; a student was hand-rostered to the full term-time limit last week and an
 overrun took them over it; a visa at Shoreditch runs out next week. The demo carries
 four weeks of history; last week a GM took most of a regular bartender's shifts away, and two
-recent starters are still in their first three months. Marylebone runs an
+recent starters are still in their first three months. Both sites share a menu, take stock every
+Sunday night and buy from four suppliers; Shoreditch's bar over-pours. Marylebone runs an
 independent tronc with a discretionary service charge; Shoreditch has the GM deciding the
 allocation, a mandatory charge and no written policy. Data is held in the browser only; "Reset demo" regenerates it.
 

@@ -65,6 +65,10 @@ const state = (employees: Employee[], shifts: Shift[], clocks = shifts.map((s) =
   actuals: [],
   tips: [],
   troncSchemes: [],
+  dishes: [],
+  dishSales: [],
+  purchases: [],
+  stockCounts: [],
 });
 
 /** Lunch shifts, 12:00 to 17:00, on the first `days` days of each of the three weeks before WEEK. */

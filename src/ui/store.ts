@@ -18,8 +18,8 @@ export type Action =
   | { type: 'markTipsPaid'; siteId: string; weekStart: string; date: string }
   | { type: 'reset' };
 
-// v7 adds start dates and four weeks of demo history; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v7';
+// v8 adds the menu, dish sales, purchases and stock counts; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v8';
 
 function load(): RotaState {
   try {

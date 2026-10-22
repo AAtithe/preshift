@@ -75,6 +75,10 @@ const state = (over: Partial<RotaState>): RotaState => ({
   actuals: [],
   tips: [],
   troncSchemes: [scheme()],
+  dishes: [],
+  dishSales: [],
+  purchases: [],
+  stockCounts: [],
   ...over,
 });
 
