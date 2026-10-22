@@ -17,8 +17,8 @@ const roles: Role[] = [
 // A typical small group: the original company now runs two sites, and the newer
 // site sits in its own company (separate lease, separate investors).
 const entities: Entity[] = [
-  { id: 'wdl', name: 'West End Dining Ltd', companyNumber: '09876543', payeReference: '120/WE12345', intercompanyCode: '1351' },
-  { id: 'eck', name: 'East Canteen & Kitchen Ltd', companyNumber: '13579246', payeReference: '120/EC67890', intercompanyCode: '1352', leaveYearStart: '04-01' },
+  { id: 'wdl', name: 'West End Dining Ltd', companyNumber: '09876543', payeReference: '120/WE12345', intercompanyCode: '1351', travelPay: { basis: 'normal' } },
+  { id: 'eck', name: 'East Canteen & Kitchen Ltd', companyNumber: '13579246', payeReference: '120/EC67890', intercompanyCode: '1352', leaveYearStart: '04-01', travelPay: { basis: 'normal' } },
 ];
 
 const sites: Site[] = [

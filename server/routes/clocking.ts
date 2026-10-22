@@ -25,6 +25,40 @@ export function replaceSite(org: OrgData, id: string, change: (site: Site) => Si
   return org.state.sites[i];
 }
 
+export type TapAction = 'clock_in' | 'clock_out' | 'break_end' | 'already_clocked_in' | 'already_clocked_out';
+
+/**
+ * One card tap at a site: clocks the holder in, out, or back from a break. Shared by readers under
+ * their own key and by paired kiosks, so a card behaves the same wherever it is tapped.
+ */
+export function tapCard(
+  org: OrgData,
+  siteId: string,
+  rawBadge: string,
+  { at, location, fixedReader }: { at?: string; location?: GeoFix; fixedReader: boolean },
+): { action: TapAction; employee: { id: string; name: string }; entry: TimeEntry } {
+  const badgeId = normaliseBadge(rawBadge);
+  const employee = badgeId ? org.state.employees.find((e) => e.badgeId === badgeId) : undefined;
+  if (!employee) throw new HttpError(404, 'unknown_card', 'This card is not enrolled. Ask a manager to add it to your profile.');
+  const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
+  const opts = { method: 'card' as const, at, location, fixedReader };
+  const person = { id: employee.id, name: employee.name };
+  // Readers often send one tap twice. A second tap within two minutes is the same tap, not a clock-out.
+  const { date, minute } = londonParts(at ? new Date(at) : new Date());
+  const now = minutesSince(date, minute);
+  const last = org.timeEntries
+    .filter((t) => t.employeeId === employee.id && t.source === 'clock')
+    .reduce<TimeEntry | undefined>((a, t) => (!a || latest(t) > latest(a) ? t : a), undefined);
+  if (last && now - latest(last) < REPEAT_TAP_MINUTES) {
+    return { action: last.status === 'open' ? 'already_clocked_in' : 'already_clocked_out', employee: person, entry: last };
+  }
+  // Someone tapping while on a break is coming back from it, not leaving for the day.
+  if (open && onBreak(open)) return { action: 'break_end', employee: person, entry: endBreak(open, at) };
+  // A tap at another site closes the shift where it was opened, so hours are never left running.
+  if (open) return { action: 'clock_out', employee: person, entry: clockOut(org, open, opts) };
+  return { action: 'clock_in', employee: person, entry: clockIn(org, employee, siteId, opts) };
+}
+
 /** Site geofences, RFID card enrolment, and the card tap that clocks people in and out. */
 export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
   const setup = { preHandler: requireScope('rota:write') };
@@ -129,32 +163,9 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       guard(ctx, req, org).allow('time.record', req.body.siteId);
-      const badgeId = normaliseBadge(req.body.badgeId);
-      const employee = badgeId ? org.state.employees.find((e) => e.badgeId === badgeId) : undefined;
-      if (!employee) throw new HttpError(404, 'unknown_card', 'This card is not enrolled. Ask a manager to add it to your profile.');
-      const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
       const at = clockTime(req, req.body.at);
-      const opts = { method: 'card' as const, at, location: req.body.location, fixedReader: isFixedReader(req) };
-      const person = { id: employee.id, name: employee.name };
-      // Readers often send one tap twice. A second tap within two minutes is the same tap, not a clock-out.
-      const { date, minute } = londonParts(at ? new Date(at) : new Date());
-      const now = minutesSince(date, minute);
-      const last = org.timeEntries
-        .filter((t) => t.employeeId === employee.id && t.source === 'clock')
-        .reduce<TimeEntry | undefined>((a, t) => (!a || latest(t) > latest(a) ? t : a), undefined);
-      if (last && now - latest(last) < REPEAT_TAP_MINUTES) {
-        return { action: last.status === 'open' ? 'already_clocked_in' : 'already_clocked_out', employee: person, entry: last };
-      }
-      // Someone tapping while on a break is coming back from it, not leaving for the day.
-      if (open && onBreak(open)) {
-        return { action: 'break_end', employee: person, entry: endBreak(open, at) };
-      }
-      if (open) {
-        // A tap at another site closes the shift where it was opened, so hours are never left running.
-        return { action: 'clock_out', employee: person, entry: clockOut(org, open, opts) };
-      }
-      const entry = clockIn(org, employee, req.body.siteId, opts);
-      return reply.code(201).send({ action: 'clock_in', employee: person, entry });
+      const result = tapCard(org, req.body.siteId, req.body.badgeId, { at, location: req.body.location, fixedReader: isFixedReader(req) });
+      return result.action === 'clock_in' ? reply.code(201).send(result) : result;
     },
   );
 }
