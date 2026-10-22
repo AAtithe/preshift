@@ -26,6 +26,7 @@ import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
 import { HowToView } from './HowToView';
 import { AbsenceView } from './AbsenceView';
+import { RequestsView } from './RequestsView';
 import { HrFile, type HrSection } from './HrFile';
 import { HrOverview } from './HrOverview';
 import { CasesView, ReviewsView } from './ReviewsView';
@@ -591,6 +592,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
+              {shown === 'requests' && <RequestsView state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
                 <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />

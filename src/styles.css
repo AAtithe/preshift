@@ -1262,6 +1262,12 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .client-add .form .span2 { grid-column: auto; }
 }
 
+/* Staff requests: posting an open shift. */
+.requests-post { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
+.requests-post label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.requests-post p { grid-column: 1 / -1; margin: 0; }
+.requests-digest { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; }
+.requests-digest input { margin-top: 3px; }
 .login-flags { margin: 4px 0 0; padding-left: 16px; }
 .login-review-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .login-review-form input { min-width: 200px; flex: 1; }
