@@ -12,12 +12,12 @@ const KEYS = [
 
 let k: Kit;
 
-/** The demo's finance director has no authenticator yet; most tests give her one. */
+/** The demo's finance director has an authenticator; one test takes it away. */
 async function setup(options: { fdAuthenticator?: boolean } = {}) {
   k = await kit({ keys: KEYS as never });
-  if (options.fdAuthenticator !== false) {
+  if (options.fdAuthenticator === false) {
     const org = await k.store.load('demo');
-    org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = true;
+    org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = false;
   }
   return (method: string, url: string, body?: unknown, key = 'kate') => k.call(method, url, { key }, body);
 }
