@@ -17,6 +17,7 @@ import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './rout
 import { employeeRoutes } from './routes/employees';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
+import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
@@ -258,6 +259,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     clockingRoutes(api, ctx);
     travelRoutes(api, ctx);
     payrollRoutes(api, ctx);
+    payrollLinkRoutes(api, ctx);
     userRoutes(api, ctx);
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);

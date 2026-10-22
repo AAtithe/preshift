@@ -501,8 +501,10 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
         with the evidence seen. Availability and the rest of each record are completed in People.
       </p>
       <div className="notice">
-        Everyone added here is set up in TeamPay as a starter, exactly as when you add someone in People. If your payroll already
-        runs in TeamPay with these people on it, talk to your WS lead before adding them, or they will be on payroll twice.
+        If your payroll already runs in TeamPay, people already there are linked to their existing record, not set up twice:
+        automatically where TeamPay holds exactly one person with the same name and date of birth, and by hand in Payroll, under
+        "Link existing TeamPay people", for anyone else. Where the two disagree on pay or hours, nothing is overwritten until
+        someone decides which is right.
       </div>
       <div className="setup-row">
         <Field label="Site">

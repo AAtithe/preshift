@@ -21,6 +21,10 @@ class RecordingPayroll implements PayrollProvider {
     this.calls.push({ method: 'upsertEmployee', employerId, detail: e.externalRef });
     return { payrollId: payrollId ?? `p_${employerId}_${this.seq++}` };
   }
+  async listEmployees() {
+    // A payroll with nobody on it before Preshift, so every starter is created.
+    return [];
+  }
   async markLeaver(employerId: string, payrollId: string) {
     this.calls.push({ method: 'markLeaver', employerId, detail: payrollId });
   }
