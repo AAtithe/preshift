@@ -16,6 +16,13 @@ interface Money {
   currency?: string;
 }
 
+/** One service charge on an order. Square's applied money carries any VAT inclusive in it, not VAT added on top. */
+interface SquareServiceCharge {
+  applied_money?: Money;
+  total_money?: Money;
+  total_tax_money?: Money;
+}
+
 interface SquareOrder {
   id: string;
   location_id: string;
@@ -24,7 +31,9 @@ interface SquareOrder {
   total_money?: Money;
   total_tax_money?: Money;
   total_tip_money?: Money;
+  /** The sum of each charge's applied money: VAT inclusive in a charge, but not VAT added on top. */
   total_service_charge_money?: Money;
+  service_charges?: SquareServiceCharge[];
   /** Sales less returns. Present on any order that has had money returned against it. */
   net_amounts?: { total_money?: Money; tax_money?: Money; tip_money?: Money; service_charge_money?: Money };
 }
@@ -32,9 +41,33 @@ interface SquareOrder {
 const pence = (m?: Money) => m?.amount ?? 0;
 
 /**
+ * The VAT on an order's service charges, in pence, split by how it is charged: inclusive in the
+ * charge (the UK way, and inside Square's service charge money) or added on top (outside it). A
+ * refund nets the charge off on the sale's own amounts; its VAT comes off in the same proportion.
+ */
+function serviceChargeVat(order: SquareOrder): { inclusive: number; additive: number } {
+  let inclusive = 0;
+  let additive = 0;
+  for (const c of order.service_charges ?? []) {
+    const applied = pence(c.applied_money);
+    const total = pence(c.total_money);
+    // Total is applied plus any VAT added on top; total tax is the inclusive VAT plus that added VAT.
+    inclusive += applied + pence(c.total_tax_money) - total;
+    additive += total - applied;
+  }
+  const charged = pence(order.total_service_charge_money);
+  const share = order.net_amounts && charged ? pence(order.net_amounts.service_charge_money) / charged : 1;
+  return { inclusive: inclusive * share, additive: additive * share };
+}
+
+/**
  * An order's takings as a hospitality P&L counts them: what the guest paid, less VAT, less tips and
  * service charge (which belong to the team under the Employment (Allocation of Tips) Act 2023, not
  * the business), less anything refunded. Square's money is in pence.
+ *
+ * VAT inclusive in a taxable service charge sits in both the order's tax and its service charge
+ * money, so taking both away would take it twice and understate takings: it goes back once. VAT
+ * added on top of a charge is in the tax alone, so it is taken once already.
  */
 export function squareNetSales(order: SquareOrder): number {
   const n = order.net_amounts;
@@ -42,7 +75,7 @@ export function squareNetSales(order: SquareOrder): number {
   const tax = n ? pence(n.tax_money) : pence(order.total_tax_money);
   const tip = n ? pence(n.tip_money) : pence(order.total_tip_money);
   const service = n ? pence(n.service_charge_money) : pence(order.total_service_charge_money);
-  return (gross - tax - tip - service) / 100;
+  return Math.round(gross - tax - tip - service + serviceChargeVat(order).inclusive) / 100;
 }
 
 /** The card tips on an order, less any refunded, in pounds: the team's money, kept apart from takings. */
@@ -54,12 +87,13 @@ export function squareTips(order: SquareOrder): number {
 /**
  * The service charge collected on an order, less any refunded, in pounds. A discretionary charge the
  * guest asked to have taken off before paying is not on the order at all, and one refunded after is
- * netted off, so this is what the team is owed. Square's figure carries any VAT on the charge, which
- * is how the tronc reads a mandatory one.
+ * netted off, so this is what the team is owed. It is the whole charge the guest paid, VAT included
+ * whether inclusive or added on top, which is how the tronc reads a mandatory one.
  */
 export function squareServiceCharge(order: SquareOrder): number {
   const n = order.net_amounts;
-  return (n ? pence(n.service_charge_money) : pence(order.total_service_charge_money)) / 100;
+  const applied = n ? pence(n.service_charge_money) : pence(order.total_service_charge_money);
+  return Math.round(applied + serviceChargeVat(order).additive) / 100;
 }
 
 /** Square's Locations and Orders APIs, with a seller's access token. */

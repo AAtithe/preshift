@@ -170,6 +170,61 @@ describe('card tips from Square', () => {
   });
 });
 
+describe('VAT on a taxable service charge', () => {
+  // £100 of food with VAT inside it (£16.67), and a mandatory 12.5% charge, taxable, VAT inside it too (£2.08).
+  const inclusive = {
+    id: 'inc',
+    location_id: 'L',
+    total_money: { amount: 11250 },
+    total_tax_money: { amount: 1875 },
+    total_service_charge_money: { amount: 1250 },
+    service_charges: [{ applied_money: { amount: 1250 }, total_tax_money: { amount: 208 }, total_money: { amount: 1250 } }],
+  };
+
+  it('takes the VAT inside a service charge off takings once, not twice', () => {
+    // £100 of food is £83.33 net of VAT. Before, the charge's £2.08 of VAT came off again: £81.25.
+    expect(squareNetSales(inclusive)).toBe(83.33);
+    // The team's charge is the £12.50 the guest paid, VAT and all.
+    expect(squareServiceCharge(inclusive)).toBe(12.5);
+  });
+
+  it('takes VAT added on top of a charge off once, and counts it in the charge the guest paid', () => {
+    const additive = {
+      id: 'add',
+      location_id: 'L',
+      total_money: { amount: 13200 },
+      total_tax_money: { amount: 2200 },
+      total_service_charge_money: { amount: 1000 },
+      service_charges: [{ applied_money: { amount: 1000 }, total_tax_money: { amount: 200 }, total_money: { amount: 1200 } }],
+    };
+    expect(squareNetSales(additive)).toBe(100);
+    expect(squareServiceCharge(additive)).toBe(12);
+  });
+
+  it('leaves a discretionary charge outside VAT as it was', () => {
+    const outside = {
+      id: 'out',
+      location_id: 'L',
+      total_money: { amount: 11250 },
+      total_tax_money: { amount: 1667 },
+      total_service_charge_money: { amount: 1250 },
+      service_charges: [{ applied_money: { amount: 1250 }, total_tax_money: { amount: 0 }, total_money: { amount: 1250 } }],
+    };
+    expect(squareNetSales(outside)).toBe(83.33);
+    expect(squareServiceCharge(outside)).toBe(12.5);
+  });
+
+  it('puts back only the VAT on what was kept when half the charge was refunded', () => {
+    const refunded = {
+      ...inclusive,
+      // Half the charge refunded, with its £1.04 of VAT.
+      net_amounts: { total_money: { amount: 10625 }, tax_money: { amount: 1771 }, service_charge_money: { amount: 625 } },
+    };
+    expect(squareNetSales(refunded)).toBe(83.33);
+    expect(squareServiceCharge(refunded)).toBe(6.25);
+  });
+});
+
 describe('service charge from Square', () => {
   it('takes what was collected: nothing for a charge taken off the bill, net of one refunded after', () => {
     expect(squareServiceCharge({ id: 'a', location_id: 'L', total_money: { amount: 6750 }, total_service_charge_money: { amount: 750 } })).toBe(7.5);
