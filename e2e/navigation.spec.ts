@@ -184,8 +184,8 @@ test('a supervisor sees only their sections, and the API refuses the rest', asyn
     if ((await t.count()) > 0 && (await t.getAttribute('aria-expanded')) === 'false') await t.click();
   }
   const shown = (await bar(page).locator('.nav-items button, .nav-group > button:not(.nav-toggle)').allTextContents()).map((x) => x.trim());
-  expect(shown).toEqual(expect.arrayContaining(['Rota', 'Clock in', 'Settings']));
-  for (const hidden of ['Sites', 'Labour cost', 'Staff', 'HR overview', 'Cases', 'Reports', 'Close', 'Access', 'GDPR']) {
+  expect(shown).toEqual(expect.arrayContaining(['Rota', 'Clock in', 'Your profile']));
+  for (const hidden of ['Sites', 'Labour cost', 'Staff', 'HR overview', 'Cases', 'Reports', 'Close', 'Access', 'GDPR', 'Settings']) {
     expect(shown).not.toContain(hidden);
   }
   // Actions their roles do not include are not shown greyed out; they are not shown.

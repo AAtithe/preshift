@@ -47,17 +47,17 @@ describe('who sees which sections', () => {
     }
   });
 
-  it('gives everyone their settings and the help, whatever their role', () => {
+  it('gives everyone their own profile and the help, whatever their role', () => {
     for (const r of ROLES) {
       const u = person(r.id, r.scope === 'sites' ? ['a'] : null);
-      expect(seen(u)).toEqual(expect.arrayContaining(['Settings', 'How to']));
+      expect(seen(u)).toEqual(expect.arrayContaining(['Your profile', 'How to']));
     }
   });
 
   it('shows a supervisor the rota and clock in, and nothing with money or people in it', () => {
     const shown = seen(person('supervisor', ['a']));
     expect(shown).toEqual(expect.arrayContaining(['Rota', 'Calendar', 'Clock in']));
-    for (const hidden of ['Sites', 'Forecast', 'Demand', 'Coach', 'Staff', 'HR overview', 'Cases', 'Labour cost', 'Reports', 'Programme', 'Close', 'Pay approvals', 'Set-up', 'Access', 'GDPR', 'Integrations']) {
+    for (const hidden of ['Sites', 'Forecast', 'Demand', 'Coach', 'Staff', 'HR overview', 'Cases', 'Labour cost', 'Reports', 'Programme', 'Close', 'Pay approvals', 'Set-up', 'Access', 'GDPR', 'Integrations', 'Settings']) {
       expect(shown).not.toContain(hidden);
     }
   });

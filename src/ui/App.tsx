@@ -36,6 +36,7 @@ import { PrivacyView } from './PrivacyView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
+import { ProfileView } from './ProfileView';
 import { RestBreaches } from './RestBreaches';
 import { SettingsView, type Account } from './SettingsView';
 import { SetupView } from './SetupView';
@@ -175,7 +176,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   // The bar is worked out over every site the person can see, so it keeps its shape as the scope changes.
   const allSiteIds = useMemo(() => state.sites.map((s) => s.id), [state.sites]);
   const nav = visibleNav(allow, allSiteIds);
-  const fallback = nav[0]?.items[0]?.id ?? 'settings';
+  const fallback = nav[0]?.items[0]?.id ?? 'profile';
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
   // Within the scope, the section reaches only the sites it is offered at.
@@ -344,7 +345,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
             <>
-              <span className="small">Signed in as {account.email}</span>
+              <button className="link small" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
@@ -636,6 +637,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
+              {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 

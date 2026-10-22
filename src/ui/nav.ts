@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -100,10 +100,11 @@ export const NAV: NavGroup[] = [
       { id: 'access', label: 'Access', scope: 'org', access: { scope: ['users.sites'], org: ['users.manage', 'audit.view'] } },
       { id: 'integrations', label: 'Integrations', scope: 'org', access: { org: ['settings.manage', 'payroll.view'] } },
       { id: 'privacy', label: 'GDPR', scope: 'org', access: { org: ['privacy.manage'] } },
-      // Everyone who signs in can change their own password there.
-      { id: 'settings', label: 'Settings', scope: 'org', access: 'everyone' },
+      { id: 'settings', label: 'Settings', scope: 'org', access: { org: ['settings.manage'] } },
     ],
   },
+  // Everyone who signs in keeps their own details, password and authenticator here.
+  { id: 'you', heading: 'You', items: [{ id: 'profile', label: 'Your profile', scope: 'org', title: 'You', access: 'everyone' }] },
   { id: 'help', heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help', access: 'everyone' }] },
 ];
 export const NAV_ITEMS = NAV.flatMap((g) => g.items);
