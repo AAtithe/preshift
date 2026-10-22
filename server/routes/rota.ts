@@ -7,7 +7,7 @@ import { missingForecast } from '../../src/engine/setup';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
 import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
-import { requireScope } from '../auth';
+import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
@@ -18,15 +18,19 @@ type SiteWeek = { siteId: string; weekStart: string };
 type SitesWeek = { siteId?: string; siteIds?: string[]; weekStart: string };
 type Range = { siteId?: string; from?: string; to?: string };
 
-export function serialiseMetrics(m: WeekMetrics) {
+/**
+ * Without employees:read the week carries labour totals only. Cost by person, or by shift (which
+ * names its person), would give away individual pay.
+ */
+export function serialiseMetrics(m: WeekMetrics, byPerson = true) {
   const { cost, ...rest } = m;
   return {
     ...rest,
     cost: {
       total: cost.total,
       unallocated: cost.unallocated,
-      employees: Object.fromEntries(cost.employees),
-      shifts: Object.fromEntries(cost.shifts),
+      employees: byPerson ? Object.fromEntries(cost.employees) : {},
+      shifts: byPerson ? Object.fromEntries(cost.shifts) : {},
     },
   };
 }
@@ -222,7 +226,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       weekStart: ws,
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
       // Labour cost is worked from pay rates, so it goes only to those who see them.
-      metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws)) : null,
+      metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws), hasScope(req, 'employees:read')) : null,
       issues: checkWeek(org.state, ws, siteId),
     };
   });

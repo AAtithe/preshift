@@ -20,7 +20,7 @@ const heading = (page: Page) => page.locator('.mast-title h1');
 
 /** The options of a scope picker, without its "All ..." entry. */
 async function choices(page: Page, label: 'Site' | 'Entity') {
-  const options = await page.getByLabel(label).locator('option').evaluateAll((os) =>
+  const options = await page.getByLabel(label, { exact: true }).locator('option').evaluateAll((os) =>
     (os as HTMLOptionElement[]).filter((o) => o.value).map((o) => o.textContent!.trim()),
   );
   return options;
@@ -54,7 +54,7 @@ for (const scope of ['all sites', 'one site'] as const) {
     let title = 'All sites';
     if (scope === 'one site') {
       title = (await choices(page, 'Site'))[0];
-      await page.getByLabel('Site').selectOption({ label: title });
+      await page.getByLabel('Site', { exact: true }).selectOption({ label: title });
     }
     const several = scope === 'all sites' && (await choices(page, 'Site')).length > 1;
     // From one site, Sites steps back out to every site; that has its own test below.
@@ -67,7 +67,7 @@ for (const scope of ['all sites', 'one site'] as const) {
       const choosing = several && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
       await expect(heading(page)).toHaveText(label === 'How to' ? 'Help' : ORG.includes(label) ? 'Organisation' : title);
-      await expect(page.getByLabel('Site')).toHaveCount(ORG.includes(label) ? 0 : 1);
+      await expect(page.getByLabel('Site', { exact: true })).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('button', { name: 'Clear week' })).toHaveCount(PLANNING.includes(label) && !choosing ? 1 : 0);
@@ -102,9 +102,9 @@ test('the chooser only offers the sites in the chosen entity', async ({ page }) 
 test('changing site keeps you in the section you are in', async ({ page }) => {
   const sites = await choices(page, 'Site');
   test.skip(sites.length < 2, 'Needs at least two sites');
-  await page.getByLabel('Site').selectOption({ label: sites[0] });
+  await page.getByLabel('Site', { exact: true }).selectOption({ label: sites[0] });
   await item(page, 'Absence').click();
-  await page.getByLabel('Site').selectOption({ label: sites[sites.length - 1] });
+  await page.getByLabel('Site', { exact: true }).selectOption({ label: sites[sites.length - 1] });
   await expect(item(page, 'Absence')).toHaveAttribute('aria-current', 'page');
   await expect(heading(page)).toHaveText(sites[sites.length - 1]);
 });
@@ -117,12 +117,12 @@ test('opening a site from the overview goes to its rota, and Sites steps back ou
   await expect(heading(page)).toHaveText(name);
   await item(page, 'Sites').click();
   await expect(heading(page)).toHaveText('All sites');
-  await expect(page.getByLabel('Site')).toHaveValue('');
+  await expect(page.getByLabel('Site', { exact: true })).toHaveValue('');
 });
 
 test('Back and refresh return to the same place', async ({ page }) => {
   const site = (await choices(page, 'Site'))[0];
-  await page.getByLabel('Site').selectOption({ label: site });
+  await page.getByLabel('Site', { exact: true }).selectOption({ label: site });
   await item(page, 'Holiday').click();
   await item(page, 'Payroll').click();
   await page.getByLabel('Next week').click();
