@@ -47,6 +47,19 @@ describe('rota tools', () => {
     expect(d.state.shifts.find((s) => s.id === moving.id)!.employeeId).toBe('mar-15');
   });
 
+  it('cannot move a shift a manager overrode for short rest', () => {
+    const d = draft();
+    // The assistant refuses to make this breach, so it is set up as a manager would have rostered it.
+    add(d, 'mar-8', '2026-10-22', '15:00', '23:30');
+    d.state.shifts.push({ ...d.state.shifts[0], id: 'morning', date: '2026-10-23', startMinute: 7 * 60, endMinute: 11 * 60, breakMinutes: 0 });
+    const breach = checkWeek(d.state, WEEK).find((i) => i.code === 'daily-rest')!;
+    d.state.restOverrides = [{ id: 'o1', employeeId: 'mar-8', siteId: 'mar', code: 'daily-rest', key: breach.overrideKey!, reason: 'Covering sickness', by: 'gm', at: '' }];
+    const morning = d.state.shifts.find((s) => s.date === '2026-10-23')!;
+    const out = executeRotaTool(d, 'update_shift', { shift_id: morning.id, employee_id: null, start: '06:30', end: null });
+    expect(out.isError).toBe(true);
+    expect(d.state.shifts.find((s) => s.id === morning.id)!.startMinute).toBe(7 * 60);
+  });
+
   it('handles shifts past midnight and rejects bad input without throwing', () => {
     const d = draft();
     add(d, 'mar-8', '2026-10-24', '18:00', '00:30');

@@ -371,6 +371,23 @@ export interface TimeEntry {
   approvedAt?: string;
 }
 
+/**
+ * A manager's decision to publish despite a rest breach, with their reason. It covers one breach
+ * exactly as it stood: moving either shift, or changing the days worked, makes it a new breach.
+ */
+export interface RestOverride {
+  id: string;
+  employeeId: string;
+  /** Where the short rest is worked: who may see and withdraw it follows the rota rights there. */
+  siteId: string;
+  code: 'daily-rest' | 'weekly-rest';
+  /** The breach it covers, as `Issue.overrideKey`. */
+  key: string;
+  reason: string;
+  by: string;
+  at: string;
+}
+
 /** Takings for one trading day at one site, net of VAT: what the till actually rang, not the forecast. */
 export interface DaySales {
   siteId: string;
@@ -391,4 +408,6 @@ export interface RotaState {
   demandRules: DemandRule[];
   /** Actual takings by day. Absent on organisations saved before takings were recorded. */
   sales?: DaySales[];
+  /** Recorded by the API only; never sent with shifts. */
+  restOverrides?: RestOverride[];
 }

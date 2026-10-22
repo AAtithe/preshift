@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
-import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RotaState, Shift, Site, TravelPay } from '../engine/types';
+import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
 import { weekDates } from '../engine/time';
 import type { Me } from './access/model';
 import { api } from './api';
@@ -28,7 +28,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       setMe(await api.get<Me>('/v1/me'));
-      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales] = await Promise.all([
+      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides] = await Promise.all([
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
@@ -37,8 +37,9 @@ export function useRotaStore() {
         api.get<Shift[]>('/v1/shifts'),
         api.get<RotaState['forecast']>('/v1/forecast'),
         api.get<DaySales[]>('/v1/sales'),
+        api.get<RestOverride[]>('/v1/rota/overrides'),
       ]);
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -110,6 +111,18 @@ export function useRotaStore() {
       guard(async () => {
         await api.post('/v1/rota/clear', { siteIds, weekStart });
         await refreshShifts();
+      }),
+    /** Records a manager's reason for publishing through a rest breach. */
+    overrideRest: (weekStart: string, key: string, reason: string) =>
+      guard(async () => {
+        const override = await api.post<RestOverride>('/v1/rota/overrides', { weekStart, key, reason });
+        setState((s) => s && { ...s, restOverrides: [...(s.restOverrides ?? []), override] });
+        return override;
+      }),
+    withdrawOverride: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/rota/overrides/${id}`);
+        setState((s) => s && { ...s, restOverrides: (s.restOverrides ?? []).filter((o) => o.id !== id) });
       }),
     publish: (siteIds: string[], weekStart: string) =>
       guard(async () => {
