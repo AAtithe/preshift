@@ -37,8 +37,8 @@ const ROTA_REACH_DAYS = 56;
 /**
  * What a reader receives. Pay is withheld unless they see labour cost or set pay where the person
  * works. Personal details are withheld unless they manage the team or read HR there: a supervisor
- * running a shift needs who is on and who is under 18, not a date of birth, the evidence of someone's
- * immigration status, their holiday record or the number of the card that clocks them in.
+ * running a shift needs who is on and who is under 18, not an adult's date of birth, the evidence of
+ * someone's immigration status, their holiday record or the number of the card that clocks them in.
  */
 export function forReader(g: Guard, e: Employee): Employee {
   const sites = sitesOfPerson(e);
@@ -52,8 +52,9 @@ export function forReader(g: Guard, e: Employee): Employee {
     const rtw = e.rightToWork;
     // An expiry the rota can reach stays, so a shift after it is still blocked; others say only checked or not.
     const expiry = rtw?.expiry && rtw.expiry <= addDays(g.today, ROTA_REACH_DAYS) ? rtw.expiry : undefined;
-    out.dateOfBirth = '';
     out.under18 = Boolean(e.dateOfBirth) && ageOn(e.dateOfBirth, g.today) < 18;
+    // Someone under 18 is held to limits that turn on their exact age and school leaving date.
+    if (!out.under18) out.dateOfBirth = '';
     out.personalHidden = true;
     out.rightToWork = rtw && { checked: rtw.checked, ...(expiry ? { expiry } : {}) };
     delete out.badgeId;

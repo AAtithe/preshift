@@ -3,9 +3,14 @@ import type { AccessReview, User } from '../src/engine/access';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
+import type { MoveRecord } from '../src/engine/coach';
+import type { Programme } from '../src/engine/programme';
+import type { EventFeed } from './integrations/feeds';
+import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
@@ -92,6 +97,19 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  /** Every weekly move offered to a GM, and whether it was taken. */
+  moves: MoveRecord[];
+  /** When each site's week was published, for measuring notice. */
+  publications: Publication[];
+  /** The labour programme each site is on, if any. */
+  programmes: Programme[];
+  settings: OrgSettings;
+  /** Where each site's local events come from. */
+  eventFeeds: EventFeed[];
+  /** Reminders someone has dealt with or set aside, so they stop showing. */
+  reminderStates: ReminderState[];
+  /** The London date weather and events were last fetched for this organisation by the daily run. */
+  lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
   /** Events waiting to reach, or recently sent to, those systems. */
@@ -116,6 +134,23 @@ export interface OrgData {
   epos?: EposConnection;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
+}
+
+export interface ReminderState {
+  key: string;
+  siteId: string;
+  status: 'done' | 'dismissed';
+  at: string;
+  by: string;
+  note?: string;
+}
+
+export interface OrgSettings {
+  /**
+   * Shares this organisation's site figures, anonymised, with other operators who also share, and
+   * in return sees the cohort's. Off until an admin turns it on: give to get.
+   */
+  benchmarking?: boolean;
 }
 
 export type UserRole = 'admin' | 'member';
@@ -146,6 +181,8 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
+  /** Organisations where this account is Williams, Stanley & Co.'s programme lead: signs off milestones and savings. Set only by a WS key. */
+  leadOrgs?: string[];
   /** SHA-256 of the one outstanding reset link; a new link replaces it. Never the token itself. */
   resetTokenHash?: string;
   /** Epoch seconds the reset link stops working. */
@@ -170,7 +207,10 @@ export interface UserStore {
   getUser(email: string): Promise<UserRecord | null>;
   listUsers(orgId: string): Promise<UserRecord[]>;
   hasUsers(): Promise<boolean>;
-  /** Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists. */
+  /**
+   * Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists.
+   * Demo visitors never count as anyone, here or in hasUsers, so the demo cannot block owner setup.
+   */
   createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
   updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
   deleteUser(email: string): Promise<void>;
@@ -299,8 +339,18 @@ export interface Store extends UserStore, StaffStore, ApiKeyStore, DocumentStore
   todayISO(): string;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
-  /** Removes the organisation's data for good. Used only to clear away expired demo sandboxes. */
-  deleteOrg(orgId: string): Promise<void>;
+  /** The demo sandboxes only, never a customer organisation. */
+  sandboxIds(): Promise<string[]>;
+  /**
+   * Deletes a demo sandbox for good: its data, its visitor account, staff logins, documents and API keys. Refuses
+   * anything that is not a sandbox id, in code and again in the database statement itself, so no
+   * fault in the caller can delete a customer.
+   */
+  deleteSandbox(orgId: string): Promise<void>;
+}
+
+function assertSandbox(orgId: string) {
+  if (!isSandbox(orgId)) throw new Error(`Refusing to delete ${orgId}: only demo sandboxes can be deleted`);
 }
 
 const newSecret = () => randomBytes(32).toString('hex');
@@ -329,13 +379,21 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
     // A copy each: the seed's objects are shared, and one organisation's change must not show in another's.
-    state: seeded ? structuredClone(seedState(today)) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
+    state: seeded
+      ? structuredClone(seedState(today))
+      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [], schoolHolidays: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
     outbox: [],
     processedWebhookIds: new Set(),
     audit: [],
+    moves: [],
+    publications: [],
+    programmes: [],
+    settings: {},
+    eventFeeds: [],
+    reminderStates: [],
     users: people.users,
     accessReviews: people.reviews,
     inviteTokens: {},
@@ -364,7 +422,20 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees, sales: state.sales ?? [] };
+  return {
+    ...state,
+    entities,
+    sites,
+    employees,
+    sales: state.sales ?? [],
+    actuals: state.actuals ?? [],
+    forecastAdjustments: state.forecastAdjustments ?? [],
+    weather: state.weather ?? [],
+    localEvents: state.localEvents ?? [],
+    bookings: state.bookings ?? [],
+    bookingPace: state.bookingPace ?? [],
+    schoolHolidays: state.schoolHolidays ?? [],
+  };
 }
 
 export class MemoryStore implements Store {
@@ -399,8 +470,18 @@ export class MemoryStore implements Store {
     return [...this.orgs.keys()];
   }
 
-  async deleteOrg(orgId: string) {
+  async sandboxIds() {
+    return [...this.orgs.keys()].filter(isSandbox);
+  }
+
+  async deleteSandbox(orgId: string) {
+    assertSandbox(orgId);
     this.orgs.delete(orgId);
+    for (const [email, user] of this.users) if (user.orgId === orgId) this.users.delete(email);
+    for (const [key, login] of this.staff) if (login.orgId === orgId) this.staff.delete(key);
+    for (const key of this.documents.keys()) if (key.startsWith(`${orgId}/`)) this.documents.delete(key);
+    for (let i = this.documentAccess.length - 1; i >= 0; i--) if (this.documentAccess[i].orgId === orgId) this.documentAccess.splice(i, 1);
+    for (const [hash, key] of this.apiKeys) if (key.orgId === orgId) this.apiKeys.delete(hash);
   }
 
   async sessionSecret() {
@@ -417,11 +498,11 @@ export class MemoryStore implements Store {
   }
 
   async hasUsers() {
-    return this.users.size > 0;
+    return [...this.users.values()].some((u) => !isSandbox(u.orgId));
   }
 
   async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
-    if (this.users.has(user.email) || (options.onlyIfFirst && this.users.size > 0)) return false;
+    if (this.users.has(user.email) || (options.onlyIfFirst && (await this.hasUsers()))) return false;
     this.users.set(user.email, { ...user });
     return true;
   }
@@ -699,9 +780,23 @@ export class PgStore implements Store {
     return rows.map((r) => String(r.org_id));
   }
 
-  async deleteOrg(orgId: string) {
+  async sandboxIds() {
     await this.init();
-    await this.query('delete from preshift.orgs where org_id = $1', [orgId]);
+    const rows = await this.query(`select org_id from preshift.orgs where org_id like '${SANDBOX_PREFIX}%'`, []);
+    return rows.map((r) => String(r.org_id));
+  }
+
+  async deleteSandbox(orgId: string) {
+    assertSandbox(orgId);
+    await this.init();
+    // The prefix is repeated in each statement: even a wrong id from the caller cannot reach a customer row.
+    const only = `and org_id like '${SANDBOX_PREFIX}%'`;
+    await this.query(`delete from preshift.api_keys where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.document_access where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.documents where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.staff_logins where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.users where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.orgs where org_id = $1 ${only}`, [orgId]);
   }
 
   private secretCache: string | null = null;
@@ -734,7 +829,7 @@ export class PgStore implements Store {
 
   async hasUsers() {
     await this.init();
-    return (await this.query('select 1 from preshift.users limit 1', [])).length > 0;
+    return (await this.query(`select 1 from preshift.users where org_id not like '${SANDBOX_PREFIX}%' limit 1`, [])).length > 0;
   }
 
   async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
@@ -742,7 +837,7 @@ export class PgStore implements Store {
     // One statement, so two people racing to create the first account cannot both succeed.
     const rows = await this.query(
       `insert into preshift.users (email, org_id, data)
-       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users)
+       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users where org_id not like '${SANDBOX_PREFIX}%')
        on conflict do nothing returning email`,
       [user.email, user.orgId, JSON.stringify(user), Boolean(options.onlyIfFirst)],
     );
@@ -953,6 +1048,13 @@ function deserialise(data: unknown, version: number): OrgData {
     mail: raw.mail ?? {},
     authenticators: raw.authenticators ?? {},
     processedWebhookIds: new Set(raw.processedWebhookIds),
+    // Organisations saved before coaching and the programme existed.
+    moves: raw.moves ?? [],
+    publications: raw.publications ?? [],
+    programmes: raw.programmes ?? [],
+    settings: raw.settings ?? {},
+    eventFeeds: raw.eventFeeds ?? [],
+    reminderStates: raw.reminderStates ?? [],
     version,
   };
 }

@@ -32,9 +32,12 @@ export interface RecordCheck {
   message: string;
 }
 
-/** Age for the working time rules. Without personal details only under 18 or not is known, read as 17 or 18. */
-export function ruleAge(employee: Employee, on: string): number {
-  if (employee.personalHidden) return employee.under18 ? 17 : 18;
+/**
+ * Age for the working time rules. A reader without personal details has the date of birth only for
+ * someone under 18, whose limits depend on it; for an adult, 18 is all the rules need.
+ */
+export function ruleAge(employee: Pick<Employee, 'dateOfBirth' | 'personalHidden' | 'under18'>, on: string): number {
+  if (employee.personalHidden && !employee.dateOfBirth) return employee.under18 ? 17 : 18;
   return ageOn(employee.dateOfBirth, on);
 }
 

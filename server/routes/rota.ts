@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
-import { checkEmployeeWeek, checkWeek, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
+import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
 import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { missingForecast } from '../../src/engine/setup';
@@ -116,7 +116,7 @@ function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-  return [...checkEmployeeWeek(employee, ws, context, org.state.restOverrides), ...travelIssues(employee, context, org.state.sites)];
+  return [...checkEmployeeWeek(employee, ws, context, org.state.restOverrides, undefined, complianceOptions(org.state, employee)), ...travelIssues(employee, context, org.state.sites)];
 }
 
 type OverrideBody = { weekStart: string; key: string; reason: string };
@@ -488,11 +488,22 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const overridden = issues.flatMap((i) => (i.overridden ? [i.overridden.id] : []));
     const dates = weekDates(ws);
     let published = 0;
+    const sitesPublished = new Set<string>();
     for (const s of org.state.shifts) {
       if (siteIds.includes(s.siteId) && dates.includes(s.date)) {
         s.published = true;
         published++;
+        sitesPublished.add(s.siteId);
       }
+    }
+    // Kept per site so the scorecard can measure how much notice staff were given. Only sites with shifts
+    // count, or an empty week published early would score as on time. The first and the latest are enough.
+    const publishedAt = ctx.now().toISOString();
+    for (const siteId of sitesPublished) {
+      const earlier = org.publications.filter((p) => p.siteId === siteId && p.weekStart === ws).sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+      const keep = new Set(earlier.slice(0, 1));
+      org.publications = org.publications.filter((p) => !(p.siteId === siteId && p.weekStart === ws) || keep.has(p));
+      org.publications.push({ siteId, weekStart: ws, publishedAt, by: actorName(g) });
     }
     audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
     return { published };
@@ -509,8 +520,18 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const g = guard(ctx, req, org);
     for (const siteId of new Set(req.body.rows.map((r) => r.siteId))) g.allow('demand.manage', siteId);
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
-    // Pushed figures are the real forecast: never marked as profile rows, which set-up may replace.
-    const incoming = new Map(req.body.rows.map(({ source: _source, ...r }) => [key(r), r as HourForecast]));
+    const existing = new Map(org.state.forecast.map((f) => [key(f), f]));
+    // Pushed figures are the real forecast: never marked as profile rows, which set-up may replace. A feed
+    // replaces the figures but keeps the model's underneath, so a change is still scored as an override.
+    const incoming = new Map(
+      req.body.rows.map(({ source: _source, ...r }) => {
+        const { siteId, date, hour, sales, covers } = r;
+        const prior = existing.get(key(r));
+        if (prior?.modelSales === undefined) return [key(r), { siteId, date, hour, sales, covers } as HourForecast];
+        const changed = sales !== prior.modelSales || covers !== prior.modelCovers;
+        return [key(r), { siteId, date, hour, sales, covers, modelSales: prior.modelSales, modelCovers: prior.modelCovers, ...(changed ? { overriddenBy: actorName(g) } : {}) } as HourForecast];
+      }),
+    );
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];
     audit(org, actorName(g), 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };

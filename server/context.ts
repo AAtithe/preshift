@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import type { TeamPaySimulator } from './integrations/payroll/simulator';
+import type { FeedConfig, Fetch } from './integrations/feeds';
 import type { DocumentCipher } from './documentCrypto';
 import type { OutboxDispatcher } from './outbox';
 import type { EmployerConfig } from './payrollEmployers';
@@ -14,12 +15,17 @@ export interface AppContext {
   employers: EmployerConfig;
   /** Present when no TeamPay keys are configured. */
   simulator?: TeamPaySimulator;
+  /** The simulator an organisation's payroll runs on, if any: always one for a demo sandbox. */
+  simulatorFor: (orgId: string) => TeamPaySimulator | undefined;
   /** Deliver outbox items straight after a change. Off in tests, which drive delivery explicitly. */
   autoDispatch: boolean;
   /** Encrypts stored files. Null when a database is in use and no valid key is set: files are then refused. */
   documentCipher: DocumentCipher | null;
-  /** Outbound HTTP for postcode lookups and TfL journey times. Replaced in tests. */
+  /** Outbound HTTP for postcode lookups, TfL journey times and the till. Replaced in tests. */
   fetch: typeof fetch;
+  /** Outbound HTTP for weather, event and school feeds, whose addresses people type in: public https addresses only. */
+  feedFetch: Fetch;
+  feeds: FeedConfig;
   /** Optional TfL app key; the journey planner works without one at low volume. */
   tflAppKey?: string;
   /** The clock, so tests can fix today. */
@@ -56,4 +62,8 @@ export class HttpError extends Error {
 export const notFound = (what: string) => new HttpError(404, 'not_found', `${what} not found`);
 
 // Shared with the browser, where the rota assistant needs the same idea of now.
-export { londonParts } from '../src/engine/time';
+import { londonParts } from '../src/engine/time';
+export { londonParts };
+
+/** Today's date in London. */
+export const londonToday = (ctx: AppContext) => londonParts(ctx.now()).date;

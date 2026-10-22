@@ -7,6 +7,7 @@ import { HttpError, orgOf, type AppContext } from '../context';
 import { guard } from '../guard';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { createSession, safeNext, sessionCookie } from '../session';
+import { isSandbox } from '../sandbox';
 import { audit, orgsOfAccount, type OrgData, type Store, type UserRecord } from '../store';
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { addEvent, fromWebhook, recordSent, verifyWebhook, webhookPath } from '../maillog';
@@ -109,9 +110,9 @@ async function linkTarget(store: Store, token: string) {
 export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { demo?: boolean } = {}) {
   const { store } = ctx;
   const hidden = { schema: { hide: true } };
-  const demo = options.demo ? { demo: true } : {};
 
-  app.get('/auth/status', hidden, async () => (options.demo ? { setupNeeded: false, ...demo } : { setupNeeded: !(await store.hasUsers()) }));
+  // demoAvailable lets the sign-in page offer the public demo when it is switched on.
+  app.get('/auth/status', hidden, async () => ({ setupNeeded: !(await store.hasUsers()), ...(options.demo ? { demoAvailable: true } : {}) }));
 
   // First run only: whoever opens the app first on a fresh database creates the owner account,
   // with the Owner role on record, so their access follows the same rules as everyone's.
@@ -148,7 +149,9 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const next = safeNext(req.body?.next, '/app/');
     const email = normalise(req.body?.email);
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const user = email ? await store.getUser(email) : null;
+    const found = email ? await store.getUser(email) : null;
+    // Demo visitors are signed in by starting the demo, never by password.
+    const user = found && isSandbox(found.orgId) ? null : found;
     if (user && user.lockedUntil > now()) return backToLogin(reply, { next, error: 'locked' });
 
     if (!(await verifyPassword(user, password)) || !user) {
@@ -170,6 +173,8 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const target = token ? await linkTarget(store, token) : null;
     if (!target) return backToLogin(reply, { error: 'badlink' });
     const { org, entry, user } = target;
+    // Nobody joins a demo sandbox: its people are fictional, and a real account must never mix with one.
+    if (isSandbox(org.orgId)) return backToLogin(reply, { error: 'badlink' });
     if (entry.expiresAt < store.todayISO()) return backToLogin(reply, { error: 'expired' });
     if (user.status === 'suspended') return backToLogin(reply, { error: 'suspended' });
     const existing = await store.getUser(user.email);
@@ -221,7 +226,13 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const session = await signedIn(req.headers.cookie, store);
     if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
     // What the person may do is their access record (/v1/me), not anything on the account.
-    return { email: session.user.email, orgId: session.claims.orgId, organisations: await organisationsOf(session.user, session.claims.orgId), ...demo };
+    return {
+      email: session.user.email,
+      orgId: session.claims.orgId,
+      organisations: await organisationsOf(session.user, session.claims.orgId),
+      lead: (session.user.leadOrgs ?? []).includes(session.claims.orgId),
+      ...(isSandbox(session.claims.orgId) ? { demo: true } : {}),
+    };
   });
 
   /** The organisations a person can switch to: their own list, never anyone else's. */
@@ -255,6 +266,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const session = await signedIn(req.headers.cookie, store);
     if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
     const { user, claims } = session;
+    if (isSandbox(user.orgId)) throw new HttpError(403, 'demo', 'The demo has no password to change.');
     if (!(await verifyPassword(user, req.body?.currentPassword ?? ''))) {
       throw new HttpError(400, 'wrong_password', 'Your current password is not right.');
     }
@@ -273,7 +285,8 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
   app.post<{ Body: Record<string, string> }>('/auth/forgot', hidden, async (req, reply) => {
     const started = Date.now();
     const email = normalise(req.body?.email);
-    const user = EMAIL.test(email) ? await store.getUser(email) : null;
+    const found = EMAIL.test(email) ? await store.getUser(email) : null;
+    const user = found && isSandbox(found.orgId) ? null : found;
     if (user) {
       const recent = (user.resetRequests ?? []).filter((t) => t > now() - 3600);
       const settings = parseEmailSettings(await store.getSetting(emailSetting(user.orgId)));
@@ -300,7 +313,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const expired = () => reply.code(410).send({ error: 'expired', message: 'This reset link has expired or has already been used. Ask for a new one.' });
     const tokenHash = hashToken(typeof req.body?.token === 'string' ? req.body.token : '');
     const user = await store.findUserByResetToken(tokenHash, now());
-    if (!user) return expired();
+    if (!user || isSandbox(user.orgId)) return expired();
     if (req.body?.password === undefined) return { ok: true, email: user.email };
 
     const problem = passwordProblem(req.body.password);

@@ -48,6 +48,15 @@ accrual. If any step needs an explanation, that is the next thing to fix.
 | HR | The personnel file behind every person, with everything a GM must act on in one list. Contract type, written statement issued and signed (a day one right), probation dates and outcome, fixed-term end, notice (contract against statutory: a week after a month, then a week a year to twelve), NI number, address, emergency contact and line manager. Sickness and other absence with fit notes after seven days, return to work conversations and the Bradford factor over 52 weeks; disability or pregnancy related absence is kept out of triggers. A shift on an absence day is blocked like leave, and the auto-build steers round it. A training matrix of the certificates an EHO, licensing officer or insurer asks for, required by role (food hygiene, allergens, Challenge 25, personal licence), with expiry warnings. Probation and appraisal tracking, and disciplinary, grievance and capability cases with outcomes and live warnings, visible to admins only. Headcount, turnover, average service and sick days per head across any scope, with directory, absence and training CSVs. Rota and payroll keys never see the file: they get absence dates only, without reasons. Subject access exports include the HR records; contact erasure removes address and emergency contact; anonymisation removes the NI number, sickness reasons and every HR record; the record of processing lists personnel files and health data. | `src/engine/hr.ts`, `server/routes/hr.ts`, `src/ui/HrOverview.tsx`, `src/ui/HrFile.tsx`, `src/ui/AbsenceView.tsx`, `src/ui/TrainingView.tsx`, `src/ui/ReviewsView.tsx` |
 | Shifty and the command bar | Shifty, the chat in the bottom right, answers questions about the rota, labour, the team and holiday from the app's own data. The command bar along the bottom (Ctrl K) takes one-line instructions such as "please add a new starter". Both share one agent: it looks things up, and every change (a starter, record changes, a leaver, holiday, an absence, a shift, publishing) comes back as a card the manager confirms before it is carried out through the same actions and API checks as the screens. It enforces minimum wage for age and the rota rules, never sees NI numbers, addresses or absence reasons, hands whole-rota work to the rota assistant, and counts towards the same spend limits. | `src/ai/appTools.ts`, `src/ai/appAgent.ts`, `src/ui/Shifty.tsx`, `src/ui/CommandBar.tsx`, `src/ui/proposals.tsx` |
 | Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools, for one site, a company's sites or the whole group, then takes follow-up changes to the same draft. Every shift is costed by the payroll model and checked by the compliance engine, so it cannot roster illegally, roster a leaver or someone with no right to work check, or borrow anyone who has not agreed to cover a site. It uses each home team first, then sister sites, then other companies in the group (an intercompany recharge), and leaves shifts that have started alone. From the last four weeks it spreads weekends and closes fairly, respects each person's rota notes, avoids relying on people with recent late arrivals or no-shows for solo shifts, and suggests leave to people with holiday to use before the year end. The GM sees each site's labour % before and after, the changes, cover borrowed, a note and the Claude cost, then applies the draft in one all-or-nothing save that is refused if anyone changed the week meanwhile, with the instructions kept in the audit log. Spending is capped per organisation per month and per person per day in Settings. | `src/ai/`, `src/engine/insights.ts`, `src/ui/AssistantPanel.tsx`, `server/assistantLimits.ts` |
+| Forecast model | Builds each site's forecast from its own hourly till sales: the same weekday and hour over the last eight weeks, recent weeks weighted most, a damped trend, bank holidays from past bank holidays (or the Sunday pattern), and adjustments for weather, events and closures. Overrides keep the model figure underneath. Once traded, accuracy is measured by hour, day and daypart, and each person's overrides are scored against the model. | `src/engine/forecast.ts`, `src/ui/ForecastView.tsx` |
+| Calendar, weather and events | The UK trading calendar computed for any year: Easter, Mothering Sunday, Shrove Tuesday, Valentine's, Father's Day, Halloween, Bonfire Night, Black Friday, party season, Mad Friday, Christmas to New Year, every bank holiday, and the clock changes (an hour more or less pay for overnight staff). Weather from Open-Meteo and local events from iCal feeds (stadiums, venues, councils), Ticketmaster or entered by hand, fetched every morning. Each site learns from its own history how it trades on each occasion, in warm or wet weather, and around each feed's events, and the forecast allows for it by itself with the evidence shown. Where there is no history, the GM is reminded in time to set an expectation. People's adjustments always win; automatic ones are capped in total. | `src/engine/calendar.ts`, `src/engine/weather.ts`, `src/engine/events.ts`, `src/engine/plan.ts`, `server/integrations/feeds.ts`, `src/ui/CalendarView.tsx` |
+| Bookings | Covers on the books, by site and daypart, from a booking system's CSV export (ResDiary, SevenRooms, OpenTable or similar, columns found by name) or pushed by a connector. Only date, time, covers, status and when each was made or cancelled are read: guest details are never stored, and past days are compacted into pace history (covers on the books at set lead times) within two days. Each site learns its pickup from comparable days: walk-ins and late bookings, less no-shows. Expected covers (booked now plus pickup, with the weather applied to the walk-in part) replace the model's covers for that daypart and stand in for occasion, event and weather effects there. People's adjustments still win. Reminders for large parties and for pace well ahead of or behind a normal day. | `src/engine/bookings.ts`, `src/engine/bookingImport.ts`, `server/routes/bookings.ts` |
+| School holidays | The usual England and Wales pattern for any school year (half terms, Christmas, Easter, summer), marked as an estimate, until a site has its council's dates from an iCal feed or entered by hand; each confirmed holiday replaces the estimate for that holiday. Each site learns what holidays do to each daypart, weekdays and weekends apart, and the forecast allows for it. A reminder three weeks before each holiday: parents' leave, students' hours. The council feed reader refuses anything doubtful (implausibly long gaps, clubs, early closures) and says what it left out. | `src/engine/school.ts`, `src/ui/CalendarView.tsx` |
+| Child employment | Anyone still of compulsory school age (by nation, from gov.uk) is held to the child employment rules: 12 hours a week in term time, 2 on school days and Sundays, 5 or 8 on Saturdays by age; 25 or 35 a week in the holidays; never in school hours, before 07:00 or after 19:00; an hour's break after four hours; daily limits counted across the day's shifts. Estimated holidays count as term time: the longer holiday hours apply only once the council's dates are in. Permit and bar work flagged. The auto-build, the weekly moves and the assistant all follow them. | `src/engine/compliance.ts` |
+| Weekly moves | The three changes to a site's week that save most without leaving the floor short or breaking a rule: trim an overstaffed edge, take off a shift that is over demand all through, or give a shift to someone cheaper who is trained and free. Each is priced at its true marginal cost on the person's whole week, applied in one tap, re-checked when taken, and measured against approved time once the week is worked. | `src/engine/coach.ts`, `src/ui/CoachView.tsx` |
+| Scorecard and ladder | Per site per week: notice given, legal, labour planned and actual, hours over demand, rota-to-payroll gap, forecast error, moves taken. A four-rung ladder (on time and legal, on target, daypart precision, owns the forecast), each rung held three weeks in four, with the next step in one sentence. | `src/engine/scorecard.ts` |
+| Labour programme | The twelve-week WS programme: Baseline, Control, Optimise, Embed. Milestones proved by the site's data or signed off by the WS lead, targets from the strategy, the saving against a baseline from the accounts, verified only when signed off from the management accounts, and a gain share only on a verified saving. See `docs/PROGRAMME.md`. | `src/engine/programme.ts`, `src/ui/ProgrammeView.tsx` |
+| Benchmarks | Anonymised quartiles across WS clients who opt in: labour %, sales per labour hour, hours over demand, forecast error. Nothing from fewer than ten sites or three operators, or where one operator dominates. | `src/engine/benchmark.ts`, `server/routes/insights.ts` |
 | Close | Labour accrual journals by role nominal and site tracking category, one per entity, from approved actuals once available, otherwise the rota, exported in Xero manual journal format. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
 | Multi-site | Group and entity views put every site side by side with entity subtotals and a sales-weighted group target. One press builds every site in scope: each site's own team first, then cover from people who have agreed to work other sites. Cross-site cover is reported each week. | `src/engine/metrics.ts`, `src/engine/autoschedule.ts`, `src/ui/GroupView.tsx` |
 | Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
@@ -190,7 +199,7 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (497 across 45 files)
+npm test         # engine, UI rules, assistant and API tests (532 across 48 files)
 npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 ```
@@ -200,7 +209,9 @@ To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL
 never build, clear, publish or save.
 
 Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only
-exists when the API runs without a database, and is never created on the live system.
+exists when the API runs without a database, and is never created on the live system. Locally it
+also plays the WS lead, so the labour programme can be tried end to end. The demo carries twelve
+weeks of till history, so the forecast model and accuracy work straight away.
 
 ## Evaluating the rota assistant
 
@@ -346,28 +357,50 @@ site or role that people, rotas or clocked time still use cannot be removed.
 
 ## Public demo for prospects
 
-A second deployment of the same code, with `PRESHIFT_DEMO=1`, is a live demo anyone can use without
-an account. The marketing site's "Try the live demo" button opens `/demo`, which gives the visitor
-their own private copy of the demo group and signs them in as its admin. Everything works as it
-does for a customer: build from forecast, edit shifts, compliance, people, clock in, payroll
-against the TeamPay simulator, the Close journals and the API docs.
+The live system also hosts a public demo, kept apart from every customer. With `PRESHIFT_DEMO=1`,
+the marketing site's "Try the live demo" button opens `/demo`. Pressing "Start the demo" gives the
+visitor their own private copy of the demo group (a sandbox organisation) and signs them in with
+its full access. They can use the product as a customer would: build from forecast, edit shifts,
+compliance, people, HR, clock in at the site, payroll against the TeamPay simulator, the Close
+journals, GDPR, and the access controls on a fictional team, none of whom has an account.
+Every sandbox is wiped at midnight UK time.
 
-- Isolation. Each visitor gets a sandbox organisation of their own; nobody sees anyone else's.
-  Returning to `/demo` takes them back to theirs; "Start again" gives them a fresh one.
-- Guard rails. Accounts, passwords and resets, the Claude key, email settings and owner setup
-  cannot be changed. Staff app logins work inside the sandbox. Payroll
-  always runs on the simulator, even if `TEAMPAY_*` keys are present. Sandboxes and their visitor
-  are deleted after 24 hours (on the daily cron and as new visitors arrive).
-- Rota assistant. Off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
-  sandbox. Put a monthly spend limit on that key in the Claude Console.
-- Where it runs. A separate Vercel project from the same repository, with its own Neon database
-  (`PRESHIFT_DATABASE_URL`), never the database that holds customer data. Without a database the
-  demo still works on one instance but sandboxes do not survive a cold start. Set `CRON_SECRET` for
-  the daily clean-up.
-- Linking from the live system. Set `PRESHIFT_DEMO_URL` on the live deployment (for example
-  `https://demo.preshift.co.uk/demo`) and its `/demo` sends visitors there.
+Segregation and security controls, all in `server/demo.ts` and `server/sandbox.ts`:
 
-Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
+- Identity. A sandbox is known by its id (`sandbox-...`), which only "Start the demo" creates. Its
+  visitor account has an `.invalid` address and a random password nobody knows. Password sign-in,
+  password changes and reset links all refuse sandbox accounts, demo accounts never count towards
+  first-run owner setup, and integration keys cannot name a sandbox. A sandbox is reached only by
+  its own visitor account, which works nowhere else, and no invitation into a sandbox can be
+  accepted, so demo and customer accounts never mix.
+- Routes. A visitor's session reaches only the routes marked `true` in `SANDBOX_ROUTES`. Anything
+  else is refused, including any route added later: a test fails until each new API route is
+  listed as allowed or refused, so every feature gets a deliberate decision about the demo.
+  Refused: anything that issues an invitation or reset link or touches an authenticator, settings,
+  the Claude and email keys, right to work copies (no real passport should go into a public demo),
+  postcode and TfL lookups (they run on the live system's quota), and staff app logins (their
+  emails are unique system-wide, so a visitor could otherwise find out whether an address is a
+  customer's). The guard runs before a request body is even validated.
+- Data. Each request loads only the caller's own organisation, as for every customer. Deleting
+  data is a separate store operation that refuses any id that is not a sandbox, checked in code and
+  again in the SQL. Payroll webhooks never create an organisation and answer an unknown one exactly
+  as a bad signature, so they do not reveal which organisations exist.
+- Payroll. Sandboxes always run on an in-process TeamPay simulator whose webhook secret is random
+  per instance. Customers stay on real TeamPay, and the simulator-only routes return 404 for them.
+- Capacity and cost. Opening `/demo` creates nothing; only a same-site form post does. Up to 500
+  sandboxes a day in total and 10 per visitor address (kept only as a keyed hash). The rota
+  assistant is off unless `PRESHIFT_DEMO_CLAUDE_KEY` is set, then capped at 40 Claude calls per
+  sandbox and 1,500 a day; set a monthly spend limit on that key in the Claude Console as well.
+- Midnight reset. A visitor's session ends at midnight UK time even before clean-up runs. Vercel
+  Cron calls `/internal/demo-reset` at 23:05 and 00:05 UTC (just after midnight in summer and in
+  winter), and visitors starting the demo trigger it too. It deletes each sandbox with its visitor,
+  staff logins, documents and counters. Needs `CRON_SECRET`.
+- Kill switch. Unset `PRESHIFT_DEMO` and redeploy: nothing new starts, existing visitors are
+  refused on their next request, and the reset still clears what they left.
+
+Starting the demo replaces any Preshift session in that browser, which the start page says.
+
+Locally: `npm run dev:demo`, then open http://localhost:5173/demo. The dev account still works.
 
 ## Deployment (Vercel)
 
@@ -382,6 +415,8 @@ Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 | `/api/anthropic/v1/messages` | The rota assistant's route to Claude, using the key saved in Settings |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
 | `/internal/webhooks` | Vercel Cron every 15 minutes: webhook deliveries waiting on a retry (needs `CRON_SECRET`, and a Vercel plan that allows cron jobs more often than daily) |
+| `/demo`, `/demo/start` | The public demo's start page and the form post that starts a sandbox (with `PRESHIFT_DEMO=1`) |
+| `/internal/demo-reset` | The demo's midnight reset, Vercel Cron at 23:05 and 00:05 UTC (needs `CRON_SECRET`) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when

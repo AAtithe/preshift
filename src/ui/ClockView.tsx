@@ -15,6 +15,8 @@ interface Props {
   canSetFence: boolean;
   /** Issuing cards is the team's to manage at the site. */
   canEnrolCards: boolean;
+  /** A public demo visitor: staff app logins are not available in the demo. */
+  demo?: boolean;
 }
 
 interface TapResult {
@@ -43,7 +45,7 @@ const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not 
  * name. Either way this screen is signed in as a person, so both check this device's location
  * against the site's geofence. Only a reader fixed on site under its own API key skips the check.
  */
-export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, canSetFence, canEnrolCards }: Props) {
+export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, canSetFence, canEnrolCards, demo }: Props) {
   const site = state.sites.find((s) => s.id === siteId)!;
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [geo, setGeo] = useState<GeoState>({ status: 'off' });
@@ -344,7 +346,14 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
         </div>
 
         {/* Staff logins answer to team.manage at this site, as the server checks. */}
-        <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
+        {demo ? (
+          <p className="small muted">
+            In the live product, staff can also clock in and out on their own phones once you invite them. Staff app logins are
+            switched off in the demo.
+          </p>
+        ) : (
+          <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
+        )}
         </>)}
       </details>
       )}

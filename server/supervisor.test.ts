@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { breakFor, isChildOn } from '../src/engine/compliance';
 import { reviewEmployee, ruleAge } from '../src/engine/employees';
 import type { Employee } from '../src/engine/types';
 import { kit } from './testkit';
@@ -70,8 +71,10 @@ describe('personal details on the employee list', () => {
     const list = (await k.call('GET', '/v1/employees', grace)).body as Employee[];
     expect(list.length).toBeGreaterThan(0);
     for (const e of list) {
-      expect(e).toMatchObject({ dateOfBirth: '', personalHidden: true });
+      expect(e.personalHidden).toBe(true);
       expect(typeof e.under18).toBe('boolean');
+      // Only someone under 18 keeps a date of birth: their limits turn on it.
+      if (!e.under18) expect(e.dateOfBirth).toBe('');
       expect(e.badgeId).toBeUndefined();
       expect(e.holiday).toBeUndefined();
       expect(e.rightToWork?.evidence).toBeUndefined();
@@ -116,7 +119,13 @@ describe('a record without personal details', () => {
     const list = (await k.call('GET', '/v1/employees', grace)).body as Employee[];
     const young = list.find((e) => e.id === 'mar-3')!;
     expect(young.under18).toBe(true);
-    expect(ruleAge(young, '2026-10-22')).toBeLessThan(18);
+    expect(young.dateOfBirth).toBe('2010-03-01');
+    expect(ruleAge(young, '2026-10-22')).toBe(16);
+    // An adult whose date is withheld is never read as a child: no hour-long break on a five hour shift.
+    const adult = list.find((e) => !e.under18)!;
+    expect(adult.dateOfBirth).toBe('');
+    expect(isChildOn(adult, '2026-10-22')).toBe(false);
+    expect(breakFor(adult, '2026-10-22', 5 * 60)).toBe(0);
     const codes = list.flatMap((e) => reviewEmployee(e, '2026-10-22').map((c) => c.code));
     expect(codes).not.toContain('dob');
     expect(codes).not.toContain('right-to-work-copy');

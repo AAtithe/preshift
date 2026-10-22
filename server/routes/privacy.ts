@@ -73,7 +73,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       {
         assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
         email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
-        payrollLive: !ctx.simulator,
+        payrollLive: !ctx.simulatorFor(org.orgId),
       },
       policyOf(org),
     );
@@ -143,7 +143,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         {
           assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
           email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
-          payrollLive: !ctx.simulator,
+          payrollLive: !ctx.simulatorFor(org.orgId),
         },
         policyOf(org),
       );

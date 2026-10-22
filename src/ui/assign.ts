@@ -1,7 +1,7 @@
-import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
+import { breakFor, checkEmployeeWeek, complianceOptions, type Issue } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
-import { employedShare, isEmployedOn, ruleAge } from '../engine/employees';
+import { employedShare, isEmployedOn } from '../engine/employees';
 import { addDays, weekStart } from '../engine/time';
 import { journeyBetween, travelIssues, type Journey } from '../engine/travel';
 import type { Employee, RotaState, Shift } from '../engine/types';
@@ -110,7 +110,7 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
         date: opening.date,
         startMinute: opening.startMinute,
         endMinute: opening.endMinute,
-        breakMinutes: requiredBreakMinutes(length, ruleAge(employee, opening.date)),
+        breakMinutes: breakFor(employee, opening.date, length, complianceOptions(state, employee).nation),
       };
       const week = shiftsInWeek(state.shifts, ws).filter((s) => s.employeeId === employee.id);
       const share = employedShare(employee, ws);
@@ -120,7 +120,7 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
       const travelMinutes = Math.round((after.travelHours - before.travelHours) * 60);
       const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts, sites: state.sites, entities: state.entities }, ws, opening.siteId).total;
       const siteCost = atSite([...week, shift]) - atSite(week);
-      const issues = [...checkEmployeeWeek(employee, ws, [...context, shift]), ...travelIssues(employee, [...context, shift], state.sites)].filter(
+      const issues = [...checkEmployeeWeek(employee, ws, [...context, shift], state.restOverrides, undefined, complianceOptions(state, employee)), ...travelIssues(employee, [...context, shift], state.sites)].filter(
         (i) => i.shiftId === shift.id,
       );
       const trained = employee.roleIds.includes(opening.roleId);
