@@ -48,6 +48,8 @@ interface Props {
   today: string;
   /** Names the scope in export file names. */
   scopeName: string;
+  /** Pay runs need payroll.view; without it the accuracy report is left out rather than shown empty. */
+  payrollAccess?: boolean;
   onSaveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) => Promise<unknown>;
   /** Takings changed on the server (a till sync): reload them. */
   onSalesChanged: () => void;
@@ -62,7 +64,7 @@ export function ReportsView(props: Props) {
     <div className="reports">
       <div className="close-intro">
         <div className="day-pills" role="tablist" aria-label="Report">
-          {REPORTS.map((r) => (
+          {REPORTS.filter((r) => r.id !== 'accuracy' || props.payrollAccess !== false).map((r) => (
             <button key={r.id} role="tab" aria-selected={report === r.id} className={report === r.id ? 'active' : ''} onClick={() => setReport(r.id)}>
               {r.label}
             </button>
