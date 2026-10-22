@@ -1,4 +1,4 @@
-import type { Department, RotaState, TimeEntry, TipsTaken, TroncScheme } from './types';
+import type { Department, Role, RotaState, TimeEntry, TipsTaken, TroncScheme } from './types';
 import { clockedShifts } from './actuals';
 import { employeeWeekCost, shiftPaidMinutes, shiftsInWeek } from './cost';
 import { addDays, daysBetween, parseISODate, toISODate, weekDates } from './time';
@@ -266,4 +266,34 @@ export function tipsStatement(state: RotaState, entries: TimeEntry[], employeeId
     if (share) rows.push({ weekStartDate: w, hours: share.hours, amount: share.amount });
   }
   return rows;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DEPARTMENTS: Department[] = ['FOH', 'BAR', 'BOH', 'MGMT'];
+
+/**
+ * What stops a scheme being recorded as it stands. A scheme is the written basis on which every
+ * tip at the site is shared, so it must name who decides, give points only to roles that exist,
+ * and, where the pool is split by department first, split all of it.
+ */
+export function troncSchemeProblems(scheme: TroncScheme, roles: Pick<Role, 'id' | 'name'>[], today: string): string[] {
+  const problems: string[] = [];
+  if (!scheme.troncmaster.trim()) problems.push('Name the troncmaster: the person who decides the allocation.');
+  const unknown = Object.keys(scheme.pointsPerHour).filter((id) => !roles.some((r) => r.id === id));
+  if (unknown.length) problems.push(`Points are set for roles that do not exist: ${unknown.join(', ')}.`);
+  if (Object.values(scheme.pointsPerHour).some((p) => !Number.isFinite(p) || p < 0)) problems.push('Points per hour cannot be negative.');
+  if (!roles.some((r) => (scheme.pointsPerHour[r.id] ?? 0) > 0)) problems.push('Give at least one role points, or no tip can be passed on.');
+  if (scheme.departmentShares) {
+    const shares = Object.entries(scheme.departmentShares);
+    if (shares.some(([d]) => !DEPARTMENTS.includes(d as Department))) problems.push('Department shares can only be for FOH, BAR, BOH or MGMT.');
+    if (shares.some(([, v]) => v === undefined || !Number.isFinite(v) || v < 0 || v > 1)) problems.push('Each department share is a fraction from 0 to 1.');
+    const total = shares.reduce((s, [, v]) => s + (v ?? 0), 0);
+    if (shares.length > 0 && Math.abs(total - 1) > 0.001) problems.push(`Department shares add up to ${Math.round(total * 100)}%. They must share all of the pool.`);
+  }
+  for (const [label, date] of [['policy published', scheme.policyPublishedOn], ['last reviewed', scheme.lastReviewedOn]] as const) {
+    if (date === undefined) continue;
+    if (!ISO_DATE.test(date) || toISODate(parseISODate(date)) !== date) problems.push(`The ${label} date is not a date.`);
+    else if (date > today) problems.push(`The ${label} date is in the future.`);
+  }
+  return problems;
 }

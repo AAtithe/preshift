@@ -5,6 +5,7 @@ import type { RotaState, TimeEntry, TipsTaken, TroncScheme } from '../engine/typ
 import { api } from './api';
 import { dayLabel, download, hours, money, money2 } from './format';
 import { Kpi } from './Kpi';
+import { TroncSchemeEditor } from './TroncSchemeEditor';
 import { useTimeEntries } from './useTimeEntries';
 
 interface Props {
@@ -12,6 +13,8 @@ interface Props {
   siteId: string;
   week: string;
   asOf: string;
+  /** Payroll records the scheme: payroll.send or pay.approve. */
+  canEdit: boolean;
 }
 
 const SOURCE_LABEL = { 'service-charge': 'Service charge', 'card-tip': 'Card tips', 'cash-pooled': 'Cash into the pool' };
@@ -26,11 +29,13 @@ export function TroncView(props: Props) {
   const { entries, error } = useTimeEntries(props.siteId, addDays(props.week, -7 * 11), addDays(props.week, 6));
   if (failed || error) return <p className="muted">{failed ?? error}</p>;
   if (!feed || !entries) return <p className="muted">Loading tips and clocked hours.</p>;
-  return <Tronc {...props} state={{ ...props.state, ...feed }} entries={entries} />;
+  const saved = (scheme: TroncScheme) => setFeed({ ...feed, troncSchemes: [...feed.troncSchemes.filter((s) => s.siteId !== scheme.siteId), scheme] });
+  return <Tronc {...props} state={{ ...props.state, ...feed }} entries={entries} onSaved={saved} />;
 }
 
-function Tronc({ state, siteId, week, asOf, entries }: Props & { entries: TimeEntry[] }) {
+function Tronc({ state, siteId, week, asOf, entries, canEdit, onSaved }: Props & { entries: TimeEntry[]; onSaved: (scheme: TroncScheme) => void }) {
   const scheme = state.troncSchemes?.find((s) => s.siteId === siteId);
+  const [editing, setEditing] = useState(false);
   const run = useMemo(() => troncRun(state, entries, siteId, week, asOf), [state, entries, siteId, week, asOf]);
   const issues = useMemo(() => troncCompliance(state, entries, siteId, week, asOf), [state, entries, siteId, week, asOf]);
   const employee = (id: string) => state.employees.find((e) => e.id === id);
@@ -53,7 +58,28 @@ function Tronc({ state, siteId, week, asOf, entries }: Props & { entries: TimeEn
     );
   }
 
-  if (!scheme) return <p className="muted">No tronc scheme recorded for this site yet. Tips and the scheme are read from the organisation's records; there is no screen to enter them yet.</p>;
+  const siteName = state.sites.find((s) => s.id === siteId)?.name ?? siteId;
+  const editor = (
+    <TroncSchemeEditor
+      siteId={siteId}
+      siteName={siteName}
+      roles={state.roles}
+      scheme={scheme}
+      today={asOf}
+      onSaved={(s) => { onSaved(s); setEditing(false); }}
+      onCancel={() => setEditing(false)}
+    />
+  );
+  if (!scheme) {
+    if (editing) return editor;
+    return (
+      <div className="tronc">
+        <p className="muted">No tronc scheme recorded for this site yet. {canEdit ? 'Record the one the troncmaster runs, and the allocation follows.' : 'Payroll records it here.'}</p>
+        {canEdit && <button onClick={() => setEditing(true)}>Record the scheme</button>}
+      </div>
+    );
+  }
+  if (editing) return editor;
 
   return (
     <div className="tronc">
@@ -102,7 +128,10 @@ function Tronc({ state, siteId, week, asOf, entries }: Props & { entries: TimeEn
 
       <div className="tronc-grid">
         <div className="panel">
-          <h3>Scheme</h3>
+          <div className="section-head">
+            <h3>Scheme</h3>
+            {canEdit && <button className="link" onClick={() => setEditing(true)}>Change</button>}
+          </div>
           <dl className="facts">
             <dt>Troncmaster</dt>
             <dd>{scheme.troncmaster}</dd>
@@ -136,6 +165,9 @@ function Tronc({ state, siteId, week, asOf, entries }: Props & { entries: TimeEn
               ))}
             </tbody>
           </table>
+          {scheme.updatedBy && (
+            <p className="small muted">Recorded by {scheme.updatedBy}{scheme.updatedAt ? ` on ${dayLabel(scheme.updatedAt.slice(0, 10)).date}` : ''}.</p>
+          )}
           <p className="small muted">
             The troncmaster sets points, not the business. Changing the scheme is a change to the policy: consult staff and
             republish it.

@@ -552,6 +552,9 @@ export interface TroncScheme {
   policyPublishedOn?: string;
   /** Date staff were last consulted on whether the allocation is fair. */
   lastReviewedOn?: string;
+  /** Who last recorded the scheme, and when: set by the server, never by the caller. */
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export type SalesCategory = 'food' | 'drink';

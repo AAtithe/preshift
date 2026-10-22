@@ -66,6 +66,7 @@ export const WEBHOOK_EVENTS: Record<string, string> = {
   'pay.change_approved': 'Finance approved a pay change; employee.updated follows for the new pay. data.id, data.employeeId.',
   'pay.change_rejected': 'Finance rejected a pay change. data.id, data.employeeId.',
   'pay.change_withdrawn': 'A waiting pay change was taken back. data.id, data.employeeId.',
+  'tronc.scheme_saved': "A site's tronc scheme was recorded or changed. data.siteId, data.fields (names only).",
   'time.manual_entry': 'A time entry was entered by hand. data.id is the entry.',
   'time.edited': 'A time entry was changed. data.id, data.fields.',
   'time.approved': 'Clocked time was approved for payroll. data.ids.',

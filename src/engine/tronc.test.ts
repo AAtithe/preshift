@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addDays } from './time';
-import { employeeNi, employerNi, markWeekPaid, tipsPayBy, troncCompliance, troncRun } from './tronc';
+import { employeeNi, employerNi, markWeekPaid, tipsPayBy, troncCompliance, troncRun, troncSchemeProblems } from './tronc';
 import type { Employee, RotaState, TimeEntry, TipsTaken, TroncScheme } from './types';
 
 const WEEK = '2026-10-19'; // a Monday
@@ -197,5 +197,24 @@ describe('scheme design', () => {
     });
     expect(checks(st, 'mar', WEEK, NEXT).map((i) => i.code)).toContain('tronc-department-gap');
     expect(allocate(st, 'mar', WEEK, NEXT).shares.map((s) => s.employeeId)).toEqual(['a']);
+  });
+});
+
+describe('recording a scheme', () => {
+  const roles = [{ id: 'server', name: 'Server' }, { id: 'chef', name: 'Chef' }];
+  const ok: TroncScheme = { siteId: 'mar', troncmaster: 'Elected rep', independent: true, pointsPerHour: { server: 10, chef: 0 }, serviceCharge: 'discretionary' };
+  const problems = (over: Partial<TroncScheme>) => troncSchemeProblems({ ...ok, ...over }, roles, WEEK);
+
+  it('takes a scheme that names its troncmaster and shares all of the pool', () => {
+    expect(problems({})).toEqual([]);
+    expect(problems({ departmentShares: { FOH: 0.7, BOH: 0.3 }, policyPublishedOn: WEEK })).toEqual([]);
+  });
+
+  it('refuses one that would leave tips with nowhere to go, or claims a date not yet reached', () => {
+    expect(problems({ troncmaster: '  ' })).toHaveLength(1);
+    expect(problems({ pointsPerHour: { server: 0 } })[0]).toMatch(/at least one role/);
+    expect(problems({ departmentShares: { FOH: 0.7 } })[0]).toMatch(/add up to 70%/);
+    expect(problems({ lastReviewedOn: addDays(WEEK, 1) })[0]).toMatch(/future/);
+    expect(problems({ policyPublishedOn: '2026-02-30' })[0]).toMatch(/not a date/);
   });
 });

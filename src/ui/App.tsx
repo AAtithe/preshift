@@ -626,7 +626,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {shown === 'actuals' && single && <ActualsView state={state} siteId={single.id} week={week} asOf={today} onOpenPayroll={() => setTab('payroll')} />}
-              {shown === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} />}
+              {shown === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} canEdit={allow('payroll.send') || allow('pay.approve')} />}
               {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
               {shown === 'risk' && single && <RiskView state={state} siteId={single.id} week={week} asOf={today} />}
               {shown === 'retention' && single && <RetentionView state={state} siteId={single.id} asOf={today} />}
