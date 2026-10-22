@@ -2,6 +2,7 @@ import { EposSetup } from './EposSetup';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 import { ApiKeys, Webhooks } from './DeveloperSettings';
+import type { BillingStanding } from './BillingView';
 
 /** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
 export interface Account {
@@ -12,6 +13,8 @@ export interface Account {
   organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
   /** Set for a public demo visitor, who has a sandbox of their own. */
   demo?: boolean;
+  /** Set for an organisation that signed itself up and pays by card. */
+  billing?: BillingStanding;
 }
 
 interface EmailStatus {

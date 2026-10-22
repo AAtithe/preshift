@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'welfare' | 'clients';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'welfare' | 'clients' | 'billing';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -108,6 +108,8 @@ export const NAV: NavGroup[] = [
       // Every client they hold a role in, and adding a new one. The API lists only the caller's own.
       { id: 'clients', label: 'Clients', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['costs.view'], audience: 'ws' } },
       { id: 'settings', label: 'Settings', scope: 'org', access: { org: ['settings.manage'] } },
+      // The trial, the subscription and the sites paid for. Paying is a settings decision.
+      { id: 'billing', label: 'Billing', scope: 'org', access: { org: ['settings.manage'] } },
     ],
   },
   // Everyone who signs in keeps their own details, password and authenticator here.

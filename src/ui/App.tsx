@@ -3,7 +3,7 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
-import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
+import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
@@ -18,7 +18,9 @@ import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { ForecastView } from './ForecastView';
-import { dayLabel, isoWeek } from './format';
+import { dayLabel } from './format';
+import { ScopePicker } from './ScopePicker';
+import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
 import { HowToView } from './HowToView';
@@ -36,6 +38,7 @@ import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
 import { WelfareView } from './WelfareView';
 import { ClientsView } from './ClientsView';
+import { BillingBanner, BillingView } from './BillingView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
@@ -70,7 +73,6 @@ function savedView(): RotaView {
   }
 }
 
-const MONTH = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 export function App() {
   const { state, me, error, setError, actions } = useRotaStore();
@@ -240,14 +242,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     return () => clearTimeout(t);
   }, [lastChange]);
 
-  function chooseEntity(id: string) {
-    setEntityId(id);
-    if (site && id && site.entityId !== id) setSiteId(ALL);
-    setUnfilled(null);
-  }
-
-  // Changing site keeps you in the section you are in. Only the Sites overview drops into the rota.
-  function chooseSite(id: string) {
+  // Changing scope keeps you in the section you are in. Only the Sites overview drops into a site's rota.
+  function chooseScope(entity: string, id: string) {
+    setEntityId(entity);
     setSiteId(id);
     setUnfilled(null);
     if (id && activeTab === 'sites') setTab('rota');
@@ -319,7 +316,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
       )
     : [];
   const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
-  const range = `${new Date(`${week}T00:00:00Z`).getUTCDate()} to ${new Date(`${dates[6]}T00:00:00Z`).getUTCDate()} ${MONTH(dates[6])}`;
 
   // Shifty and the command bar read what the manager is looking at, and act only through these.
   const agentDeps: ProposalDeps = {
@@ -348,6 +344,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
             <>
+              <a className="link" href="/oauth/connections" title="Claude and other apps you have let act as you, with a disconnect button">Connected apps</a>
               <button className="link small" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
@@ -362,34 +359,15 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             <div className="mast-controls">
               <DemoSwitch me={me} />
               <OrgSwitch account={account} />
-              {section.scope !== 'org' && <>
-              <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
-                <option value={ALL}>All entities</option>
-                {state.entities.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
-              <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
-                <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
-                {scopeSites.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              {section.scope === 'week' && (
-                <div className="weeknav">
-                  <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&larr;</button>
-                  <span className="tnum">{range}</span>
-                  <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rarr;</button>
-                </div>
-              )}
-              </>}
             </div>
           </div>
           <div className="mast-title">
-            <h1>{scopeName}</h1>
+            {section.scope === 'org'
+              ? <h1>{scopeName}</h1>
+              : <ScopePicker entities={state.entities} sites={state.sites} entityId={entityId} siteId={site?.id ?? ALL} onChoose={chooseScope} />}
             {section.scope === 'week' && (
               <div className="mast-meta">
-                <span className="eyebrow">Week {isoWeek(week)} · {dayLabel(week).date} to {dayLabel(dates[6]).date}</span>
+                <WeekPicker week={week} onChange={setWeek} />
                 <span className={`stamp ${status}`}>{statusLabel}</span>
               </div>
             )}
@@ -412,6 +390,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
 
         <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
+            {activeTab !== 'billing' && <BillingBanner billing={account?.billing} canSettings={allow('settings.manage')} onOpen={() => setTab('billing')} />}
             {sample && !account?.demo && activeTab !== 'setup' && (
               <div className="notice">
                 You are looking at the sample group, not your business.{' '}
@@ -579,7 +558,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
-              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
+              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={(id) => chooseScope(entityId, id)} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (
                 <PeopleView
@@ -653,6 +632,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
+              {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
