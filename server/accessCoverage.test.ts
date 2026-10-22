@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bmessenger\(|\bconversationOf\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {

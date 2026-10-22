@@ -19,6 +19,8 @@ import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { ForecastView } from './ForecastView';
 import { dayLabel } from './format';
+import { OrgPicker } from './OrgPicker';
+import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
@@ -241,14 +243,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     return () => clearTimeout(t);
   }, [lastChange]);
 
-  function chooseEntity(id: string) {
-    setEntityId(id);
-    if (site && id && site.entityId !== id) setSiteId(ALL);
-    setUnfilled(null);
-  }
-
-  // Changing site keeps you in the section you are in. Only the Sites overview drops into the rota.
-  function chooseSite(id: string) {
+  // Changing scope keeps you in the section you are in. Only the Sites overview drops into a site's rota.
+  function chooseScope(entity: string, id: string) {
+    setEntityId(entity);
     setSiteId(id);
     setUnfilled(null);
     if (id && activeTab === 'sites') setTab('rota');
@@ -343,11 +340,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         <div className="wordmark">
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
+        <OrgPicker account={account} />
         <SideNav groups={nav} active={activeTab} onOpen={openSection} />
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
             <>
+              <a className="link" href="/oauth/connections" title="Claude and other apps you have let act as you, with a disconnect button">Connected apps</a>
               <button className="link small" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
@@ -361,25 +360,12 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             <span className="eyebrow">{section.label}</span>
             <div className="mast-controls">
               <DemoSwitch me={me} />
-              <OrgSwitch account={account} />
-              {section.scope !== 'org' && <>
-              <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
-                <option value={ALL}>All entities</option>
-                {state.entities.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
-              <select value={site?.id ?? ALL} onChange={(e) => chooseSite(e.target.value)} aria-label="Site">
-                <option value={ALL}>{entityId ? 'All sites in entity' : 'All sites'}</option>
-                {scopeSites.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              </>}
             </div>
           </div>
           <div className="mast-title">
-            <h1>{scopeName}</h1>
+            {section.scope === 'org'
+              ? <h1>{scopeName}</h1>
+              : <ScopePicker entities={state.entities} sites={state.sites} entityId={entityId} siteId={site?.id ?? ALL} onChoose={chooseScope} />}
             {section.scope === 'week' && (
               <div className="mast-meta">
                 <WeekPicker week={week} onChange={setWeek} />
@@ -573,7 +559,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
-              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
+              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={(id) => chooseScope(entityId, id)} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (
                 <PeopleView
@@ -804,33 +790,6 @@ function describeChange(before: Shift | null, after: Shift, state: { employees: 
 }
 
 interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
-
-/**
- * For someone who works in more than one organisation: moves the session to another, then
- * starts the app again there, as everything on screen belongs to the one it came from.
- */
-function OrgSwitch({ account }: { account: Account | null }) {
-  const [error, setError] = useState<string | null>(null);
-  const orgs = account?.organisations ?? [];
-  if (orgs.length < 2 || actingAsDemo) return null;
-  async function choose(orgId: string) {
-    setError(null);
-    const res = await fetch('/auth/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) }).catch(() => null);
-    if (res?.ok) return location.reload();
-    setError((await res?.json().catch(() => null))?.message ?? 'Could not switch. Check your connection and try again.');
-  }
-  return (
-    <label className="demo-switch">
-      <span className="muted small">Organisation</span>
-      <select value={account!.orgId} onChange={(e) => void choose(e.target.value)} aria-label="Organisation">
-        {orgs.map((o) => (
-          <option key={o.orgId} value={o.orgId}>{o.name}</option>
-        ))}
-      </select>
-      {error && <span className="small bad-text" role="alert">{error}</span>}
-    </label>
-  );
-}
 
 /** Demo only: sign in as any seeded person to see what their roles allow. Absent outside the demo. */
 function DemoSwitch({ me }: { me: Me | null }) {
