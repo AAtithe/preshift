@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
+import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { addDays, weekDates, weekStart } from '../../src/engine/time';
 import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
@@ -261,6 +262,43 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     audit(org, actorName(g), 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };
   });
+
+  // For a site with no forecasting feed: the week worked from its own takings, day by day.
+  app.post<{ Body: SitesWeek & { replace?: boolean } }>(
+    '/v1/forecast/from-takings',
+    {
+      ...write,
+      schema: {
+        tags: ['Forecast'],
+        description:
+          "Forecasts the week from each site's past takings: the same day last year scaled by the recent trend, else the recent same weekdays. Days already forecast are left alone unless replace is true.",
+        body: { ...sitesWeekBody, properties: { ...sitesWeekBody.properties, replace: { type: 'boolean' } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const siteIds = sitesOf(org, req.body, true);
+      const g = guard(ctx, req, org);
+      for (const id of siteIds) g.allow('demand.manage', id);
+      const dates = weekDates(req.body.weekStart);
+      const forecast = (siteId: string, date: string) => org.state.forecast.some((f) => f.siteId === siteId && f.date === date && f.sales > 0);
+      const days: (DayForecast & { filled: boolean })[] = [];
+      const rows: HourForecast[] = [];
+      for (const siteId of siteIds) {
+        const worked = forecastFromTakings(org.state, siteId, dates);
+        for (const d of worked.days) {
+          // A day with nothing to work from keeps whatever it had.
+          const filled = d.basis !== 'none' && (req.body.replace === true || !forecast(siteId, d.date));
+          days.push({ ...d, filled });
+          if (filled) rows.push(...worked.rows.filter((r) => r.date === d.date));
+        }
+      }
+      const replaced = new Set(days.filter((d) => d.filled).map((d) => `${d.siteId}|${d.date}`));
+      org.state.forecast = [...org.state.forecast.filter((f) => !replaced.has(`${f.siteId}|${f.date}`)), ...rows];
+      audit(org, actorName(g), 'forecast.from_takings', { siteIds, weekStart: req.body.weekStart, days: replaced.size, replace: req.body.replace === true });
+      return { filled: replaced.size, days };
+    },
+  );
 
   app.get<{ Querystring: Range }>('/v1/sales', { ...read, schema: { tags: ['Sales'], querystring: rangeQuery, description: 'Actual takings by site and day, net of VAT.' } }, async (req) =>
     // Takings by site go with the rota: whoever sees a site's rota sees its takings, as they see its forecast.

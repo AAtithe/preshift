@@ -1,12 +1,23 @@
 import { useState } from 'react';
 import { dayDemand, forecastSalesForDay, type HourDemand } from '../engine/demand';
+import type { DayForecast } from '../engine/forecasting';
 import type { RotaState } from '../engine/types';
 import { dayLabel, money } from './format';
 import { columnPath, DEPT_COLOR, niceMax, Tip } from './viz';
 
 const hh = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
 
-export function DemandView({ state, siteId, dates }: { state: RotaState; siteId: string; dates: string[] }) {
+type Worked = { filled: number; days: (DayForecast & { filled: boolean })[] };
+
+interface Props {
+  state: RotaState;
+  siteId: string;
+  dates: string[];
+  /** Offered to whoever manages demand at the site: works the week out of past takings. */
+  onForecast?: (replace: boolean) => Promise<Worked | undefined>;
+}
+
+export function DemandView({ state, siteId, dates, onForecast }: Props) {
   const [date, setDate] = useState(dates[4]);
   const day = dates.includes(date) ? date : dates[0];
   const rules = state.demandRules.filter((r) => r.siteId === siteId);
@@ -36,6 +47,8 @@ export function DemandView({ state, siteId, dates }: { state: RotaState; siteId:
           <span><i className="ln" />Needed</span>
         </div>
       </div>
+
+      <FromTakings state={state} siteId={siteId} dates={dates} onForecast={onForecast} />
 
       <SalesChart hours={sales} date={day} />
 
@@ -69,6 +82,67 @@ export function DemandView({ state, siteId, dates }: { state: RotaState; siteId:
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/** The week's forecast worked from the site's own takings, and what each day was worked from. */
+function FromTakings({ state, siteId, dates, onForecast }: Props) {
+  const [worked, setWorked] = useState<Worked | null>(null);
+  const [busy, setBusy] = useState(false);
+  const empty = dates.filter((d) => forecastSalesForDay(state, siteId, d) === 0);
+  const week = dates[0];
+  // A result belongs to the week it was worked for.
+  const shown = worked && worked.days[0]?.date === week ? worked : null;
+
+  async function run(replace: boolean) {
+    if (!onForecast) return;
+    if (replace && !window.confirm("Replace this week's forecast with one worked from past takings?")) return;
+    setBusy(true);
+    const res = await onForecast(replace);
+    setBusy(false);
+    if (res) setWorked(res);
+  }
+
+  if (!onForecast && empty.length === 0) return null;
+  return (
+    <div className="panel from-takings">
+      <div className="panel-body">
+        {empty.length > 0 ? (
+          <p>
+            {empty.length === dates.length ? 'No sales forecast for this week.' : `${empty.length} ${empty.length === 1 ? 'day has' : 'days have'} no sales forecast.`}{' '}
+            {onForecast
+              ? 'Work it out from past takings: the same day last year, scaled by how the last four weeks compare with a year earlier, or where there is no year of history, the recent same weekdays.'
+              : 'Whoever manages demand at this site can work one out from past takings.'}
+          </p>
+        ) : (
+          !shown && <p className="muted small">This week is forecast. Reworking it from past takings replaces every day that has takings to work from.</p>
+        )}
+        {onForecast && (
+          <div className="from-takings-actions">
+            {empty.length > 0 ? (
+              <button className="primary" disabled={busy} onClick={() => void run(false)}>
+                {empty.length === dates.length ? 'Forecast from past takings' : 'Fill from past takings'}
+              </button>
+            ) : (
+              <button className="ghost" disabled={busy} onClick={() => void run(true)}>Rework from past takings</button>
+            )}
+          </div>
+        )}
+        {shown && (
+          <table className="from-takings-days">
+            <tbody>
+              {shown.days.map((d) => (
+                <tr key={d.date} className={d.basis === 'none' ? 'muted' : ''}>
+                  <th scope="row">{dayLabel(d.date).short}</th>
+                  <td className="tnum">{d.basis === 'none' ? 'No forecast' : money(d.sales)}</td>
+                  <td>{d.filled || d.basis === 'none' ? d.note : 'Already forecast: left as it was.'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

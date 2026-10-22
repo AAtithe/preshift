@@ -16,13 +16,15 @@ interface Props {
   showCost: boolean;
   /** Why publishing is not offered, when it is for want of the right rather than the rota. */
   publishRefused?: string;
+  /** Offered to whoever manages demand at every site in view, when the week has no forecast. */
+  onForecast?: () => void;
 }
 
 /**
  * The rota read as a management P&L: forecast sales, the four parts of loaded labour, the
  * contribution left after labour, and the verdict against target. Sits beside every screen.
  */
-export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish, showCost, publishRefused }: Props) {
+export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish, showCost, publishRefused, onForecast }: Props) {
   // Site-scoped parts: anyone borrowed brings only the share of their week worked here.
   const { gross, holiday, employerNi: ni, pension } = metrics.cost.parts;
   // Tie the statement to the labour cost the rest of the page and the journal use.
@@ -61,6 +63,7 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
           There is no sales forecast for this week, so labour % and the budget cannot be judged. Target {pct(metrics.targetPct, 0)}.
           {!empty && ` Labour rostered so far: ${money(metrics.labourCost)}.`}
         </p>
+        {onForecast && <button className="primary" onClick={onForecast}>Forecast from past takings</button>}
       </div>
       ) : (
       <div className="rail-section">

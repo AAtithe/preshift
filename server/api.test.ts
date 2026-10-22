@@ -298,4 +298,27 @@ describe('takings', () => {
     expect((await call('PUT', '/v1/sales', { rows: [] }, 'other')).status).toBe(200);
     expect((await call('GET', '/v1/sales', undefined, 'other')).body).toEqual([]);
   });
+
+  it('forecasts a week with no forecast from past takings, and leaves forecast days alone', async () => {
+    const { call } = await setup();
+    // The demo forecasts up to 2026-11-08; the week after has none.
+    expect((await call('GET', '/v1/forecast?siteId=mar&from=2026-11-09&to=2026-11-15')).body).toEqual([]);
+    const made = await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-09' });
+    expect(made.status).toBe(200);
+    const days = made.body.days as { date: string; sales: number; basis: string; filled: boolean; from: string[] }[];
+    expect(days).toHaveLength(7);
+    const monday = days.find((d) => d.date === '2026-11-09')!;
+    expect(monday).toMatchObject({ basis: 'recent', filled: true });
+    expect(monday.from.every((d) => d < '2026-10-22')).toBe(true);
+    expect(made.body.filled).toBe(days.filter((d) => d.filled).length);
+    const rows = (await call('GET', '/v1/forecast?siteId=mar&from=2026-11-09&to=2026-11-09')).body as { sales: number }[];
+    expect(rows.reduce((a, r) => a + r.sales, 0)).toBe(monday.sales);
+
+    // A week already forecast is not overwritten unless asked.
+    const before = (await call('GET', '/v1/forecast?siteId=mar&from=2026-11-02&to=2026-11-08')).body;
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-02' })).body.filled).toBe(0);
+    expect((await call('GET', '/v1/forecast?siteId=mar&from=2026-11-02&to=2026-11-08')).body).toEqual(before);
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-02', replace: true })).body.filled).toBeGreaterThan(0);
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'nowhere', weekStart: '2026-11-09' })).status).toBe(404);
+  });
 });

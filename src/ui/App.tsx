@@ -95,6 +95,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const [preview, setPreview] = useState<Shift | null>(null);
   const [lastChange, setLastChange] = useState<{ before: Shift | null; after: Shift } | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [opening, setOpening] = useState<Opening | null>(null);
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
   const today = toISODate(new Date());
@@ -180,6 +181,12 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   }, [refusal]);
 
   useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  useEffect(() => {
     if (!lastChange) return;
     const t = setTimeout(() => setLastChange(null), 8000);
     return () => clearTimeout(t);
@@ -211,6 +218,13 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
     } catch {
       // Not remembered in private mode; the choice still applies now.
     }
+  }
+
+  async function forecastWeek() {
+    const res = await actions.forecastFromTakings(siteIds, week);
+    if (!res) return;
+    const none = res.days.filter((d) => d.basis === 'none').length;
+    setNotice(`Forecast ${res.filled} ${res.filled === 1 ? 'day' : 'days'} from past takings.${none ? ` ${none} had no takings to work from.` : ''}`);
   }
 
   async function runAutoBuild() {
@@ -479,7 +493,14 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                   canEnrolCards={allow('team.manage', single.id)}
                 />
               )}
-              {activeTab === 'demand' && single && <DemandView state={state} siteId={single.id} dates={dates} />}
+              {activeTab === 'demand' && single && (
+                <DemandView
+                  state={state}
+                  siteId={single.id}
+                  dates={dates}
+                  onForecast={allow('demand.manage', single.id) ? (replace) => actions.forecastFromTakings([single.id], week, replace) : undefined}
+                />
+              )}
               {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {activeTab === 'people' && single && (
                 <PeopleView
@@ -543,6 +564,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
             blocks={blocks}
             onPublish={() => void actions.publish(siteIds, week)}
             showCost={showCost}
+            onForecast={siteIds.length > 0 && siteIds.every((id) => allow('demand.manage', id)) ? () => void forecastWeek() : undefined}
           />}
         </div>
       </div>
@@ -551,6 +573,13 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
         <div className="toast refused" role="alert">
           <span>{refusal}</span>
           <button className="ghost" onClick={() => setRefusal(null)}>Close</button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="toast" role="status">
+          <span>{notice}</span>
+          <button className="ghost" onClick={() => setNotice(null)}>Close</button>
         </div>
       )}
 
