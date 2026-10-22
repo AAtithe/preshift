@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import type { Site, SiteTravel } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
-import { geocodePostcode, refreshTravel } from '../integrations/travel/journeys';
+import { geocodePostcode, refreshTravel, travelIsStale, type Fetch } from '../integrations/travel/journeys';
 import { actorName, guard } from '../guard';
 import { idParam } from '../schemas';
-import { audit, type OrgData } from '../store';
+import { audit, type OrgData, type Store } from '../store';
 import { replaceSite } from './clocking';
 
 const locationBody = {
@@ -23,6 +23,28 @@ const pairParams = {
   required: ['id', 'toId'],
   properties: { id: { type: 'string', minLength: 1 }, toId: { type: 'string', minLength: 1 } },
 } as const;
+
+/**
+ * The daily check: plans again any organisation's journeys that are missing or out of date, so the
+ * travel check and its cost do not drift as routes change. Times set by hand are kept.
+ */
+export async function refreshStaleTravel(store: Store, fetchImpl: Fetch, appKey?: string, today = londonParts(new Date()).date) {
+  let refreshed = 0;
+  for (const orgId of await store.orgIds()) {
+    const org = await store.load(orgId);
+    if (!travelIsStale(org.state.sites, today)) continue;
+    const result = await refreshTravel(org.state.sites, fetchImpl, today, appKey);
+    org.state.sites = result.sites;
+    audit(org, 'Daily journey check', 'site.travel_refreshed', { fromTfl: result.fromTfl, estimated: result.estimated, scheduled: true });
+    try {
+      await store.save(org);
+      refreshed++;
+    } catch {
+      // Someone changed this organisation meanwhile; tomorrow's check picks it up.
+    }
+  }
+  return refreshed;
+}
 
 /** Drops journeys to and from a site that were looked up or estimated, because it has moved. */
 function forgetLookedUp(org: OrgData, siteId: string) {

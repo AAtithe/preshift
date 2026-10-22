@@ -226,7 +226,7 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     // Checked without overrides: a manager's reason covers a breach they chose, never one the build makes.
-    const check = (shifts: Shift[]) => [...checkEmployeeWeek(e, ws, shifts), ...travelIssues(e, shifts, state.sites)];
+    const check = (shifts: Shift[]) => [...checkEmployeeWeek(e, ws, shifts, undefined, undefined, state.sites), ...travelIssues(e, shifts, state.sites)];
     // Short rest is flagged on the later shift, so a new shift placed before an existing one shows up
     // against the existing one: anything new on their other shifts rules them out too.
     const key = (i: Issue) => `${i.code}|${i.shiftId}`;

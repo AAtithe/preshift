@@ -94,7 +94,7 @@ function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-  return [...checkEmployeeWeek(employee, ws, context, org.state.restOverrides), ...travelIssues(employee, context, org.state.sites)];
+  return [...checkEmployeeWeek(employee, ws, context, org.state.restOverrides, undefined, org.state.sites), ...travelIssues(employee, context, org.state.sites)];
 }
 
 type OverrideBody = { weekStart: string; key: string; reason: string };

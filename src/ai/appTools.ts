@@ -558,7 +558,7 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         };
         const ws = weekStart(day);
         const context = ctx.state.shifts.filter((x) => x.date >= addDays(ws, -1) && x.date <= addDays(ws, 7));
-        const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter((i) => i.shiftId === shift.id || !i.shiftId);
+        const issues = checkEmployeeWeek(e, ws, [...context, shift], undefined, undefined, ctx.state.sites).filter((i) => i.shiftId === shift.id || !i.shiftId);
         const blocks = issues.filter((i) => i.severity === 'block');
         if (blocks.length) throw new InputError(`Not allowed: ${blocks.map((i) => i.message).join(' ')}`);
         const proposal: Proposal = {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
-import { nextWeekday } from './integrations/travel/journeys';
+import { nextWeekday, travelIsStale } from './integrations/travel/journeys';
+import { refreshStaleTravel } from './routes/travel';
 import { MemoryStore } from './store';
 
 const KEYS = [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] }];
@@ -102,9 +103,51 @@ describe('travel between sites', () => {
     const fixed = await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'fixed', hourly: 13.456 } });
     expect(fixed.body.travelPay).toEqual({ basis: 'fixed', hourly: 13.46 });
     expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'fixed' } })).status).toBe(400);
+    const averaging = await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'fixed', hourly: 6, averaging: true } });
+    expect(averaging.body.travelPay).toEqual({ basis: 'fixed', hourly: 6, averaging: true });
     expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'weekly' } })).status).toBe(400);
     expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'minimum' } })).body.travelPay).toEqual({ basis: 'minimum' });
-    // Normal is the default, so choosing it clears the policy.
-    expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'normal' } })).body.travelPay).toBeUndefined();
+    // Choosing the normal rate is kept as a choice, so set-up stops asking.
+    expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'normal' } })).body.travelPay).toEqual({ basis: 'normal' });
+  });
+});
+
+describe('daily journey check', () => {
+  const loc = { lat: 51.52, lng: -0.15 };
+  const site = (id: string, travel?: Record<string, { minutes: number; source: 'tfl' | 'estimate' | 'manual'; checkedAt: string }>) =>
+    ({ id, name: id, entityId: 'e', location: loc, travel }) as never;
+
+  it('plans again TfL times after a month and estimates after a day, never times set by hand', () => {
+    const today = '2026-10-21';
+    const pair = (source: 'tfl' | 'estimate' | 'manual', checkedAt: string) => [
+      site('a', { b: { minutes: 20, source, checkedAt } }),
+      site('b', { a: { minutes: 20, source, checkedAt } }),
+    ];
+    expect(travelIsStale(pair('tfl', '2026-10-01'), today)).toBe(false);
+    expect(travelIsStale(pair('tfl', '2026-09-20'), today)).toBe(true);
+    expect(travelIsStale(pair('estimate', '2026-10-20'), today)).toBe(true);
+    expect(travelIsStale(pair('manual', '2020-01-01'), today)).toBe(false);
+    expect(travelIsStale([site('a'), site('b', { a: { minutes: 20, source: 'tfl', checkedAt: today } })], today)).toBe(true);
+    // One located site has nothing to travel to.
+    expect(travelIsStale([site('a')], today)).toBe(false);
+  });
+
+  it('refreshes out of date organisations from TfL, keeps hand-set times, and leaves fresh ones alone', async () => {
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const org = await store.load('demo');
+    const [first, second] = org.state.sites;
+    org.state.sites = org.state.sites.map((x) => (x.id === first.id ? { ...x, travel: { [second.id]: { minutes: 33, source: 'manual' as const, checkedAt: '2026-01-01' } } } : x));
+    const stub = stubFetch();
+
+    expect(await refreshStaleTravel(store, stub.impl, undefined, '2026-10-21')).toBe(1);
+    const after = await store.load('demo');
+    const from = after.state.sites.find((x) => x.id === first.id)!;
+    expect(from.travel![second.id]).toMatchObject({ minutes: 33, source: 'manual' });
+    expect(Object.values(from.travel!).some((t) => t.source === 'tfl')).toBe(true);
+    expect(after.audit?.some((a) => a.action === 'site.travel_refreshed')).toBe(true);
+
+    const calls = stub.calls.length;
+    expect(await refreshStaleTravel(store, stub.impl, undefined, '2026-10-22')).toBe(0);
+    expect(stub.calls.length).toBe(calls);
   });
 });

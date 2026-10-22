@@ -24,7 +24,7 @@ import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
-import { travelRoutes } from './routes/travel';
+import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
@@ -191,6 +191,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     await ctx.dispatcher.processDue();
     await deliverAllWebhooks(store, options.webhookFetch);
     if (demo) await sweepSandboxes(store);
+    // Journey times drift as routes change; sandboxes are short-lived and keep their seeded times.
+    else await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey);
     return { ok: true };
   });
 

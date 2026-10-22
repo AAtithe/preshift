@@ -104,6 +104,14 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
               <td className="tnum">{ledger(-Math.round(metrics.cost.travel.cost))}</td>
             </tr>
           )}
+          {metrics.cost.travel.unpriced > 0 && (
+            <tr className="memo warn-memo">
+              <th colSpan={2}>
+                {metrics.cost.travel.unpriced} move{metrics.cost.travel.unpriced === 1 ? '' : 's'} between sites not costed: a site has no
+                postcode, so the journey is unknown. Set it on the Sites overview.
+              </th>
+            </tr>
+          )}
           <tr>
             <th>Holiday accrual</th>
             <td className="tnum">{ledger(-rHoliday)}</td>

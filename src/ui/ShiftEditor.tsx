@@ -49,7 +49,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
           pension: Math.max(0, withShift.pension - without.pension),
         },
       },
-      issues: [...checkEmployeeWeek(employee, ws, [...context, draft], state.restOverrides), ...travelIssues(employee, [...context, draft], state.sites)].filter(
+      issues: [...checkEmployeeWeek(employee, ws, [...context, draft], state.restOverrides, undefined, state.sites), ...travelIssues(employee, [...context, draft], state.sites)].filter(
         (i) => i.shiftId === draft.id || !i.shiftId,
       ),
     };
