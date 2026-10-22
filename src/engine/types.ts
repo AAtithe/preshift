@@ -193,6 +193,8 @@ export interface Employee {
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
+  /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
+  payHidden?: boolean;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */

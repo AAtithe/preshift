@@ -5,6 +5,7 @@ import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { randomBytes } from 'node:crypto';
 import { MemoryStore, PgStore, type Query, type Store } from './store';
 import { sniffType } from './routes/documents';
+import { codeAt, stepAt } from './totp';
 
 const KEYS = [
   { key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] },
@@ -47,7 +48,13 @@ async function setup(store: Store = new MemoryStore(['demo'], '2026-10-21'), env
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       payload: new URLSearchParams({ email: 'owner@ws.example', password, confirm: password, next: '/app/' }).toString(),
     });
-    return String(owner.headers['set-cookie']).split(';')[0];
+    const first = String(owner.headers['set-cookie']).split(';')[0];
+    // Deleting copies and reading who viewed them need privacy.manage, which needs the authenticator.
+    const post = (url: string, body?: unknown) =>
+      app.inject({ method: 'POST', url, headers: { cookie: first, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+    const secret = (await post('/v1/me/authenticator/start')).json().secret as string;
+    const confirmed = await post('/v1/me/authenticator/confirm', { code: codeAt(secret, stepAt(Date.now())) });
+    return String(confirmed.headers['set-cookie']).split(';')[0];
   };
   return { app, store, upload, call, signInAdmin };
 }
