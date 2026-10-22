@@ -44,7 +44,10 @@ async function boot(store: Store = new MemoryStore(['demo'], '2026-10-21')) {
   async function invite(person: string) {
     const res = await manager('POST', `/v1/staff-logins/${person}/invite`);
     expect(res.status).toBe(201);
-    return Object.fromEntries(new URL(res.body.path, 'https://x').searchParams) as { org: string; person: string; invite: string };
+    // The details ride after #, never in the address a server sees.
+    const url = new URL(res.body.path, 'https://x');
+    expect(url.search).toBe('');
+    return Object.fromEntries(new URLSearchParams(url.hash.slice(1))) as { org: string; person: string; invite: string };
   }
   async function join(person: string, email: string) {
     return call('POST', '/v1/staff/join', { ...(await invite(person)), email, password: PASSWORD });
@@ -56,7 +59,9 @@ describe('staff logins', () => {
   it('invite, set up, clock in and out on the phone inside the site fence', async () => {
     const t = await boot();
     const link = await t.invite('mar-1');
-    expect((await t.call('GET', `/v1/staff/invite?${new URLSearchParams(link)}`)).body.name).toBeTruthy();
+    expect((await t.call('POST', '/v1/staff/invite', link)).body.name).toBeTruthy();
+    // Asking with the token in the address is not offered at all.
+    expect((await t.call('GET', `/v1/staff/invite?${new URLSearchParams(link)}`)).status).toBe(404);
 
     const joined = await t.call('POST', '/v1/staff/join', { ...link, email: 'Priya@Example.com', password: PASSWORD });
     expect(joined.status).toBe(200);

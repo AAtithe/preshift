@@ -97,11 +97,22 @@ export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
 
 /**
  * Disciplinary, grievance and capability cases are confidential: hr.cases, which needs the
- * authenticator. Others see that a case exists only through the checks, never its notes. Nobody
- * sees or handles a case about themselves, whatever they hold: someone else runs it.
+ * authenticator. Without it nobody learns that a case exists, from the records or the checks.
+ * Nobody sees or handles a case about themselves, whatever they hold: someone else runs it.
  */
 function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
   return hrScoped(req) && g.can('hr.cases') && (!employeeId || g.user?.employeeId !== employeeId);
+}
+
+/**
+ * The records the caller may see: those on files they read, and a case only where they handle
+ * cases and it is not about them. Everything built from records (the list, the overview's checks)
+ * goes through here, so a check never repeats what the record itself would not show: not that a
+ * case exists, not its type, title or outcome, and never to the person it is about.
+ */
+function visibleRecords(req: FastifyRequest, g: Guard, org: OrgData): HrRecord[] {
+  const readable = new Set(org.state.employees.filter((e) => readsHr(req, g, e)).map((e) => e.id));
+  return org.hrRecords.filter((r) => readable.has(r.employeeId) && (r.kind !== 'case' || seesCases(req, g, r.employeeId)));
 }
 
 /**
@@ -180,11 +191,12 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guardOf(req);
       const today = new Date().toISOString().slice(0, 10);
       const people = org.state.employees.filter((e) => (!req.query.siteId || e.siteId === req.query.siteId) && readsHr(req, g, e));
+      const records = visibleRecords(req, g, org);
       return {
         summary: hrSummary(people, today),
         checks: people
           .filter((e) => employeeStatus(e, today) !== 'left')
-          .map((e) => ({ employeeId: e.id, checks: hrChecks(e, org.hrRecords, org.state.roles, today) }))
+          .map((e) => ({ employeeId: e.id, checks: hrChecks(e, records, org.state.roles, today) }))
           .filter((x) => x.checks.length > 0),
       };
     },
@@ -206,14 +218,8 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       const g = guardOf(req);
-      const cases = seesCases(req, g);
-      const readable = new Set(org.state.employees.filter((e) => readsHr(req, g, e)).map((e) => e.id));
-      return org.hrRecords.filter(
-        (r) =>
-          readable.has(r.employeeId) &&
-          (!req.query.employeeId || r.employeeId === req.query.employeeId) &&
-          (!req.query.kind || r.kind === req.query.kind) &&
-          (r.kind !== 'case' || (cases && r.employeeId !== g.user?.employeeId)),
+      return visibleRecords(req, g, org).filter(
+        (r) => (!req.query.employeeId || r.employeeId === req.query.employeeId) && (!req.query.kind || r.kind === req.query.kind),
       );
     },
   );
