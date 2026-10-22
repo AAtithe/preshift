@@ -179,6 +179,10 @@ select:focus, input:focus { outline: none; border-color: var(--ink); box-shadow:
 /* Shell: working area beside the P&L */
 .shell { max-width: 1600px; margin: 0 auto; padding: 20px 28px 40px; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
 .main { min-width: 0; }
+.site-chooser { padding: 20px; max-width: 760px; }
+.site-chooser h2 { margin: 0 0 4px; font-size: 18px; }
+.site-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 14px; }
+.site-choices button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; text-align: left; }
 
 /* Rota P&L rail */
 .rail { position: sticky; top: 16px; background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--ink); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
@@ -950,6 +954,8 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .button-like { display: inline-block; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
 .button-like:hover { background: var(--surface-2); }
 .table tr.clickable { cursor: pointer; }
+.statement tr.memo th, .statement tr.memo td { padding-top: 0; font-size: 11px; color: var(--muted); font-style: italic; }
+.statement tr.memo th { padding-left: 28px; }
 .table tr.clickable:hover td { background: var(--surface-2); }
 .table tr.detail > td { background: var(--surface-2); padding: 4px 8px 10px 24px; }
 .table.compact td { padding: 4px 8px; border-bottom: none; }

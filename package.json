@@ -13,7 +13,8 @@
     "dev:demo": "PRESHIFT_DEMO=1 node scripts/dev.mjs",
     "dev:web": "vite",
     "start": "tsx server/index.ts",
-    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs"
+    "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.2.12",
+    "@playwright/test": "^1.56.1",
     "@types/node": "^22.9.0",
     "@types/qrcode": "1.5.5",
     "@types/react": "^18.3.12",

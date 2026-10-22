@@ -1,5 +1,6 @@
-import type { Employee, RotaState, Shift, TimeEntry } from './types';
+import type { Employee, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours } from './cost';
+import { travelMinutesInto } from './travel';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -31,6 +32,8 @@ export interface PayrollHoursLine {
   siteId: string;
   roleId: string;
   hours: number;
+  /** Of which paid travel to this site from another site the same day. Absent on older batches. */
+  travelHours?: number;
   rate: number;
   /** Entries that make up this line, for audit back to the clock. */
   entryIds: string[];
@@ -55,8 +58,12 @@ export function payrollHours(
   entries: TimeEntry[],
   periodStart: string,
   periodEnd: string,
+  /** Sites, so travel between them within a day is paid; without them it is not added. */
+  sites: Site[] = [],
 ): PayrollHoursBatch {
   const byId = new Map(employees.map((e) => [e.id, e]));
+  // Travel is working time: it is paid on the line for the site and role travelled to.
+  const travel = travelMinutesInto(entriesAsShifts(entries.filter((e) => e.date >= periodStart && e.date <= periodEnd)), sites);
   const lines = new Map<string, PayrollHoursLine>();
   const salariedEntryIds: string[] = [];
 
@@ -75,14 +82,17 @@ export function payrollHours(
       siteId: entry.siteId,
       roleId: entry.roleId,
       hours: 0,
+      travelHours: 0,
       rate: employee.hourlyRate,
       entryIds: [],
     };
-    line.hours += entryPaidHours(entry);
+    const travelled = (travel.get(`te:${entry.id}`) ?? 0) / 60;
+    line.hours += entryPaidHours(entry) + travelled;
+    line.travelHours = (line.travelHours ?? 0) + travelled;
     line.entryIds.push(entry.id);
     lines.set(key, line);
   }
-  const out = [...lines.values()].map((l) => ({ ...l, hours: round2(l.hours) }));
+  const out = [...lines.values()].map((l) => ({ ...l, hours: round2(l.hours), travelHours: round2(l.travelHours ?? 0) }));
   return {
     periodStart,
     periodEnd,

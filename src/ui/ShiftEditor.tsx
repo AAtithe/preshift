@@ -34,11 +34,12 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);
     const share = employedShare(employee, ws);
-    const without = employeeWeekCost(employee, week, undefined, share);
-    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share);
+    const without = employeeWeekCost(employee, week, undefined, share, state.sites);
+    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share, state.sites);
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
       marginal: {
+        travelHours: withShift.travelHours - without.travelHours,
         total: withShift.total - without.total,
         ni: withShift.employerNi - without.employerNi,
         parts: {
@@ -144,6 +145,8 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
               : marginal.total === 0
                 ? 'Covered by guaranteed hours you already pay for.'
                 : `Includes ${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
+            {marginal.travelHours > 0.005 &&
+              ` It also pays ${Math.round(marginal.travelHours * 60)} minutes of travel from another site that day, which is working time.`}
           </div>
         </div>}
 

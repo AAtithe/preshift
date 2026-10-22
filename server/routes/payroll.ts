@@ -139,6 +139,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
             inScope.filter((t) => employerOf.get(t.employeeId) === entity.id),
             periodStart,
             periodEnd,
+            org.state.sites,
           ),
         }))
         .filter((b) => b.batch.lines.length > 0);

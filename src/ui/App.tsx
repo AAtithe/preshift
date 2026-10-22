@@ -33,7 +33,8 @@ import { PrivacyView } from './PrivacyView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Account } from './SettingsView';
-import { allowFor, NOT_YOURS, type Allow } from './permissions';
+import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
+import { allowFor, NOT_YOURS } from './permissions';
 import { ShiftEditor } from './ShiftEditor';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -42,73 +43,6 @@ import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
-
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
-
-/** Holds the permission at every site in scope: what an action over the scope needs. */
-type AtAll = Allow;
-type Offered = (atAll: AtAll, allow: Allow) => boolean;
-
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
-// Site-only sections stay visible across a group so the map never changes; they ask for one site.
-// An item is shown only to someone who can use it across the scope; the screen still asks the server.
-type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; offered?: Offered };
-const NAV: { heading: string; items: NavItem[] }[] = [
-  // Side by side labour cost by site: for those who see cost everywhere in scope.
-  { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', groupOnly: true, offered: (all) => all('costs.view') }] },
-  {
-    heading: 'Scheduling',
-    items: [
-      { id: 'rota', label: 'Rota', siteOnly: true },
-      { id: 'demand', label: 'Demand', siteOnly: true },
-      { id: 'clock', label: 'Clock in', siteOnly: true, offered: (all) => all('time.record') },
-    ],
-  },
-  {
-    heading: 'People',
-    items: [
-      { id: 'team', label: 'Team' },
-      { id: 'people', label: 'People', siteOnly: true, offered: (all) => all('team.manage') || all('costs.view') },
-      // Balances are the team's records; the provision in pounds shows only with cost.
-      { id: 'holiday', label: 'Holiday', offered: (all) => all('team.manage') || all('costs.view') },
-    ],
-  },
-  {
-    heading: 'HR',
-    items: [
-      // Personnel files go by site, as the rest of the team's records do; cases are confidential.
-      { id: 'hr', label: 'HR overview', offered: (all) => all('hr.view') },
-      { id: 'absence', label: 'Absence', offered: (all) => all('hr.view') },
-      { id: 'training', label: 'Training', offered: (all) => all('hr.view') },
-      { id: 'reviews', label: 'Probation and reviews', offered: (all) => all('hr.view') },
-      { id: 'cases', label: 'Cases', offered: (_all, a) => a('hr.cases') },
-    ],
-  },
-  {
-    heading: 'Finance',
-    items: [
-      { id: 'payroll', label: 'Payroll', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
-      // Proposals from whoever sets pay, decided by finance.
-      { id: 'pay', label: 'Pay approvals', offered: (_all, a) => a('pay.approve') || a('pay.edit') },
-      { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
-    ],
-  },
-  // Labour cost against takings and payroll accuracy: money throughout, for those who see cost.
-  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports', offered: (all) => all('costs.view') }] },
-  {
-    heading: 'Admin',
-    items: [
-      { id: 'integrations', label: 'Integrations', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
-      { id: 'privacy', label: 'GDPR', offered: (_all, a) => a('privacy.manage') },
-      { id: 'access', label: 'Access', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },
-      // Everyone who signs in can change their own password there.
-      { id: 'settings', label: 'Settings' },
-    ],
-  },
-  { heading: 'Help', items: [{ id: 'howto', label: 'How to' }] },
-];
-const NAV_ITEMS = NAV.flatMap((g) => g.items);
-const ALL = '';
 
 type RotaView = 'timeline' | 'people';
 const VIEW_KEY = 'preshift.rota.view';
@@ -148,10 +82,11 @@ type Store = ReturnType<typeof useRotaStore>;
 
 function Workspace({ state, me, error, setError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
-  const [entityId, setEntityId] = useState(ALL);
-  const [siteId, setSiteId] = useState(ALL);
-  const [week, setWeek] = useState(weekStart(toISODate(new Date())));
-  const [tab, setTab] = useState<Tab>('sites');
+  const [initial] = useState(() => readPlace(weekStart(toISODate(new Date()))));
+  const [entityId, setEntityId] = useState(state.entities.some((e) => e.id === initial.entityId) ? initial.entityId : ALL);
+  const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
+  const [week, setWeek] = useState(initial.week);
+  const [tab, setTab] = useState<Tab>(initial.tab);
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
@@ -200,9 +135,11 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const canPublish = atAll('rota.publish');
   const offered = (t: NavItem) => !t.offered || t.offered(atAll, allow);
   const nav = NAV.map((g) => ({ ...g, items: g.items.filter(offered) })).filter((g) => g.items.length > 0);
-  const available = (t: NavItem) => (single ? !t.groupOnly : !t.siteOnly);
-  const fallback = nav.flatMap((g) => g.items).find(available)?.id ?? 'settings';
-  const activeTab = NAV_ITEMS.some((t) => t.id === tab && available(t) && offered(t)) ? tab : single ? 'rota' : fallback;
+  const fallback = nav[0]?.items[0]?.id ?? 'settings';
+  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t)) ? tab : fallback;
+  const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
+  // A site-only section opened across several sites shows the site chooser instead.
+  const needsSite = !!section.siteOnly && !single;
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
   const metrics = useMemo(() => (preview ? scopeMetrics(view, siteIds, week) : baseMetrics), [view, preview, baseMetrics, siteIds, week]);
@@ -212,7 +149,30 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const weekShifts = state.shifts.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date));
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name;
-  const scopeName = single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name : 'All sites';
+  const scopeName =
+    section.scope === 'org' ? (section.title ?? 'Organisation') : single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name : 'All sites';
+
+  // Section and scope changes are steps Back can undo; moving the week only updates the address.
+  useEffect(() => {
+    const next = placeQuery({ tab: activeTab, entityId, siteId, week });
+    if (next === window.location.search) return;
+    const prev = readPlace(week);
+    const step = prev.tab !== activeTab || prev.entityId !== entityId || prev.siteId !== siteId;
+    window.history[step ? 'pushState' : 'replaceState'](null, '', `${window.location.pathname}${next}`);
+  }, [activeTab, entityId, siteId, week]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const p = readPlace(weekStart(toISODate(new Date())));
+      setTab(p.tab);
+      setEntityId(state.entities.some((e) => e.id === p.entityId) ? p.entityId : ALL);
+      setSiteId(state.sites.some((s) => s.id === p.siteId) ? p.siteId : ALL);
+      setWeek(p.week);
+      setUnfilled(null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [state.entities, state.sites]);
 
   useEffect(() => {
     if (!refusal) return;
@@ -232,10 +192,17 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
     setUnfilled(null);
   }
 
+  // Changing site keeps you in the section you are in. Only the Sites overview drops into the rota.
   function chooseSite(id: string) {
     setSiteId(id);
     setUnfilled(null);
-    if (id) setTab('rota');
+    if (id && activeTab === 'sites') setTab('rota');
+  }
+
+  function openSection(t: NavItem) {
+    // Sites is the overview, so opening it from one site steps back out to every site in scope.
+    if (t.id === 'sites') setSiteId(ALL);
+    setTab(t.id);
   }
 
   function chooseView(v: RotaView) {
@@ -308,9 +275,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                   key={t.id}
                   className={activeTab === t.id ? 'active' : ''}
                   aria-current={activeTab === t.id ? 'page' : undefined}
-                  disabled={!available(t)}
-                  title={available(t) ? undefined : t.siteOnly ? 'Choose one site to open this' : 'Shown across several sites'}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => openSection(t)}
                 >
                   {t.label}
                 </button>
@@ -332,10 +297,11 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
       <div className="content">
         <header className="mast">
           <div className="mast-top">
-            <span className="eyebrow">{NAV_ITEMS.find((t) => t.id === activeTab)?.label}</span>
+            <span className="eyebrow">{section.label}</span>
             <div className="mast-controls">
               <DemoSwitch me={me} />
               <OrgSwitch account={account} />
+              {section.scope !== 'org' && <>
               <select value={entityId} onChange={(e) => chooseEntity(e.target.value)} aria-label="Entity">
                 <option value={ALL}>All entities</option>
                 {state.entities.map((e) => (
@@ -348,23 +314,27 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              <div className="weeknav">
-                <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&larr;</button>
-                <span className="tnum">{range}</span>
-                <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rarr;</button>
-              </div>
+              {section.scope === 'week' && (
+                <div className="weeknav">
+                  <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&larr;</button>
+                  <span className="tnum">{range}</span>
+                  <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rarr;</button>
+                </div>
+              )}
+              </>}
             </div>
           </div>
           <div className="mast-title">
             <h1>{scopeName}</h1>
-            <div className="mast-meta">
-              <span className="eyebrow">Week {isoWeek(week)} · {dayLabel(week).date} to {dayLabel(dates[6]).date}</span>
-              <span className={`stamp ${status}`}>{statusLabel}</span>
-            </div>
+            {section.scope === 'week' && (
+              <div className="mast-meta">
+                <span className="eyebrow">Week {isoWeek(week)} · {dayLabel(week).date} to {dayLabel(dates[6]).date}</span>
+                <span className={`stamp ${status}`}>{statusLabel}</span>
+              </div>
+            )}
           </div>
-          {/* How to is for reading: no week actions and no P&L beside it, so the guide gets the width. */}
-          {activeTab !== 'howto' && <div className="sections">
-            <div className="section-actions">
+          <div className="sections">
+            {section.plans && !needsSite && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {single && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
               <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
@@ -373,13 +343,13 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               <button onClick={runAutoBuild} className="primary" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>
                 {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
               </button>
-            </div>
-          </div>}
+            </div>}
+          </div>
         </header>
 
         <AuthenticatorBar me={me} />
 
-        <div className={`shell${activeTab === 'howto' ? ' no-rail' : ''}`}>
+        <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
             {account?.demo && (
               <div className="notice demo-banner">
@@ -425,8 +395,22 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
             )}
 
             <main>
+              {needsSite && (
+                <div className="panel site-chooser">
+                  <h2>{section.label} is run one site at a time</h2>
+                  <p className="muted">Choose the site to open.</p>
+                  <div className="site-choices">
+                    {scopeSites.map((s) => (
+                      <button key={s.id} onClick={() => setSiteId(s.id)}>
+                        <span className="strong">{s.name}</span>
+                        <span className="muted small">{state.entities.find((e) => e.id === s.entityId)?.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {activeTab === 'sites' && (
-                <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={chooseSite} />
+                <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={(id) => { setSiteId(id); setUnfilled(null); setTab('rota'); }} />
               )}
               {/* Travel times between sites are a settings change: offered only to those who can make it. */}
               {activeTab === 'sites' && scopeSites.length > 1 && allow('settings.manage') && (
@@ -551,7 +535,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                 />
               )}
               {activeTab === 'integrations' && (
-                <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} singleSite={!!single} today={today} onOpen={setTab} />
+                <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} today={today} onOpen={setTab} />
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {activeTab === 'access' && <AccessView state={state} />}
@@ -563,7 +547,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               <span>UK rates 2026/27. Running on the Preshift API.</span>
             </footer>
           </div>
-          {activeTab !== 'howto' && <PnlRail
+          {section.scope === 'week' && <PnlRail
             state={view}
             metrics={metrics}
             issues={issues}

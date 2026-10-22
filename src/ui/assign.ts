@@ -1,7 +1,7 @@
 import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek, weekCost } from '../engine/cost';
 import { dayDemand } from '../engine/demand';
-import { isEmployedOn } from '../engine/employees';
+import { employedShare, isEmployedOn } from '../engine/employees';
 import { addDays, ageOn, weekStart } from '../engine/time';
 import { journeyBetween, travelIssues, type Journey } from '../engine/travel';
 import type { Employee, RotaState, Shift } from '../engine/types';
@@ -30,6 +30,8 @@ export interface Candidate {
   intercompany: boolean;
   /** The journey from their home site, for someone borrowed. */
   journey: Journey | null;
+  /** Paid travel this shift adds, from another site the same day; already in the costs. */
+  travelMinutes: number;
   trained: boolean;
   /** Why this person cannot take the shift, or null when they can. */
   blocker: string | null;
@@ -111,8 +113,12 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
         breakMinutes: requiredBreakMinutes(length, ageOn(employee.dateOfBirth, opening.date)),
       };
       const week = shiftsInWeek(state.shifts, ws).filter((s) => s.employeeId === employee.id);
-      const marginal = employeeWeekCost(employee, [...week, shift]).total - employeeWeekCost(employee, week).total;
-      const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts }, ws, opening.siteId).total;
+      const share = employedShare(employee, ws);
+      const before = employeeWeekCost(employee, week, undefined, share, state.sites);
+      const after = employeeWeekCost(employee, [...week, shift], undefined, share, state.sites);
+      const marginal = after.total - before.total;
+      const travelMinutes = Math.round((after.travelHours - before.travelHours) * 60);
+      const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts, sites: state.sites }, ws, opening.siteId).total;
       const siteCost = atSite([...week, shift]) - atSite(week);
       const issues = [...checkEmployeeWeek(employee, ws, [...context, shift]), ...travelIssues(employee, [...context, shift], state.sites)].filter(
         (i) => i.shiftId === shift.id,
@@ -129,7 +135,7 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
       warnings.sort((x, y) => Number(y.code.startsWith('travel')) - Number(x.code.startsWith('travel')));
       const intercompany = borrowed && !!host && employee.entityId !== host.entityId;
       const journey = borrowed ? journeyBetween(state.sites, employee.siteId, opening.siteId) : null;
-      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId), intercompany, journey };
+      return { employee, shift, marginal, siteCost, trained, blocker, warnings, borrowed, homeSite: siteName(employee.siteId), intercompany, journey, travelMinutes };
     })
     .sort((a, b) => rank(a) - rank(b) || a.marginal - b.marginal || a.employee.name.localeCompare(b.employee.name));
 }

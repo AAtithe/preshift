@@ -9,6 +9,7 @@ import { dayDemand, headcountAt } from './demand';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from './journal';
 import { scopeMetrics, weekMetrics } from './metrics';
 import { seedState } from './seed';
+import { payrollHours } from './timesheet';
 import { addDays, ageOn, taxYearOf, weekStart } from './time';
 import type { Employee, Entity, RotaState, Shift } from './types';
 
@@ -525,7 +526,8 @@ describe('cross-site cost', () => {
     const borrowed = state.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours === 0)!;
     const at = (id: string, siteId: string, start: number) =>
       ({ id, employeeId: borrowed.id, roleId: borrowed.roleIds[0], siteId, date: WEEK, startMinute: start * 60, endMinute: (start + 4) * 60, breakMinutes: 0 }) as Shift;
-    state.shifts = [at('home', 'shd', 12), at('away', 'mar', 18)];
+    // Different days, so there is no travel between them and the split is by hours alone.
+    state.shifts = [at('home', 'shd', 12), { ...at('away', 'mar', 18), date: '2026-10-20' }];
     const mar = weekCost(state, WEEK, 'mar');
     const shd = weekCost(state, WEEK, 'shd');
     const whole = employeeWeekCost(borrowed, state.shifts).total;
@@ -538,5 +540,75 @@ describe('cross-site cost', () => {
     const p = mar.parts;
     const marOwn = weekCost({ ...state, shifts: [] }, WEEK, 'mar').total;
     expect(p.gross + p.holiday + p.employerNi + p.pension - marOwn).toBeCloseTo(whole / 2, 0);
+  });
+});
+
+describe('paid travel between sites', () => {
+  const state = () => seedState(WEEK);
+  const person = (s: ReturnType<typeof seedState>) =>
+    s.employees.find((e) => e.siteId === 'shd' && e.payBasis === 'hourly' && e.contractedHours === 0)!;
+  const at = (employeeId: string, id: string, siteId: string, start: number, end: number) =>
+    ({ id, employeeId, roleId: 'server', siteId, date: WEEK, startMinute: start * 60, endMinute: end * 60, breakMinutes: 0 }) as Shift;
+
+  it('pays the journey as working time and charges it to the site travelled to', () => {
+    const s = state();
+    const p = person(s);
+    s.shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    const whole = employeeWeekCost(p, s.shifts, undefined, 1, s.sites);
+    // Shoreditch to Marylebone is 43 minutes on the straight-line estimate.
+    expect(whole.travelHours).toBeCloseTo(43 / 60, 2);
+    expect(whole.paidHours).toBeCloseTo(8 + 43 / 60, 2);
+    const noTravel = employeeWeekCost(p, s.shifts);
+    expect(whole.gross - noTravel.gross).toBeCloseTo((43 / 60) * p.hourlyRate, 1);
+    const mar = weekCost(s, WEEK, 'mar');
+    const shd = weekCost(s, WEEK, 'shd');
+    expect(mar.shifts.get('away')!.travelHours).toBeCloseTo(43 / 60, 2);
+    expect(shd.shifts.get('home')!.travelHours).toBe(0);
+    expect(mar.shifts.get('away')!.total + shd.shifts.get('home')!.total).toBeCloseTo(whole.total, 1);
+    expect(mar.travel.hours).toBeCloseTo(43 / 60, 2);
+    expect(mar.travel.cost).toBeGreaterThan(0);
+    expect(shd.travel.cost).toBe(0);
+  });
+
+  it('uses a TfL time when one is held, and pays nothing for separate trips or unknown journeys', () => {
+    const s = state();
+    const p = person(s);
+    s.sites = s.sites.map((x) => (x.id === 'mar' ? { ...x, travel: { shd: { minutes: 37, source: 'tfl' as const, checkedAt: WEEK } } } : x));
+    s.shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    expect(employeeWeekCost(p, s.shifts, undefined, 1, s.sites).travelHours).toBeCloseTo(37 / 60, 2);
+    s.shifts = [at(p.id, 'home', 'shd', 8, 10), at(p.id, 'away', 'mar', 17, 21)];
+    expect(employeeWeekCost(p, s.shifts, undefined, 1, s.sites).travelHours).toBe(0);
+    const unlocated = s.sites.map(({ location: _l, travel: _t, ...x }) => x);
+    s.shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    expect(employeeWeekCost(p, s.shifts, undefined, 1, unlocated).travelHours).toBe(0);
+  });
+
+  it('adds paid travel to the hours sent to payroll, on the line for the site travelled to', () => {
+    const s = state();
+    const p = person(s);
+    const entry = (id: string, siteId: string, start: number, end: number) => ({
+      id, employeeId: p.id, siteId, roleId: 'server', date: WEEK, clockIn: start * 60, clockOut: end * 60, breakMinutes: 0, status: 'approved' as const,
+    });
+    const batch = payrollHours(s.employees, [entry('a', 'shd', 12, 16), entry('b', 'mar', 17, 21)] as never, WEEK, '2026-10-25', s.sites);
+    const mar = batch.lines.find((l) => l.siteId === 'mar')!;
+    const shd = batch.lines.find((l) => l.siteId === 'shd')!;
+    expect(mar.travelHours).toBeCloseTo(0.72, 2);
+    expect(mar.hours).toBeCloseTo(4.72, 2);
+    expect(shd.hours).toBe(4);
+    expect(batch.totalHours).toBeCloseTo(8.72, 2);
+  });
+
+  it('counts paid travel as hours worked for holiday accrual', () => {
+    const s = state();
+    const p = person(s);
+    const worked = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    const today = addDays(WEEK, 1);
+    const b = holidayBalance(p, worked, today, undefined, undefined, s.sites);
+    expect(b.basis).toBe('accrual');
+    expect(b.travelHours).toBeCloseTo(43 / 60, 2);
+    expect(b.accruedHours - holidayBalance(p, worked, today).accruedHours).toBeCloseTo((43 / 60) * 0.1207, 1);
+    // Fixed hours entitlement is set by the contract, so travel does not change it.
+    const fixedHours = { ...p, contractedHours: 40, irregularHours: false };
+    expect(holidayBalance(fixedHours, worked, today, undefined, undefined, s.sites).accruedHours).toBe(holidayBalance(fixedHours, worked, today).accruedHours);
   });
 });

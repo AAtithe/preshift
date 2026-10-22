@@ -20,7 +20,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/privacy/register': 'The record of processing names nobody and is open to anyone who reads the rota.',
   'POST /v1/integrations/teampay/webhook/:orgId': 'Called by TeamPay with a signed body, never by a person.',
   'GET /v1/dev/people': 'Development only: answers dev- keys outside production and 404s for everyone else.',
-  'GET /v1/staff/invite': 'Staff app: a one-time invite token, no manager session.',
+  'POST /v1/staff/invite': 'Staff app: a one-time invite token in the body, no manager session.',
   'POST /v1/staff/join': 'Staff app: a one-time invite token, no manager session.',
   'POST /v1/staff/login': 'Staff app sign-in.',
   'POST /v1/staff/logout': 'Staff app sign-out.',

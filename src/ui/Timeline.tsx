@@ -17,6 +17,12 @@ const WEEKDAY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturd
 const ROW = 30;
 const PAD = 12;
 const STRIP = 22;
+/**
+ * The least a day may be: its heading (name, date, forecast sales) and its P&L column stand
+ * taller than an empty day's plot, and would otherwise run into the day below. It needs about
+ * 118px; the rest is room for a taller fallback font.
+ */
+export const MIN_LANE = 132;
 
 interface Props {
   /** The rota as previewed mid-drag. */
@@ -160,7 +166,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
       rows += ends.length;
     }
     // One spare row at the foot of every day takes shifts dragged in from other days.
-    const height = PAD + (rows + 1) * ROW + STRIP + PAD;
+    const height = Math.max(MIN_LANE, PAD + (rows + 1) * ROW + STRIP + PAD);
     const lane = { date, top, height, placed, rows, groups };
     top += height;
     return lane;
