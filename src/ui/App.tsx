@@ -35,6 +35,7 @@ import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
 import { ClientsView } from './ClientsView';
+import { BillingBanner, BillingView } from './BillingView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
@@ -411,6 +412,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
 
         <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
+            {activeTab !== 'billing' && <BillingBanner billing={account?.billing} canSettings={allow('settings.manage')} onOpen={() => setTab('billing')} />}
             {sample && !account?.demo && activeTab !== 'setup' && (
               <div className="notice">
                 You are looking at the sample group, not your business.{' '}
@@ -651,6 +653,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
+              {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
