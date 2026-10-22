@@ -107,7 +107,7 @@ export function deleteCopiesOnSave(ctx: AppContext) {
  */
 function mayAdd(g: Guard, e: Employee) {
   g.allow('hr.manage', e.siteId);
-  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else files your own right to work documents.');
+  if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else files your own right to work documents.');
 }
 
 function mayView(req: FastifyRequest, g: Guard, e: Employee) {

@@ -16,7 +16,7 @@ interface StaffLoginRow {
 
 type InviteResult =
   | { emailed: true; to: string; expiresAt: string }
-  | { emailed: false; reason: 'handed_over' | 'email_not_set_up' | 'no_address' | 'send_failed'; path: string; expiresAt: string; emailProblem?: string };
+  | { emailed: false; reason: 'handed_over' | 'email_not_set_up' | 'no_address' | 'send_failed'; path?: string; expiresAt: string; emailProblem?: string };
 
 /** Why a link came back to hand over rather than going by email. */
 const WHY: Record<Exclude<InviteResult, { emailed: true }>['reason'], string | null> = {
@@ -35,7 +35,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced: boolean }) {
   const [rows, setRows] = useState<StaffLoginRow[]>([]);
   const [link, setLink] = useState<{ name: string; url: string; expiresAt: string; why: string | null } | null>(null);
-  const [emailed, setEmailed] = useState<{ person: Employee; to: string; expiresAt: string } | null>(null);
+  const [emailed, setEmailed] = useState<{ person: Employee; to: string; expiresAt: string; joined: boolean } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -63,7 +63,12 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
       const res = await api.post<InviteResult>(`/v1/staff-logins/${person.id}/invite`, handOver ? { handOver: true } : undefined);
       if (res.emailed) {
         setLink(null);
-        setEmailed({ person, to: res.to, expiresAt: res.expiresAt });
+        setEmailed({ person, to: res.to, expiresAt: res.expiresAt, joined: rows.some((r) => r.employeeId === person.id && r.status === 'active') });
+      } else if (!res.path) {
+        // A login they have set up: the link only ever goes to their own email, even when that fails.
+        setLink(null);
+        setEmailed(null);
+        setMessage(res.emailProblem ?? 'The email did not go.');
       } else {
         setEmailed(null);
         setLink({ name: person.name, url: `${window.location.origin}${res.path}`, expiresAt: res.expiresAt, why: WHY[res.reason] });
@@ -90,7 +95,8 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
       <p className="muted small">
         Staff with a login can clock in and out on their own phone, but only when the phone is inside this site's clocking area,
         and they see their own published shifts and hours. Send the invite privately: whoever opens it can set up the login.
-        Forgotten password? Send a new invite. Once email is set up under Settings, invites go to the person's own email address.
+        Forgotten password? Send a reset link: once someone has set up their login it only ever goes to the email they signed up with,
+        never to a manager, because whoever opened it could clock in as them. If they no longer use that address, close their login and invite them again.
       </p>
       {!siteFenced && <p className="small warn-text">Set the site location above first. Phones cannot clock in at a site without one.</p>}
       {message && <p className="small bad-text" role="alert">{message}</p>}
@@ -98,7 +104,7 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
         <div className="notice" role="status">
           <div className="strong">Invite emailed to {emailed.person.name} at {emailed.to}, valid until {when(emailed.expiresAt)}</div>
           <p className="small muted">Only they see the link. If it does not arrive, this list will say so once Resend reports it.</p>
-          <button disabled={busy} onClick={() => void invite(emailed.person, true)}>Hand over a link instead</button>{' '}
+          {!emailed.joined && <button disabled={busy} onClick={() => void invite(emailed.person, true)}>Hand over a link instead</button>}{' '}
           <button className="link" onClick={() => setEmailed(null)}>Done</button>
         </div>
       )}
@@ -139,7 +145,7 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
                     {row?.lastEmail && <MailLine mail={row.lastEmail} />}
                   </td>
                   <td className="num">
-                    <button disabled={busy} onClick={() => void invite(person)}>{row ? 'New invite' : 'Invite'}</button>{' '}
+                    <button disabled={busy} onClick={() => void invite(person)}>{row?.status === 'active' ? 'Email a reset link' : row ? 'New invite' : 'Invite'}</button>{' '}
                     {row && (
                       <button
                         className="danger"

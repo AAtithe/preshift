@@ -137,7 +137,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       // Someone else answers a request about you: it may cover an investigation you are not yet told
       // of, and what may be withheld from you, such as a witness's statement, is theirs to decide.
-      if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else answers a request for your own data.');
+      if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else answers a request for your own data.');
       // Cases go only to those who handle them, as everywhere else.
       const records = org.hrRecords.filter((r) => r.employeeId === e.id && (r.kind !== 'case' || g.can('hr.cases')));
       const login = await ctx.store.getStaffLogin(org.orgId, e.id);
