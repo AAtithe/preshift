@@ -213,6 +213,8 @@ export interface Employee {
   leaveDate?: string;
   /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
   payHidden?: boolean;
+  /** Set by the API: a pay change proposed for this person and waiting for finance. */
+  pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
@@ -411,3 +413,39 @@ export interface RotaState {
   /** Recorded by the API only; never sent with shifts. */
   restOverrides?: RestOverride[];
 }
+
+/** The terms a person is paid on. */
+export interface PayTerms {
+  payBasis: PayBasis;
+  hourlyRate: number;
+  annualSalary: number;
+}
+
+export type PayChangeStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'superseded';
+
+/**
+ * A change to someone's pay, proposed by a person who sets pay and decided by finance. The rate
+ * in force stays as it is until the change is approved; nobody approves their own proposal.
+ */
+export interface PayChange {
+  id: string;
+  employeeId: string;
+  /** Home site when proposed: decides who may see and approve it. */
+  siteId: string;
+  /** Terms in force when proposed. Approval is refused if they have moved since. */
+  before: PayTerms;
+  after: PayTerms;
+  reason?: string;
+  status: PayChangeStatus;
+  requestedBy: string;
+  /** The person's access record id, when a person proposed it. */
+  requestedById?: string;
+  requestedAt: string;
+  decidedBy?: string;
+  decidedById?: string;
+  decidedAt?: string;
+  note?: string;
+}
+
+/** What a person's record carries about a change waiting for approval. */
+export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt'>;

@@ -10,7 +10,7 @@ import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/tim
 import type { DaySales, HourForecast, RestOverride, Shift } from '../../src/engine/types';
 import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
-import { actorName, guard } from '../guard';
+import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
@@ -89,6 +89,28 @@ function validateShift(org: OrgData, shift: Shift) {
   if (shift.endMinute <= shift.startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
 }
 
+/**
+ * Whether the caller may put this person on a shift at this site: someone based there, someone who
+ * has agreed to cover it, or someone the caller also runs the rota or team for at their home site.
+ * Cover is the person's agreement, recorded by whoever manages them, so a site manager cannot borrow
+ * another site's team on their own say-so. Organisation-wide roles and system keys pass the last test.
+ */
+function allowRoster(g: Guard, org: OrgData, shift: Shift) {
+  const e = org.state.employees.find((x) => x.id === shift.employeeId);
+  if (!e || e.siteId === shift.siteId || e.coverSiteIds.includes(shift.siteId)) return;
+  if (g.can('rota.edit', e.siteId) || g.can('team.manage', e.siteId)) return;
+  const name = (id: string) => org.state.sites.find((x) => x.id === id)?.name ?? id;
+  throw new HttpError(
+    403,
+    'not_cover',
+    `${e.name} has not agreed to cover ${name(shift.siteId)}. Whoever manages ${name(e.siteId)} can add it to their record.`,
+  );
+}
+
+/** Only a new pairing of person and site needs the check, so re-saving a shift already agreed is never refused. */
+const reassigned = (before: Shift | undefined, after: Shift) =>
+  !before || before.employeeId !== after.employeeId || before.siteId !== after.siteId;
+
 /** Compliance for the person whose week this shift sits in, so callers see consequences straight away. */
 function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
@@ -104,7 +126,7 @@ type OverrideBody = { weekStart: string; key: string; reason: string };
  * site passes: the week is as the draft found it (baseline), every shift is valid and in its own
  * site's week, and no shift that has started or been clocked is moved or removed.
  */
-function replaceWeeks(org: OrgData, ws: string, sites: { siteId: string; shifts: Shift[]; baseline?: string }[]) {
+function replaceWeeks(org: OrgData, g: Guard, ws: string, sites: { siteId: string; shifts: Shift[]; baseline?: string }[]) {
   const dates = weekDates(ws);
   const now = londonParts(new Date());
   const clocked = new Set(org.timeEntries.map((t) => t.shiftId).filter(Boolean));
@@ -125,6 +147,7 @@ function replaceWeeks(org: OrgData, ws: string, sites: { siteId: string; shifts:
     for (const s of incoming) {
       if (s.siteId !== siteId || !dates.includes(s.date)) throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
       validateShift(org, s);
+      if (reassigned(byId.get(s.id), s)) allowRoster(g, org, s);
     }
     const kept = new Map(incoming.map((s) => [s.id, s]));
     const touched = current.filter((s) => (hasStarted(s, now) || clocked.has(s.id)) && !(kept.has(s.id) && sameShift(s, kept.get(s.id)!)));
@@ -175,6 +198,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (org.state.shifts.some((s) => s.id === shift.id)) throw new HttpError(409, 'conflict', `Shift ${shift.id} exists`);
     validateShift(org, shift);
     g.allow('rota.edit', shift.siteId);
+    allowRoster(g, org, shift);
     org.state.shifts.push(shift);
     audit(org, actorName(g), 'shift.created', { id: shift.id });
     return reply.code(201).send({ shift, issues: shiftIssues(org, shift) });
@@ -199,6 +223,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       validateShift(org, shift);
       // Moving a shift needs the right at both ends.
       g.allow('rota.edit', shift.siteId);
+      if (reassigned(org.state.shifts[i], shift)) allowRoster(g, org, shift);
       org.state.shifts[i] = shift;
       audit(org, actorName(g), 'shift.updated', { id: shift.id });
       return { shift, issues: shiftIssues(org, shift) };
@@ -297,7 +322,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       requireSite(org, siteId);
       const g = guard(ctx, req, org);
       g.allow('rota.edit', siteId);
-      const [plan] = replaceWeeks(org, ws, [{ siteId, shifts, baseline }]);
+      const [plan] = replaceWeeks(org, g, ws, [{ siteId, shifts, baseline }]);
       audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
         siteId,
         weekStart: ws,
@@ -356,7 +381,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
         requireSite(org, id);
         g.allow('rota.edit', id);
       }
-      const plans = replaceWeeks(org, ws, req.body.sites);
+      const plans = replaceWeeks(org, g, ws, req.body.sites);
       audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
         siteIds,
         weekStart: ws,

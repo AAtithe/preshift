@@ -3,7 +3,7 @@
 import { weekStart } from '../engine/time';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -49,6 +49,8 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
     items: [
       { id: 'team', label: 'Labour cost', scope: 'week' },
       { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
+      // Proposals from whoever sets pay, decided by finance.
+      { id: 'pay', label: 'Pay approvals', scope: 'people', offered: (_all, a) => a('pay.approve') || a('pay.edit') },
       { id: 'close', label: 'Close', scope: 'week', offered: (_all, a) => a('close.export') },
     ],
   },
