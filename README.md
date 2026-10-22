@@ -150,7 +150,8 @@ covers the Vercel deployment.
 
 ## Business set-up
 
-Organisation, then Set-up, holds the business the rota runs on. It needs `settings.manage`, so an authenticator, (`src/ui/SetupView.tsx`, rules in
+Organisation, then Set-up, holds the business the rota runs on. It needs `settings.manage`, and so an
+authenticator (`src/ui/SetupView.tsx`, rules in
 `src/engine/setup.ts`, routes in `server/routes/setup.ts`):
 
 1. Companies: registered name, company number, PAYE reference, and an intercompany code once there
