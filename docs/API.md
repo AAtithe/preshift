@@ -303,6 +303,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | `POST /v1/me/authenticator/recovery-codes` | Ten new recovery codes, replacing the old ones |
 | `POST /v1/users/:id/reset-password` | Ends the password and every session; emails a single-use link, valid a day, for the person to set a new one, or returns it to hand over when email is not set up. Needs the authority to give the person every role they hold. For someone with rights that move money or reach confidential records the link is only ever emailed (409 `email_only` otherwise) |
 | `/login?link=`, `POST /auth/accept`, `GET /auth/link` | Public: the person sets their own password from an invitation or reset link (single use), and is signed in |
+| `POST /auth/sessions/end-others` | Signed in: ends every other session of yours on any device, keeps this one, and leaves the password unchanged |
 
 ## Endpoints
 

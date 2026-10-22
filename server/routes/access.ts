@@ -290,6 +290,23 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
   });
 
+  // Ends every other session of the person's, on any device, without changing the password: a
+  // phone lost or a shared PC left signed in. This session carries on, as with a password change.
+  app.post('/auth/sessions/end-others', hidden, async (req, reply) => {
+    const session = await signedIn(req.headers.cookie, store);
+    if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
+    const { user, claims } = session;
+    if (isSandbox(user.orgId)) throw new HttpError(403, 'demo', 'The demo has no other devices to sign out.');
+    const issued = Date.now();
+    await store.updateUser(user.email, { sessionsValidFrom: issued });
+    const org = await store.load(claims.orgId);
+    const record = recordFor(org, user.email);
+    audit(org, record?.name ?? user.email, 'access.other_sessions_ended', record ? { userId: record.id } : undefined);
+    await store.save(org).catch((err) => console.error('Sign-out elsewhere not logged:', err));
+    const token = await createSession({ email: user.email, orgId: claims.orgId }, await store.sessionSecret(), issued, claims.mfa);
+    return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
+  });
+
   // The reply is the same whether or not the email has an account, so the form cannot be used
   // to find out who has one.
   app.post<{ Body: Record<string, string> }>('/auth/forgot', hidden, async (req, reply) => {

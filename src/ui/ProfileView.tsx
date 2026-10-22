@@ -3,7 +3,7 @@ import { AUDIENCE_LABEL, live, roleOf, ukDate } from '../engine/access';
 import type { RotaState } from '../engine/types';
 import { EnrolDialog, RecoveryCodes } from './access/Authenticator';
 import { lastSeen, reach, today, type Me } from './access/model';
-import { api, ApiError } from './api';
+import { actingAsDemo, api, ApiError } from './api';
 import { OwnPassword, type Account } from './SettingsView';
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -29,6 +29,23 @@ export function ProfileView({ me, account, state, onSaved }: { me: Me | null; ac
     );
   }
   const user = me?.user;
+  // Acting as a demo person, the screens are theirs but the password, devices and authenticator
+  // still belong to the real sign-in, so those are left to it rather than shown under their name.
+  if (actingAsDemo) {
+    return (
+      <div className="settings">
+        {user ? <Details me={me!} onSaved={onSaved} /> : <NoRecord email={account?.email} />}
+        {user && <Access me={me!} state={state} />}
+        <section className="settings-card">
+          <h2>Password, devices and authenticator</h2>
+          <p className="small muted">
+            You are acting as {user?.name ?? 'someone else'}. Their password, devices and authenticator are their own, and yours stay
+            with your own sign-in. Choose My own sign-in at the top to change yours.
+          </p>
+        </section>
+      </div>
+    );
+  }
   return (
     <div className="settings">
       {user ? <Details me={me!} onSaved={onSaved} /> : <NoRecord email={account?.email} />}
@@ -36,12 +53,37 @@ export function ProfileView({ me, account, state, onSaved }: { me: Me | null; ac
       {user && <Security me={me!} />}
       {account && <OwnPassword />}
       {account && <Organisations account={account} />}
-      <section className="settings-card">
-        <h2>Sign out</h2>
-        <p className="small muted">Ends this session on this device. Changing your password above signs out every other device.</p>
-        <p className="small"><a className="link" href="/auth/logout">Sign out</a></p>
-      </section>
+      <Devices signedIn={!!account} />
     </div>
+  );
+}
+
+function Devices({ signedIn }: { signedIn: boolean }) {
+  const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
+
+  async function endOthers() {
+    if (!confirm('Sign out of Preshift on every other phone, tablet and computer? This one stays signed in.')) return;
+    try {
+      await api.post('/auth/sessions/end-others');
+      setMessage({ text: 'Done. Every other device has been signed out; this one carries on. Your password has not changed.' });
+    } catch (err) {
+      setMessage({ text: problem(err), bad: true });
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <h2>Devices</h2>
+      <p className="small muted">
+        Left Preshift signed in on a shared office PC, or lost a phone? Sign out everywhere else in one go, without choosing a new
+        password. If you think someone else knows your password, change it above instead: that signs out every other device too.
+      </p>
+      <div className="settings-form">
+        {signedIn && <button onClick={() => void endOthers()}>Sign out of all other devices</button>}
+        <a className="link" href="/auth/logout">Sign out of this device</a>
+      </div>
+      {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
+    </section>
   );
 }
 

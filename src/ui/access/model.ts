@@ -115,6 +115,7 @@ const ACTION_TEXT: Record<string, string> = {
   'email.failed': 'Email could not be sent',
   'access.reviewed': 'Recorded an access review',
   'access.owner_created': 'Created the owner account',
+  'access.other_sessions_ended': 'Signed out of all other devices',
   'user.password_reset': 'Reset the password',
   'user.password_set': 'Set a password from a link',
   'authenticator.enrolled': 'Set up an authenticator',
