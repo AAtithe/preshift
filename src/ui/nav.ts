@@ -1,89 +1,133 @@
 // The management bar: its sections, what each is scoped by, who is offered it, and where you are
 // in the address. App renders it; this file decides it.
 import { weekStart } from '../engine/time';
+import type { Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
-export type Offered = (atAll: AtAll, allow: Allow) => boolean;
 
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
+/**
+ * Who is offered a section. Every section must say: there is no default, so a new section cannot
+ * appear to everyone by omission. `scope` permissions go site by site: the section shows if one is
+ * held at any site in scope, and only at those sites (the site chooser offers no others, and the API
+ * sends no others). `org` permissions count wherever they are held. Holding any one listed
+ * permission is enough. 'everyone' is for what every signed-in person needs.
+ */
+export type Access = 'everyone' | { scope?: Permission[]; org?: Permission[] };
+
+// The management bar groups the work the way a GM runs the week: plan it, run the hours and pay,
+// look after the team, then the money and the organisation behind it. Groups collapse; the one you
+// are in stays open.
 // Every item shown is clickable, so the map never changes. A site-only item opened across several
-// sites asks which site. An item is shown only to someone who can use it across the scope; the screen
-// still asks the server.
+// sites asks which site. An item is shown only to someone it is offered to; the API still decides
+// what they get, so hiding an item is a courtesy, not the control.
 // Each section says what it is scoped by, so the header only shows controls that change what is on screen:
 // week sections get the scope, the week and the P&L rail; people sections get the scope; organisation
 // sections get neither. Only the planning sections carry the build and clear actions.
 export type Scope = 'week' | 'people' | 'org';
 // title heads an organisation section; it defaults to Organisation.
-export type NavItem = { id: Tab; label: string; scope: Scope; title?: string; siteOnly?: boolean; plans?: boolean; offered?: Offered };
-export const NAV: { heading: string; items: NavItem[] }[] = [
-  // Side by side labour cost by site: for those who see cost everywhere in scope.
-  { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true, offered: (all) => all('costs.view') }] },
+export type NavItem = { id: Tab; label: string; scope: Scope; access: Access; title?: string; siteOnly?: boolean; plans?: boolean };
+export type NavGroup = { id: string; heading: string; items: NavItem[] };
+
+export const NAV: NavGroup[] = [
   {
-    heading: 'Scheduling',
+    id: 'overview',
+    heading: 'Overview',
+    // Side by side labour cost by site: for those who see cost everywhere in scope.
+    items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true, access: { scope: ['costs.view'] } }],
+  },
+  {
+    id: 'planning',
+    heading: 'Planning',
     items: [
-      { id: 'rota', label: 'Rota', scope: 'week', siteOnly: true, plans: true },
-      { id: 'demand', label: 'Demand', scope: 'week', siteOnly: true, plans: true },
-      // The three moves a week: each one changes the rota.
-      { id: 'coach', label: 'Coach', scope: 'week', siteOnly: true, offered: (all) => all('rota.edit') },
-      { id: 'forecast', label: 'Forecast', scope: 'week', siteOnly: true },
+      { id: 'rota', label: 'Rota', scope: 'week', siteOnly: true, plans: true, access: { scope: ['rota.view'] } },
+      // Takings drive the forecast, so it is for those who plan from it or see the money.
+      { id: 'forecast', label: 'Forecast', scope: 'week', siteOnly: true, access: { scope: ['demand.manage', 'costs.view'] } },
+      { id: 'demand', label: 'Demand', scope: 'week', siteOnly: true, plans: true, access: { scope: ['demand.manage', 'costs.view'] } },
       // Occasions, weather, events, bookings and school holidays ahead, with what the forecast allows for.
-      { id: 'calendar', label: 'Calendar', scope: 'people', siteOnly: true },
-      { id: 'clock', label: 'Clock in', scope: 'people', siteOnly: true, offered: (all) => all('time.record') },
+      { id: 'calendar', label: 'Calendar', scope: 'people', siteOnly: true, access: { scope: ['rota.view'] } },
+      // The three moves a week: each one changes the rota.
+      { id: 'coach', label: 'Coach', scope: 'week', siteOnly: true, access: { scope: ['rota.edit'] } },
     ],
   },
   {
+    id: 'hours',
+    heading: 'Hours and pay',
+    items: [
+      { id: 'clock', label: 'Clock in', scope: 'people', siteOnly: true, access: { scope: ['time.record'] } },
+      { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true, access: { scope: ['time.record', 'time.approve'], org: ['payroll.view'] } },
+      // Proposals from whoever sets pay, decided by finance.
+      { id: 'pay', label: 'Pay approvals', scope: 'people', access: { org: ['pay.approve', 'pay.edit'] } },
+    ],
+  },
+  {
+    id: 'people',
     heading: 'People',
     items: [
       // Personnel files go by site, as the rest of the team's records do; cases are confidential.
-      { id: 'hr', label: 'HR overview', scope: 'people', offered: (all) => all('hr.view') },
-      { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, offered: (all) => all('team.manage') || all('costs.view') },
+      { id: 'hr', label: 'HR overview', scope: 'people', access: { scope: ['hr.view'] } },
+      { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, access: { scope: ['team.manage', 'costs.view'] } },
       // Balances are the team's records; the provision in pounds shows only with cost.
-      { id: 'holiday', label: 'Holiday', scope: 'people', offered: (all) => all('team.manage') || all('costs.view') },
-      { id: 'absence', label: 'Absence', scope: 'people', offered: (all) => all('hr.view') },
-      { id: 'training', label: 'Training', scope: 'people', offered: (all) => all('hr.view') },
-      { id: 'reviews', label: 'Probation and reviews', scope: 'people', offered: (all) => all('hr.view') },
-      { id: 'cases', label: 'Cases', scope: 'people', offered: (_all, a) => a('hr.cases') },
+      { id: 'holiday', label: 'Holiday', scope: 'people', access: { scope: ['team.manage', 'costs.view'] } },
+      { id: 'absence', label: 'Absence', scope: 'people', access: { scope: ['hr.view'] } },
+      { id: 'training', label: 'Training', scope: 'people', access: { scope: ['hr.view'] } },
+      { id: 'reviews', label: 'Probation and reviews', scope: 'people', access: { scope: ['hr.view'] } },
+      { id: 'cases', label: 'Cases', scope: 'people', access: { org: ['hr.cases'] } },
     ],
   },
   {
+    id: 'finance',
     heading: 'Finance',
+    // Money throughout: for those who see cost.
     items: [
-      { id: 'team', label: 'Labour cost', scope: 'week' },
-      { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
-      // Proposals from whoever sets pay, decided by finance.
-      { id: 'pay', label: 'Pay approvals', scope: 'people', offered: (_all, a) => a('pay.approve') || a('pay.edit') },
-      { id: 'close', label: 'Close', scope: 'week', offered: (_all, a) => a('close.export') },
-    ],
-  },
-  // Labour cost against takings and payroll accuracy: money throughout, for those who see cost.
-  {
-    heading: 'Reporting',
-    items: [
-      { id: 'reports', label: 'Reports', scope: 'week', offered: (all) => all('costs.view') },
+      { id: 'team', label: 'Labour cost', scope: 'week', access: { scope: ['costs.view'] } },
+      { id: 'close', label: 'Close', scope: 'week', access: { org: ['close.export'] } },
+      // Labour cost against takings and payroll accuracy.
+      { id: 'reports', label: 'Reports', scope: 'week', access: { scope: ['costs.view'] } },
       // The labour programme: the ladder, milestones and the verified saving, in money.
-      { id: 'programme', label: 'Programme', scope: 'week', offered: (all) => all('costs.view') },
+      { id: 'programme', label: 'Programme', scope: 'week', access: { scope: ['costs.view'] } },
     ],
   },
   {
+    id: 'organisation',
     heading: 'Organisation',
     items: [
       // Companies, sites, roles and the trading week the rota runs on.
-      { id: 'setup', label: 'Set-up', scope: 'org', offered: (_all, a) => a('settings.manage') },
-      { id: 'integrations', label: 'Integrations', scope: 'org', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
-      { id: 'privacy', label: 'GDPR', scope: 'org', offered: (_all, a) => a('privacy.manage') },
-      { id: 'access', label: 'Access', scope: 'org', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },
-      // Everyone who signs in can change their own password there.
-      { id: 'settings', label: 'Settings', scope: 'org' },
+      { id: 'setup', label: 'Set-up', scope: 'org', access: { org: ['settings.manage'] } },
+      { id: 'access', label: 'Access', scope: 'org', access: { scope: ['users.sites'], org: ['users.manage', 'audit.view'] } },
+      { id: 'integrations', label: 'Integrations', scope: 'org', access: { org: ['settings.manage', 'payroll.view'] } },
+      { id: 'privacy', label: 'GDPR', scope: 'org', access: { org: ['privacy.manage'] } },
+      { id: 'settings', label: 'Settings', scope: 'org', access: { org: ['settings.manage'] } },
     ],
   },
-  { heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help' }] },
+  // Everyone who signs in keeps their own details, password and authenticator here.
+  { id: 'you', heading: 'You', items: [{ id: 'profile', label: 'Your profile', scope: 'org', title: 'You', access: 'everyone' }] },
+  { id: 'help', heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help', access: 'everyone' }] },
 ];
 export const NAV_ITEMS = NAV.flatMap((g) => g.items);
 export const ALL = '';
+
+/** The sites, of those given, where the person is offered the section. */
+export function sitesFor(item: NavItem, allow: Allow, siteIds: string[]): string[] {
+  if (item.access === 'everyone') return siteIds;
+  const { scope = [], org = [] } = item.access;
+  return siteIds.filter((s) => scope.some((p) => allow(p, s)) || org.some((p) => allow(p, s)));
+}
+
+/** Whether the person is offered the section anywhere in scope. */
+export function offered(item: NavItem, allow: Allow, siteIds: string[]): boolean {
+  if (item.access === 'everyone') return true;
+  const { org = [] } = item.access;
+  return org.some((p) => allow(p)) || sitesFor(item, allow, siteIds).length > 0;
+}
+
+/** The bar as this person sees it: only what they are offered, and no empty groups. */
+export function visibleNav(allow: Allow, siteIds: string[]): NavGroup[] {
+  return NAV.map((g) => ({ ...g, items: g.items.filter((t) => offered(t, allow, siteIds)) })).filter((g) => g.items.length > 0);
+}
 
 // Where you are lives in the address, so Back, refresh and a shared link all land on the same screen.
 export type Place = { tab: Tab; entityId: string; siteId: string; week: string };

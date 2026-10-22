@@ -318,6 +318,43 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     };
   });
 
+  // Your own profile, for anyone signed in or on their own personal key. Email is the identity, and
+  // roles, sites and the rota link are set by someone else, so only the name and job title change here.
+  app.patch<{ Body: { name?: string; jobTitle?: string } }>(
+    '/v1/me',
+    {
+      preHandler: byPerson,
+      schema: {
+        tags,
+        description: 'Changes your own name or job title. Email, roles and the rota record you are linked to are changed on the Access tab by someone else.',
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { name: { type: 'string', minLength: 1, maxLength: 120 }, jobTitle: { type: 'string', maxLength: 120 } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const actor = actorOf(req, org, today());
+      if (actor.kind !== 'user') throw new HttpError(409, 'no_record', 'You have no profile in this organisation yet. Ask whoever manages access to add you on the Access tab.');
+      const target = findUser(org, actor.user.id);
+      const name = req.body.name?.trim();
+      if (req.body.name !== undefined && !name) throw new HttpError(400, 'invalid_request', 'Your name cannot be blank');
+      const fields: string[] = [];
+      if (name !== undefined && name !== target.name) {
+        target.name = name;
+        fields.push('name');
+      }
+      if (req.body.jobTitle !== undefined && (req.body.jobTitle.trim() || undefined) !== target.jobTitle) {
+        target.jobTitle = req.body.jobTitle.trim() || undefined;
+        fields.push('jobTitle');
+      }
+      if (fields.length) audit(org, target.name, 'user.updated', { userId: target.id, fields, self: true });
+      return target;
+    },
+  );
+
   app.get('/v1/access/catalogue', { schema: { tags, description: 'Every role, permission and paired-duty rule.' } }, async () => ({
     roles: ROLES,
     permissions: PERMISSIONS,

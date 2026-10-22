@@ -1,9 +1,9 @@
 import type { Employee, RestOverride, RotaState, SchoolPeriod, Shift, Site } from './types';
 import { isSchoolDay } from './school';
 import { shiftPaidMinutes } from './cost';
-import { isEmployedOn } from './employees';
+import { isEmployedOn, ruleAge } from './employees';
 import { isAbsentOn } from './hr';
-import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { absoluteMinute, addDays, ageOn, weekDates, weekday } from './time';
 import { travelIssues } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
@@ -63,12 +63,14 @@ export function schoolLeavingDate(dateOfBirth: string, nation: Nation = 'england
 }
 
 /** Still of compulsory school age on this date, so the child employment rules apply rather than the young worker ones. */
-export const isChildOn = (employee: Pick<Employee, 'dateOfBirth'>, date: string, nation: Nation = 'england') => date <= schoolLeavingDate(employee.dateOfBirth, nation);
+export const isChildOn = (employee: Pick<Employee, 'dateOfBirth'>, date: string, nation: Nation = 'england') =>
+  // No date of birth (withheld from this reader as an adult's, or not yet entered) is never read as a child.
+  Boolean(employee.dateOfBirth) && date <= schoolLeavingDate(employee.dateOfBirth, nation);
 
 /** The break a shift needs for this person on this date: a child needs an hour once a shift passes four hours. */
-export function breakFor(employee: Pick<Employee, 'dateOfBirth'>, date: string, shiftMinutes: number, nation: Nation = 'england'): number {
+export function breakFor(employee: Pick<Employee, 'dateOfBirth' | 'personalHidden' | 'under18'>, date: string, shiftMinutes: number, nation: Nation = 'england'): number {
   if (isChildOn(employee, date, nation)) return shiftMinutes > 4 * H ? 60 : 0;
-  return requiredBreakMinutes(shiftMinutes, ageOn(employee.dateOfBirth, date));
+  return requiredBreakMinutes(shiftMinutes, ruleAge(employee, date));
 }
 
 export interface ComplianceOptions {
@@ -138,7 +140,7 @@ export function checkEmployeeWeek(
   const week = mine.filter((s) => inWeek.has(s.date));
   // Someone not on the books this week, and not rostered, has nothing to check.
   if (week.length === 0 && !dates.some((d) => isEmployedOn(employee, d))) return [];
-  const age = ageOn(employee.dateOfBirth, weekStartDate);
+  const age = ruleAge(employee, weekStartDate);
   const young = age < 18;
   const push = (i: Omit<Issue, 'employeeId'>) => issues.push({ employeeId: employee.id, ...i });
   const nation = options.nation ?? 'england';
@@ -201,9 +203,9 @@ export function checkEmployeeWeek(
       push({ ...base, code: 'not-trained', severity: 'warn', message: 'Not signed off for this role.' });
     }
     if (employee.payBasis === 'hourly') {
-      const band = minimumWageFor(ageOn(employee.dateOfBirth, shift.date), rates);
-      // Withheld pay reads as nought; the API, which holds the real rate, makes this check for that reader.
-      if (band && !employee.payHidden && employee.hourlyRate < band.hourly) {
+      const band = minimumWageFor(ruleAge(employee, shift.date), rates);
+      // Withheld pay or age reads as nought or a guess; the API, which holds both, makes this check for that reader.
+      if (band && !employee.payHidden && !employee.personalHidden && employee.hourlyRate < band.hourly) {
         push({
           ...base,
           code: 'minimum-wage',

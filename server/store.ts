@@ -271,15 +271,47 @@ export interface ApiKeyRecord {
   createdAt: string;
   createdBy: string;
   lastUsedAt?: string;
+  /**
+   * Set when revoked. A revoked key is kept, never deleted, so a later attempt to use it is still
+   * recognised, refused and logged against it: the evidence a breach investigation needs.
+   */
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
+/** One request made with an API key. Kept 13 months for breach investigation. */
+export interface ApiCall {
+  orgId: string;
+  /** The app key's id, or `env:<name>` for a key set by deployment. */
+  keyId: string;
+  at: string;
+  method: string;
+  /** Path and query as sent. */
+  path: string;
+  status: number;
+  ip: string;
+  ms: number;
+  /** Set when the key was refused before reaching any data: revoked or rate limited. */
+  refused?: 'revoked' | 'rate_limited';
 }
 
 export interface ApiKeyStore {
   getApiKeyByHash(hash: string): Promise<ApiKeyRecord | null>;
+  /** Every key the organisation has made, revoked ones included. */
   listApiKeys(orgId: string): Promise<ApiKeyRecord[]>;
   /** Creates or replaces, by hash. */
   putApiKey(key: ApiKeyRecord): Promise<void>;
-  deleteApiKey(orgId: string, id: string): Promise<boolean>;
+  /** Marks the key revoked; false if it is unknown or already revoked. */
+  revokeApiKey(orgId: string, id: string, by: string): Promise<boolean>;
+  logApiCall(call: ApiCall): Promise<void>;
+  /** Newest first. */
+  listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }): Promise<ApiCall[]>;
+  /** Removes calls made before the given time; returns how many. */
+  purgeApiCalls(before: string): Promise<number>;
 }
+
+/** How long API call records are kept: the partner's 12 months, plus a month to report on them. */
+export const API_CALL_RETENTION_DAYS = 396;
 
 export interface StaffStore {
   getStaffLogin(orgId: string, employeeId: string): Promise<StaffLogin | null>;
@@ -570,10 +602,33 @@ export class MemoryStore implements Store {
     this.apiKeys.set(key.hash, { ...key });
   }
 
-  async deleteApiKey(orgId: string, id: string) {
-    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id);
-    if (found) this.apiKeys.delete(found.hash);
+  async revokeApiKey(orgId: string, id: string, by: string) {
+    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id && !k.revokedAt);
+    if (found) this.apiKeys.set(found.hash, { ...found, revokedAt: new Date().toISOString(), revokedBy: by });
     return !!found;
+  }
+
+  private apiCalls: ApiCall[] = [];
+
+  async logApiCall(call: ApiCall) {
+    this.apiCalls.push({ ...call });
+    // Memory is for development and tests; keep it bounded.
+    if (this.apiCalls.length > 100_000) this.apiCalls.splice(0, this.apiCalls.length - 100_000);
+  }
+
+  async listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }) {
+    return this.apiCalls
+      .filter((c) => c.orgId === orgId && c.keyId === keyId && (!options.from || c.at >= options.from) && (!options.to || c.at < options.to))
+      .reverse()
+      .slice(0, options.limit)
+      .map((c) => ({ ...c }));
+  }
+
+  async purgeApiCalls(before: string) {
+    const kept = this.apiCalls.filter((c) => c.at >= before);
+    const removed = this.apiCalls.length - kept.length;
+    this.apiCalls = kept;
+    return removed;
   }
 
   private readonly documents = new Map<string, StoredFile>();
@@ -696,6 +751,18 @@ export class PgStore implements Store {
         [],
       );
       await this.query('create index if not exists api_keys_org_idx on preshift.api_keys (org_id)', []);
+      await this.query(
+        `create table if not exists preshift.api_calls (
+           seq bigserial primary key,
+           org_id text not null,
+           key_id text not null,
+           at timestamptz not null,
+           data jsonb not null
+         )`,
+        [],
+      );
+      await this.query('create index if not exists api_calls_key_idx on preshift.api_calls (org_id, key_id, at)', []);
+      await this.query('create index if not exists api_calls_at_idx on preshift.api_calls (at)', []);
       // Base64 text rather than bytea: Neon's HTTP driver and PGlite pass strings identically.
       await this.query(
         `create table if not exists preshift.documents (
@@ -935,10 +1002,42 @@ export class PgStore implements Store {
     );
   }
 
-  async deleteApiKey(orgId: string, id: string) {
+  async revokeApiKey(orgId: string, id: string, by: string) {
     await this.init();
-    const rows = await this.query('delete from preshift.api_keys where org_id = $1 and id = $2 returning id', [orgId, id]);
+    // One statement, so two people revoking at once both see the key revoked and only one records it.
+    const rows = await this.query(
+      `update preshift.api_keys set data = data || jsonb_build_object('revokedAt', $3::text, 'revokedBy', $4::text)
+       where org_id = $1 and id = $2 and not (data ? 'revokedAt') returning id`,
+      [orgId, id, new Date().toISOString(), by],
+    );
     return rows.length > 0;
+  }
+
+  async logApiCall(call: ApiCall) {
+    await this.init();
+    await this.query('insert into preshift.api_calls (org_id, key_id, at, data) values ($1, $2, $3, $4)', [
+      call.orgId,
+      call.keyId,
+      call.at,
+      JSON.stringify(call),
+    ]);
+  }
+
+  async listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }) {
+    await this.init();
+    const rows = await this.query(
+      `select data from preshift.api_calls
+       where org_id = $1 and key_id = $2 and ($3::timestamptz is null or at >= $3) and ($4::timestamptz is null or at < $4)
+       order by at desc, seq desc limit $5`,
+      [orgId, keyId, options.from ?? null, options.to ?? null, options.limit],
+    );
+    return rows.map((r) => jsonFrom<ApiCall>(r.data));
+  }
+
+  async purgeApiCalls(before: string) {
+    await this.init();
+    const rows = await this.query('with gone as (delete from preshift.api_calls where at < $1 returning 1) select count(*)::int as n from gone', [before]);
+    return Number(rows[0].n);
   }
 
   async putDocument(orgId: string, id: string, file: StoredFile) {
