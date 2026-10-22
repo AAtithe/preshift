@@ -24,12 +24,15 @@ if (process.env.NODE_ENV !== 'production' && ctx.store instanceof MemoryStore) {
     lockedUntil: 0,
   });
   // The sample group's trading history, and today traded up to now so the cut call has a live day to read.
-  // The memory store holds the object itself, so there is nothing to save.
-  const demo = await ctx.store.load('demo');
-  const live = londonParts(new Date());
-  const history = seedHistory(demo.state, live.date);
-  demo.state = seedLiveDay(history.state, live.date, live.minute);
-  demo.timeEntries = history.timeEntries;
+  // The memory store holds the object itself, so there is nothing to save. The browser checks turn it
+  // off: they build and move this week's shifts, which worked history would lock.
+  if (process.env.PRESHIFT_SAMPLE_HISTORY !== '0') {
+    const demo = await ctx.store.load('demo');
+    const live = londonParts(new Date());
+    const history = seedHistory(demo.state, live.date);
+    demo.state = seedLiveDay(history.state, live.date, live.minute);
+    demo.timeEntries = history.timeEntries;
+  }
   app.log.info(`Sign in locally as ${DEV_USER.email} / ${DEV_USER.password}`);
 }
 
