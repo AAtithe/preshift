@@ -145,9 +145,9 @@ describe('HR records', () => {
     const { call } = await setup();
     expect((await call('POST', '/v1/hr/records', { employeeId: 'nobody', kind: 'note', date: '2026-10-21', title: 'x' })).status).toBe(404);
     expect((await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'training', date: '2026-10-21', title: 'COSHH', expiresOn: '2026-01-01' })).status).toBe(422);
-    expect((await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'case', date: '2026-10-21', title: 'x' })).status).toBe(422);
+    expect((await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'case', date: '2026-10-21', title: 'x' }, 'kate')).status).toBe(422);
     expect((await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'payslip', date: '2026-10-21', title: 'x' })).status).toBe(400);
-    const opened = await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'case', caseType: 'investigation', date: '2026-10-21', title: 'Stock loss' });
+    const opened = await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'case', caseType: 'investigation', date: '2026-10-21', title: 'Stock loss' }, 'kate');
     expect(opened.body.caseStatus).toBe('open');
   });
 

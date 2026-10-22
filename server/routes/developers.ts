@@ -163,6 +163,7 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
       createdAt: new Date().toISOString(),
       // An organisation-wide system key, recorded against the person who made it.
       createdBy: actorName(g),
+      ...(g.user ? { createdById: g.user.id } : {}),
     };
     await store.putApiKey(record);
     audit(orgOf(req), actorName(g), 'access.api_key_created', { id: record.id, name, scopes });

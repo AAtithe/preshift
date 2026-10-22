@@ -297,7 +297,7 @@ export function timeRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       if (body.siteId) g.allow('time.approve', body.siteId);
       const match = body.ids ? (t: TimeEntry) => body.ids!.includes(t.id) : inRange(body);
-      const own = (t: TimeEntry) => !!g.user?.employeeId && t.employeeId === g.user.employeeId;
+      const own = (t: TimeEntry) => !!g.behind?.employeeId && t.employeeId === g.behind.employeeId;
       const candidates = org.timeEntries.filter((t) => t.status === 'submitted' && match(t));
       if (body.ids) {
         for (const t of candidates) {

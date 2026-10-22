@@ -26,6 +26,9 @@ import { issueInvite } from './users';
 //   as first-run set-up makes the first owner, and the link only ever goes to the owner's own email:
 //   nobody at WS ever holds a client owner's link. From then on the owner runs their own access,
 //   WS partner included.
+// - A client is removed only while nobody on the client's side has ever signed in to it, so WS can
+//   never take away a business that is using Preshift. Removing closes it: every record there is
+//   suspended, its links stop working and it leaves everyone's list, but nothing is deleted.
 
 const RESENDS_PER_HOUR = 3;
 /** No change for this long and a live client is flagged as quiet. */
@@ -93,6 +96,17 @@ export interface ClientSummary {
   lastActivity: string | null;
   steps: ClientStep[];
   attention: string[];
+  /** Nobody on the client's side has ever signed in and nothing has been set up: it can be removed. */
+  removable: boolean;
+}
+
+/** Why this client cannot be removed, or null. Once the client has signed in, it is theirs. */
+export function removalBlock(org: OrgData): string | null {
+  if (org.users.some((u) => u.audience !== 'ws' && (u.status === 'active' || u.activatedAt))) {
+    return 'Someone at the client has signed in, so the client runs its own organisation now. Ask its owner to remove Williams, Stanley & Co. instead.';
+  }
+  if (org.state.sites.length > 0 || org.state.employees.length > 0) return 'The client already has sites or people set up.';
+  return null;
 }
 
 /** One client at a glance. Counts only: nobody's personal details leave the client's own screens. */
@@ -147,6 +161,7 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
     lastActivity,
     steps,
     attention,
+    removable: removalBlock(org) === null,
   };
 }
 
@@ -185,6 +200,7 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext) {
     for (const orgId of orgsOfAccount(account)) {
       if (isSandbox(orgId) || !(await ctx.store.has(orgId))) continue;
       const org = orgId === here.orgId ? here : await ctx.store.load(orgId);
+      if (org.closed) continue;
       const roles = wsRolesIn(org, account.email, today());
       if (roles.length) out.push(await summarise(ctx, org, roles, orgId === here.orgId, today()));
     }
@@ -279,6 +295,14 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
+  /** A client this person is the WS partner of, other than the one they are in. Anything else reads as not found. */
+  async function partnersClient(account: UserRecord, home: OrgData, orgId: string): Promise<OrgData> {
+    if (orgId === home.orgId || isSandbox(orgId) || !orgsOfAccount(account).includes(orgId) || !(await ctx.store.has(orgId))) throw notFound(`Client ${orgId}`);
+    const client = await ctx.store.load(orgId);
+    if (client.closed || !wsRolesIn(client, account.email, today()).includes('ws_partner')) throw notFound(`Client ${orgId}`);
+    return client;
+  }
+
   app.post<{ Params: { orgId: string } }>(
     '/v1/clients/:orgId/owner-invite',
     {
@@ -292,11 +316,7 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext) {
       const home = orgOf(req);
       const account = await accountOf(ctx, req);
       const partner = clientPartner(req, home, account, today());
-      const { orgId } = req.params;
-      // Only a client this person is the WS partner of. Anything else reads as not found.
-      if (orgId === home.orgId || isSandbox(orgId) || !orgsOfAccount(account).includes(orgId) || !(await ctx.store.has(orgId))) throw notFound(`Client ${orgId}`);
-      const client = await ctx.store.load(orgId);
-      if (!wsRolesIn(client, account.email, today()).includes('ws_partner')) throw notFound(`Client ${orgId}`);
+      const client = await partnersClient(account, home, req.params.orgId);
       const owner = pendingOwner(client, today());
       const recent = (client.inviteSends[owner.id] ?? []).filter((t) => Date.now() - Date.parse(t) < 3_600_000);
       if (recent.length >= RESENDS_PER_HOUR) throw new HttpError(429, 'rate_limited', 'Three invitations have gone in the last hour. Wait before sending another.');
@@ -306,6 +326,48 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext) {
       audit(client, partner.name, 'invite.resent', { userId: owner.id, emailed: sent.emailed });
       await ctx.store.save(client);
       return { expiresAt: link.expiresAt, ...sent };
+    },
+  );
+
+  app.delete<{ Params: { orgId: string } }>(
+    '/v1/clients/:orgId',
+    {
+      schema: {
+        tags,
+        description:
+          'Removes a client nobody on the client\'s side has ever signed in to: its owner invitation stops working, every record there is ' +
+          'suspended and it leaves everyone\'s list. The organisation and its audit trail are kept, never deleted. Refused (409) once the client has signed in.',
+        params: { type: 'object', required: ['orgId'], properties: { orgId: { type: 'string' } } },
+      },
+    },
+    async (req, reply) => {
+      const home = orgOf(req);
+      const account = await accountOf(ctx, req);
+      const partner = clientPartner(req, home, account, today());
+      const client = await partnersClient(account, home, req.params.orgId);
+      const block = removalBlock(client);
+      if (block) throw new HttpError(409, 'client_in_use', block);
+
+      const at = new Date().toISOString();
+      for (const u of client.users) {
+        for (const m of u.memberships) {
+          if (m.active) Object.assign(m, { active: false, revokedBy: partner.name, revokedAt: at });
+        }
+        u.status = 'suspended';
+        u.inviteExpiresAt = undefined;
+      }
+      client.inviteTokens = {};
+      client.closed = { at, by: partner.name };
+      audit(client, partner.name, 'client.removed', { by: partner.name });
+      await ctx.store.save(client);
+      // Off every switcher: the WS people who held it, and anyone invited who already had an account.
+      for (const u of client.users) {
+        const a = await ctx.store.getUser(u.email);
+        if (!a || !orgsOfAccount(a).includes(client.orgId) || a.orgId === client.orgId) continue;
+        await ctx.store.updateUser(a.email, { orgs: orgsOfAccount(a).filter((o) => o !== client.orgId), ...(a.lastOrgId === client.orgId ? { lastOrgId: undefined } : {}) });
+      }
+      audit(home, partner.name, 'client.removed', { orgId: client.orgId, name: orgName(client) });
+      return reply.code(204).send();
     },
   );
 }
