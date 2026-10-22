@@ -84,6 +84,7 @@ export const employeeBody = {
     },
     email: { type: 'string' },
     phone: { type: 'string' },
+    rotaNotes: { type: 'string', maxLength: 1000 },
     startDate: isoDate,
     rightToWork: {
       type: 'object',

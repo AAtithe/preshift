@@ -1,3 +1,4 @@
+import { addDays, londonParts, weekStart } from '../src/engine/time';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -66,13 +67,17 @@ describe('rota', () => {
 
   it('replaces a week in one go, as when a rota assistant draft is applied', async () => {
     const { call } = await setup();
-    await call('POST', '/v1/rota/build', { siteId: 'mar', weekStart: WEEK });
-    const draft = [{ id: 'd1', employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: WEEK, startMinute: 600, endMinute: 960, breakMinutes: 0 }];
-    const res = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: WEEK, shifts: draft });
+    // A week still ahead: shifts that have started can never be replaced (see assistantApply.test.ts).
+    const ahead = weekStart(addDays(londonParts(new Date()).date, 14));
+    const existing = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', startMinute: 600, endMinute: 960, breakMinutes: 0 };
+    await call('POST', '/v1/shifts', { ...existing, date: ahead });
+    await call('POST', '/v1/shifts', { ...existing, date: addDays(ahead, 1) });
+    const draft = [{ ...existing, id: 'd1', date: ahead, startMinute: 660 }];
+    const res = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: ahead, shifts: draft });
     expect(res.status).toBe(200);
-    const week = await call('GET', `/v1/shifts?siteId=mar&from=${WEEK}&to=2026-10-25`);
+    const week = await call('GET', `/v1/shifts?siteId=mar&from=${ahead}&to=${addDays(ahead, 6)}`);
     expect(week.body.map((s: { id: string }) => s.id)).toEqual(['d1']);
-    const outside = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: WEEK, shifts: [{ ...draft[0], date: '2026-11-02' }] });
+    const outside = await call('PUT', '/v1/rota/week', { siteId: 'mar', weekStart: ahead, shifts: [{ ...draft[0], date: addDays(ahead, 7) }] });
     expect(outside.status).toBe(422);
   });
 
