@@ -26,6 +26,12 @@ locally. Set these to connect to real TeamPay:
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `PRESHIFT_DEMO` | `1` switches on the public demo alongside customers: a private sandbox per visitor from `/demo`, on a route allowlist, simulator payroll, wiped at midnight UK time. Unset is the kill switch. See the README |
 | `PRESHIFT_DEMO_CLAUDE_KEY` | Claude API key the demo sandboxes share for the rota assistant, capped per sandbox and per day. Never a customer's key. Unset means the assistant is off in the demo |
+| `PRESHIFT_SIGNUP` | `1` switches on self sign-up: "Start a free trial" on the sign-in page. Needs email set up under Settings in the first organisation, which sends the confirmation links. Unset is the kill switch; organisations already made carry on |
+| `PRESHIFT_TRIAL_DAYS` | Free trial for a self sign-up, in days. Defaults to 14 |
+| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_live_...` or `sk_test_...`). Billing is on only when this, the webhook secret and the price are all set |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_...`) of the Stripe webhook pointed at `/v1/integrations/stripe/webhook`, sending `checkout.session.completed`, `customer.subscription.created`, `.updated`, `.deleted`, `invoice.paid` and `invoice.payment_failed` |
+| `STRIPE_PRICE_ID` | The recurring Stripe price, per site per month or year. The subscription's quantity is the organisation's site count |
+| `PRESHIFT_APP_URL` | Optional. The address Stripe returns people to after Checkout and the customer portal; defaults to the address they came in on |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes), `/internal/webhooks` (every 15 minutes, webhook retries) and `/internal/demo-reset` (the demo's midnight reset) |
 
 ## Authentication and tenancy

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bloginReviewer\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -19,6 +19,7 @@ const EXEMPT_FILES: Record<string, string> = {
 const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/privacy/register': 'The record of processing names nobody and is open to anyone who reads the rota.',
   'POST /v1/integrations/teampay/webhook/:orgId': 'Called by TeamPay with a signed body, never by a person.',
+  'POST /v1/integrations/stripe/webhook': "Called by Stripe with a signed body, never by a person; applied only to the organisation that owns the Stripe customer.",
   'GET /v1/webhooks/events': 'The public catalogue of event types and what each carries: no organisation data.',
   'GET /v1/clients': "The caller's own client list: only organisations their own account holds a WS role in, as counts.",
   'GET /v1/dev/people': 'Development only: answers dev- keys outside production and 404s for everyone else.',

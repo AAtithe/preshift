@@ -3,7 +3,7 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
-import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
+import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
@@ -18,7 +18,8 @@ import { CloseView } from './CloseView';
 import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { ForecastView } from './ForecastView';
-import { dayLabel, isoWeek } from './format';
+import { dayLabel } from './format';
+import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
 import { HowToView } from './HowToView';
@@ -35,6 +36,7 @@ import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
 import { ClientsView } from './ClientsView';
+import { BillingBanner, BillingView } from './BillingView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
@@ -69,7 +71,6 @@ function savedView(): RotaView {
   }
 }
 
-const MONTH = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 export function App() {
   const { state, me, error, setError, actions } = useRotaStore();
@@ -318,7 +319,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
       )
     : [];
   const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
-  const range = `${new Date(`${week}T00:00:00Z`).getUTCDate()} to ${new Date(`${dates[6]}T00:00:00Z`).getUTCDate()} ${MONTH(dates[6])}`;
 
   // Shifty and the command bar read what the manager is looking at, and act only through these.
   const agentDeps: ProposalDeps = {
@@ -374,13 +374,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              {section.scope === 'week' && (
-                <div className="weeknav">
-                  <button onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">&larr;</button>
-                  <span className="tnum">{range}</span>
-                  <button onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">&rarr;</button>
-                </div>
-              )}
               </>}
             </div>
           </div>
@@ -388,7 +381,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             <h1>{scopeName}</h1>
             {section.scope === 'week' && (
               <div className="mast-meta">
-                <span className="eyebrow">Week {isoWeek(week)} · {dayLabel(week).date} to {dayLabel(dates[6]).date}</span>
+                <WeekPicker week={week} onChange={setWeek} />
                 <span className={`stamp ${status}`}>{statusLabel}</span>
               </div>
             )}
@@ -411,6 +404,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
 
         <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
+            {activeTab !== 'billing' && <BillingBanner billing={account?.billing} canSettings={allow('settings.manage')} onOpen={() => setTab('billing')} />}
             {sample && !account?.demo && activeTab !== 'setup' && (
               <div className="notice">
                 You are looking at the sample group, not your business.{' '}
@@ -651,6 +645,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
+              {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
