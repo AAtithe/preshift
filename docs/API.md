@@ -22,6 +22,7 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_EMPLOYER_ID` | The client's employer in TeamPay, for an organisation with one company only. A group sets an employer on each company instead (`PATCH /v1/entities/:id`); this variable is never used for more than one company. |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
+| `PRESHIFT_PUBLIC_URL` | Optional. The address people reach Preshift on, for example `https://rota.example.co.uk`, used as the issuer for Sign in with Preshift. Set it only behind a proxy that changes the host name |
 | `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `PRESHIFT_DEMO` | `1` switches on the public demo alongside customers: a private sandbox per visitor from `/demo`, on a route allowlist, simulator payroll, wiped at midnight UK time. Unset is the kill switch. See the README |
@@ -222,14 +223,46 @@ not publish", "approve Friday's clocked time at the bar".
 | `publish_rota` | `rota:write` | `POST /v1/rota/publish` |
 | `approve_time` | `time:approve` | `POST /v1/time-entries/approve` |
 
-Connecting Claude: in claude.ai, Settings, Connectors, add a custom connector with the URL
-`https://<your Preshift address>/mcp`, and give it the key as a bearer token where the client
-asks for one. In Claude Code:
+Connecting Claude with a key, in Claude Code:
 
 ```bash
 claude mcp add --transport http preshift https://<your Preshift address>/mcp \
   --header "Authorization: Bearer psk_..."
 ```
+
+### Sign in with Preshift (claude.ai)
+
+claude.ai connects with no key at all. Add a custom connector (Settings, Connectors) with the
+address `https://<your Preshift address>/mcp` and press Connect. Claude finds Preshift's sign-in
+on its own, opens it, and the person signs in to Preshift as they normally do. They then see
+what Claude will be able to do and tick the boxes, and Claude is connected. Claude Code and
+Claude Desktop use the same sign-in when added without a key header.
+
+- Standards: OAuth 2.1 with PKCE (S256 only), dynamic client registration (RFC 7591),
+  protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`,
+  authorisation server metadata (RFC 8414) at `/.well-known/oauth-authorization-server`, and
+  token revocation (RFC 7009) at `/oauth/revoke`. A `401` from `/mcp` names the metadata in
+  `WWW-Authenticate`, which is how a client finds the sign-in.
+- A token acts as the person who approved it, exactly as a personal API key does. Their roles
+  decide, site by site: a GM's connection reaches their own site only. It never counts as having
+  passed the authenticator, so strong rights (pay changes and approval, payroll, settings, access,
+  HR cases, close export) stay in the app, whatever the person holds.
+- The person ticks what Claude may do from `rota:read` (ticked by default), `employees:read`,
+  `rota:write` and `time:approve`. Nothing else is offered.
+- Only someone with an active access record in the organisation can connect. The public demo
+  refuses.
+- Access tokens last an hour; refresh tokens 30 days and rotate on every use. A refresh token
+  used twice ends the whole connection, as it means someone holds a copy. Codes last five
+  minutes and work once, with their own verifier, for their own app and address.
+- A connection ends at once when the person disconnects it at `/oauth/connections`, when it is
+  revoked, when the person is removed or suspended, or when their password is reset.
+- Redirect addresses must be https, or http on `localhost` for desktop clients, and must match
+  what the app registered exactly. A bad one is shown as an error, never followed.
+- Every connection and disconnection is in the organisation's audit trail (`oauth.connected`,
+  `oauth.revoked`). Calls made through it are logged like any key's, as `oauth:<grant id>`.
+- Clients, codes and tokens are kept in the settings table, hashed, so nothing new needs setting
+  up. Set `PRESHIFT_PUBLIC_URL` if Preshift sits behind a proxy that changes the host name;
+  otherwise the address is taken from the request.
 
 Locally, `npm run dev` serves it at `http://localhost:8787/mcp` with `dev-key`. Add a tool in
 `server/mcp.ts`: name the route it calls and the scope it needs; the route does the rest.
