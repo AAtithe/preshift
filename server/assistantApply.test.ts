@@ -5,6 +5,7 @@ import type { Shift } from '../src/engine/types';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
+import { kit } from './testkit';
 
 // Relative to the real clock, because the server decides what has started from the time now.
 const today = londonParts(new Date()).date;
@@ -152,5 +153,25 @@ describe('saving a group draft', () => {
     expect(t.org.state.shifts.filter((s) => s.date === NEXT_WEEK).map((s) => s.id).sort()).toEqual(['f1', 'm1']);
     expect(t.org.audit.at(-1)).toMatchObject({ action: 'rota.assistant_applied', detail: { siteIds: ['mar', 'fitz'], instruction: 'Share staff across both.' } });
     expect((await putWeeks({ weekStart: NEXT_WEEK, sites: [{ siteId: 'mar', shifts: [] }, { siteId: 'mar', shifts: [] }] })).statusCode).toBe(422);
+  });
+});
+
+describe('saving a group draft under site access', () => {
+  it('refuses the whole draft if it touches a site the person may not edit', async () => {
+    const k = await kit();
+    const priya = await k.as('priya@marylebonegroup.example'); // General Manager at Marylebone only
+    const shift = (siteId: string, id: string, employeeId: string): Shift => ({
+      id, employeeId, roleId: 'server', siteId, date: NEXT_WEEK, startMinute: 12 * 60, endMinute: 16 * 60, breakMinutes: 0,
+    });
+    const both = await k.call('PUT', '/v1/rota/weeks', priya, {
+      weekStart: NEXT_WEEK,
+      sites: [{ siteId: 'mar', shifts: [shift('mar', 'm1', 'mar-8')] }, { siteId: 'fitz', shifts: [shift('fitz', 'f1', 'fitz-3')] }],
+    });
+    expect(both.status).toBe(403);
+    expect(both.body.message).toMatch(/Fitzrovia/);
+    const org = await k.store.load('demo');
+    expect(org.state.shifts.some((s) => s.id === 'm1')).toBe(false); // nothing saved, not even her own site
+    const mine = await k.call('PUT', '/v1/rota/weeks', priya, { weekStart: NEXT_WEEK, sites: [{ siteId: 'mar', shifts: [shift('mar', 'm1', 'mar-8')] }] });
+    expect(mine.status).toBe(200);
   });
 });

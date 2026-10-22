@@ -15,12 +15,14 @@ import {
   type SubjectRequest,
   type SubjectRequestKind,
 } from '../../src/engine/gdpr';
-import { requireAdmin, requireScope } from '../auth';
+import { requireScope } from '../auth';
+import { guard } from '../guard';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { emailSetting } from '../mail';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { claudeKeySetting } from './access';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies } from './documents';
 
 const today = () => londonParts(new Date()).date;
 const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
@@ -47,13 +49,19 @@ const policyBody = {
 
 /**
  * UK GDPR for staff data: the record of processing, the retention schedule, and the log and
- * tools for requests people make about their data. Reading the register and schedule is open to
- * anyone who can read the rota; acting on personal data (exports, erasure, retention) is admin only,
- * because a subject access export is everything held on a person.
+ * tools for requests people make about their data. Reading the register is open to anyone who
+ * can read the rota. Everything that names a person or acts on their data (the schedule, exports,
+ * erasure, retention, the request log) is privacy.manage, which needs the authenticator, and is
+ * done by a person, never an integration key: a subject access export is everything held on someone.
  */
 export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
-  const admin = { preHandler: requireAdmin };
+  const admin = {
+    preHandler: async (req: FastifyRequest) => {
+      if (!req.principal.userId && !req.principal.email) throw new HttpError(403, 'forbidden', 'Staff data requests are handled by a person, not an API key.');
+      guard(ctx, req, orgOf(req)).allow('privacy.manage');
+    },
+  };
 
   app.get('/v1/privacy/register', { ...read, schema: { tags: ['Privacy'], description: 'The Article 30 record of processing for staff data, with what is held now.' } }, async (req) => {
     const org = orgOf(req);
@@ -71,7 +79,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
     );
   });
 
-  app.get('/v1/privacy/retention', { ...read, schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
+  app.get('/v1/privacy/retention', { ...admin, schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
     const org = orgOf(req);
     const policy = policyOf(org);
     return { policy, items: retentionSchedule(org.state, org.timeEntries, today(), policy) };
@@ -88,12 +96,18 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post(
     '/v1/privacy/retention/apply',
-    { ...admin, schema: { tags: ['Privacy'], description: 'Removes everything whose retention period has ended. Cannot be undone.' } },
+    {
+      ...admin,
+      schema: { tags: ['Privacy'], description: 'Removes everything whose retention period has ended, stored right to work copies included. Cannot be undone.' },
+      onResponse: deleteCopiesOnSave(ctx),
+    },
     async (req) => {
       const org = orgOf(req);
       const day = today();
       const items = retentionSchedule(org.state, org.timeEntries, day, policyOf(org));
       const result = applyRetention(org.state.employees, org.timeEntries, items, day);
+      // The encrypted files go too, once the records no longer name them.
+      deleteCopiesAfterSave(req, droppedCopies(org.state.employees, result.employees));
       org.state.employees = result.employees;
       org.timeEntries = result.timeEntries;
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.

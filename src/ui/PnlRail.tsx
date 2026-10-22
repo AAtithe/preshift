@@ -12,13 +12,17 @@ interface Props {
   published: boolean;
   blocks: number;
   onPublish: () => void;
+  /** Pay is withheld from those who do not see cost, so the statement would read as nought: shown only to them. */
+  showCost: boolean;
+  /** Why publishing is not offered, when it is for want of the right rather than the rota. */
+  publishRefused?: string;
 }
 
 /**
  * The rota read as a management P&L: forecast sales, the four parts of loaded labour, the
  * contribution left after labour, and the verdict against target. Sits beside every screen.
  */
-export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish }: Props) {
+export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish, showCost, publishRefused }: Props) {
   // Site-scoped parts: anyone borrowed brings only the share of their week worked here.
   const { gross, holiday, employerNi: ni, pension } = metrics.cost.parts;
   // Tie the statement to the labour cost the rest of the page and the journal use.
@@ -34,6 +38,17 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
 
   return (
     <aside className="rail" aria-label="Rota P&L">
+      {!showCost && (
+        <div className="rail-section">
+          <div className="eyebrow">Rota · forecast</div>
+          <div className="rail-verdict">
+            <span className="rail-pct tnum">{metrics.paidHours.toFixed(0)}h</span>
+            <span className="muted">rostered</span>
+          </div>
+          <p className="muted small">Forecast sales {money(metrics.forecastSales)}. Labour cost is shown to those who see pay.</p>
+        </div>
+      )}
+      {showCost && (<>
       <div className="rail-section">
         <div className="eyebrow">Rota P&amp;L · forecast</div>
         <div className="rail-verdict">
@@ -65,6 +80,12 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
             <th>Wages</th>
             <td className="tnum">{ledger(-rGross)}</td>
           </tr>
+          {metrics.cost.travel.cost >= 0.5 && (
+            <tr className="memo">
+              <th>of which paid travel between sites ({metrics.cost.travel.hours.toFixed(1)}h)</th>
+              <td className="tnum">{ledger(-Math.round(metrics.cost.travel.cost))}</td>
+            </tr>
+          )}
           <tr>
             <th>Holiday accrual</th>
             <td className="tnum">{ledger(-rHoliday)}</td>
@@ -100,6 +121,7 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
           ))}
         </div>
       </div>
+      </>)}
 
       <div className="rail-section">
         <div className="eyebrow">
@@ -120,7 +142,7 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
       </div>
 
       <div className="rail-sign">
-        <button className="primary" disabled={!canPublish} onClick={onPublish} title={blocks ? 'Resolve blocking issues before publishing' : undefined}>
+        <button className="primary" disabled={!canPublish || !!publishRefused} onClick={onPublish} title={publishRefused ?? (blocks ? 'Resolve blocking issues before publishing' : undefined)}>
           {published ? 'Signed off and published' : 'Sign off and publish'}
         </button>
         <span className="muted small">

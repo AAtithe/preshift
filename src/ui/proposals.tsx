@@ -20,7 +20,7 @@ export interface ProposalDeps {
 export async function carryOut(p: Proposal, deps: ProposalDeps): Promise<string> {
   const { actions } = deps;
   const done = <T,>(value: T | undefined, line: string) => {
-    if (value === undefined) throw new Error('The app did not accept it. The reason is shown at the top of the screen.');
+    if (value === undefined) throw new Error(`Not saved: ${actions.lastError() ?? 'the app did not accept it.'}`);
     return line;
   };
   switch (p.kind) {

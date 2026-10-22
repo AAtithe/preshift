@@ -1,9 +1,8 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usageCostUsd } from '../src/ai/pricing';
-import { buildApp } from './app';
-import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore, PgStore, type Query } from './store';
+import { enrol, kit, TODAY, tokenOf } from './testkit';
 
 const KEY = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234';
 const REQUEST = { model: 'claude-opus-5-5', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] };
@@ -13,22 +12,22 @@ const DOLLAR = { input_tokens: 0, output_tokens: 50_000, cache_read_input_tokens
 afterEach(() => vi.unstubAllGlobals());
 
 async function boot() {
-  const store = new MemoryStore(['demo'], '2026-10-21');
-  const { app } = await buildApp({ apiKeys: [], store, provider: new TeamPaySimulator(), autoDispatch: false });
-  const form = (url: string, fields: Record<string, string>) =>
-    app.inject({ method: 'POST', url, headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: new URLSearchParams(fields).toString() });
-  const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie'] ?? '').split(';')[0];
-  const call = (method: string, url: string, cookie: string, body?: unknown) =>
-    app.inject({ method: method as 'GET', url, headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
-
-  const owner = cookieOf(await form('/auth/setup', { email: 'owner@ws.example', password: 'correct horse battery', confirm: 'correct horse battery' }));
-  await call('PUT', '/v1/settings/claude-api-key', owner, { claudeApiKey: KEY });
-  await call('POST', '/v1/users', owner, { email: 'gm@ws.example', password: 'gm password long', role: 'member' });
-  const gm = cookieOf(await form('/auth/login', { email: 'gm@ws.example', password: 'gm password long' }));
+  // A fresh system as main's access tests build it: the owner sets up an authenticator, then invites a GM.
+  const k = await kit({ store: new MemoryStore([], TODAY), accounts: false });
+  const setup = await k.form('/auth/setup', { email: 'owner@ws.example', password: 'correct horse battery', confirm: 'correct horse battery', next: '/app/' });
+  const owner = (await enrol(k, setup.cookie!)).cookie;
+  await k.call('PUT', '/v1/settings/claude-api-key', owner, { claudeApiKey: KEY });
+  const sent = await k.call('POST', '/v1/users', owner, { email: 'gm@ws.example', name: 'gm', audience: 'operator', roleId: 'viewer' });
+  if (sent.status !== 201) throw new Error(`invite: ${sent.status} ${sent.raw}`);
+  const gm = (await k.form('/auth/accept', { token: tokenOf(sent.body.inviteUrl), password: 'gm password long', confirm: 'gm password long' })).cookie!;
 
   // Claude itself is stubbed; every call reports usage worth $1.
   const upstream = vi.fn(async () => Response.json({ id: 'm', type: 'message', content: [], stop_reason: 'end_turn', usage: DOLLAR }));
   vi.stubGlobal('fetch', upstream);
+  const call = async (method: string, url: string, cookie: string, body?: unknown) => {
+    const res = await k.call(method, url, cookie, body);
+    return { statusCode: res.status, json: () => res.body };
+  };
   const ask = (cookie: string) => call('POST', '/api/anthropic/v1/messages', cookie, REQUEST);
   return { owner, gm, call, ask, upstream };
 }
@@ -63,7 +62,7 @@ describe('assistant spending', () => {
     expect((await t.ask(t.owner)).statusCode).toBe(200);
   });
 
-  it('lets only admins see and set the limits, and refuses nonsense', async () => {
+  it('lets only people who manage settings set the limits, and refuses nonsense', async () => {
     const t = await boot();
     expect((await t.call('PUT', '/v1/settings/claude-limits', t.gm, { monthlyUsd: 1_000 })).statusCode).toBe(403);
     expect((await t.call('PUT', '/v1/settings/claude-limits', t.owner, { monthlyUsd: -5 })).statusCode).toBe(400);

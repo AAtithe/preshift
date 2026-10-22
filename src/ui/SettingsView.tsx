@@ -1,19 +1,15 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 
-export interface Me {
+/** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
+export interface Account {
   email: string;
+  /** The organisation this session works in. */
   orgId: string;
-  role: 'admin' | 'member';
+  /** Every organisation the person may switch to, this one included. */
+  organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
   /** Set in the public demo, where each visitor has a sandbox of their own. */
   demo?: boolean;
-}
-
-interface Person {
-  email: string;
-  role: 'admin' | 'member';
-  createdAt: string;
-  locked: boolean;
 }
 
 interface EmailStatus {
@@ -21,6 +17,7 @@ interface EmailStatus {
   from?: string;
   appUrl?: string;
   keyEndsWith?: string;
+  webhook?: { url: string; set: boolean };
 }
 
 interface Settings {
@@ -34,16 +31,16 @@ const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD',
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
-export function SettingsView({ me }: { me: Me }) {
-  if (me.demo) {
+export function SettingsView({ account, canSettings }: { account: Account | null; canSettings: boolean }) {
+  if (account?.demo) {
     return (
       <div className="settings">
         <section className="settings-card">
           <h2>Settings in the demo</h2>
           <p className="small muted">
-            In the live product this is where an admin adds the people who can sign in, sets their roles, resets
-            passwords and saves the organisation's Claude API key and email settings. The demo has no accounts to manage: you are the
-            admin of your own copy of the demo group, and it is deleted after a day.
+            In the live product this is where the Claude API key and email are set up, and where each person changes their own
+            password. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
+            your own copy of the demo group, and it is deleted after a day.
           </p>
           <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
         </section>
@@ -52,142 +49,18 @@ export function SettingsView({ me }: { me: Me }) {
   }
   return (
     <div className="settings">
-      {me.role === 'admin' && <People me={me} />}
-      {me.role === 'admin' && <ClaudeKey />}
-      {me.role === 'admin' && <EmailSetup />}
-      <OwnPassword />
+      <section className="settings-card">
+        <h2>People and sign-in</h2>
+        <p className="muted small">
+          Inviting people, their roles, password resets (emailed once email is set up below) and suspending access are on the Access tab, where each change is
+          checked against the access rules and recorded. A person sets their own password from their invitation link, so
+          nobody else ever knows it.
+        </p>
+      </section>
+      {canSettings && <ClaudeKey />}
+      {canSettings && <EmailSetup />}
+      {account && <OwnPassword />}
     </div>
-  );
-}
-
-function People({ me }: { me: Me }) {
-  const [people, setPeople] = useState<Person[]>([]);
-  const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
-  const [form, setForm] = useState({ email: '', password: '', role: 'member' as Person['role'] });
-  const [link, setLink] = useState<{ email: string; url: string; hours: number } | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setPeople(await api.get<Person[]>('/v1/users'));
-    } catch (e) {
-      setMessage({ text: problem(e), bad: true });
-    }
-  }, []);
-  useEffect(() => void load(), [load]);
-
-  async function act(done: string, fn: () => Promise<unknown>) {
-    try {
-      await fn();
-      setMessage({ text: done });
-      await load();
-    } catch (e) {
-      setMessage({ text: problem(e), bad: true });
-    }
-  }
-
-  async function add(e: FormEvent) {
-    e.preventDefault();
-    await act(`Added ${form.email}. Give them the password yourself; they can change it under Settings.`, () =>
-      api.post('/v1/users', form),
-    );
-    setForm({ email: '', password: '', role: 'member' });
-  }
-
-  function reset(p: Person) {
-    const password = prompt(`New password for ${p.email}, at least 12 characters. They will be signed out everywhere.`);
-    if (password) void act(`Password reset for ${p.email}.`, () => api.patch(`/v1/users/${encodeURIComponent(p.email)}`, { password }));
-  }
-
-  async function resetLink(p: Person) {
-    try {
-      const { token, expiresInHours } = await api.post<{ token: string; expiresInHours: number }>(
-        `/v1/users/${encodeURIComponent(p.email)}/reset-link`,
-      );
-      setLink({ email: p.email, url: `${location.origin}/login#reset=${token}`, hours: expiresInHours });
-      setMessage(null);
-    } catch (e) {
-      setMessage({ text: problem(e), bad: true });
-    }
-  }
-
-  return (
-    <section className="settings-card">
-      <h2>Who can sign in</h2>
-      <p className="muted small">
-        Accounts for signing in to Preshift. This is separate from the People tab, which holds your staff records. Admins can
-        also add and remove accounts and change these settings.
-      </p>
-      <table className="table">
-        <thead>
-          <tr><th>Email</th><th>Role</th><th>Added</th><th /></tr>
-        </thead>
-        <tbody>
-          {people.map((p) => (
-            <tr key={p.email}>
-              <td>
-                {p.email}
-                {p.email === me.email && <span className="muted"> (you)</span>}
-                {p.locked && <span className="tag">locked</span>}
-              </td>
-              <td>
-                <select
-                  value={p.role}
-                  disabled={p.email === me.email}
-                  aria-label={`Role for ${p.email}`}
-                  onChange={(e) => void act(`${p.email} is now ${e.target.value === 'admin' ? 'an admin' : 'a member'}.`, () =>
-                    api.patch(`/v1/users/${encodeURIComponent(p.email)}`, { role: e.target.value }))}
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </td>
-              <td className="muted small">{new Date(p.createdAt).toLocaleDateString('en-GB')}</td>
-              <td className="num">
-                <button className="link" onClick={() => void resetLink(p)}>Reset link</button>
-                <button className="link" onClick={() => reset(p)}>Set password</button>
-                {p.email !== me.email && (
-                  <button
-                    className="link danger"
-                    onClick={() => { if (confirm(`Remove ${p.email}? They lose access straight away.`)) void act(`Removed ${p.email}.`, () => api.del(`/v1/users/${encodeURIComponent(p.email)}`)); }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <form className="settings-form" onSubmit={add}>
-        <label>Email <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-        <label>
-          First password
-          <input type="text" required minLength={12} autoComplete="off" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-        </label>
-        <label>
-          Role
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Person['role'] })}>
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-          </select>
-        </label>
-        <button className="primary" type="submit">Add account</button>
-      </form>
-      {link && (
-        <div className="small">
-          <p>
-            Reset link for {link.email}. Send it to them yourself, for example by text. It works once, expires in {link.hours} hours,
-            and stops working if another is made. It is not shown again.
-          </p>
-          <input readOnly aria-label="Reset link" value={link.url} onFocus={(e) => e.target.select()} style={{ width: '100%' }} />
-          <p>
-            <button className="link" onClick={() => void navigator.clipboard?.writeText(link.url).then(() => setMessage({ text: 'Link copied.' }))}>Copy link</button>
-            <button className="link" onClick={() => setLink(null)}>Done</button>
-          </p>
-        </div>
-      )}
-      {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
-    </section>
   );
 }
 
@@ -314,7 +187,7 @@ function OwnPassword() {
 
 function EmailSetup() {
   const [email, setEmail] = useState<EmailStatus | null>(null);
-  const [form, setForm] = useState({ resendApiKey: '', from: '', appUrl: location.origin });
+  const [form, setForm] = useState({ resendApiKey: '', from: '', appUrl: location.origin, webhookSecret: '' });
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 
   useEffect(() => {
@@ -322,7 +195,7 @@ function EmailSetup() {
       .get<Settings>('/v1/settings')
       .then(({ email }) => {
         setEmail(email);
-        if (email.set) setForm({ resendApiKey: '', from: email.from ?? '', appUrl: email.appUrl ?? location.origin });
+        if (email.set) setForm({ resendApiKey: '', from: email.from ?? '', appUrl: email.appUrl ?? location.origin, webhookSecret: '' });
       })
       .catch((e) => setMessage({ text: problem(e), bad: true }));
   }, []);
@@ -331,18 +204,18 @@ function EmailSetup() {
     e.preventDefault();
     try {
       setEmail((await api.put<{ email: EmailStatus }>('/v1/settings/email', form)).email);
-      setForm({ ...form, resendApiKey: '' });
-      setMessage({ text: 'Saved. "Forgot your password?" on the sign-in page now sends a reset link by email.' });
+      setForm({ ...form, resendApiKey: '', webhookSecret: '' });
+      setMessage({ text: 'Saved. Invitations and password resets now go by email, and "Forgot your password?" works on the sign-in page.' });
     } catch (err) {
       setMessage({ text: problem(err), bad: true });
     }
   }
 
   async function remove() {
-    if (!confirm('Turn off reset emails? People will need an admin to send them a reset link.')) return;
+    if (!confirm('Turn off email? Invitation and reset links will come back to whoever sends them, to hand over themselves.')) return;
     try {
       setEmail((await api.del<{ email: EmailStatus }>('/v1/settings/email')).email);
-      setMessage({ text: 'Removed. Reset emails are off.' });
+      setMessage({ text: 'Removed. Email is off.' });
     } catch (err) {
       setMessage({ text: problem(err), bad: true });
     }
@@ -350,10 +223,11 @@ function EmailSetup() {
 
   return (
     <section className="settings-card">
-      <h2>Password reset email</h2>
+      <h2>Email</h2>
       <p className="muted small">
-        Lets people reset a forgotten password themselves from the sign-in page. Emails are sent through Resend from an address on
-        a domain you have verified there. Until this is set, use Reset link above to hand someone a link yourself.
+        Sends invitations and password reset links straight to the person, and lets people reset a forgotten password
+        themselves from the sign-in page. Emails go through Resend from an address on a domain you have verified there.
+        Until this is set, the Access tab shows each link once to whoever sends it, to hand over in person.
       </p>
       <p className="small">
         {email ? (email.set ? `On. Sent from ${email.from}, key ending ${email.keyEndsWith}.` : 'Off.') : '...'}
@@ -371,6 +245,20 @@ function EmailSetup() {
           App address used in links
           <input type="url" required value={form.appUrl} onChange={(e) => setForm({ ...form, appUrl: e.target.value })} />
         </label>
+        {email?.set && email.webhook && (
+          <>
+            <p className="muted small">
+              Delivery reports: in Resend, add a webhook to <code>{email.webhook.url}</code> for the events email.sent,
+              email.delivered, email.delivery_delayed, email.bounced, email.complained and email.failed, then paste its signing
+              secret here. Bounces then show on the Access tab against the person. Leave opens and clicks off: Preshift does not
+              track them. Without the webhook, "Check now" on a person asks Resend instead.
+            </p>
+            <label>
+              {email.webhook.set ? 'Webhook signing secret saved. Replace it (leave blank to keep)' : 'Webhook signing secret'}
+              <input type="password" autoComplete="off" placeholder="whsec_..." value={form.webhookSecret} onChange={(e) => setForm({ ...form, webhookSecret: e.target.value })} />
+            </label>
+          </>
+        )}
         <button className="primary" type="submit">Save</button>
         {email?.set && <button type="button" className="danger" onClick={() => void remove()}>Turn off</button>}
       </form>

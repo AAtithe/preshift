@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
-import type { Me } from './SettingsView';
+import type { Account } from './SettingsView';
 
 // One page that answers "what is Preshift connected to, and is each connection healthy".
 // Nothing is configured here: each card reads live status and points to where the setting lives.
@@ -40,7 +40,9 @@ const REQUEST = (name: string) =>
 
 interface Props {
   state: RotaState;
-  me: Me | null;
+  account: Account | null;
+  /** Holds settings.manage: sees the keys' details and manages them. */
+  canSettings: boolean;
   /** The one site in scope, if any: the Payroll and Clock in tabs work on one site. */
   singleSite: boolean;
   today: string;
@@ -49,12 +51,12 @@ interface Props {
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props) {
+export function IntegrationsView({ state, account, canSettings, singleSite, today, onOpen }: Props) {
   const [payroll, setPayroll] = useState<PayrollStatus | null>(null);
   const [payrollError, setPayrollError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [logins, setLogins] = useState<StaffLogin[] | null>(null);
-  const admin = me?.role === 'admin';
+  const admin = canSettings;
 
   useEffect(() => {
     api.get<PayrollStatus>('/v1/integrations/payroll').then(setPayroll).catch((e) => setPayrollError(e instanceof Error ? e.message : String(e)));
@@ -73,7 +75,7 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
     : missingEmployer.length > 0 || payroll.outbox.failed > 0
       ? 'attention'
       : simulated ? 'partial' : 'live';
-  const webhookUrl = me ? `${location.origin}/v1/integrations/teampay/webhook/${me.orgId}` : null;
+  const webhookUrl = account ? `${location.origin}/v1/integrations/teampay/webhook/${account.orgId}` : null;
 
   // Clock in hardware
   const active = state.employees.filter((e) => e.status !== 'leaver');
@@ -335,7 +337,7 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
         >
           <p className="small">
             {!admin
-              ? 'An admin manages this key under Settings.'
+              ? 'Whoever manages settings manages this key.'
               : settings?.claudeApiKey.set
                 ? `Key saved, ending ${settings.claudeApiKey.endsWith}.`
                 : 'No key saved, so the assistant is off.'}
@@ -346,15 +348,15 @@ export function IntegrationsView({ state, me, singleSite, today, onOpen }: Props
           name="Resend"
           kind="Email"
           health={admin ? emailHealth : null}
-          purpose="Sends the single-use link behind Forgot your password on the sign-in page. Until it is set, an admin hands out reset links by hand."
+          purpose="Sends invitations, password resets and the Forgot your password link, and tracks whether each arrived. Until it is set, links are shown once to whoever sends them."
           action={admin ? <button onClick={() => onOpen('settings')}>Manage email</button> : null}
         >
           <p className="small">
             {!admin
-              ? 'An admin manages this under Settings.'
+              ? 'Whoever manages settings manages this.'
               : settings?.email.set
                 ? `Sending from ${settings.email.from}, key ending ${settings.email.keyEndsWith}.`
-                : 'Off. Reset links are handed out by an admin.'}
+                : 'Off. Invitation and reset links are shown to whoever sends them, to hand over.'}
           </p>
         </Card>
 
