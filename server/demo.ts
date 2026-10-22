@@ -278,6 +278,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/clock-out': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
+  'PUT /v1/staff/details': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;

@@ -30,6 +30,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/me': "Staff app: the caller's own shifts and hours, under the staff session.",
   'POST /v1/staff/clock-in': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
   'POST /v1/staff/clock-out': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
+  'PUT /v1/staff/details': "Staff app: the caller's own contact details, under the staff session.",
 };
 
 interface Route {
