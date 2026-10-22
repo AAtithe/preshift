@@ -1250,3 +1250,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .client-add .form { grid-template-columns: 1fr; }
   .client-add .form .span2 { grid-column: auto; }
 }
+
+.login-flags { margin: 4px 0 0; padding-left: 16px; }
+.login-review-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.login-review-form input { min-width: 200px; flex: 1; }
