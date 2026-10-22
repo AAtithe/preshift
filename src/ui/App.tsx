@@ -425,10 +425,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 <span>
                   <strong>Live demo.</strong> This is your own copy of a sample group of three London sites, so change anything:
                   build the week, edit shifts, add people, run payroll against the TeamPay simulator, post the accrual. Nobody
-                  else sees it, and it is deleted after a day.
+                  else sees it, and it is wiped at midnight UK time.
                 </span>
                 <span className="demo-actions">
-                  <a className="link" href="/demo?fresh=1">Start again</a>
+                  <form method="post" action="/demo/start">
+                    <input type="hidden" name="fresh" value="1" />
+                    <button type="submit" className="link">Start again</button>
+                  </form>
                   <a className="button primary" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>
                 </span>
               </div>
@@ -560,6 +563,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onSetBadge={actions.setBadge}
                   canSetFence={allow('settings.manage')}
                   canEnrolCards={allow('team.manage', single.id)}
+                  demo={account?.demo}
                 />
               )}
               {activeTab === 'demand' && single && (

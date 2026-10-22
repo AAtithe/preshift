@@ -12,8 +12,8 @@ const ready = (async () => {
   const { app } = await buildApp({
     apiKeys: loadApiKeys({ ...process.env, NODE_ENV: 'production' }),
     docsBaseDir: path.join(__dirname, 'static'),
-    // A demo deployment (PRESHIFT_DEMO=1) greets visitors with a start button rather than sign-in.
-    loginPage: path.join(__dirname, process.env.PRESHIFT_DEMO === '1' ? 'demo.html' : 'login.html'),
+    loginPage: path.join(__dirname, 'login.html'),
+    demoPage: path.join(__dirname, 'demo.html'),
     appDir: path.join(__dirname, 'app'),
     staffDir: path.join(__dirname, 'staff'),
   });

@@ -66,6 +66,18 @@ describe('users and access', () => {
     expect(second.body.note).toMatch(/ghost employee/);
   });
 
+  it('never signs out an account another organisation owns, whatever email a record names', async () => {
+    const call = await setup();
+    // A record can name any email, accepted or not. Suspending it ends sessions only for an
+    // account that belongs here, never a stranger's elsewhere.
+    await current.store.createUser(account('stranger@elsewhere.example', 'elsewhere'));
+    const theirs = await current.as('stranger@elsewhere.example');
+    const invited = await call('POST', '/v1/users', { email: 'stranger@elsewhere.example', name: 'Stranger', audience: 'operator', roleId: 'viewer' });
+    expect(invited.status).toBe(201);
+    expect((await call('POST', `/v1/users/${invited.body.user.id}/suspend`)).status).toBe(200);
+    expect((await current.call('GET', '/auth/me', theirs)).status).toBe(200);
+  });
+
   it('stops people changing their own access and protects the last administrator', async () => {
     const call = await setup();
     expect((await call('POST', '/v1/users/usr_owner/suspend')).body.message).toMatch(/Somebody else/);

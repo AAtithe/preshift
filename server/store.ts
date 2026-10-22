@@ -6,6 +6,7 @@ import { addDays, toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
@@ -170,7 +171,10 @@ export interface UserStore {
   getUser(email: string): Promise<UserRecord | null>;
   listUsers(orgId: string): Promise<UserRecord[]>;
   hasUsers(): Promise<boolean>;
-  /** Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists. */
+  /**
+   * Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists.
+   * Demo visitors never count as anyone, here or in hasUsers, so the demo cannot block owner setup.
+   */
   createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
   updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
   deleteUser(email: string): Promise<void>;
@@ -299,8 +303,18 @@ export interface Store extends UserStore, StaffStore, ApiKeyStore, DocumentStore
   todayISO(): string;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
-  /** Removes the organisation's data for good. Used only to clear away expired demo sandboxes. */
-  deleteOrg(orgId: string): Promise<void>;
+  /** The demo sandboxes only, never a customer organisation. */
+  sandboxIds(): Promise<string[]>;
+  /**
+   * Deletes a demo sandbox for good: its data, its visitor account, staff logins, documents and API keys. Refuses
+   * anything that is not a sandbox id, in code and again in the database statement itself, so no
+   * fault in the caller can delete a customer.
+   */
+  deleteSandbox(orgId: string): Promise<void>;
+}
+
+function assertSandbox(orgId: string) {
+  if (!isSandbox(orgId)) throw new Error(`Refusing to delete ${orgId}: only demo sandboxes can be deleted`);
 }
 
 const newSecret = () => randomBytes(32).toString('hex');
@@ -399,8 +413,18 @@ export class MemoryStore implements Store {
     return [...this.orgs.keys()];
   }
 
-  async deleteOrg(orgId: string) {
+  async sandboxIds() {
+    return [...this.orgs.keys()].filter(isSandbox);
+  }
+
+  async deleteSandbox(orgId: string) {
+    assertSandbox(orgId);
     this.orgs.delete(orgId);
+    for (const [email, user] of this.users) if (user.orgId === orgId) this.users.delete(email);
+    for (const [key, login] of this.staff) if (login.orgId === orgId) this.staff.delete(key);
+    for (const key of this.documents.keys()) if (key.startsWith(`${orgId}/`)) this.documents.delete(key);
+    for (let i = this.documentAccess.length - 1; i >= 0; i--) if (this.documentAccess[i].orgId === orgId) this.documentAccess.splice(i, 1);
+    for (const [hash, key] of this.apiKeys) if (key.orgId === orgId) this.apiKeys.delete(hash);
   }
 
   async sessionSecret() {
@@ -417,11 +441,11 @@ export class MemoryStore implements Store {
   }
 
   async hasUsers() {
-    return this.users.size > 0;
+    return [...this.users.values()].some((u) => !isSandbox(u.orgId));
   }
 
   async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
-    if (this.users.has(user.email) || (options.onlyIfFirst && this.users.size > 0)) return false;
+    if (this.users.has(user.email) || (options.onlyIfFirst && (await this.hasUsers()))) return false;
     this.users.set(user.email, { ...user });
     return true;
   }
@@ -699,9 +723,23 @@ export class PgStore implements Store {
     return rows.map((r) => String(r.org_id));
   }
 
-  async deleteOrg(orgId: string) {
+  async sandboxIds() {
     await this.init();
-    await this.query('delete from preshift.orgs where org_id = $1', [orgId]);
+    const rows = await this.query(`select org_id from preshift.orgs where org_id like '${SANDBOX_PREFIX}%'`, []);
+    return rows.map((r) => String(r.org_id));
+  }
+
+  async deleteSandbox(orgId: string) {
+    assertSandbox(orgId);
+    await this.init();
+    // The prefix is repeated in each statement: even a wrong id from the caller cannot reach a customer row.
+    const only = `and org_id like '${SANDBOX_PREFIX}%'`;
+    await this.query(`delete from preshift.api_keys where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.document_access where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.documents where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.staff_logins where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.users where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.orgs where org_id = $1 ${only}`, [orgId]);
   }
 
   private secretCache: string | null = null;
@@ -734,7 +772,7 @@ export class PgStore implements Store {
 
   async hasUsers() {
     await this.init();
-    return (await this.query('select 1 from preshift.users limit 1', [])).length > 0;
+    return (await this.query(`select 1 from preshift.users where org_id not like '${SANDBOX_PREFIX}%' limit 1`, [])).length > 0;
   }
 
   async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
@@ -742,7 +780,7 @@ export class PgStore implements Store {
     // One statement, so two people racing to create the first account cannot both succeed.
     const rows = await this.query(
       `insert into preshift.users (email, org_id, data)
-       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users)
+       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users where org_id not like '${SANDBOX_PREFIX}%')
        on conflict do nothing returning email`,
       [user.email, user.orgId, JSON.stringify(user), Boolean(options.onlyIfFirst)],
     );
