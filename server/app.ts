@@ -31,6 +31,7 @@ import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
+import { mcpRoutes } from './mcp';
 import { MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
@@ -219,6 +220,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     );
   }
   signInRoutes(app, ctx, { demo });
+  // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
+  mcpRoutes(app, auth);
   staffRoutes(app, store);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
