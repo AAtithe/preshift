@@ -3,6 +3,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
 import { HttpError, londonToday, type AppContext } from './context';
+import { addDays } from '../src/engine/time';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
@@ -163,7 +164,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     for (const orgId of await store.orgIds()) {
       const org = await store.load(orgId);
       if (org.lastOutsideRefresh === today) continue;
-      if (!org.state.sites.some((s) => s.location || s.geofence) && org.eventFeeds.length === 0) continue;
+      // Somewhere to look for weather or events, or pushed bookings waiting to become pace history.
+      const outside = org.state.sites.some((s) => s.location || s.geofence) || org.eventFeeds.length > 0;
+      const bookingsToCompact = (org.state.bookings ?? []).some((b) => b.date < addDays(today, -2));
+      if (!outside && !bookingsToCompact) continue;
       due.push({ orgId, last: org.lastOutsideRefresh ?? '' });
     }
     due.sort((a, b) => a.last.localeCompare(b.last));

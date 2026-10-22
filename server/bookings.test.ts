@@ -94,3 +94,20 @@ describe('bookings in the forecast and reminders', () => {
     expect(sat.bookings.find((b: { daypart: string }) => b.daypart === 'dinner')).toMatchObject({ usable: true });
   });
 });
+
+describe('the daily job and pushed bookings', () => {
+  it('compacts pushed bookings into pace history for a site with no location or feeds', async () => {
+    const store = new MemoryStore(['demo'], TODAY);
+    const { app } = await buildApp({ apiKeys: KEYS, store, provider: new TeamPaySimulator(), autoDispatch: false, now: () => new Date(`${TODAY}T07:00:00Z`), env: { CRON_SECRET: 'tick' } });
+    const rows = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, siteId: 'fitz', source: 'sevenrooms', date: '2026-10-15', startMinute: 1140, covers: 4, status: 'completed', createdAt: '2026-10-05' }));
+    await app.inject({ method: 'PUT', url: '/v1/bookings', headers: { authorization: 'Bearer admin', 'content-type': 'application/json' }, payload: JSON.stringify({ rows }) });
+    const before = await store.load('demo');
+    expect(before.state.sites.some((s) => s.location || s.geofence)).toBe(false);
+    expect(before.state.bookings!.filter((b) => b.siteId === 'fitz')).toHaveLength(5);
+    const tick = await app.inject({ method: 'GET', url: '/internal/dispatch', headers: { authorization: 'Bearer tick' } });
+    expect(tick.json()).toMatchObject({ refreshed: 1, failed: 0 });
+    const after = await store.load('demo');
+    expect(after.state.bookings!.some((b) => b.siteId === 'fitz' && b.date === '2026-10-15')).toBe(false);
+    expect(after.state.bookingPace!.find((p) => p.siteId === 'fitz' && p.date === '2026-10-15' && p.daypart === 'dinner')!.booked[0]).toBe(20);
+  });
+});
