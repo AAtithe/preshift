@@ -118,13 +118,18 @@ function visibleRecords(req: FastifyRequest, g: Guard, org: OrgData): HrRecord[]
 
 /**
  * An employee as the caller may see it. Without the personnel file a reader gets no file, and
- * absence reduced to the dates the rota needs: health reasons are special category data under
- * UK GDPR. Pay is withheld separately (forReader).
+ * absence reduced to the dates the rota needs: health reasons, and whether an absence was sickness
+ * at all, are special category data under UK GDPR. Pay is withheld separately (forReader).
  */
 export function employeeView(req: FastifyRequest, e: Employee, g: Guard): Employee {
   if (readsHr(req, g, e)) return e;
   const { hr: _hr, absences, ...rest } = e;
-  return absences ? { ...rest, absences: absences.map(({ id, type, from, to }) => ({ id, type, from, to })) } : rest;
+  // Whether someone was off sick is health data too. Those who run pay keep the type, as sick pay
+  // turns on it; the rota needs only the days.
+  const runsPay = [e.siteId, ...(e.coverSiteIds ?? [])].some((s) => g.can('payroll.view', s) || g.can('pay.edit', s) || g.can('pay.approve', s));
+  return absences
+    ? { ...rest, absences: absences.map(({ id, type, from, to }) => ({ id, ...(runsPay ? { type } : {}), from, to })) }
+    : rest;
 }
 
 function findEmployee(org: OrgData, id: string) {
