@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
-import { describeSync, syncedAt, type EposStatus } from './EposSetup';
+import { backfillShare, describeSync, syncedAt, TILL_LABEL, type EposStatus } from './EposSetup';
 import type { Account } from './SettingsView';
 
 // One page that answers "what is Preshift connected to, and is each connection healthy".
@@ -137,7 +137,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
       <div className="integrations-grid">
         <Card
           name="EPOS"
-          kind={eposConn ? (eposConn.environment === 'simulator' ? 'Square, simulated till' : eposConn.environment === 'sandbox' ? 'Square sandbox' : 'Square') : 'Square today; Lightspeed, Tevalis, Zonal and others on request'}
+          kind={eposConn ? `${TILL_LABEL[eposConn.provider]}${eposConn.environment === 'simulator' ? ', simulated till' : eposConn.environment === 'sandbox' ? ' sandbox' : ''}` : 'Square, Toast or Lightspeed; Tevalis, Zonal and others on request'}
           health={eposHealth}
           purpose="Net takings from the till by trading day and hour. Actual sales are what turn forecast labour % into true labour %, and what tells a GM mid-week that they are overstaffed for the trade they are really doing."
           action={
@@ -158,6 +158,16 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
                 <dt>Last sync</dt>
                 <dd className={eposConn.lastSync?.ok === false ? 'bad-text' : undefined}>
                   {eposConn.lastSync ? `${syncedAt(eposConn.lastSync.at)}: ${describeSync(eposConn.lastSync, siteName)}` : 'Not yet'}
+                </dd>
+                <dt>History</dt>
+                <dd className={eposConn.backfill?.error ? 'bad-text' : undefined}>
+                  {!eposConn.backfill
+                    ? 'Not brought in: forecasts work from recent weeks only'
+                    : eposConn.backfill.finishedAt
+                      ? `${eposConn.backfill.from} onwards`
+                      : eposConn.backfill.error
+                        ? `Stopped at ${eposConn.backfill.next}: ${eposConn.backfill.error}`
+                        : `${Math.round(backfillShare(eposConn.backfill) * 100)}% in, carrying on overnight`}
                 </dd>
                 <dt>Schedule</dt>
                 <dd>The last three trading days, every morning</dd>

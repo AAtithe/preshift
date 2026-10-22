@@ -11,7 +11,7 @@ import type { DaySales, HourForecast, RestOverride, Shift } from '../../src/engi
 import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
-import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
+import { forecastBody, idParam, isoDate as isoDateSchema, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
 
@@ -609,6 +609,50 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       org.state.sales = [...(org.state.sales ?? []).filter((s) => !incoming.has(key(s))), ...incoming.values()];
       audit(org, actorName(g), 'sales.upserted', { rows: incoming.size });
       return { upserted: incoming.size };
+    },
+  );
+
+  // Covers from a booking system, set on the takings days they belong to.
+  app.put<{ Body: { rows: { siteId: string; date: string; covers: number }[] } }>(
+    '/v1/sales/covers',
+    {
+      ...write,
+      schema: {
+        tags: ['Sales'],
+        description: "Sets the guests on days that already have takings, for a till that does not record covers. Days with no takings yet are listed back, not created.",
+        body: {
+          type: 'object',
+          required: ['rows'],
+          properties: {
+            rows: {
+              type: 'array',
+              maxItems: 5000,
+              items: { type: 'object', required: ['siteId', 'date', 'covers'], properties: { siteId: { type: 'string' }, date: isoDateSchema, covers: { type: 'integer', minimum: 0 } } },
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      for (const r of req.body.rows) {
+        requireSite(org, r.siteId);
+        g.allow('demand.manage', r.siteId);
+      }
+      const missing: { siteId: string; date: string }[] = [];
+      let updated = 0;
+      for (const r of req.body.rows) {
+        const day = (org.state.sales ?? []).find((s) => s.siteId === r.siteId && s.date === r.date);
+        if (!day) {
+          missing.push({ siteId: r.siteId, date: r.date });
+          continue;
+        }
+        day.covers = r.covers;
+        updated++;
+      }
+      audit(org, actorName(g), 'sales.covers_set', { updated, missing: missing.length });
+      return { updated, missing };
     },
   );
 

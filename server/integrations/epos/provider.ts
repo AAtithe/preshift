@@ -9,8 +9,8 @@ export interface EposLocation {
 }
 
 /**
- * The contract between Preshift and an EPOS. Square is the first implementation; Lightspeed, Zonal
- * or Tevalis would implement the same two calls, so nothing above this line knows which till it is.
+ * The contract between Preshift and an EPOS. Square, Toast and Lightspeed implement it; Zonal or
+ * Tevalis would implement the same two calls, so nothing above this line knows which till it is.
  */
 export interface EposProvider {
   readonly name: string;
@@ -32,15 +32,33 @@ export class EposError extends Error {
 
 export type EposEnvironment = 'production' | 'sandbox' | 'simulator';
 
-/** What the organisation has connected. The access token is kept apart, in the settings store. */
+export type EposProviderName = 'square' | 'toast' | 'lightspeed';
+
+export const PROVIDER_LABEL: Record<EposProviderName, string> = { square: 'Square', toast: 'Toast', lightspeed: 'Lightspeed' };
+
+/** A year's backfill, worked a chunk at a time so no single request runs long. */
+export interface EposBackfill {
+  from: string;
+  to: string;
+  /** The first day not yet brought in. Past `to` once finished. */
+  next: string;
+  startedAt: string;
+  startedBy: string;
+  written: number;
+  finishedAt?: string;
+  error?: string;
+}
+
+/** What the organisation has connected. Its credentials are kept apart, in the settings store. */
 export interface EposConnection {
-  provider: 'square';
+  provider: EposProviderName;
   environment: EposEnvironment;
   connectedAt: string;
   connectedBy: string;
   /** The Square account's own name for itself, shown so nobody connects the wrong business. */
   accountName?: string;
   lastSync?: EposSyncResult;
+  backfill?: EposBackfill;
 }
 
 export interface EposSyncResult {

@@ -52,7 +52,6 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
             <button type="submit" className="link small">Start again with a fresh copy</button>
           </form>
         </section>
-        <EposSetup onSynced={onSalesChanged} />
       </div>
     );
   }

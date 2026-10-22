@@ -1,6 +1,6 @@
 import type { TillOrder } from '../../../src/engine/epos';
 import type { RotaState } from '../../../src/engine/types';
-import type { EposLocation, EposProvider } from './provider';
+import { PROVIDER_LABEL, type EposLocation, type EposProvider, type EposProviderName } from './provider';
 
 const AVERAGE_SPEND = 42;
 const LONDON = 'Europe/London';
@@ -15,12 +15,18 @@ function londonInstant(date: string, hour: number, minute: number): string {
 
 /**
  * A till for the demo and development: one location per site, trading close to the forecast with a
- * steady daily swing, so the reports have real variance without anyone owning a Square account.
+ * steady daily swing, so the reports have real variance without anyone owning a till account. It
+ * behaves as the till chosen: Toast and Lightspeed report guests on each order, Square does not.
  */
-export class SquareSimulator implements EposProvider {
-  readonly name = 'Square (simulator)';
+export class TillSimulator implements EposProvider {
+  readonly name: string;
 
-  constructor(private readonly state: Pick<RotaState, 'sites' | 'forecast'>) {}
+  constructor(
+    private readonly state: Pick<RotaState, 'sites' | 'forecast'>,
+    private readonly provider: EposProviderName = 'square',
+  ) {
+    this.name = `${PROVIDER_LABEL[provider]} (simulator)`;
+  }
 
   async listLocations(): Promise<EposLocation[]> {
     return this.state.sites.map((s) => ({ id: `sim-${s.id}`, name: `${s.name} (simulated till)`, timeZone: LONDON }));
@@ -37,9 +43,13 @@ export class SquareSimulator implements EposProvider {
       for (let i = 0; i < count; i++) {
         const closedAt = londonInstant(f.date, f.hour, Math.floor((i * 60) / count));
         if (closedAt < start || closedAt >= end) continue;
-        orders.push({ locationId, closedAt, netSales: Math.round((sales / count) * 100) / 100 });
+        const netSales = Math.round((sales / count) * 100) / 100;
+        // Two or three guests a table, the same every run.
+        const covers = this.provider === 'square' ? undefined : 2 + ((seed + i) % 3 === 0 ? 1 : 0);
+        orders.push({ locationId, closedAt, netSales, ...(covers !== undefined ? { covers } : {}) });
       }
     }
     return orders;
   }
 }
+

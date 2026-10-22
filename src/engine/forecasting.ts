@@ -34,8 +34,8 @@ export interface DayForecast {
   from: string[];
   /** Last year's figure is scaled by this: the last four weeks against the same weeks a year earlier. */
   trend?: number;
-  /** Where the hourly split came from. */
-  shape: 'site' | 'standard';
+  /** Where the hourly split came from: the till's own hours, the site's past forecasts, or the standard curve. */
+  shape: 'till' | 'site' | 'standard';
   /** In plain words, for the screen. */
   note: string;
 }
@@ -97,8 +97,8 @@ function fromRecent(takings: Map<string, DaySales>, date: string, latest: string
   return { sales, from: kept.map((k) => k.t.date), trend: undefined };
 }
 
-/** Spend per head from the takings that record covers, else the default. */
-function spendPerCover(takings: Map<string, DaySales>): number {
+/** Spend per head from the takings that record covers, else the site's own figure from set-up, else the default. */
+function spendPerCover(takings: Map<string, DaySales>, site?: Site): number {
   let sales = 0;
   let covers = 0;
   for (const t of takings.values()) {
@@ -107,15 +107,31 @@ function spendPerCover(takings: Map<string, DaySales>): number {
       covers += t.covers;
     }
   }
-  return covers > 0 ? sales / covers : DEFAULT_SPEND_PER_COVER;
+  return covers > 0 ? sales / covers : site?.salesProfile?.averageSpend || DEFAULT_SPEND_PER_COVER;
 }
 
+/** Same weekdays of till hours averaged for the shape: two months, recent enough to follow a change of hours. */
+export const SHAPE_WEEKS = 8;
+
 /**
- * How the day's sales fall by hour: the site's own past forecasts for that weekday where there are
- * some, else the standard curve, either way only within opening hours.
+ * How the day's sales fall by hour: what the till rang by hour on the same weekday in recent weeks
+ * where it reports hours, else the site's own past forecasts for that weekday, else the standard
+ * curve, always only within opening hours. The till's is the real shape of trade; a forecast's is
+ * only someone's guess at it.
  */
 function hourShape(state: RotaState, site: Site, date: string): { shares: Map<number, number>; shape: DayForecast['shape'] } {
   const open = (h: number) => h * 60 >= site.openMinute && h * 60 < site.closeMinute;
+  const till = new Map<number, number>();
+  const sameDays = (state.sales ?? [])
+    .filter((s) => s.siteId === site.id && s.date < date && weekdayOf(s.date) === weekdayOf(date) && s.hours?.length && s.netSales > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, SHAPE_WEEKS);
+  // Hours past midnight run on as 24, 25...; a forecast hour is 0 to 23 on its own day, so only those are shaped.
+  for (const s of sameDays) for (const h of s.hours!) if (h.hour < 24 && open(h.hour) && h.netSales > 0) till.set(h.hour, (till.get(h.hour) ?? 0) + h.netSales);
+  if (till.size > 0) {
+    const total = [...till.values()].reduce((a, b) => a + b, 0);
+    return { shares: new Map([...till].map(([h, v]) => [h, v / total])), shape: 'till' };
+  }
   const own = new Map<number, number>();
   for (const f of state.forecast) {
     if (f.siteId !== site.id || f.date >= date || weekdayOf(f.date) !== weekdayOf(date) || !open(f.hour)) continue;
@@ -153,7 +169,7 @@ export function forecastFromTakings(state: RotaState, siteId: string, dates: str
   if (!site) throw new Error(`No site ${siteId}`);
   const takings = takingsBy(state, siteId);
   const latest = [...takings.keys()].sort().pop();
-  const spend = spendPerCover(takings);
+  const spend = spendPerCover(takings, site);
   const days: DayForecast[] = [];
   const rows: HourForecast[] = [];
   for (const date of dates) {
@@ -177,4 +193,33 @@ export function forecastFromTakings(state: RotaState, siteId: string, dates: str
     rows.push(...splitByHour(siteId, date, sales, covers, shares));
   }
   return { days, rows };
+}
+
+export interface CoversSource {
+  /** Where covers come from: the till or a booking system, or an estimate from sales. */
+  kind: 'recorded' | 'estimated';
+  /** Spend per head used for the estimate, and where that figure came from. */
+  spendPerCover: number;
+  spendFrom: 'takings' | 'setup' | 'default';
+  /** Takings days in the last eight weeks that record covers. */
+  daysWithCovers: number;
+}
+
+/**
+ * Whether a site's covers are real or estimated, for the Demand screen: a staffing rule of so many
+ * covers an hour is only as good as the covers it runs on.
+ */
+export function coversSource(state: RotaState, siteId: string, today: string): CoversSource {
+  const site = state.sites.find((s) => s.id === siteId);
+  const since = addDays(today, -56);
+  const recent = (state.sales ?? []).filter((s) => s.siteId === siteId && s.date >= since && s.date < today && s.netSales > 0);
+  const daysWithCovers = recent.filter((s) => s.covers && s.covers > 0).length;
+  const takings = takingsBy(state, siteId);
+  const recorded = [...takings.values()].some((t) => t.covers && t.covers > 0);
+  return {
+    kind: daysWithCovers > 0 ? 'recorded' : 'estimated',
+    spendPerCover: Math.round(spendPerCover(takings, site) * 100) / 100,
+    spendFrom: recorded ? 'takings' : site?.salesProfile?.averageSpend ? 'setup' : 'default',
+    daysWithCovers,
+  };
 }

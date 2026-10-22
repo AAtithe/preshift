@@ -145,6 +145,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     tflAppKey: env.TFL_APP_KEY || undefined,
     now: options.now ?? (() => new Date()),
   };
+  // The simulated till is for the demo and development only. Lightspeed needs Preshift's own app,
+  // registered with Lightspeed, before any venue can sign in to it.
+  const tills = {
+    simulatorAllowed: demo || !!payroll.simulator,
+    lightspeedApp: env.LIGHTSPEED_CLIENT_ID && env.LIGHTSPEED_CLIENT_SECRET ? { clientId: env.LIGHTSPEED_CLIENT_ID, clientSecret: env.LIGHTSPEED_CLIENT_SECRET } : undefined,
+    publicUrl: env.PRESHIFT_PUBLIC_URL?.replace(/\/+$/, '') || undefined,
+  };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
@@ -224,7 +231,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
-    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await syncAllTills(ctx, tills);
     await deliverAllWebhooks(store, options.webhookFetch);
     await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
@@ -389,7 +396,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     calendarRoutes(api, ctx);
     bookingRoutes(api, ctx);
     travelRoutes(api, ctx);
-    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    eposRoutes(api, ctx, tills);
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
     clientRoutes(api, ctx);

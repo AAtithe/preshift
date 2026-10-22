@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { dayDemand, forecastSalesForDay, type HourDemand } from '../engine/demand';
-import type { DayForecast } from '../engine/forecasting';
+import { coversSource, type DayForecast } from '../engine/forecasting';
 import type { RotaState } from '../engine/types';
 import { dayLabel, money } from './format';
 import { columnPath, DEPT_COLOR, niceMax, Tip } from './viz';
@@ -50,6 +50,8 @@ export function DemandView({ state, siteId, dates, onForecast }: Props) {
 
       <FromTakings state={state} siteId={siteId} dates={dates} onForecast={onForecast} />
 
+      <CoversNotice state={state} siteId={siteId} />
+
       <SalesChart hours={sales} date={day} />
 
       <div className="demand-grid">
@@ -88,6 +90,27 @@ export function DemandView({ state, siteId, dates, onForecast }: Props) {
 }
 
 /** The week's forecast worked from the site's own takings, and what each day was worked from. */
+/**
+ * Says so when staffing is set by covers an hour but the covers are estimated from sales: the rule
+ * is then only as good as the spend per head behind it.
+ */
+function CoversNotice({ state, siteId }: { state: RotaState; siteId: string }) {
+  const byCovers = state.demandRules.filter((r) => r.siteId === siteId && r.coversPerHour && !r.salesPerLabourHour);
+  if (byCovers.length === 0) return null;
+  const source = coversSource(state, siteId, new Date().toISOString().slice(0, 10));
+  if (source.kind === 'recorded') return null;
+  const roles = byCovers.map((r) => state.roles.find((x) => x.id === r.roleId)?.name ?? r.roleId);
+  const from = source.spendFrom === 'setup' ? 'the average spend entered at set-up' : source.spendFrom === 'takings' ? 'past takings that recorded covers' : 'a standard figure, as none was entered at set-up';
+  return (
+    <div className="notice">
+      Covers here are estimated from sales at {money(source.spendPerCover)} a head ({from}), because no recent takings record covers.{' '}
+      {roles.join(', ')} {roles.length === 1 ? 'is' : 'are'} staffed by covers an hour, so {roles.length === 1 ? 'it is' : 'they are'} only as good as that figure.
+      Bring covers in from your booking system on the Takings report, connect a till that records guests (Toast or Lightspeed), or staff {roles.length === 1 ? 'it' : 'them'} by
+      sales an hour instead.
+    </div>
+  );
+}
+
 function FromTakings({ state, siteId, dates, onForecast }: Props) {
   const [worked, setWorked] = useState<Worked | null>(null);
   const [busy, setBusy] = useState(false);

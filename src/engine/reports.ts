@@ -497,6 +497,35 @@ export function parseTakingsCsv(text: string, sites: Pick<Site, 'id' | 'name' | 
   return { rows, errors };
 }
 
+export interface CoversImport {
+  rows: { siteId: string; date: string; covers: number }[];
+  errors: string[];
+}
+
+/**
+ * Reads covers from a booking system export (OpenTable, ResDiary, SevenRooms and the like): the
+ * date, the site, then the guests. Rows for the same site and day are added up, so a file with one
+ * line per booking and a file with one line per day both work. Same date and site rules as takings.
+ */
+export function parseCoversCsv(text: string, sites: Pick<Site, 'id' | 'name' | 'trackingCode'>[]): CoversImport {
+  const totals = new Map<string, { siteId: string; date: string; covers: number }>();
+  const errors: string[] = [];
+  // Read as takings with the guests in the sales column, then add up.
+  const asTakings = parseTakingsCsv(text, sites);
+  for (const e of asTakings.errors) errors.push(e.replace(/is not an amount$/, 'is not a number of guests'));
+  for (const r of asTakings.rows) {
+    if (!Number.isInteger(r.netSales)) {
+      errors.push(`${r.date} at ${sites.find((s) => s.id === r.siteId)?.name ?? r.siteId}: ${r.netSales} is not a whole number of guests`);
+      continue;
+    }
+    const key = `${r.siteId}|${r.date}`;
+    const t = totals.get(key) ?? { siteId: r.siteId, date: r.date, covers: 0 };
+    t.covers += r.netSales;
+    totals.set(key, t);
+  }
+  return { rows: [...totals.values()].sort((a, b) => a.date.localeCompare(b.date) || a.siteId.localeCompare(b.siteId)), errors };
+}
+
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = '';

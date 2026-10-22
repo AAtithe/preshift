@@ -10,6 +10,13 @@ export interface TillOrder {
   /** When the order closed, as an ISO instant. */
   closedAt: string;
   netSales: number;
+  /** Guests on the order, where the till records them (Toast, Lightspeed; Square does not). */
+  covers?: number;
+  /**
+   * The trading day the till itself filed the order under, where it has one (Toast's business
+   * date, from the restaurant's own closeout hour). Beats the 5am rule, which is only a default.
+   */
+  tradingDate?: string;
 }
 
 /**
@@ -40,20 +47,33 @@ export interface TradingDay {
   date: string;
   netSales: number;
   orders: number;
+  /** Guests, when the till records them; absent when it does not, so nil covers never reads as a quiet day. */
+  covers?: number;
   hours: HourSales[];
 }
 
 /** One location's orders, by trading day and hour. */
 export function tradingDays(orders: TillOrder[], timeZone: string): Map<string, TradingDay> {
-  const days = new Map<string, { netSales: number; orders: number; hours: Map<number, HourSales> }>();
+  type Day = { netSales: number; orders: number; covers?: number; hours: Map<number, HourSales> };
+  const days = new Map<string, Day>();
   for (const o of orders) {
-    const { date, hour } = tradingHour(o.closedAt, timeZone);
-    const day = days.get(date) ?? { netSales: 0, orders: 0, hours: new Map() };
+    let { date, hour } = tradingHour(o.closedAt, timeZone);
+    if (o.tradingDate && o.tradingDate !== date) {
+      // The till filed it under its own business day: keep its day, and run the clock on from it.
+      const local = localDateHour(o.closedAt, timeZone);
+      date = o.tradingDate;
+      hour = local.date > date ? local.hour + 24 : local.hour;
+    }
+    const day: Day = days.get(date) ?? { netSales: 0, orders: 0, hours: new Map() };
     const h = day.hours.get(hour) ?? { hour, netSales: 0, orders: 0 };
     day.netSales += o.netSales;
     day.orders++;
     h.netSales += o.netSales;
     h.orders++;
+    if (o.covers !== undefined) {
+      day.covers = (day.covers ?? 0) + o.covers;
+      h.covers = (h.covers ?? 0) + o.covers;
+    }
     day.hours.set(hour, h);
     days.set(date, day);
   }
@@ -64,6 +84,7 @@ export function tradingDays(orders: TillOrder[], timeZone: string): Map<string, 
         date,
         netSales: round2(d.netSales),
         orders: d.orders,
+        ...(d.covers !== undefined ? { covers: d.covers } : {}),
         hours: [...d.hours.values()].sort((a, b) => a.hour - b.hour).map((h) => ({ ...h, netSales: round2(h.netSales) })),
       },
     ]),
@@ -92,7 +113,16 @@ export function mergeTill(existing: DaySales[], siteId: string, dates: string[],
       continue;
     }
     const day = days.get(date);
-    replace.set(date, { siteId, date, netSales: day?.netSales ?? 0, orders: day?.orders ?? 0, hours: day?.hours ?? [], source: 'till' });
+    replace.set(date, {
+      siteId,
+      date,
+      netSales: day?.netSales ?? 0,
+      orders: day?.orders ?? 0,
+      // Covers the till did not report are left as they were: a booking system may have sent them.
+      ...(day?.covers !== undefined ? { covers: day.covers } : current?.covers !== undefined ? { covers: current.covers } : {}),
+      hours: day?.hours ?? [],
+      source: 'till',
+    });
   }
   return {
     sales: [...existing.filter((s) => !(s.siteId === siteId && replace.has(s.date))), ...replace.values()],

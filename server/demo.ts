@@ -119,6 +119,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/sales': true,
   'PUT /v1/sales': true,
   'DELETE /v1/sales': true,
+  'PUT /v1/sales/covers': true,
   'PUT /v1/sites/:id/travel/:toId': true,
   'DELETE /v1/sites/:id/travel/:toId': true,
   'PUT /v1/rota/weeks': true,
@@ -234,6 +235,10 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/integrations/epos/locations': false,
   'PUT /v1/integrations/epos/mapping': false,
   'POST /v1/integrations/epos/sync': false,
+  'POST /v1/integrations/epos/backfill': false,
+  'POST /v1/integrations/epos/backfill/step': false,
+  'POST /v1/integrations/epos/lightspeed/start': false,
+  'GET /v1/integrations/epos/lightspeed/callback': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.

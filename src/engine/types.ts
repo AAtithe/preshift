@@ -471,6 +471,7 @@ export interface HourSales {
   hour: number;
   netSales: number;
   orders: number;
+  covers?: number;
 }
 
 export interface RotaState {

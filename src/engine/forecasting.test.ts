@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SPEND_PER_COVER, forecastFromTakings } from './forecasting';
+import { coversSource, DEFAULT_SPEND_PER_COVER, forecastFromTakings } from './forecasting';
 import { seedState } from './seed';
 import { addDays } from './time';
 import type { DaySales, RotaState } from './types';
@@ -67,5 +67,37 @@ describe('a forecast from past takings', () => {
     const { days, rows } = forecastFromTakings(state(mondaysBefore([2000]), shape), 'mar', [MONDAY]);
     expect(days[0].shape).toBe('site');
     expect(rows.map((r) => [r.hour, r.sales])).toEqual([[12, 500], [19, 1500]]);
+  });
+});
+
+describe('hourly shape from the till', () => {
+  it("follows the till's own hours for that weekday, not the standard curve", () => {
+    // Four Mondays of a lunch-only trade: everything between 12:00 and 14:00.
+    const mondays = ['2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19'].map((date): DaySales => ({
+      siteId: 'mar', date, netSales: 1000, source: 'till', orders: 30,
+      hours: [{ hour: 12, netSales: 600, orders: 18 }, { hour: 13, netSales: 400, orders: 12 }, { hour: 25, netSales: 50, orders: 1 }],
+    }));
+    const { days, rows } = forecastFromTakings(state(mondays), 'mar', ['2026-10-26']);
+    expect(days[0].shape).toBe('till');
+    const hours = rows.filter((r) => r.date === '2026-10-26');
+    expect(hours.map((r) => r.hour)).toEqual([12, 13]);
+    expect(hours.reduce((s, r) => s + r.sales, 0)).toBe(days[0].sales);
+    expect(hours[0].sales / days[0].sales).toBeCloseTo(0.6, 2);
+  });
+
+  it('keeps the standard curve where the till reports no hours', () => {
+    const days = forecastFromTakings(state([day('2026-10-19', 1000), day('2026-10-12', 1000)]), 'mar', ['2026-10-26']).days;
+    expect(days[0].shape).not.toBe('till');
+  });
+});
+
+describe('covers source', () => {
+  it("uses the site's own spend per head from set-up before the standard figure", () => {
+    const s = state([day('2026-10-19', 1000)]);
+    s.sites = s.sites.map((x) => (x.id === 'mar' ? { ...x, salesProfile: { dailySales: [0, 0, 0, 0, 0, 0, 0], averageSpend: 25 } } : x));
+    expect(coversSource(s, 'mar', '2026-10-21')).toMatchObject({ kind: 'estimated', spendPerCover: 25, spendFrom: 'setup' });
+    expect(forecastFromTakings(s, 'mar', ['2026-10-26']).days[0].covers).toBe(40);
+    const recorded = state([day('2026-10-19', 1000, 50)]);
+    expect(coversSource(recorded, 'mar', '2026-10-21')).toMatchObject({ kind: 'recorded', spendPerCover: 20, spendFrom: 'takings' });
   });
 });

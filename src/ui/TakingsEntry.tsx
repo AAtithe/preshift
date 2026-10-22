@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { parseTakingsCsv, type TakingsImport } from '../engine/reports';
+import { parseCoversCsv, parseTakingsCsv, type CoversImport, type TakingsImport } from '../engine/reports';
 import { weekDates } from '../engine/time';
 import type { DaySales, RotaState } from '../engine/types';
 import { api } from './api';
@@ -88,6 +88,27 @@ export function TakingsEntry({ state, siteIds, week, today, onSave, onSynced }: 
     setParsed(parseTakingsCsv(await file.text(), state.sites));
   }
 
+  // Covers from a booking system attach to days that already have takings.
+  const [covers, setCovers] = useState<CoversImport | null>(null);
+  async function readCovers(file: File) {
+    setMessage(null);
+    setCovers(parseCoversCsv(await file.text(), state.sites));
+  }
+  async function importCovers() {
+    if (!covers) return;
+    setBusy(true);
+    try {
+      const r = await api.put<{ updated: number; missing: { siteId: string; date: string }[] }>('/v1/sales/covers', { rows: covers.rows });
+      setMessage(`Covers set on ${r.updated} days.${r.missing.length ? ` ${r.missing.length} days have no takings yet, so their covers were not kept: bring the takings in first.` : ''}`);
+      setCovers(null);
+      onSynced();
+    } catch (e) {
+      setMessage(`The covers import failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function importParsed() {
     if (!parsed) return;
     setBusy(true);
@@ -120,6 +141,10 @@ export function TakingsEntry({ state, siteIds, week, today, onSave, onSynced }: 
             Import CSV
             <input type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void readFile(f); e.target.value = ''; }} />
           </label>
+          <label className="button-like" title="A booking system export: date, site, guests. One line per booking or per day.">
+            Import covers
+            <input type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void readCovers(f); e.target.value = ''; }} />
+          </label>
           <button className="primary" disabled={busy || invalid || changes.length === 0} onClick={() => void save()}>
             {changes.length ? `Save ${changes.length} ${changes.length === 1 ? 'day' : 'days'}` : 'Saved'}
           </button>
@@ -127,6 +152,24 @@ export function TakingsEntry({ state, siteIds, week, today, onSave, onSynced }: 
       </div>
 
       {message && <div className="notice good">{message} <button className="link" onClick={() => setMessage(null)}>Dismiss</button></div>}
+
+      {covers && (
+        <div className="notice">
+          <strong>{covers.rows.reduce((s, r) => s + r.covers, 0)} guests over {covers.rows.length} days read from the file.</strong>{' '}
+          Covers are set on days that already have takings, replacing any the till sent.
+          {covers.errors.length > 0 && (
+            <ul>
+              {covers.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}
+              {covers.errors.length > 8 && <li>and {covers.errors.length - 8} more</li>}
+            </ul>
+          )}
+          <div className="close-actions">
+            <button className="primary" disabled={busy || covers.rows.length === 0} onClick={() => void importCovers()}>Set covers on {covers.rows.length} days</button>
+            <button onClick={() => setCovers(null)}>Cancel</button>
+          </div>
+          <p className="muted small">Columns: date, site (name, id or tracking code), guests. OpenTable, ResDiary and SevenRooms exports work once trimmed to those three.</p>
+        </div>
+      )}
 
       {parsed && (
         <div className="notice">

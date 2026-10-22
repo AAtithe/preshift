@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { autoScheduleSites } from './autoschedule';
 import { rotaJournal } from './journal';
 import { scopeMetrics } from './metrics';
-import { accrualAccuracy, labourByRole, latestShifts, parseTakingsCsv, performanceTrend, rotaVsActual, salesEstimate, type PayRunSummary } from './reports';
+import { accrualAccuracy, labourByRole, latestShifts, parseCoversCsv, parseTakingsCsv, performanceTrend, rotaVsActual, salesEstimate, type PayRunSummary } from './reports';
 import { seedState } from './seed';
 import { addDays } from './time';
 import type { Shift, TimeEntry } from './types';
@@ -218,5 +218,17 @@ describe('takings import', () => {
     ]);
     expect(r.errors).toHaveLength(3);
     expect(r.errors[0]).toContain('Line 4');
+  });
+});
+
+describe('covers import', () => {
+  it('adds up one line per booking into covers per site and day, and rejects part guests', () => {
+    const csv = 'Date,Restaurant,Party size\n19/10/2026,Marylebone,4\n19/10/2026,Marylebone,2\n2026-10-19,shd,6\n20/10/2026,Marylebone,2.5\n20/10/2026,Nowhere,2\n';
+    const r = parseCoversCsv(csv, base.sites);
+    expect(r.rows).toEqual([
+      { siteId: 'mar', date: '2026-10-19', covers: 6 },
+      { siteId: 'shd', date: '2026-10-19', covers: 6 },
+    ]);
+    expect(r.errors).toHaveLength(2);
   });
 });

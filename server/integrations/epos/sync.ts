@@ -1,7 +1,7 @@
 import { mergeTill, tradingDays, tradingHour } from '../../../src/engine/epos';
 import { addDays } from '../../../src/engine/time';
 import type { OrgData } from '../../store';
-import { EposError, type EposProvider, type EposSyncResult } from './provider';
+import { EposError, type EposBackfill, type EposProvider, type EposSyncResult } from './provider';
 
 /** The longest range one sync fetches. A quarter covers a first backfill; longer goes in chunks. */
 export const MAX_SYNC_DAYS = 92;
@@ -51,4 +51,30 @@ export async function syncEpos(org: OrgData, provider: EposProvider, from: strin
     return { ...result, ok: false, error: err instanceof Error ? err.message : String(err) };
   }
   return result;
+}
+
+/** Days one backfill step brings in: short enough for any request to finish well inside its limit. */
+export const BACKFILL_CHUNK_DAYS = 14;
+
+/** Thirteen months: a year to forecast from the same week last year, plus the four weeks that set its trend. */
+export const BACKFILL_DAYS = 400;
+
+/**
+ * Brings in the next chunk of a backfill. A failed chunk is not skipped: the job stops on it with
+ * the reason, and the next step tries the same days again, so no gap is left behind silently.
+ */
+export async function backfillStep(org: OrgData, provider: EposProvider, now: Date): Promise<EposBackfill | undefined> {
+  const job = org.epos?.backfill;
+  if (!job || job.finishedAt) return job;
+  const last = addDays(job.next, BACKFILL_CHUNK_DAYS - 1) < job.to ? addDays(job.next, BACKFILL_CHUNK_DAYS - 1) : job.to;
+  const result = await syncEpos(org, provider, job.next, last, now);
+  if (!result.ok) {
+    job.error = result.error;
+    return job;
+  }
+  delete job.error;
+  job.written += result.written;
+  job.next = addDays(last, 1);
+  if (job.next > job.to) job.finishedAt = now.toISOString();
+  return job;
 }

@@ -1223,3 +1223,6 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .client-add .form { grid-template-columns: 1fr; }
   .client-add .form .span2 { grid-column: auto; }
 }
+.backfill { margin: 6px 0; max-width: 520px; }
+.meter { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
