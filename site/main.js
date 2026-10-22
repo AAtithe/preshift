@@ -18,37 +18,74 @@ links.addEventListener('click', (e) => {
 
 // Product screen tabs
 const shots = {
-  rota: {
-    alt: 'Preshift Rota weekly grid with forecast sales, loaded labour cost, labour percentage against target and compliance flags',
+  sites: {
+    alt: 'Group view of three sites across two companies: forecast sales, loaded labour, labour percentage against target, and the group rota P&L',
     caption:
-      'The week at a glance: forecast sales, fully loaded labour, labour % against the site target and anything that needs a second look before you publish.',
+      'Every site and company on one page: forecast sales, fully loaded labour and labour % against target, with the group rota P&L down to contribution after labour.',
   },
-  demand: {
-    alt: 'Demand view showing hourly forecast sales and covers converted into required headcount per role',
+  rota: {
+    alt: "Rota service timeline for Marylebone: each day's shifts over its sales curve, hours short or over beneath, day labour percentage and the rota P&L",
     caption:
-      'Hourly sales and covers turned into headcount per role, with the rules that drive it. This is the brief the build has to meet.',
+      "Each day's shifts laid over its sales curve, with the hours short or over beneath and the day's labour % beside it. Drag a shift to move it; the rota P&L on the right updates as you go.",
   },
   editor: {
-    alt: 'Shift editor showing the marginal cost a shift adds to the week, split into pay, holiday, NI and pension',
+    alt: 'Shift editor showing what a shift adds to the week, here nothing because it is covered by guaranteed hours already paid',
     caption:
-      'The shift editor shows what a shift adds to the week, not rate times hours, and flags any rule it would break before you save it.',
+      'The shift editor shows what a shift adds to the week, not rate times hours. This one adds nothing: it sits inside guaranteed hours you already pay for.',
+  },
+  demand: {
+    alt: 'Demand view: hourly forecast sales and covers for one day, and the headcount each role needs against what is rostered',
+    caption:
+      'Hourly sales and covers turned into headcount per role, with where the rota runs over or short. This is the brief the build has to meet.',
+  },
+  payroll: {
+    alt: 'Payroll view: people set up in TeamPay, clocked hours, manager approval, hours sent and the pay run back, with shifts below the legal break minimum listed',
+    caption:
+      'From clocked hours to TeamPay and back: approve, send, and reconcile the pay run to the accrual. Shifts below the legal break minimum are listed for a manager to check first.',
   },
   close: {
-    alt: 'Close view showing the labour accrual journal by role nominal and site tracking category, ready for Xero',
+    alt: 'Close view: labour accrual journals, Employment Allowance used against employer NI, and cross-site labour recharges',
     caption:
-      'Publish the rota and the labour accrual is ready to post: by role nominal and site, in Xero manual journal format, with hours for payroll.',
+      'The labour accrual journal for each company, ready to post before payroll runs, with Employment Allowance and cross-site recharges worked out for you.',
+  },
+  hr: {
+    alt: 'HR overview: headcount, staff turnover, absence and a list of HR actions to close',
+    caption:
+      'Headcount, turnover and absence for the site, and every open HR action in one list: return to work conversations, expiring licences, missing contracts.',
   },
 };
+const tabs = [...document.querySelectorAll('.shot-tabs [role="tab"]')];
 const img = document.getElementById('shot-img');
+const panel = document.getElementById('shot-panel');
 const caption = document.getElementById('shot-caption');
-document.querySelectorAll('.shot-tabs button').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const key = btn.dataset.shot;
-    document.querySelectorAll('.shot-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b === btn)));
-    img.src = `img/${key}.webp`;
-    img.alt = shots[key].alt;
-    caption.textContent = shots[key].caption;
+
+function selectShot(tab, focus = false) {
+  const key = tab.dataset.shot;
+  for (const t of tabs) {
+    const on = t === tab;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+  }
+  img.src = `img/${key}.webp`;
+  img.alt = shots[key].alt;
+  caption.textContent = shots[key].caption;
+  panel.setAttribute('aria-labelledby', tab.id);
+  if (focus) tab.focus();
+}
+
+tabs.forEach((tab, i) => {
+  tab.addEventListener('click', () => selectShot(tab));
+  tab.addEventListener('keydown', (e) => {
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    selectShot(tabs[(next + tabs.length) % tabs.length], true);
   });
+});
+
+// Load the other screens once the page has settled, so switching tabs is instant.
+window.addEventListener('load', () => {
+  for (const key of Object.keys(shots)) new Image().src = `img/${key}.webp`;
 });
 
 // Reveal on scroll
