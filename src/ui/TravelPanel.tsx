@@ -1,9 +1,14 @@
 import { useState } from 'react';
 import { journeyBetween, siteLocation } from '../engine/travel';
-import type { Site } from '../engine/types';
+import type { Entity, Site, TravelPay } from '../engine/types';
+import { UK_RATES_2026_27 } from '../engine/ukRates';
 
 interface Props {
   sites: Site[];
+  /** The companies these sites belong to, for what each pays for travel. */
+  entities: Entity[];
+  /** Absent for anyone who cannot change company settings. */
+  onSetTravelPay?: (entityId: string, travelPay: TravelPay) => Promise<unknown>;
   onSetLocation: (siteId: string, postcode: string) => Promise<unknown>;
   onRefresh: () => Promise<{ fromTfl: number; estimated: number; failures: string[] } | undefined>;
   onSetTravel: (siteId: string, toId: string, minutes: number | null) => Promise<unknown>;
@@ -15,7 +20,7 @@ const SOURCE: Record<string, string> = { tfl: 'TfL', estimate: 'Estimate', manua
  * Where each site is and how long it takes to get between them. The rota uses these times to
  * stop a move between sites that cannot be made and to flag one that is tight.
  */
-export function TravelPanel({ sites, onSetLocation, onRefresh, onSetTravel }: Props) {
+export function TravelPanel({ sites, entities, onSetTravelPay, onSetLocation, onRefresh, onSetTravel }: Props) {
   const [postcodes, setPostcodes] = useState<Record<string, string>>({});
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -120,6 +125,77 @@ export function TravelPanel({ sites, onSetLocation, onRefresh, onSetTravel }: Pr
           </tbody>
         </table>
       </div>
+      <TravelPayRows entities={entities} onSetTravelPay={onSetTravelPay} />
+    </div>
+  );
+}
+
+const ADULT_MINIMUM = UK_RATES_2026_27.minimumWage[0];
+
+/**
+ * What each company pays for an hour of travel. The journey is working time, so the rota, the
+ * P&L, payroll and holiday all follow this one setting.
+ */
+function TravelPayRows({ entities, onSetTravelPay }: Pick<Props, 'entities' | 'onSetTravelPay'>) {
+  function choose(entity: Entity, basis: TravelPay['basis']) {
+    if (!onSetTravelPay) return;
+    if (basis === 'fixed') {
+      // Starts at the adult minimum, the usual choice; the amount can be changed once it is set.
+      void onSetTravelPay(entity.id, { basis: 'fixed', hourly: ADULT_MINIMUM.hourly });
+    } else {
+      void onSetTravelPay(entity.id, { basis });
+    }
+  }
+
+  function saveAmount(entity: Entity, value: string) {
+    const hourly = Math.round(Number(value) * 100) / 100;
+    if (!onSetTravelPay || !Number.isFinite(hourly) || hourly < 0 || hourly > 200) return;
+    if (entity.travelPay?.basis === 'fixed' && entity.travelPay.hourly === hourly) return;
+    void onSetTravelPay(entity.id, { basis: 'fixed', hourly });
+  }
+
+  return (
+    <div className="travel-pay">
+      <div className="eyebrow">Travel pay</div>
+      <p className="muted small">
+        A move between sites in a working day is working time, so it is paid and costed to the site travelled to.
+        A fixed rate never pays below the minimum wage for the person's age (£{ADULT_MINIMUM.hourly.toFixed(2)} at 21 and over),
+        so every hour of travel stays legal without relying on the rest of the week.
+      </p>
+      {entities.map((entity) => {
+        const basis = entity.travelPay?.basis ?? 'normal';
+        return (
+          <div key={entity.id} className="travel-pay-row">
+            <span className="strong">{entity.name}</span>
+            <select
+              aria-label={`Travel pay for ${entity.name}`}
+              value={basis}
+              disabled={!onSetTravelPay}
+              title={onSetTravelPay ? undefined : 'Set by whoever manages company settings'}
+              onChange={(e) => choose(entity, e.target.value as TravelPay['basis'])}
+            >
+              <option value="normal">Their normal rate</option>
+              <option value="minimum">Minimum wage for their age</option>
+              <option value="fixed">A fixed rate</option>
+            </select>
+            {basis === 'fixed' && entity.travelPay?.basis === 'fixed' && (
+              <span className="travel-cell">
+                <span className="muted small">£</span>
+                <input
+                  key={entity.travelPay.hourly}
+                  aria-label={`Fixed travel rate for ${entity.name}`}
+                  inputMode="decimal"
+                  disabled={!onSetTravelPay}
+                  defaultValue={entity.travelPay.hourly.toFixed(2)}
+                  onBlur={(e) => saveAmount(entity, e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                />
+                <span className="muted small">an hour</span>
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

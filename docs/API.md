@@ -27,7 +27,7 @@ locally. Set these to connect to real TeamPay:
 | `PRESHIFT_DEMO` | `1` makes the deployment the public demo: a sandbox per visitor at `/demo`, no account changes, simulator payroll. See the README |
 | `PRESHIFT_DEMO_CLAUDE_KEY` | Demo only. Claude API key the sandboxes share for the rota assistant, capped per sandbox. Unset means the assistant is off in the demo |
 | `PRESHIFT_DEMO_URL` | Live system only. Where its `/demo` sends visitors, the demo deployment's `/demo` |
-| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
+| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes) and `/internal/webhooks` (every 15 minutes, webhook retries) |
 
 ## Authentication and tenancy
 
@@ -38,8 +38,8 @@ account had before roles, and the Access overview lists it as a finding until it
 People and access (`/v1/users`, `/v1/access/*`) are managed by people only, never by an integration
 key; settings (`/v1/settings`) need a signed-in person with `settings.manage`, and staff data
 requests (`/v1/privacy/*` beyond the register) a person with `privacy.manage`. Personnel files
-(`/v1/hr/*`) need `hr.view` or `hr.manage` where the person works, and cases `hr.cases`. Integrations use bearer API keys, each bound to one organisation with scopes: `rota:read`, `rota:write`,
-`time:write`, `time:approve`, `payroll:write`, `hr:read`, `hr:write`, or `*`. A GM key can build rotas and approve
+(`/v1/hr/*`) need `hr.view` or `hr.manage` where the person works, and cases `hr.cases`. Integrations use bearer API keys, each bound to one organisation with scopes (see Plugging in,
+below). A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -53,8 +53,9 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Sites, shifts, demand rules, forecast, staff list | `rota.view` (staff: or `team.manage`). Lists are trimmed to those sites |
 | Shift changes, build, clear | `rota.edit` (a moved shift, at both sites) |
 | Publish | `rota.publish` |
+| Rest breach overrides: record, withdraw | `rota.publish` where the short rest is worked, and a person: never a system key. Listing them needs `rota.view` |
 | Forecast upload | `demand.manage` at every site in the upload |
-| Rota week's cost, staff pay rates | `costs.view` or `pay.edit`; otherwise `metrics` is null and pay reads nought with `payHidden` |
+| Rota week's cost, staff pay rates | `costs.view` or `pay.edit`; otherwise `metrics` is null and pay reads nought with `payHidden`. A key also needs `employees:read` for cost by person and by shift |
 | Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record |
 | Clocking, card taps, manual entries, edits | `time.record` |
 | Site clocking area (geofence) | `settings.manage`: a wider fence lets people clock in from elsewhere |
@@ -65,6 +66,91 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Sync, send hours, retry | `payroll.send` |
 | A company's TeamPay employer and PAYE reference | `settings.manage`: it decides where that company's hours are sent |
 | Labour accrual journal | `close.export` |
+
+## Plugging in: API keys
+
+The API is open to any system a customer wants to connect: an EPOS pushing sales, a BI tool reading
+labour, an in-house app, a partner product. Nobody at Preshift has to issue anything.
+
+1. A person signed in with `settings.manage` (which needs their authenticator) opens Settings,
+   API keys, names the key after the system that will use it and ticks what it may do. Each scope
+   needs the matching permission held across the whole organisation, so nobody can make a key that
+   does more than they can: `rota:read` needs `rota.view`, `employees:read` `costs.view`, `rota:write`
+   `rota.edit`, `time:write` `time.record`, `time:approve` `time.approve`, `payroll:write`
+   `payroll.send`, `hr:read` `hr.view`, `hr:write` `hr.manage`, `webhooks:write` `settings.manage`
+   (refused as 403 `beyond_own_access`). The Owner role holds neither `payroll.send` nor
+   `time.approve`, as paired duties, so it cannot make a key that sends payroll or approves hours.
+   Keys made here are organisation-wide system keys, recorded against the person who made them. The key (`psk_...`) is shown once. Only its SHA-256 is stored, in its own table,
+   so no data endpoint can return it and a database leak gives nobody a working key.
+2. The system sends `Authorization: Bearer psk_...` on every request. It reaches that organisation
+   only, and only the scopes ticked. A key can never make, list or revoke keys, or manage people
+   or settings: that needs a person signed in.
+3. Revoking a key under Settings stops it on the next request. Each key shows when it was last used,
+   so keys nobody uses any more are easy to find and remove.
+
+Staff records and pay sit behind `employees:read`, apart from `rota:read`, so a BI tool or EPOS can
+read labour totals without seeing anyone's date of birth, rate or pay. Without it, `/v1/rota/week`
+still returns total labour cost but leaves cost by person and by shift empty, and time entries come
+without clock locations. Grant it only to systems that hold staff records themselves (HR, payroll).
+Keys in `PRESHIFT_API_KEYS` that have `rota:read` are given `employees:read` too, because they had
+it before the split.
+
+Each key may make 300 requests a minute (`x-ratelimit-*` headers; `429` with `retry-after` beyond
+that). The limit is held per server instance, so it guards against a runaway loop rather than
+acting as a billing quota. Keys from `PRESHIFT_API_KEYS` still work, for keys set by deployment.
+
+| Scope | Allows |
+| --- | --- |
+| `rota:read` | Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals |
+| `employees:read` | Read staff records and pay: `/v1/employees`, cost by person and by shift in `/v1/rota/week`, clock locations on time entries, payroll submissions, pay runs and the payroll outbox |
+| `rota:write` | Change shifts and people, build and publish rotas, load the forecast |
+| `time:write` | Clock in and out, enter or edit time |
+| `time:approve` | Approve clocked time for payroll |
+| `payroll:write` | Send people and approved hours to payroll |
+| `hr:read` | Read personnel files, absence reasons and the HR overview (see HR below). Includes `employees:read` |
+| `hr:write` | Change personnel files and record absence. Includes `hr:read` reads and `employees:read` |
+| `webhooks:write` | Register and remove webhook endpoints |
+| `*` | All of the above |
+
+## Plugging in: webhooks
+
+Polling tells a partner too late. Webhooks tell it the moment something changes.
+
+- Register an https endpoint and the events it wants under Settings, Webhooks (a person with
+  `settings.manage`), or with `POST /v1/webhooks` from a system key with `webhooks:write`. A
+  personal key needs both the scope and its person's `settings.manage`. The signing secret (`whsec_...`) is
+  returned once. `GET /v1/webhooks/events` lists every event and what its data holds.
+- Each event is a POST of `{id, type, createdAt, orgId, data}` with headers `preshift-event-id`,
+  `preshift-event-type` and `preshift-signature: t=<unix seconds>,v1=<hex>`, where `v1` is the
+  HMAC-SHA256 of `<t>.<raw body>` with the secret. Check the signature, refuse a `t` more than five
+  minutes old, and treat `id` as the idempotency key: an event can arrive twice.
+- Events are thin. They carry what changed and its ids (`data.id`, `data.siteIds`, field names),
+  never pay, dates of birth or other personal data. The receiver fetches the detail with its key,
+  so what it can see is still governed by that key's scopes.
+- Events are raised from the audit trail, in the same save as the change, so one is never sent for
+  a change that failed and never lost for one that was saved. They are sent inside the request
+  that raised them (three second timeout, endpoints in parallel), and anything not answered 2xx
+  is retried with backoff up to eight times, on the organisation's next change or the 15 minute
+  cron, whichever comes first, so a partner that was down hears within a quarter of an hour of its
+  next retry falling due. An endpoint's events go in order; a failing one holds back only its own.
+- HR events (`hr.profile.updated`, `hr.absence.*`, `hr.record.*`, `employee.rtw_document.*`) say
+  something about a named person's health, conduct or immigration status, even as bare ids, so:
+  they are never part of `*` and an endpoint names each one; only a person with `hr.view` across the
+  whole organisation, or a key with `hr:read` (a personal key needs both), can subscribe to them, or
+  move or re-key an endpoint that carries them; they never carry an absence's type, reason or dates,
+  a file name or a document hash; and disciplinary, grievance and capability cases (`kind: case`)
+  are never sent at all, as only people with `hr.cases` see them.
+- Settings shows events not yet delivered, with the error and a Retry now button. Send test
+  posts a `webhook.test` event and reports what the endpoint answered.
+- Addresses must be public https. Private, link-local and cloud metadata addresses are refused, so
+  a webhook cannot be used to reach Preshift's own network. `http://localhost` is allowed outside
+  production for building a receiver on a laptop.
+- The public demo refuses keys and webhooks (anyone could otherwise make Preshift call any
+  address); its API docs stay open.
+
+Webhook endpoints: `GET /v1/webhooks/events`, `GET/POST /v1/webhooks`, `PATCH/DELETE /v1/webhooks/:id`,
+`POST /v1/webhooks/:id/test`, `POST /v1/webhooks/:id/rotate-secret`, `GET /v1/webhooks/deliveries`,
+`POST /v1/webhooks/deliveries/:id/retry`.
 
 ## Users and access
 
@@ -107,18 +193,19 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Area | Endpoints |
 | --- | --- |
 | Reference | `GET /v1/sites`, `/v1/roles`, `/v1/demand-rules` |
+| Set-up | A signed-in person (or their personal key) holding `settings.manage` organisation-wide, with a proved authenticator; never a system integration key. `GET /v1/setup/status` (still the sample group, and whether it can be cleared), `PUT /v1/setup` (companies, sites, roles and staffing rules in one go; refused with `invalid_setup` if incomplete and `in_use` if it removes a company, site or role that people, shifts, clocked time or someone's site access still use; re-forecasts from this week from each site's `salesProfile`), `POST /v1/setup/start-fresh` (clears the sample group, its fictional people and HR files; refused with `not_sample` once anything real exists, including HR records, a data request, or a real person's access tied to a sample site). People are not part of set-up: they are added through `POST /v1/employees` so each starter reaches payroll. |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
 | Right to work copies | `POST /v1/employees/:id/right-to-work/documents?fileName=` with the file as the raw body (PDF, JPEG, PNG or WebP, up to 4 MB; the type is read from the bytes, anything else is 415), `GET .../documents/:docId` to view, `DELETE .../documents/:docId` (signed-in admins only), `GET .../documents/:docId/access` (the copy's access log, signed-in admins only). Each copy is listed on the employee's `rightToWork.documents` with its SHA-256, who added it and when. Editing the employee never changes that list. |
 | HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, type, from, to}`. Cases are returned to signed-in admins only, never to members. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Rest overrides | `GET /v1/rota/overrides`, `POST /v1/rota/overrides` with `{weekStart, key, reason}`, `DELETE /v1/rota/overrides/:id`. Daily and weekly rest breaches carry an `overrideKey`; a person with the right to publish the rota at the breach's site (never a system key) posts it with a reason of at least 15 characters, and the breach publishes as a warning naming them and their reason. The key covers that breach as it stood: moving either shift, or changing the days worked, makes a new breach that blocks again. Overrides and withdrawals go to the audit log, and each publish records the overrides it went out under. |
-| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here) |
+| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here). Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. |
 | Takings | `GET/PUT/DELETE /v1/sales` (a till or EPOS integration pushes each day's net takings per site; `PUT` adds or replaces by site and day, `DELETE ?siteId&date` removes one so reports fall back to the forecast) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve` (returns `belowBreakMinimum`, recorded in the audit), `GET /compare`, `GET /break-check` (finished shifts below the legal rest break: `short` or `split`) |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. Card taps are not location checked, as the reader is fixed on site. |
 | Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (returns a one-time link, valid 7 days), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
-| Travel | `PUT /v1/sites/:id/location` (`{postcode}`, looked up on postcodes.io, or `{lat, lng}`; clears looked-up journeys to and from the site), `POST /v1/sites/travel/refresh` (TfL journey planner for every pair of located sites, each way, weekday 17:00, public transport or walking; hand-set times kept; a labelled straight-line estimate where TfL has no answer), `PUT`/`DELETE /v1/sites/:id/travel/:toId` (`{minutes}` set by hand, both ways). Journeys are kept on each site as `travel: {siteId: {minutes, source: tfl\|estimate\|manual, mode, checkedAt}}`. Shift responses carry `travel` (blocking: cannot get there in time), `travel-tight` and `travel-unknown` issues. A same-day journey between sites is paid working time: costs, journals and payroll submissions include it, charged to the shift travelled to, and payroll hours lines carry `travelHours` (already inside `hours`). `TFL_APP_KEY` is optional; the planner works without one at low volume. |
+| Travel | `PUT /v1/sites/:id/location` (`{postcode}`, looked up on postcodes.io, or `{lat, lng}`; clears looked-up journeys to and from the site), `POST /v1/sites/travel/refresh` (TfL journey planner for every pair of located sites, each way, weekday 17:00, public transport or walking; hand-set times kept; a labelled straight-line estimate where TfL has no answer), `PUT`/`DELETE /v1/sites/:id/travel/:toId` (`{minutes}` set by hand, both ways). Journeys are kept on each site as `travel: {siteId: {minutes, source: tfl\|estimate\|manual, mode, checkedAt}}`. Shift responses carry `travel` (blocking: cannot get there in time), `travel-tight` and `travel-unknown` issues. A same-day journey between sites is paid working time: costs, journals and payroll submissions include it, charged to the shift travelled to, and payroll hours lines carry `travelHours` (already inside `hours`). What a company pays for travel is set with `PATCH /v1/entities/:id` `{travelPay: {basis: normal\|minimum\|fixed, hourly?}}`: `minimum` is the minimum wage for each person's age, `fixed` needs `hourly` and is lifted to the minimum wage where it is lower, and `normal` clears the policy. Travel at a rate other than the person's normal rate is its own hours line with `travel: true` and that `rate`. `TFL_APP_KEY` is optional; the planner works without one at low volume. |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |
@@ -227,6 +314,7 @@ is sent; if the log cannot be written, the file is not shown.
 | `/app` | Rota web app |
 | `/v1/*`, `/docs`, `/health` | The API, as one Node function |
 | `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
+| `/internal/webhooks` | Vercel Cron every 15 minutes: webhook retries that are due (needs `CRON_SECRET`) |
 
 Payroll changes are also delivered inside the request that makes them, so the cron is a safety
 net, not the main path.
