@@ -1,7 +1,8 @@
 import { shiftPaidHours } from './cost';
 import type { RecordCheck } from './employees';
 import { addDays, daysBetween } from './time';
-import type { Employee, Shift } from './types';
+import { travelMinutesInto } from './travel';
+import type { Employee, Shift, Site } from './types';
 import { UK_RATES_2026_27, type UkRates } from './ukRates';
 
 export const STATUTORY_WEEKS = 5.6;
@@ -69,6 +70,8 @@ export interface HolidayBalance {
   entitlementHours: number;
   /** Earned to date: what would be owed if they left today. */
   accruedHours: number;
+  /** Paid travel between sites within the hours worked, which accrues holiday like any other working time. */
+  travelHours: number;
   carriedOverHours: number;
   takenHours: number;
   bookedHours: number;
@@ -92,7 +95,9 @@ function daysInclusive(from: string, to: string) {
 /**
  * Holiday position for one person in the leave year containing `today`.
  * `worked` is paid time, actual where known (see workedShifts); only shifts up
- * to `today` count towards accrual.
+ * to `today` count towards accrual. Travel between sites within a working day is working time
+ * (see travelMinutesInto), so with `sites` it is added to hours worked, as it is in the cost
+ * engine and payroll, and builds holiday for irregular hours staff.
  */
 export function holidayBalance(
   employee: Employee,
@@ -100,6 +105,7 @@ export function holidayBalance(
   today: string,
   leaveYearStart = '01-01',
   rates: UkRates = UK_RATES_2026_27,
+  sites: Site[] = [],
 ): HolidayBalance {
   const year = leaveYear(today, leaveYearStart);
   const record = employee.holiday ?? {};
@@ -110,7 +116,10 @@ export function holidayBalance(
   const yearDays = daysInclusive(year.start, year.end);
 
   const mine = worked.filter((s) => s.employeeId === employee.id && s.date >= from && s.date <= upTo);
-  const workedHours = mine.reduce((sum, s) => sum + shiftPaidHours(s), 0);
+  // Journeys are found across all their shifts, so a move into the first shift of the year still counts.
+  const travel = travelMinutesInto(worked.filter((s) => s.employeeId === employee.id), sites);
+  const travelHours = mine.reduce((sum, s) => sum + (travel.get(s.id) ?? 0), 0) / 60;
+  const workedHours = mine.reduce((sum, s) => sum + shiftPaidHours(s), 0) + travelHours;
 
   let entitlementHours: number;
   let accruedHours: number;
@@ -181,6 +190,7 @@ export function holidayBalance(
     year,
     entitlementHours: round2(entitlementHours),
     accruedHours: round2(accruedHours),
+    travelHours: round2(travelHours),
     carriedOverHours: round2(carriedOverHours),
     takenHours: round2(takenHours),
     bookedHours: round2(bookedHours),

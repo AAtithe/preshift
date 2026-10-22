@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildApp } from './app';
-import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { SQUARE_VERSION, SquareProvider, squareNetSales } from './integrations/epos/square';
 import { MemoryStore } from './store';
+import { enrol, kit, TODAY } from './testkit';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 const NOW = new Date('2026-10-22T09:00:00Z'); // Thursday morning: Monday to Wednesday have finished trading
@@ -43,30 +42,17 @@ const order = (id: string, location: string, closedAt: string, pounds: number, e
   ...extra,
 });
 
+/**
+ * The demo group with its owner signed in and holding an authenticator, as anyone changing
+ * settings must, plus a system integration key for the routes a till feed or script would call.
+ */
 async function boot(fetchImpl: typeof fetch = fakeSquare().impl) {
-  const { app } = await buildApp({
-    apiKeys: [{ key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] }],
-    store: new MemoryStore(['demo'], '2026-10-21'),
-    provider: new TeamPaySimulator(),
-    autoDispatch: false,
-    fetch: fetchImpl,
-    now: () => NOW,
-  });
-  const setup = await app.inject({
-    method: 'POST',
-    url: '/auth/setup',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    payload: new URLSearchParams({ email: OWNER.email, password: OWNER.password, confirm: OWNER.password, next: '/app/' }).toString(),
-  });
-  const cookie = String(setup.headers['set-cookie']).split(';')[0];
+  const k = await kit({ store: new MemoryStore(['demo'], TODAY), accounts: false, keys: [{ key: 'integration', orgId: 'demo', name: 'Integration', scopes: ['*'] }], fetch: fetchImpl, now: () => NOW });
+  const setup = await k.form('/auth/setup', { email: OWNER.email, password: OWNER.password, confirm: OWNER.password, next: '/app/' });
+  const cookie = (await enrol(k, setup.cookie!)).cookie;
   const call = async (method: string, url: string, body?: unknown, as: 'admin' | 'key' = 'admin') => {
-    const res = await app.inject({
-      method: method as 'GET',
-      url,
-      headers: { ...(as === 'admin' ? { cookie } : { authorization: 'Bearer integration' }), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
-      payload: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    return { status: res.statusCode, body: res.body ? res.json() : undefined };
+    const res = await k.call(method, url, as === 'admin' ? cookie : { key: 'integration' }, body);
+    return { status: res.status, body: res.body };
   };
   return { call };
 }
@@ -118,7 +104,7 @@ describe('connecting a till', () => {
 
     const ok = await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
     expect(ok.status).toBe(200);
-    expect(ok.body.connection).toMatchObject({ provider: 'square', environment: 'production', accountName: 'West End Dining', connectedBy: OWNER.email });
+    expect(ok.body.connection).toMatchObject({ provider: 'square', environment: 'production', accountName: 'West End Dining', connectedBy: 'owner' });
     const status = (await call('GET', '/v1/integrations/epos')).body;
     expect(status.tokenEndsWith).toBe('1234');
     expect(JSON.stringify(status)).not.toContain('good-token');
@@ -193,5 +179,35 @@ describe('syncing takings', () => {
     const sales = (await call('GET', '/v1/sales?from=2026-10-19&to=2026-10-21')).body as { source: string }[];
     expect(sales.filter((s) => s.source === 'till')).toHaveLength(9);
     expect((await call('POST', '/v1/integrations/epos/sync', {})).status).toBe(409);
+  });
+});
+
+describe('who may do what with the till', () => {
+  /** Seeded people with real sessions, and a simulated till already connected with the given sites matched. */
+  async function people(matched: string[]) {
+    const k = await kit({ now: () => NOW });
+    const org = await k.store.load('demo');
+    org.epos = { provider: 'square', environment: 'simulator', connectedAt: NOW.toISOString(), connectedBy: 'Olivia Grant' };
+    for (const s of org.state.sites) if (matched.includes(s.id)) s.eposLocationId = `sim-${s.id}`;
+    await k.store.save(org);
+    return k;
+  }
+
+  it('lets a GM sync their own site but not one they do not run, and keeps settings from them', async () => {
+    const gm = 'priya@marylebonegroup.example'; // general manager at Marylebone only
+    const own = await people(['mar']);
+    expect((await own.call('POST', '/v1/integrations/epos/sync', await own.as(gm), { from: '2026-10-19', to: '2026-10-21' })).status).toBe(200);
+    expect((await own.call('PUT', '/v1/integrations/epos', await own.as(gm), { environment: 'simulator' })).status).toBe(403);
+
+    const group = await people(['mar', 'shd']);
+    const res = await group.call('POST', '/v1/integrations/epos/sync', await group.as(gm), {});
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/Shoreditch/);
+  });
+
+  it('refuses a sync from someone without the right to change takings', async () => {
+    const k = await people(['mar']);
+    // A head chef rotas the kitchen but does not change forecasts or takings.
+    expect((await k.call('POST', '/v1/integrations/epos/sync', await k.as('marco@marylebonegroup.example'), {})).status).toBe(403);
   });
 });

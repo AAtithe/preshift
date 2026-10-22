@@ -195,8 +195,12 @@ export interface Employee {
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
+  /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
+  payHidden?: boolean;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
+  rotaNotes?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
   hr?: HrProfile;
   /** Sickness and other absence. A shift on an absence day is blocked like leave. */

@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { addDays, daysBetween } from '../../src/engine/time';
-import { requireAdmin, requireScope } from '../auth';
+import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard } from '../guard';
 import { EposError, type EposEnvironment, type EposProvider } from '../integrations/epos/provider';
 import { SquareSimulator } from '../integrations/epos/simulator';
 import { SquareProvider } from '../integrations/epos/square';
@@ -19,13 +20,13 @@ interface Options {
 
 async function providerFor(ctx: AppContext, org: OrgData, opts: Options): Promise<EposProvider> {
   const conn = org.epos;
-  if (!conn) throw new HttpError(409, 'not_connected', 'No till is connected. An admin connects one in Settings.');
+  if (!conn) throw new HttpError(409, 'not_connected', 'No till is connected. Someone who manages settings connects one in Settings.');
   if (conn.environment === 'simulator') {
     if (!opts.simulatorAllowed) throw new HttpError(409, 'simulator_off', 'The simulated till is only available in the demo. Connect Square in Settings.');
     return new SquareSimulator(org.state);
   }
   const token = await ctx.store.getSetting(eposTokenSetting(org.orgId));
-  if (!token) throw new HttpError(409, 'no_token', 'The Square access token is missing. An admin saves it again in Settings.');
+  if (!token) throw new HttpError(409, 'no_token', 'The Square access token is missing. Someone who manages settings saves it again in Settings.');
   return new SquareProvider({ accessToken: token, environment: conn.environment, fetch: ctx.fetch });
 }
 
@@ -58,21 +59,31 @@ export async function syncAllTills(ctx: AppContext, opts: Options) {
 export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
-  const admin = { preHandler: requireAdmin, schema: { hide: true } };
-  const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
+  const hidden = { schema: { hide: true } };
+
+  /** Connecting a till is a setting: a person with settings.manage, never an integration key, as for the Claude key. */
+  function settingsPerson(req: FastifyRequest) {
+    if (!req.principal.email) throw new HttpError(403, 'forbidden', 'The till is connected by a person signed in, not an API key.');
+    const g = guard(ctx, req, orgOf(req));
+    g.allow('settings.manage');
+    return actorName(g);
+  }
 
   app.get('/v1/integrations/epos', { ...read, schema: { tags: ['EPOS'], description: 'The connected till, which site takes which till location, and the last sync.' } }, async (req) => {
     const org = orgOf(req);
-    const token = req.principal.user?.role === 'admin' ? await ctx.store.getSetting(eposTokenSetting(org.orgId)) : null;
+    const g = guard(ctx, req, org);
+    // The end of the token helps whoever manages settings tell two tokens apart; nobody else needs it.
+    const token = req.principal.email && g.can('settings.manage') ? await ctx.store.getSetting(eposTokenSetting(org.orgId)) : null;
     return {
       connection: org.epos ?? null,
       tokenEndsWith: token ? token.slice(-4) : null,
-      sites: org.state.sites.map((s) => ({ siteId: s.id, name: s.name, locationId: s.eposLocationId ?? null })),
+      sites: org.state.sites.filter((s) => g.can('rota.view', s.id)).map((s) => ({ siteId: s.id, name: s.name, locationId: s.eposLocationId ?? null })),
       simulatorAllowed: opts.simulatorAllowed,
     };
   });
 
-  app.put<{ Body: { environment?: EposEnvironment; accessToken?: string } }>('/v1/integrations/epos', admin, async (req) => {
+  app.put<{ Body: { environment?: EposEnvironment; accessToken?: string } }>('/v1/integrations/epos', hidden, async (req) => {
+    const by = settingsPerson(req);
     const org = orgOf(req);
     const environment = req.body?.environment ?? 'production';
     if (!['production', 'sandbox', 'simulator'].includes(environment)) throw new HttpError(400, 'invalid_environment', 'Choose production, sandbox or simulator.');
@@ -97,29 +108,31 @@ export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options)
     }
 
     await ctx.store.setSetting(eposTokenSetting(org.orgId), environment === 'simulator' ? null : accessToken!);
-    org.epos = { provider: 'square', environment, connectedAt: ctx.now().toISOString(), connectedBy: actor(req), accountName };
+    org.epos = { provider: 'square', environment, connectedAt: ctx.now().toISOString(), connectedBy: by, accountName };
     for (const site of org.state.sites) {
       // A location from another account or environment would sync the wrong takings: drop it.
       if (site.eposLocationId && !locationIds.includes(site.eposLocationId)) delete site.eposLocationId;
       // The simulator has one location per site, so it can be matched for you.
       if (environment === 'simulator') site.eposLocationId = `sim-${site.id}`;
     }
-    audit(org, actor(req), 'epos.connected', { provider: 'square', environment });
+    audit(org, by, 'epos.connected', { provider: 'square', environment });
     return { connection: org.epos, tokenEndsWith: accessToken ? accessToken.slice(-4) : null };
   });
 
-  app.delete('/v1/integrations/epos', admin, async (req) => {
+  app.delete('/v1/integrations/epos', hidden, async (req) => {
+    const by = settingsPerson(req);
     const org = orgOf(req);
     await ctx.store.setSetting(eposTokenSetting(org.orgId), null);
     delete org.epos;
     for (const site of org.state.sites) delete site.eposLocationId;
-    audit(org, actor(req), 'epos.disconnected');
+    audit(org, by, 'epos.disconnected');
     // Takings already brought in stay: they are the record of what was sold.
     return { connection: null };
   });
 
   app.get('/v1/integrations/epos/locations', { ...read, schema: { tags: ['EPOS'], description: "The till's locations, and the site each is matched to." } }, async (req) => {
     const org = orgOf(req);
+    guard(ctx, req, org).allow('rota.view');
     const provider = await providerFor(ctx, org, opts);
     const locations = await provider.listLocations().catch(tillProblem);
     return locations.map((l) => ({ ...l, siteId: org.state.sites.find((s) => s.eposLocationId === l.id)?.id ?? null }));
@@ -127,8 +140,9 @@ export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options)
 
   app.put<{ Body: { sites: Record<string, string | null> } }>(
     '/v1/integrations/epos/mapping',
-    { ...admin, schema: { hide: true, body: { type: 'object', required: ['sites'], properties: { sites: { type: 'object', additionalProperties: { type: ['string', 'null'] } } } } } },
+    { schema: { hide: true, body: { type: 'object', required: ['sites'], properties: { sites: { type: 'object', additionalProperties: { type: ['string', 'null'] } } } } } },
     async (req) => {
+      const by = settingsPerson(req);
       const org = orgOf(req);
       const provider = await providerFor(ctx, org, opts);
       const locations = await provider.listLocations().catch(tillProblem);
@@ -146,7 +160,7 @@ export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options)
         if (locationId) site.eposLocationId = locationId;
         else delete site.eposLocationId;
       }
-      audit(org, actor(req), 'epos.mapped', { sites: Object.fromEntries(next) });
+      audit(org, by, 'epos.mapped', { sites: Object.fromEntries(next) });
       return org.state.sites.map((s) => ({ siteId: s.id, locationId: s.eposLocationId ?? null }));
     },
   );
@@ -163,6 +177,9 @@ export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options)
     },
     async (req) => {
       const org = orgOf(req);
+      // Syncing writes takings, the forecast's right at each site, exactly as keying them in is.
+      const g = guard(ctx, req, org);
+      for (const site of org.state.sites.filter((s) => s.eposLocationId)) g.allow('demand.manage', site.id);
       const provider = await providerFor(ctx, org, opts);
       const to = req.body?.to ?? addDays(today(ctx), -1);
       const from = req.body?.from ?? addDays(to, -6);
@@ -170,7 +187,7 @@ export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options)
       if (daysBetween(from, to) >= MAX_SYNC_DAYS) throw new HttpError(400, 'range_too_long', `Sync at most ${MAX_SYNC_DAYS} days at a time.`);
       const result = await syncEpos(org, provider, from, to, ctx.now());
       org.epos!.lastSync = result;
-      audit(org, actor(req), 'epos.synced', { from, to, written: result.written, ok: result.ok, error: result.error });
+      audit(org, actorName(g), 'epos.synced', { from, to, written: result.written, ok: result.ok, error: result.error });
       return result;
     },
   );

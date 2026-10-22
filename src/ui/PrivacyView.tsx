@@ -12,11 +12,11 @@ import {
 import type { Employee, RotaState } from '../engine/types';
 import { api, ApiError } from './api';
 import { download } from './format';
-import type { Me } from './SettingsView';
 
 interface Props {
   state: RotaState;
-  me: Me | null;
+  /** Holds privacy.manage: the request log, exports, erasure and the retention schedule. */
+  canManage: boolean;
   today: string;
   /** Called after anything that changes people's records, so the rest of the app shows it. */
   onChanged: () => Promise<unknown>;
@@ -43,8 +43,8 @@ const CODE_LABEL: Record<RetentionItem['code'], string> = {
  * UK GDPR for staff data in one place: requests people make and their deadlines, what is due to be
  * deleted, and the record of processing an ICO inspection asks for first.
  */
-export function PrivacyView({ state, me, today, onChanged }: Props) {
-  const isAdmin = me?.role === 'admin';
+export function PrivacyView({ state, canManage, today, onChanged }: Props) {
+  const isAdmin = canManage;
   const [register, setRegister] = useState<Register | null>(null);
   const [retention, setRetention] = useState<{ policy: RetentionPolicy; items: RetentionItem[] } | null>(null);
   const [requests, setRequests] = useState<Request[]>([]);
@@ -54,7 +54,7 @@ export function PrivacyView({ state, me, today, onChanged }: Props) {
     try {
       const [reg, ret, reqs] = await Promise.all([
         api.get<Register>('/v1/privacy/register'),
-        api.get<{ policy: RetentionPolicy; items: RetentionItem[] }>('/v1/privacy/retention'),
+        isAdmin ? api.get<{ policy: RetentionPolicy; items: RetentionItem[] }>('/v1/privacy/retention') : Promise.resolve(null),
         isAdmin ? api.get<Request[]>('/v1/privacy/requests') : Promise.resolve([]),
       ]);
       setRegister(reg);
@@ -88,7 +88,7 @@ export function PrivacyView({ state, me, today, onChanged }: Props) {
         <div className={`kpi ${overdue.length ? 'bad' : open.length ? 'warn' : 'good'}`}>
           <div className="kpi-label">Open requests</div>
           <div className="kpi-value">{isAdmin ? open.length : '-'}</div>
-          <div className="kpi-hint">{isAdmin ? `${overdue.length} past the one month deadline` : 'Admins see the request log'}</div>
+          <div className="kpi-hint">{isAdmin ? `${overdue.length} past the one month deadline` : 'Shown to whoever handles staff data requests'}</div>
         </div>
         <div className={`kpi ${due.length ? 'warn' : 'good'}`}>
           <div className="kpi-label">Due for deletion</div>

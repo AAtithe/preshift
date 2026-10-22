@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Employee, RightToWorkDocument } from '../../src/engine/types';
-import { requireAdmin, requireScope } from '../auth';
+import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
-import { readsHr } from './hr';
+import { actorName, guard, type Guard } from '../guard';
+import { forReader } from './employees';
+import { employeeView, readsHr } from './hr';
 import type { DocumentCipher } from '../documentCrypto';
 import { audit, type DocumentAccess, type OrgData } from '../store';
 
@@ -54,8 +56,9 @@ function accessEntry(req: FastifyRequest, documentId: string, employeeId: string
     employeeId,
     action,
     at: new Date().toISOString(),
+    // The signed-in email or the key's name: the exact identity, not a display name.
     actor: req.principal.name,
-    via: req.principal.user ? 'session' : 'api key',
+    via: req.principal.email ? 'session' : 'api key',
     ip: req.ip,
   };
 }
@@ -96,10 +99,28 @@ export function deleteCopiesOnSave(ctx: AppContext) {
   };
 }
 
-/** Copies of identity documents are personnel file data: an integration needs an HR scope. */
-async function requireHrRead(req: FastifyRequest, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) {
-  if (!readsHr(req)) return reply.code(403).send({ error: 'forbidden', message: 'This key lacks the hr:read scope' });
+/**
+ * Copies of identity documents are the most sensitive files Preshift holds. Adding one is
+ * hr.manage at the person's home site, never on your own file; viewing one is reading their
+ * personnel file there (hr.view, or an HR scope for a key). Deleting one, and reading who has
+ * viewed it, are data protection acts: privacy.manage, by a person, never an integration key.
+ */
+function mayAdd(g: Guard, e: Employee) {
+  g.allow('hr.manage', e.siteId);
+  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else files your own right to work documents.');
 }
+
+function mayView(req: FastifyRequest, g: Guard, e: Employee) {
+  if (!readsHr(req, g, e)) throw new HttpError(403, 'forbidden', `Viewing ${e.name}'s documents needs their personnel file`);
+}
+
+function dataProtection(req: FastifyRequest, g: Guard) {
+  if (!req.principal.userId && !req.principal.email) throw new HttpError(403, 'forbidden', 'Copies are deleted, and their views read, by a person, not an API key.');
+  g.allow('privacy.manage');
+}
+
+/** An answer carries the person as the caller may see them: their file and their pay as allowed. */
+const shown = (req: FastifyRequest, g: Guard, e: Employee) => forReader(g, employeeView(req, e, g));
 
 export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
   const tags = ['Right to work'];
@@ -128,8 +149,10 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      const cipher = cipherOf(ctx);
+      const g = guard(ctx, req, org);
       const e = employeeIn(org, req.params.id);
+      mayAdd(g, e);
+      const cipher = cipherOf(ctx);
       const data = Buffer.isBuffer(req.body) ? req.body : null;
       if (!data?.length) throw new HttpError(400, 'invalid_request', 'Send the file as the request body.');
       const contentType = sniffType(data);
@@ -145,26 +168,28 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
         bytes: data.length,
         sha256: createHash('sha256').update(data).digest('hex'),
         uploadedAt: new Date().toISOString(),
-        uploadedBy: req.principal.name,
+        uploadedBy: actorName(g),
       };
       await ctx.store.putDocument(org.orgId, doc.id, { contentType, data: cipher.seal(org.orgId, doc.id, data) });
       written.set(req, doc.id);
       e.rightToWork = { ...rtw, documents: [...(rtw.documents ?? []), doc] };
-      audit(org, req.principal.name, 'employee.rtw_document.added', { id: e.id, documentId: doc.id, sha256: doc.sha256 });
-      return reply.code(201).send(e);
+      audit(org, actorName(g), 'employee.rtw_document.added', { id: e.id, documentId: doc.id, sha256: doc.sha256 });
+      return reply.code(201).send(shown(req, g, e));
     },
   );
 
   app.get<{ Params: { id: string; docId: string } }>(
     '/v1/employees/:id/right-to-work/documents/:docId',
     {
-      preHandler: requireHrRead,
+      preHandler: requireScope('hr:read'),
       schema: { tags, description: 'The stored copy, to view or download. Every view is logged, with who and from where.', params: docParams },
     },
     async (req, reply) => {
       const org = orgOf(req);
+      const e = employeeIn(org, req.params.id);
+      mayView(req, guard(ctx, req, org), e);
       const cipher = cipherOf(ctx);
-      const doc = employeeIn(org, req.params.id).rightToWork?.documents?.find((d) => d.id === req.params.docId);
+      const doc = e.rightToWork?.documents?.find((d) => d.id === req.params.docId);
       if (!doc) throw notFound(`Document ${req.params.docId}`);
       const file = await ctx.store.getDocument(org.orgId, doc.id);
       if (!file) throw notFound(`Document ${req.params.docId}`);
@@ -184,15 +209,15 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get<{ Params: { id: string; docId: string } }>(
     '/v1/employees/:id/right-to-work/documents/:docId/access',
     {
-      preHandler: requireAdmin,
       schema: {
         tags,
-        description: 'Who added, viewed and deleted a copy, oldest first. Kept after the copy itself is deleted. Admins only.',
+        description: 'Who added, viewed and deleted a copy, oldest first. Kept after the copy itself is deleted. Needs privacy.manage.',
         params: docParams,
       },
     },
     async (req) => {
       const org = orgOf(req);
+      dataProtection(req, guard(ctx, req, org));
       employeeIn(org, req.params.id);
       const log = (await ctx.store.listDocumentAccess(org.orgId, req.params.docId)).filter((a) => a.employeeId === req.params.id);
       if (log.length === 0) throw notFound(`Document ${req.params.docId}`);
@@ -203,25 +228,26 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.delete<{ Params: { id: string; docId: string } }>(
     '/v1/employees/:id/right-to-work/documents/:docId',
     {
-      preHandler: requireAdmin,
       schema: {
         tags,
         description:
-          'Deletes a copy uploaded in error. Leavers\' copies go through the retention schedule (POST /v1/privacy/retention/apply). Admins only.',
+          'Deletes a copy uploaded in error. Leavers\' copies go through the retention schedule (POST /v1/privacy/retention/apply). Needs privacy.manage.',
         params: docParams,
       },
       onResponse: deleteCopiesOnSave(ctx),
     },
     async (req) => {
       const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      dataProtection(req, g);
       const e = employeeIn(org, req.params.id);
       const docs = e.rightToWork?.documents ?? [];
       const doc = docs.find((d) => d.id === req.params.docId);
       if (!doc) throw notFound(`Document ${req.params.docId}`);
       e.rightToWork = { ...e.rightToWork!, documents: docs.filter((d) => d.id !== doc.id) };
       deleteCopiesAfterSave(req, [{ employeeId: e.id, documentId: doc.id }]);
-      audit(org, req.principal.name, 'employee.rtw_document.deleted', { id: e.id, documentId: doc.id, fileName: doc.fileName, sha256: doc.sha256 });
-      return e;
+      audit(org, actorName(g), 'employee.rtw_document.deleted', { id: e.id, documentId: doc.id, fileName: doc.fileName, sha256: doc.sha256 });
+      return shown(req, g, e);
     },
   );
 }

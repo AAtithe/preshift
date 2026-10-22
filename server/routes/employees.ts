@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Employee } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard, type Guard } from '../guard';
 import { enqueue } from '../outbox';
 import { employeeBody, idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -13,6 +14,35 @@ const PAYROLL_FIELDS: (keyof Employee)[] = [
   'name', 'dateOfBirth', 'siteId', 'payBasis', 'hourlyRate', 'annualSalary',
   'contractedHours', 'irregularHours', 'pensionEnrolled',
 ];
+
+// Fields that are pay: changing them is pay.edit, which stays apart from sending payroll.
+// The employing company is one: moving someone to another entity moves them to another PAYE scheme.
+const PAY_FIELDS: (keyof Employee)[] = ['hourlyRate', 'annualSalary', 'payBasis', 'entityId'];
+
+/** Home site and every site they cover: their hours can land in any of them. */
+const sitesOfPerson = (e: Employee) => [e.siteId, ...(e.coverSiteIds ?? [])];
+
+/** Seen by those who see the rota or manage the team at any site the person works. */
+function visible(g: Guard, e: Employee) {
+  const at = g.at('rota.view', 'team.manage');
+  return sitesOfPerson(e).some((siteId) => at({ siteId }));
+}
+
+/** What a reader receives: pay withheld unless they see labour cost or set pay where the person works. */
+export function forReader(g: Guard, e: Employee): Employee {
+  if (sitesOfPerson(e).some((s) => g.can('costs.view', s) || g.can('pay.edit', s))) return e;
+  return { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
+}
+
+function payChanged(before: Partial<Employee>, after: Partial<Employee>) {
+  return PAY_FIELDS.some((f) => after[f] !== undefined && after[f] !== before[f]);
+}
+
+/** Pay is never set by the person paid, whatever their roles. */
+function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
+  g.allow('pay.edit', e.siteId);
+  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else changes your own pay.');
+}
 
 function queueUpsert(org: OrgData, e: Employee) {
   enqueue(org, {
@@ -35,12 +65,18 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
 
-  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => orgOf(req).state.employees.map((e) => employeeView(req, e)));
+  app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => {
+    const org = orgOf(req);
+    const g = guard(ctx, req, org);
+    return org.state.employees.filter((e) => visible(g, e)).map((e) => forReader(g, employeeView(req, e, g)));
+  });
 
   app.get<{ Params: { id: string } }>('/v1/employees/:id', { ...read, schema: { tags: ['Employees'], params: idParam } }, async (req) => {
-    const e = orgOf(req).state.employees.find((x) => x.id === req.params.id);
-    if (!e) throw notFound(`Employee ${req.params.id}`);
-    return employeeView(req, e);
+    const org = orgOf(req);
+    const g = guard(ctx, req, org);
+    const e = org.state.employees.find((x) => x.id === req.params.id);
+    if (!e || !visible(g, e)) throw notFound(`Employee ${req.params.id}`);
+    return forReader(g, employeeView(req, e, g));
   });
 
   app.post<{ Body: Partial<Employee> }>(
@@ -57,6 +93,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const home = org.state.sites.find((s) => s.id === req.body.siteId);
       if (!home) throw notFound(`Site ${req.body.siteId}`);
+      const g = guard(ctx, req, org);
+      g.allow('team.manage', home.id);
+      // A starter's rate is pay like any other: without pay.edit they start at nought for someone who sets pay to fix.
+      if (req.body.hourlyRate || req.body.annualSalary) g.allow('pay.edit', home.id);
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
         entityId: home.entityId,
         coverSiteIds: [],
@@ -81,9 +121,9 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       validateEmployment(org, e);
       org.state.employees.push(e);
       queueUpsert(org, e);
-      audit(org, req.principal.name, 'employee.created', { id: e.id });
+      audit(org, actorName(g), 'employee.created', { id: e.id });
       await kick(ctx, org);
-      return reply.code(201).send(employeeView(req, e));
+      return reply.code(201).send(forReader(g, employeeView(req, e, g)));
     },
   );
 
@@ -95,7 +135,13 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const i = org.state.employees.findIndex((x) => x.id === req.params.id);
       if (i < 0) throw notFound(`Employee ${req.params.id}`);
       const before = org.state.employees[i];
+      const g = guard(ctx, req, org);
       const after: Employee = { ...before, ...req.body, id: before.id };
+      if (Object.keys(req.body).some((k) => !PAY_FIELDS.includes(k as keyof Employee))) {
+        g.allow('team.manage', before.siteId);
+        if (after.siteId !== before.siteId) g.allow('team.manage', after.siteId);
+      }
+      if (payChanged(before, req.body)) allowPay(g, before);
       // The list of stored copies is the server's: editing the check never adds or drops a file.
       if (req.body.rightToWork) after.rightToWork = { ...req.body.rightToWork, documents: before.rightToWork?.documents ?? [] };
       validateEmployment(org, after);
@@ -112,9 +158,9 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
       }
       if (PAYROLL_FIELDS.some((f) => before[f] !== after[f])) queueUpsert(org, after);
-      audit(org, req.principal.name, 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
+      audit(org, actorName(g), 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
       await kick(ctx, org);
-      return employeeView(req, after);
+      return forReader(g, employeeView(req, after, g));
     },
   );
 
@@ -133,15 +179,17 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const e = org.state.employees.find((x) => x.id === req.params.id);
       if (!e) throw notFound(`Employee ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      g.allow('team.manage', e.siteId);
       if (e.status === 'leaver') throw new HttpError(409, 'conflict', `${e.name} is already a leaver`);
       e.status = 'leaver';
       e.leaveDate = req.body.leaveDate;
       const removed = org.state.shifts.filter((s) => s.employeeId === e.id && s.date > req.body.leaveDate).length;
       org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === e.id && s.date > req.body.leaveDate));
       enqueue(org, { type: 'employee.leaver', payload: { employeeId: e.id }, idempotencyKey: `leaver:${e.id}:${req.body.leaveDate}` });
-      audit(org, req.principal.name, 'employee.leaver', { id: e.id, leaveDate: req.body.leaveDate, shiftsRemoved: removed });
+      audit(org, actorName(g), 'employee.leaver', { id: e.id, leaveDate: req.body.leaveDate, shiftsRemoved: removed });
       await kick(ctx, org);
-      return { employee: employeeView(req, e), shiftsRemoved: removed };
+      return { employee: forReader(g, employeeView(req, e, g)), shiftsRemoved: removed };
     },
   );
 }
