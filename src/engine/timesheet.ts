@@ -1,6 +1,6 @@
-import type { Employee, RotaState, Shift, Site, TimeEntry } from './types';
+import type { Employee, Entity, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours } from './cost';
-import { travelMinutesInto } from './travel';
+import { travelMinutesInto, travelRate } from './travel';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -34,6 +34,8 @@ export interface PayrollHoursLine {
   hours: number;
   /** Of which paid travel to this site from another site the same day. Absent on older batches. */
   travelHours?: number;
+  /** All travel, paid at the company's travel rate where it differs from the person's normal rate. */
+  travel?: boolean;
   rate: number;
   /** Entries that make up this line, for audit back to the clock. */
   entryIds: string[];
@@ -60,6 +62,8 @@ export function payrollHours(
   periodEnd: string,
   /** Sites, so travel between them within a day is paid; without them it is not added. */
   sites: Site[] = [],
+  /** Companies, for the rate travel is paid at; without them it is the normal rate. */
+  entities: Entity[] = [],
 ): PayrollHoursBatch {
   const byId = new Map(employees.map((e) => [e.id, e]));
   // Travel is working time: it is paid on the line for the site and role travelled to.
@@ -75,22 +79,32 @@ export function payrollHours(
       salariedEntryIds.push(entry.id);
       continue;
     }
-    const key = `${entry.employeeId}|${entry.siteId}|${entry.roleId}`;
-    const line = lines.get(key) ?? {
-      employeeId: employee.id,
-      payrollId: employee.payrollId,
-      siteId: entry.siteId,
-      roleId: entry.roleId,
-      hours: 0,
-      travelHours: 0,
-      rate: employee.hourlyRate,
-      entryIds: [],
+    const lineFor = (rate: number, travelOnly: boolean) => {
+      const key = `${entry.employeeId}|${entry.siteId}|${entry.roleId}|${rate}`;
+      const line = lines.get(key) ?? {
+        employeeId: employee.id,
+        payrollId: employee.payrollId,
+        siteId: entry.siteId,
+        roleId: entry.roleId,
+        hours: 0,
+        travelHours: 0,
+        rate,
+        ...(travelOnly ? { travel: true } : {}),
+        entryIds: [],
+      };
+      if (!line.entryIds.includes(entry.id)) line.entryIds.push(entry.id);
+      lines.set(key, line);
+      return line;
     };
+    lineFor(employee.hourlyRate, false).hours += entryPaidHours(entry);
     const travelled = (travel.get(`te:${entry.id}`) ?? 0) / 60;
-    line.hours += entryPaidHours(entry) + travelled;
-    line.travelHours = (line.travelHours ?? 0) + travelled;
-    line.entryIds.push(entry.id);
-    lines.set(key, line);
+    if (travelled > 0) {
+      // Travel at the normal rate joins the hours line; at another rate it is a line of its own.
+      const rate = travelRate(employee, entities, entry.date);
+      const line = lineFor(rate, rate !== employee.hourlyRate);
+      line.hours += travelled;
+      line.travelHours = (line.travelHours ?? 0) + travelled;
+    }
   }
   const out = [...lines.values()].map((l) => ({ ...l, hours: round2(l.hours), travelHours: round2(l.travelHours ?? 0) }));
   return {

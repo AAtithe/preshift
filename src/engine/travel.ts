@@ -1,6 +1,7 @@
 import type { Issue } from './compliance';
-import { absoluteMinute, formatMinute } from './time';
-import type { Employee, Shift, Site, SiteTravel } from './types';
+import { absoluteMinute, ageOn, formatMinute } from './time';
+import type { Employee, Entity, Shift, Site, SiteTravel } from './types';
+import { minimumWageFor, UK_RATES_2026_27, type UkRates } from './ukRates';
 
 /** Extra slack, on top of the journey, before a same-day move between sites stops being tight. */
 export const TRAVEL_SLACK_MINUTES = 10;
@@ -83,6 +84,21 @@ export function travelMinutesInto(shifts: Shift[], sites: Site[]): Map<string, n
     }
   }
   return out;
+}
+
+/**
+ * The hourly rate a person is paid for travel between sites, under their employer's policy. A
+ * fixed rate is lifted to the minimum wage for their age on `date`: the minimum wage can be met
+ * by averaging over the pay period, but paying travel at no less keeps every hour safe without
+ * relying on the rest of the week. Salaried pay does not change with travel, so their rate is
+ * returned as is.
+ */
+export function travelRate(employee: Employee, entities: Entity[], date: string, rates: UkRates = UK_RATES_2026_27): number {
+  const policy = entities.find((e) => e.id === employee.entityId)?.travelPay;
+  // Withheld pay reads as nought; costs for that reader stay nought rather than show a policy rate.
+  if (!policy || policy.basis === 'normal' || employee.payBasis === 'salaried' || employee.payHidden) return employee.hourlyRate;
+  const minimum = minimumWageFor(ageOn(employee.dateOfBirth, date), rates)?.hourly ?? 0;
+  return policy.basis === 'minimum' ? minimum : Math.max(policy.hourly, minimum);
 }
 
 /**
