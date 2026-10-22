@@ -205,7 +205,9 @@ npm run test:e2e # browser checks of the management bar (Playwright), against a 
 ```
 
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
-`PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there. They only navigate; they
+`PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there, or set `PRESHIFT_E2E_DEMO=1`
+to go in through its public demo with no account (for example
+`PRESHIFT_E2E_URL=https://preshift-nine.vercel.app PRESHIFT_E2E_DEMO=1 npm run test:e2e`). They only navigate; they
 never build, clear, publish or save.
 
 Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only

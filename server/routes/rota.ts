@@ -167,8 +167,20 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/entities', { ...read, schema: { tags: ['Reference'], description: 'Companies in the group: each is its own PAYE scheme and ledger.' } }, async (req) => {
     const org = orgOf(req);
-    guard(ctx, req, org).allow('rota.view');
-    return org.state.entities;
+    const g = guard(ctx, req, org);
+    g.allow('rota.view');
+    // Only the companies whose sites the person can see the rota for.
+    const reach = g.sites('rota.view');
+    const seen = org.state.entities.filter((e) => reach === 'all' || org.state.sites.some((s) => s.entityId === e.id && reach.has(s.id)));
+    // A company's registration, PAYE reference and Employment Allowance are for set-up, payroll and the close.
+    const registered = (['settings.manage', 'payroll.view', 'close.export'] as const).some((p) => g.can(p));
+    if (registered) return seen;
+    return seen.map(({ companyNumber: _c, payeReference: _p, intercompanyCode: _i, employmentAllowance: _a, payrollEmployerId: _e, ...rest }) => ({
+      ...rest,
+      companyNumber: '',
+      payeReference: '',
+      intercompanyCode: '',
+    }));
   });
   // A personal key sees only the sites its person can see the rota for.
   app.get('/v1/sites', { ...read, schema: { tags: ['Reference'] } }, async (req) => {
