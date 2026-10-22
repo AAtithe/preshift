@@ -41,7 +41,8 @@ async function signIn(page: Page) {
   if (process.env.PRESHIFT_E2E_DEMO) {
     await page.goto('/demo');
     await page.getByRole('button', { name: 'Start the demo' }).click();
-    await expect(bar(page)).toBeVisible();
+    // Building a fresh sandbox takes the live site around six seconds, longer than a check's usual wait.
+    await expect(bar(page)).toBeVisible({ timeout: 30_000 });
     return;
   }
   await page.goto('/login?next=/app/');
