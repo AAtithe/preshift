@@ -76,6 +76,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         payrollLive: !ctx.simulatorFor(org.orgId),
       },
       policyOf(org),
+      org.support?.tickets.length ?? 0,
     );
   });
 
