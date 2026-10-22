@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { newEmployee } from '../engine/employees';
@@ -6,56 +6,74 @@ import { scopeMetrics } from '../engine/metrics';
 import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
-import { AssignPanel } from './AssignPanel';
-import { CalendarView, RemindersBanner } from './CalendarView';
-import { CoachView } from './CoachView';
-import { AccessView } from './access/AccessView';
+import { RemindersBanner } from './CalendarView';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
-import { ClockView } from './ClockView';
-import { CloseView } from './CloseView';
-import { DemandView } from './DemandView';
-import { EmployeeEditor } from './EmployeeEditor';
-import { ForecastView } from './ForecastView';
 import { dayLabel } from './format';
 import { DemoBanner, DemoPicker } from './DemoPicker';
 import { OrgPicker } from './OrgPicker';
 import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
-import { GroupView } from './GroupView';
-import { HolidayView } from './HolidayView';
-import { HowToView } from './HowToView';
-import { AbsenceView } from './AbsenceView';
-import { HrFile, type HrSection } from './HrFile';
-import { HrOverview } from './HrOverview';
-import { CasesView, ReviewsView } from './ReviewsView';
-import { TrainingView } from './TrainingView';
-import { IntegrationsView } from './IntegrationsView';
-import { PayApprovalsView } from './PayApprovalsView';
-import { PayrollView } from './PayrollView';
-import { PeopleView } from './PeopleView';
+import type { HrSection } from './HrFile';
 import { PnlRail } from './PnlRail';
-import { PrivacyView } from './PrivacyView';
-import { OnboardingView } from './OnboardingView';
-import { ClientsView } from './ClientsView';
-import { BillingBanner, BillingView } from './BillingView';
-import { ProgrammeView } from './ProgrammeView';
-import { ReportsView } from './ReportsView';
-import { RotaGrid } from './RotaGrid';
-import { ProfileView } from './ProfileView';
+import { BillingBanner } from './BillingView';
 import { RestBreaches } from './RestBreaches';
-import { SettingsView, type Account } from './SettingsView';
-import { SetupView } from './SetupView';
+import type { Account } from './SettingsView';
 import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, type AtAll, type NavItem, type Tab } from './nav';
 import { allowFor, NOT_YOURS } from './permissions';
 import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
-import { ShiftEditor } from './ShiftEditor';
 import { SideNav } from './SideNav';
 import { useHrRecords, useRotaStore } from './store';
-import { TeamView } from './TeamView';
-import { Timeline } from './Timeline';
-import { TravelPanel } from './TravelPanel';
+
+// Every screen is its own chunk, so the first paint waits on the shell alone. The section being opened
+// is asked for alongside the data; the rest follow once the app is up, before anyone opens them.
+const screens: { load: () => Promise<unknown>; tabs: Tab[] }[] = [];
+function screen<K extends string, M extends Record<K, ComponentType<any>>>(load: () => Promise<M>, name: K, tabs: Tab[] = []): LazyExoticComponent<M[K]> {
+  screens.push({ load, tabs });
+  return lazy(() => load().then((m) => ({ default: m[name] })));
+}
+/** Fetches the chunks for one section, or for all of them; each is fetched once however often this runs. */
+function prefetchScreens(tab?: Tab) {
+  for (const s of screens) if (!tab || s.tabs.includes(tab)) void s.load().catch(() => undefined);
+}
+
+const AbsenceView = screen(() => import('./AbsenceView'), 'AbsenceView', ['absence']);
+const AccessView = screen(() => import('./access/AccessView'), 'AccessView', ['access']);
+const AssignPanel = screen(() => import('./AssignPanel'), 'AssignPanel');
+const BillingView = screen(() => import('./BillingView'), 'BillingView', ['billing']);
+const CalendarView = screen(() => import('./CalendarView'), 'CalendarView', ['calendar']);
+const CasesView = screen(() => import('./ReviewsView'), 'CasesView', ['cases']);
+const ClientsView = screen(() => import('./ClientsView'), 'ClientsView', ['clients']);
+const ClockView = screen(() => import('./ClockView'), 'ClockView', ['clock']);
+const CloseView = screen(() => import('./CloseView'), 'CloseView', ['close']);
+const CoachView = screen(() => import('./CoachView'), 'CoachView', ['coach']);
+const DemandView = screen(() => import('./DemandView'), 'DemandView', ['demand']);
+const EmployeeEditor = screen(() => import('./EmployeeEditor'), 'EmployeeEditor');
+const ForecastView = screen(() => import('./ForecastView'), 'ForecastView', ['forecast']);
+const GroupView = screen(() => import('./GroupView'), 'GroupView', ['sites']);
+const HolidayView = screen(() => import('./HolidayView'), 'HolidayView', ['holiday']);
+const HowToView = screen(() => import('./HowToView'), 'HowToView', ['howto']);
+const HrFile = screen(() => import('./HrFile'), 'HrFile');
+const HrOverview = screen(() => import('./HrOverview'), 'HrOverview', ['hr']);
+const IntegrationsView = screen(() => import('./IntegrationsView'), 'IntegrationsView', ['integrations']);
+const OnboardingView = screen(() => import('./OnboardingView'), 'OnboardingView', ['onboarding']);
+const PayApprovalsView = screen(() => import('./PayApprovalsView'), 'PayApprovalsView', ['pay']);
+const PayrollView = screen(() => import('./PayrollView'), 'PayrollView', ['payroll']);
+const PeopleView = screen(() => import('./PeopleView'), 'PeopleView', ['people']);
+const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['privacy']);
+const ProfileView = screen(() => import('./ProfileView'), 'ProfileView', ['profile']);
+const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', ['programme']);
+const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
+const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
+const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
+const SettingsView = screen(() => import('./SettingsView'), 'SettingsView', ['settings']);
+const SetupView = screen(() => import('./SetupView'), 'SetupView', ['setup']);
+const ShiftEditor = screen(() => import('./ShiftEditor'), 'ShiftEditor');
+const TeamView = screen(() => import('./TeamView'), 'TeamView', ['team']);
+const Timeline = screen(() => import('./Timeline'), 'Timeline', ['rota']);
+const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['training']);
+const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
@@ -79,12 +97,23 @@ export function App() {
   // Set when the first save of set-up gives the organisation its first site: the workspace then
   // opens on set-up's team step instead of dropping the person on an empty overview.
   const [continueSetup, setContinueSetup] = useState(false);
+  useEffect(() => prefetchScreens(readPlace('').tab), []);
+  const loaded = state !== null;
+  useEffect(() => {
+    if (!loaded) return;
+    const later = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 500));
+    later(() => prefetchScreens());
+  }, [loaded]);
   if (!state) {
     return (
-      <div className="shell">
-        <p className="muted">{error ? `Cannot reach the Preshift API: ${error}` : 'Loading'}</p>
-        {error && <button onClick={() => void actions.reload()}>Try again</button>}
-      </div>
+      <Splash>
+        {error && (
+          <>
+            <p className="splash-error" role="alert">Cannot reach Preshift: {error}</p>
+            <button className="primary" onClick={() => void actions.reload()}>Try again</button>
+          </>
+        )}
+      </Splash>
     );
   }
   // No sites for someone who may change them organisation-wide means none exist yet: set-up is the
@@ -95,7 +124,9 @@ export function App() {
         <div className="wordmark">
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
-        <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
+        <Suspense fallback={<ScreenLoading />}>
+          <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
+        </Suspense>
         <p className="small muted"><a className="link" href="/auth/logout">Sign out</a></p>
       </div>
     );
@@ -109,7 +140,32 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} continueSetup={continueSetup} />;
+  return (
+    <Suspense fallback={<Splash />}>
+      <Workspace state={state} me={me} error={error} setError={setError} actions={actions} continueSetup={continueSetup} />
+    </Suspense>
+  );
+}
+
+/**
+ * The opening screen, drawn the same as the one in index.html so the hand-over from the page to
+ * the app is seamless. With children (a failed load) the progress bar gives way to them.
+ */
+function Splash({ children }: { children?: ReactNode }) {
+  return (
+    <div className="splash" aria-busy={!children} aria-live="polite">
+      <div className="splash-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" /><path d="M11 23V9h6.2a4.6 4.6 0 0 1 0 9.2H11" /></svg>
+      </div>
+      <div className="splash-word">Preshift<span>with Williams, Stanley &amp; Co.</span></div>
+      {children ?? <div className="splash-bar" role="progressbar" aria-label="Loading Preshift"><span /></div>}
+    </div>
+  );
+}
+
+/** Held in place of a screen for the moment its chunk is still arriving. */
+function ScreenLoading() {
+  return <div className="screen-loading" role="progressbar" aria-label="Loading"><span /></div>;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
@@ -458,6 +514,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             )}
 
             <main>
+              <Suspense fallback={<ScreenLoading />}>
               {(needsSite || notHere) && (
                 <div className="panel site-chooser">
                   <h2>{notHere ? `${section.label} is not yours at ${scopeName}` : `${section.label} is run one site at a time`}</h2>
@@ -635,6 +692,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
+              </Suspense>
             </main>
 
             <footer className="foot">
@@ -699,6 +757,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         </Suspense>
       )}
 
+      <Suspense fallback={null}>
       {opening && (
         <AssignPanel state={state} opening={opening} onPreview={setPreview} onAdd={(s) => void addShift(s)} onClose={() => setOpening(null)} />
       )}
@@ -767,6 +826,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           onClose={() => setEditing(null)}
         />
       )}
+      </Suspense>
     </div>
   );
 }
