@@ -95,6 +95,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/time-entries/clock-in': true,
   'POST /v1/time-entries/approve': true,
   'POST /v1/time-entries/tap': true,
+  // Kiosks in the sandbox can be listed and removed; pairing one is refused below.
+  'GET /v1/kiosks': true,
+  'DELETE /v1/kiosks/:id': true,
   'POST /v1/time-entries/:id/clock-out': true,
   'PATCH /v1/time-entries/:id': true,
   'POST /v1/integrations/payroll/sync-employees': true,
@@ -260,6 +263,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/staff-logins': false,
   'POST /v1/staff-logins/:id/invite': false,
   'DELETE /v1/staff-logins/:id': false,
+  // Refused: pairing signs the visitor out of the iPad they pair, and with it their sandbox, and
+  // hands the device a credential lasting a year for a sandbox that ends at midnight.
+  'POST /v1/kiosks': false,
   'GET /v1/staff-logins/review': false,
   // Support is people answering people: a demo visitor is no named person, and nobody real is on the other end.
   'GET /v1/support/tickets': false,
@@ -284,6 +290,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/clock-out': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
+  'GET /v1/kiosk/board': false,
+  'POST /v1/kiosk/tap': false,
+  'POST /v1/kiosk/clock': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;

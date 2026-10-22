@@ -16,6 +16,7 @@ const ready = (async () => {
     demoPage: path.join(__dirname, 'demo.html'),
     appDir: path.join(__dirname, 'app'),
     staffDir: path.join(__dirname, 'staff'),
+    kioskDir: path.join(__dirname, 'kiosk'),
   });
   await app.ready();
   return app;
