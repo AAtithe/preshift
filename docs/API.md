@@ -22,6 +22,7 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_EMPLOYER_ID` | The client's employer in TeamPay, for an organisation with one company only. A group sets an employer on each company instead (`PATCH /v1/entities/:id`); this variable is never used for more than one company. |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
+| `PRESHIFT_PUBLIC_URL` | Optional. The address people reach Preshift on, for example `https://rota.example.co.uk`, used as the issuer for Sign in with Preshift. Set it only behind a proxy that changes the host name |
 | `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `PRESHIFT_DEMO` | `1` switches on the public demo alongside customers: a private sandbox per visitor from `/demo`, on a route allowlist, simulator payroll, wiped at midnight UK time. Unset is the kill switch. See the README |
@@ -222,14 +223,46 @@ not publish", "approve Friday's clocked time at the bar".
 | `publish_rota` | `rota:write` | `POST /v1/rota/publish` |
 | `approve_time` | `time:approve` | `POST /v1/time-entries/approve` |
 
-Connecting Claude: in claude.ai, Settings, Connectors, add a custom connector with the URL
-`https://<your Preshift address>/mcp`, and give it the key as a bearer token where the client
-asks for one. In Claude Code:
+Connecting Claude with a key, in Claude Code:
 
 ```bash
 claude mcp add --transport http preshift https://<your Preshift address>/mcp \
   --header "Authorization: Bearer psk_..."
 ```
+
+### Sign in with Preshift (claude.ai)
+
+claude.ai connects with no key at all. Add a custom connector (Settings, Connectors) with the
+address `https://<your Preshift address>/mcp` and press Connect. Claude finds Preshift's sign-in
+on its own, opens it, and the person signs in to Preshift as they normally do. They then see
+what Claude will be able to do and tick the boxes, and Claude is connected. Claude Code and
+Claude Desktop use the same sign-in when added without a key header.
+
+- Standards: OAuth 2.1 with PKCE (S256 only), dynamic client registration (RFC 7591),
+  protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`,
+  authorisation server metadata (RFC 8414) at `/.well-known/oauth-authorization-server`, and
+  token revocation (RFC 7009) at `/oauth/revoke`. A `401` from `/mcp` names the metadata in
+  `WWW-Authenticate`, which is how a client finds the sign-in.
+- A token acts as the person who approved it, exactly as a personal API key does. Their roles
+  decide, site by site: a GM's connection reaches their own site only. It never counts as having
+  passed the authenticator, so strong rights (pay changes and approval, payroll, settings, access,
+  HR cases, close export) stay in the app, whatever the person holds.
+- The person ticks what Claude may do from `rota:read` (ticked by default), `employees:read`,
+  `rota:write` and `time:approve`. Nothing else is offered.
+- Only someone with an active access record in the organisation can connect. The public demo
+  refuses.
+- Access tokens last an hour; refresh tokens 30 days and rotate on every use. A refresh token
+  used twice ends the whole connection, as it means someone holds a copy. Codes last five
+  minutes and work once, with their own verifier, for their own app and address.
+- A connection ends at once when the person disconnects it at `/oauth/connections`, when it is
+  revoked, when the person is removed or suspended, or when their password is reset.
+- Redirect addresses must be https, or http on `localhost` for desktop clients, and must match
+  what the app registered exactly. A bad one is shown as an error, never followed.
+- Every connection and disconnection is in the organisation's audit trail (`oauth.connected`,
+  `oauth.revoked`). Calls made through it are logged like any key's, as `oauth:<grant id>`.
+- Clients, codes and tokens are kept in the settings table, hashed, so nothing new needs setting
+  up. Set `PRESHIFT_PUBLIC_URL` if Preshift sits behind a proxy that changes the host name;
+  otherwise the address is taken from the request.
 
 Locally, `npm run dev` serves it at `http://localhost:8787/mcp` with `dev-key`. Add a tool in
 `server/mcp.ts`: name the route it calls and the scope it needs; the route does the rest.
@@ -295,7 +328,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Benchmarks | `PUT /v1/settings/benchmarking` (the operator's admin opts in), `GET /v1/benchmarks` (quartiles from other opted-in operators only) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve` (returns `belowBreakMinimum`, recorded in the audit), `GET /compare`, `GET /break-check` (finished shifts below the legal rest break: `short` or `split`) |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. A card tap from a reader fixed on site under its own API key (no person behind it) is not location checked and may send `at` for a tap held offline, never in the future. A card tap from a signed-in person's tablet or phone is location checked like a device clock. Any clock from a person is timed by the server; an `at` more than two minutes off is refused (`time_set_by_server`). Employee records carry `personalHidden: true` and `under18` for readers without `team.manage` or `hr.view` at the person's sites: date of birth, right to work detail and card number are withheld. |
-| Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (a one-time link, valid 7 days. Once email is set up under Settings it is emailed to the person's own address, their login's once they have joined, else the one on their record, and the answer is `{emailed: true, to, expiresAt}` with no link. `{handOver: true}`, no address or a send Resend refuses returns `{emailed: false, reason, path, expiresAt}` to pass on, `reason` being `handed_over`, `no_address`, `email_not_set_up` or `send_failed`. `GET /v1/staff-logins` carries each person's `lastEmail` with what Resend reported, bounces included. Once the person has set up their login, a new link, their password reset, only ever goes to the address they signed up with: `handOver` or no email set up is refused with `email_only` before any link is made, and a failed send returns no link. Closing the login and inviting again starts afresh), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
+| Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (a one-time link, valid 7 days. Once email is set up under Settings it is emailed to the person's own address, their login's once they have joined, else the one on their record, and the answer is `{emailed: true, to, expiresAt}` with no link. `{handOver: true}`, no address or a send Resend refuses returns `{emailed: false, reason, path, expiresAt}` to pass on, `reason` being `handed_over`, `no_address`, `email_not_set_up` or `send_failed`. `GET /v1/staff-logins` carries each person's `lastEmail` with what Resend reported, bounces included. Once the person has set up their login, a new link, their password reset, only ever goes to the address they signed up with: `handOver` or no email set up is refused with `email_only` before any link is made, and a failed send returns no link. Closing the login and inviting again starts afresh. Every invite, set-up and close is also kept in a staff login log that is never trimmed, as the audit log is. `GET /v1/staff-logins/review?from=&to=` lists each login closed in the period, followed through its re-invite and re-join, flagged where the same person closed and re-invited it, the link was handed over, it was set up with a different email, or hours have been clocked by phone since, with a risk of high, medium or low; `POST /v1/staff-logins/review` `{caseId, outcome: genuine|concern, note}` signs one off, once, and never by whoever closed or re-invited it. Both need a person signed in with `audit.view` or `users.manage` across the organisation), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
 | Kiosks | Managers: `GET /v1/kiosks`, `POST /v1/kiosks` (signed-in session only: sets the device's `ps_kiosk` credential for a year and ends the session on it), `DELETE /v1/kiosks/:id`. Kiosk, under its own credential: `GET /v1/kiosk/board` (today's rota at its site), `POST /v1/kiosk/tap` (a card, as a fixed reader), `POST /v1/kiosk/clock` (`in`, `out`, `break_start`, `break_end` by name, for people on today's rota there). Entries are recorded with method `kiosk` for by-name clocks and `card` for taps. |
 | Travel | `PUT /v1/sites/:id/location` (`{postcode}`, looked up on postcodes.io, or `{lat, lng}`; clears looked-up journeys to and from the site), `POST /v1/sites/travel/refresh` (TfL journey planner for every pair of located sites, each way, weekday 17:00, public transport or walking; hand-set times kept; a labelled straight-line estimate where TfL has no answer), `PUT`/`DELETE /v1/sites/:id/travel/:toId` (`{minutes}` set by hand, both ways). Journeys are kept on each site as `travel: {siteId: {minutes, source: tfl\|estimate\|manual, mode, checkedAt}}`. Shift responses carry `travel` (blocking: cannot get there in time), `travel-tight` and `travel-unknown` issues. A same-day journey between sites is paid working time: costs, journals and payroll submissions include it, charged to the shift travelled to, and payroll hours lines carry `travelHours` (already inside `hours`). What a company pays for travel is set with `PATCH /v1/entities/:id` `{travelPay: {basis: normal\|minimum\|fixed, hourly?}}`: `minimum` is the minimum wage for each person's age, `fixed` needs `hourly` and is lifted to the minimum wage where it is lower, and `normal` clears the policy. Travel at a rate other than the person's normal rate is its own hours line with `travel: true` and that `rate`. `TFL_APP_KEY` is optional; the planner works without one at low volume. |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
+import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
@@ -141,6 +142,10 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
+  staffLoginLog: StaffLoginEvent[];
+  /** Sign-offs of staff logins closed and opened again. Never removed. */
+  loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
@@ -452,6 +457,8 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
     payChanges: seeded ? seedPayChanges(today ?? toISODate(new Date())) : [],
+    staffLoginLog: [],
+    loginReviews: [],
   };
 }
 
@@ -1157,6 +1164,9 @@ function deserialise(data: unknown, version: number): OrgData {
     ...raw,
     hrRecords: raw.hrRecords ?? [],
     payChanges: raw.payChanges ?? [],
+    // Organisations saved before the staff login review began their log empty.
+    staffLoginLog: raw.staffLoginLog ?? [],
+    loginReviews: raw.loginReviews ?? [],
     state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],

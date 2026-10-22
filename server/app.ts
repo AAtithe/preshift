@@ -45,6 +45,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { mcpRoutes } from './mcp';
+import { oauthRoutes } from './oauth';
 import { API_CALL_RETENTION_DAYS, MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
@@ -304,6 +305,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   stripeWebhookRoutes(app, ctx, stripe);
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, auth);
+  // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
+  oauthRoutes(app, store);
   staffRoutes(app, store);
   kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });

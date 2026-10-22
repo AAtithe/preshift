@@ -266,6 +266,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // Refused: pairing signs the visitor out of the iPad they pair, and with it their sandbox, and
   // hands the device a credential lasting a year for a sandbox that ends at midnight.
   'POST /v1/kiosks': false,
+  'GET /v1/staff-logins/review': false,
+  'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
   'GET /v1/dev/people': false,
   // Not reached with a visitor's session: signature-checked, or the staff app's own sign-in.
