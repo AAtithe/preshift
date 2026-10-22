@@ -2,19 +2,23 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { authenticate, loadApiKeys, type ApiKey } from './auth';
-import { HttpError, type AppContext } from './context';
+import { HttpError, londonToday, type AppContext } from './context';
+import { addDays } from '../src/engine/time';
 import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sweepSandboxes } from './demo';
+import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
+import { eposRoutes, syncAllTills } from './routes/epos';
+import { payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
@@ -24,11 +28,18 @@ import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
+import { insightRoutes } from './routes/insights';
+import { calendarRoutes } from './routes/calendar';
+import { bookingRoutes } from './routes/bookings';
+import { applyOutside, feedConfig, fetchOutside } from './forecasting';
+import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
+import { mcpRoutes } from './mcp';
 import { MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
@@ -48,19 +59,22 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
-  /** Outbound HTTP for postcode and journey lookups (tests pass a stub). */
+  /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
-  /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
+  /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
+  /** The demo's start page. Defaults to site/demo.html in the repository. */
+  demoPage?: string;
+  /** The clock (tests fix it). */
+  now?: () => Date;
   /** How webhooks reach partner systems. Defaults to fetch; tests supply a recorder. */
   webhookFetch?: Fetch;
   /** Requests per minute per API key. */
   rateLimit?: number;
 }
 
-function payrollFromEnv(env: NodeJS.ProcessEnv, demo: boolean): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
-  // The demo never reaches real payroll, whatever keys the deployment carries.
-  if (env.TEAMPAY_API_KEY && !demo) {
+function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
+  if (env.TEAMPAY_API_KEY) {
     return {
       provider: new TeamPayProvider({
         baseUrl: env.TEAMPAY_BASE_URL ?? 'https://api.team-pay.co.uk/v1',
@@ -88,27 +102,41 @@ export function storeFromEnv(env: NodeJS.ProcessEnv): Store {
   return new PgStore((text, params) => sql(text, params) as Promise<Record<string, unknown>[]>);
 }
 
-export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
+export async function buildApp(options: BuildOptions = {}): Promise<{ app: FastifyInstance; ctx: AppContext; routes: string[] }> {
   const env = options.env ?? process.env;
   const demo = options.demo ?? env.PRESHIFT_DEMO === '1';
   const app = Fastify({ logger: options.logger ?? false });
+  // Every route as "METHOD /pattern", so a test can check each has a decision for the demo.
+  const routes: string[] = [];
+  app.addHook('onRoute', (r) => {
+    for (const method of [r.method].flat()) if (method !== 'HEAD') routes.push(`${method} ${r.url}`);
+  });
   const store = options.store ?? storeFromEnv(env);
   const payroll = options.provider
     ? { provider: options.provider, simulator: options.provider instanceof TeamPaySimulator ? options.provider : undefined }
-    : payrollFromEnv(env, demo);
-  const providerFor = () => payroll.provider;
+    : payrollFromEnv(env);
+  // Demo sandboxes never reach real payroll. Their simulator's webhook secret is random and lives
+  // only in this process, so nobody outside can sign a payroll event into a sandbox.
+  const sandboxPayroll = new TeamPaySimulator(randomBytes(32).toString('hex'));
+  const providerFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.provider);
+  const simulatorFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.simulator);
   const documents = documentCipherFromEnv(env, store instanceof PgStore);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
   const ctx: AppContext = {
     store,
     providerFor,
+    simulatorFor,
     employers,
     simulator: payroll.simulator,
     dispatcher: new OutboxDispatcher(store, providerFor, employers),
     autoDispatch: options.autoDispatch ?? true,
     documentCipher: documents.cipher,
     fetch: options.fetch ?? fetch,
+    // Feed addresses are typed in by people, so the server's own reads of them are kept to public https.
+    feedFetch: options.fetch ?? publicFetch,
+    feeds: feedConfig(env),
     tflAppKey: env.TFL_APP_KEY || undefined,
+    now: options.now ?? (() => new Date()),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -189,9 +217,54 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
-    if (demo) await sweepSandboxes(store);
-    return { ok: true };
+    // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
+    // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
+    // waiting go first, the run stops before the function's time runs out, and one organisation failing
+    // never stops the rest.
+    const today = londonToday(ctx);
+    const started = Date.now();
+    const due: { orgId: string; last: string }[] = [];
+    for (const orgId of await store.orgIds()) {
+      // Demo sandboxes last a day and fetch nothing from outside.
+      if (isSandbox(orgId)) continue;
+      const org = await store.load(orgId);
+      if (org.lastOutsideRefresh === today) continue;
+      // Somewhere to look for weather or events, or pushed bookings waiting to become pace history.
+      const outside = org.state.sites.some((s) => s.location || s.geofence) || org.eventFeeds.length > 0;
+      const bookingsToCompact = (org.state.bookings ?? []).some((b) => b.date < addDays(today, -2));
+      if (!outside && !bookingsToCompact) continue;
+      due.push({ orgId, last: org.lastOutsideRefresh ?? '' });
+    }
+    due.sort((a, b) => a.last.localeCompare(b.last));
+    let refreshed = 0;
+    const failed: string[] = [];
+    for (const { orgId } of due) {
+      if (Date.now() - started > 40_000) break;
+      try {
+        // Fetch once. If someone saved the organisation meanwhile, lay the same results over a fresh copy
+        // with the same merges, so their change survives; never copy whole lists across.
+        const org = await store.load(orgId);
+        const fetched = await fetchOutside(ctx, org, today);
+        applyOutside(org, fetched, today, 'scheduled refresh');
+        org.lastOutsideRefresh = today;
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          const fresh = await store.load(orgId);
+          applyOutside(fresh, fetched, today, 'scheduled refresh');
+          fresh.lastOutsideRefresh = today;
+          await store.save(fresh);
+        }
+        refreshed++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'outside refresh failed');
+        failed.push(orgId);
+      }
+    }
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
@@ -202,21 +275,24 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true };
   });
 
+  // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
+  // midnight UK time in winter and summer alike. Runs whether or not the demo is switched on,
+  // so switching it off still clears what visitors left.
+  app.get('/internal/demo-reset', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { removed: await sweepSandboxes(store) };
+  });
+
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
-  const appPath = '/app/';
-  if (demo) demoRoutes(app, store, { appPath });
-  else {
-    // The marketing site links to /demo; on the live system it goes to the demo deployment.
-    app.get('/demo', { schema: { hide: true } }, async (_req, reply) =>
-      reply.code(302).header('location', env.PRESHIFT_DEMO_URL || '/login').send(),
-    );
-  }
+  demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
   signInRoutes(app, ctx, { demo });
+  // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
+  mcpRoutes(app, auth);
   staffRoutes(app, store);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
-    loginPage: options.loginPage ?? path.resolve(demo ? 'site/demo.html' : 'site/login.html'),
+    loginPage: options.loginPage ?? path.resolve('site/login.html'),
     appDir: options.appDir,
     staffDir: options.staffDir,
   });
@@ -226,9 +302,18 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url)) return;
       return auth(req, reply);
     });
+    // Demo visitors reach only the routes on the sandbox allowlist, refused before the body is even
+    // validated. Customers are not affected.
+    const guard = sandboxGuard(demo);
+    api.addHook('preValidation', async (req) => {
+      if (!isWebhook(req.url)) await guard(req);
+    });
     // Load the organisation once per request; webhooks name it in the path, everything else by API key.
     api.addHook('preHandler', async (req) => {
       const orgId = isWebhook(req.url) ? (req.params as { orgId: string }).orgId : req.principal.orgId;
+      // A webhook names its organisation in an unauthenticated path, so it must never create one.
+      // The handler checks the signature first, so the reply does not say which organisations exist.
+      if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
@@ -251,12 +336,17 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    payRoutes(api, ctx);
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
+    insightRoutes(api, ctx);
+    calendarRoutes(api, ctx);
+    bookingRoutes(api, ctx);
     travelRoutes(api, ctx);
+    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
     authenticatorRoutes(api, ctx);
@@ -268,6 +358,6 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     staffAdminRoutes(api, ctx);
   });
 
-  return { app, ctx };
+  return { app, ctx, routes };
 }
 

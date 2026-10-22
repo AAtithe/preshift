@@ -63,6 +63,13 @@ rota assistant that writes and edits the week from plain English instructions th
 Done since phase 1: the API platform, time and attendance with approval, and native TeamPay
 payroll (starters, leavers, approved hours out; pay runs and variance back). See `docs/API.md`.
 
+Done since: the labour programme as a product. A forecast model trained on each site's till
+history with accuracy and override scoring, the weekly moves (priced, one tap, measured against
+the clock), the GM scorecard and four-rung ladder, the twelve-week programme with a baseline and
+savings verified in the management accounts, and anonymised benchmarks across WS clients. This
+answers the "AI workforce management with step-by-step guidance" pitch from Stint and others with
+the one thing they cannot offer: a result signed off in the accounts. See `docs/PROGRAMME.md`.
+
 Phase 2, first live sites (8 to 10 weeks):
 - Confirm the TeamPay client against the TeamPay API reference and run on sandbox keys.
 - Postgres persistence, staff accounts, the outbox as a separate worker.
@@ -72,12 +79,11 @@ Phase 2, first live sites (8 to 10 weeks):
 - Fortnightly, four-weekly and monthly pay schedules.
 
 Phase 3:
-- Forecasting model trained on each site's actuals, weather and local events.
+- Direct booking connections once ResDiary, SevenRooms and OpenTable grant API access (bookings already flow in by export and push).
 - Tronc and tips allocation under the Employment (Allocation of Tips) Act 2023, with the
   troncmaster audit trail.
 - 17 week WTR reference period tracking, holiday entitlement balances, right to work checks.
-- Group view across sites with cross-site cover and labour benchmarks across the WS client
-  base (anonymised), which no single-vendor tool can offer.
+- Benchmark cohorts by format (QSR, casual dining, wet-led) once the client base is large enough.
 
 ## Metrics that prove it works
 

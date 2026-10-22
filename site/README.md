@@ -7,7 +7,7 @@ coral accents, Bricolage Grotesque with Instrument Serif italics, JetBrains Mono
 site/index.html   Page
 site/styles.css   Styles
 site/main.js      Mobile nav, screen tabs, scroll reveal, true cost calculator
-site/img          Product screens (webp, from docs/screens)
+site/img          Product screens for the viewer on the home page (webp, 1600 x 1111)
 ```
 
 Preview locally:
@@ -22,3 +22,9 @@ root README): the marketing site is served at `/`, the web app at `/app/` and th
 The true cost calculator in `main.js` mirrors `employeeWeekCost` in `src/engine/cost.ts`.
 When the statutory rates in `src/engine/ukRates.ts` change each April, update the `RATES`
 block in `main.js` and the figures in the page copy to match.
+
+To refresh the product screens after the app changes: run `npm run dev`, sign in with the local
+development login it prints, build a full future week from the forecast, and capture each view at
+1440 x 1000 (2x) with the site set to Marylebone and any notices dismissed. Save them to `site/img`
+under the same names as WebP at 1600 x 1111, and update the alt text and captions in `main.js`.
+

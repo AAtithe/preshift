@@ -12,6 +12,8 @@ const KEYS = [
   { key: 'priya-key', orgId: 'demo', name: 'Priya key', scopes: ['*'] as ['*'], userId: 'usr_gm_mar' },
   // James, operations director, resets other people's authenticators: never his own, never by a system key.
   { key: 'james-key', orgId: 'demo', name: 'James key', scopes: ['*'] as ['*'], userId: 'usr_ops', mfa: true },
+  // A second owner, added in the tests that need one: only an owner may reset an owner.
+  { key: 'owner2-key', orgId: 'demo', name: 'Second owner key', scopes: ['*'] as ['*'], userId: 'usr_owner2', mfa: true },
 ];
 const invite = (n: number) => ({ email: `new${n}@example.com`, name: `New ${n}`, audience: 'operator', roleId: 'viewer' });
 
@@ -121,10 +123,17 @@ describe('the authenticator in a session', () => {
   });
 
   it('ends every verified session when someone resets the authenticator', async () => {
-    const { call, signIn } = await boot();
+    const { call, signIn, store } = await boot();
+    const org = await store.load('demo');
+    const owner = org.users.find((u) => u.id === 'usr_owner')!;
+    org.users.push({ ...owner, id: 'usr_owner2', email: 'owner2@marylebonegroup.example', name: 'Second Owner', employeeId: undefined });
     const ok = await call('POST', '/v1/me/authenticator/verify', { cookie: await signIn(OLIVIA) }, { code: codeAt(DEMO_TOTP_SECRET, stepAt(Date.now())) });
     expect((await call('POST', '/v1/users', { cookie: ok.cookie }, invite(4))).status).toBe(201);
-    expect((await call('POST', '/v1/users/usr_owner/reset-authenticator', { key: 'james-key' })).status).toBe(200);
+    // The operations director cannot: resetting someone who holds more than he could grant could hand him their account.
+    const refused = await call('POST', '/v1/users/usr_owner/reset-authenticator', { key: 'james-key' });
+    expect(refused.status).toBe(403);
+    expect(refused.body.message).toContain('could hand you their account');
+    expect((await call('POST', '/v1/users/usr_owner/reset-authenticator', { key: 'owner2-key' })).status).toBe(200);
     expect((await call('POST', '/v1/users', { cookie: ok.cookie }, invite(5))).status).toBe(422);
     expect((await call('GET', '/v1/me', { cookie: ok.cookie })).body.authenticator).toMatchObject({ enrolled: false, verified: false });
 

@@ -1,15 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
-import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
+import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
+import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { missingForecast } from '../../src/engine/setup';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
-import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
+import type { DaySales, HourForecast, RestOverride, Shift } from '../../src/engine/types';
 import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
-import { actorName, guard } from '../guard';
+import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
@@ -88,20 +89,44 @@ function validateShift(org: OrgData, shift: Shift) {
   if (shift.endMinute <= shift.startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
 }
 
+/**
+ * Whether the caller may put this person on a shift at this site: someone based there, someone who
+ * has agreed to cover it, or someone the caller also runs the rota or team for at their home site.
+ * Cover is the person's agreement, recorded by whoever manages them, so a site manager cannot borrow
+ * another site's team on their own say-so. Organisation-wide roles and system keys pass the last test.
+ */
+function allowRoster(g: Guard, org: OrgData, shift: Shift) {
+  const e = org.state.employees.find((x) => x.id === shift.employeeId);
+  if (!e || e.siteId === shift.siteId || e.coverSiteIds.includes(shift.siteId)) return;
+  if (g.can('rota.edit', e.siteId) || g.can('team.manage', e.siteId)) return;
+  const name = (id: string) => org.state.sites.find((x) => x.id === id)?.name ?? id;
+  throw new HttpError(
+    403,
+    'not_cover',
+    `${e.name} has not agreed to cover ${name(shift.siteId)}. Whoever manages ${name(e.siteId)} can add it to their record.`,
+  );
+}
+
+/** Only a new pairing of person and site needs the check, so re-saving a shift already agreed is never refused. */
+const reassigned = (before: Shift | undefined, after: Shift) =>
+  !before || before.employeeId !== after.employeeId || before.siteId !== after.siteId;
+
 /** Compliance for the person whose week this shift sits in, so callers see consequences straight away. */
 function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-  return [...checkEmployeeWeek(employee, ws, context), ...travelIssues(employee, context, org.state.sites)];
+  return [...checkEmployeeWeek(employee, ws, context, org.state.restOverrides, undefined, complianceOptions(org.state, employee)), ...travelIssues(employee, context, org.state.sites)];
 }
+
+type OverrideBody = { weekStart: string; key: string; reason: string };
 
 /**
  * Checks and then applies replacement weeks for one or more sites. Nothing changes unless every
  * site passes: the week is as the draft found it (baseline), every shift is valid and in its own
  * site's week, and no shift that has started or been clocked is moved or removed.
  */
-function replaceWeeks(org: OrgData, ws: string, sites: { siteId: string; shifts: Shift[]; baseline?: string }[]) {
+function replaceWeeks(org: OrgData, g: Guard, ws: string, sites: { siteId: string; shifts: Shift[]; baseline?: string }[]) {
   const dates = weekDates(ws);
   const now = londonParts(new Date());
   const clocked = new Set(org.timeEntries.map((t) => t.shiftId).filter(Boolean));
@@ -122,6 +147,7 @@ function replaceWeeks(org: OrgData, ws: string, sites: { siteId: string; shifts:
     for (const s of incoming) {
       if (s.siteId !== siteId || !dates.includes(s.date)) throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
       validateShift(org, s);
+      if (reassigned(byId.get(s.id), s)) allowRoster(g, org, s);
     }
     const kept = new Map(incoming.map((s) => [s.id, s]));
     const touched = current.filter((s) => (hasStarted(s, now) || clocked.has(s.id)) && !(kept.has(s.id) && sameShift(s, kept.get(s.id)!)));
@@ -172,6 +198,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (org.state.shifts.some((s) => s.id === shift.id)) throw new HttpError(409, 'conflict', `Shift ${shift.id} exists`);
     validateShift(org, shift);
     g.allow('rota.edit', shift.siteId);
+    allowRoster(g, org, shift);
     org.state.shifts.push(shift);
     audit(org, actorName(g), 'shift.created', { id: shift.id });
     return reply.code(201).send({ shift, issues: shiftIssues(org, shift) });
@@ -196,6 +223,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       validateShift(org, shift);
       // Moving a shift needs the right at both ends.
       g.allow('rota.edit', shift.siteId);
+      if (reassigned(org.state.shifts[i], shift)) allowRoster(g, org, shift);
       org.state.shifts[i] = shift;
       audit(org, actorName(g), 'shift.updated', { id: shift.id });
       return { shift, issues: shiftIssues(org, shift) };
@@ -294,7 +322,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       requireSite(org, siteId);
       const g = guard(ctx, req, org);
       g.allow('rota.edit', siteId);
-      const [plan] = replaceWeeks(org, ws, [{ siteId, shifts, baseline }]);
+      const [plan] = replaceWeeks(org, g, ws, [{ siteId, shifts, baseline }]);
       audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
         siteId,
         weekStart: ws,
@@ -353,7 +381,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
         requireSite(org, id);
         g.allow('rota.edit', id);
       }
-      const plans = replaceWeeks(org, ws, req.body.sites);
+      const plans = replaceWeeks(org, g, ws, req.body.sites);
       audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
         siteIds,
         weekStart: ws,
@@ -380,6 +408,73 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     return { removed, kept };
   });
 
+  app.get('/v1/rota/overrides', { ...read, schema: { tags: ['Rota'], description: 'Rest breaches a manager has published through, with who and why.' } }, async (req) => {
+    const org = orgOf(req);
+    return (org.state.restOverrides ?? []).filter(guard(ctx, req, org).at('rota.view'));
+  });
+
+  // An override is a person's judgement, so it needs a person: never a system key, and never the
+  // rota assistant, which drafts through the engine. It is part of publishing, so it needs the
+  // right to publish the rota at the site where the short rest is worked.
+  const requirePerson = (req: { principal: { userId?: string; email?: string } }, doing: string) => {
+    if (!req.principal.userId && !req.principal.email) throw new HttpError(403, 'forbidden', `Only a person can ${doing}, not a system key`);
+  };
+  app.post<{ Body: OverrideBody }>(
+    '/v1/rota/overrides',
+    {
+      ...write,
+      schema: {
+        tags: ['Rota'],
+        description:
+          "Lets a rest breach be published, with the manager's reason. Give the issue's overrideKey and the week it was reported in. It covers that breach only: moving either shift makes a new one.",
+        body: {
+          type: 'object',
+          required: ['weekStart', 'key', 'reason'],
+          additionalProperties: false,
+          properties: { weekStart: siteWeekQuery.properties.weekStart, key: { type: 'string', maxLength: 500 }, reason: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      requirePerson(req, 'override a rest breach');
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const reason = req.body.reason.trim();
+      if (reason.length < 15) throw new HttpError(422, 'reason_required', 'Say why, and what compensatory rest they will get (at least 15 characters)');
+      const issue = checkWeek(org.state, req.body.weekStart).find((i) => i.overrideKey === req.body.key);
+      if (!issue || !OVERRIDABLE.has(issue.code)) throw notFound('Rest breach');
+      if (issue.overridden) throw new HttpError(409, 'conflict', 'That breach is already overridden');
+      const siteId = issueSiteId(org.state, issue)!;
+      g.allow('rota.publish', siteId);
+      const override: RestOverride = {
+        id: `ro_${randomUUID()}`,
+        employeeId: issue.employeeId,
+        siteId,
+        code: issue.code as RestOverride['code'],
+        key: req.body.key,
+        reason,
+        by: actorName(g),
+        at: new Date().toISOString(),
+      };
+      org.state.restOverrides = [...(org.state.restOverrides ?? []), override];
+      audit(org, actorName(g), 'rest.overridden', { id: override.id, employeeId: override.employeeId, code: override.code, date: issue.date, reason });
+      return reply.code(201).send(override);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/v1/rota/overrides/:id', { ...write, schema: { tags: ['Rota'], params: idParam } }, async (req, reply) => {
+    requirePerson(req, 'withdraw an override');
+    const org = orgOf(req);
+    const before = org.state.restOverrides ?? [];
+    const override = before.find((o) => o.id === req.params.id);
+    if (!override) throw notFound(`Override ${req.params.id}`);
+    const g = guard(ctx, req, org);
+    g.allow('rota.publish', override.siteId);
+    org.state.restOverrides = before.filter((o) => o.id !== req.params.id);
+    audit(org, actorName(g), 'rest.override_withdrawn', { id: req.params.id });
+    return reply.code(204).send();
+  });
+
   app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
     const siteIds = sitesOf(org, req.body, false);
@@ -387,17 +482,30 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     for (const id of siteIds) g.allow('rota.publish', id);
     const ws = req.body.weekStart;
     // All or nothing: a group publish is refused if any site in it has a blocking issue.
-    const blocks = checkWeek(org.state, ws, siteIds).filter((i) => i.severity === 'block');
+    const issues = checkWeek(org.state, ws, siteIds);
+    const blocks = issues.filter((i) => i.severity === 'block');
     if (blocks.length) throw new HttpError(409, 'compliance_block', 'Resolve blocking issues before publishing', blocks);
+    const overridden = issues.flatMap((i) => (i.overridden ? [i.overridden.id] : []));
     const dates = weekDates(ws);
     let published = 0;
+    const sitesPublished = new Set<string>();
     for (const s of org.state.shifts) {
       if (siteIds.includes(s.siteId) && dates.includes(s.date)) {
         s.published = true;
         published++;
+        sitesPublished.add(s.siteId);
       }
     }
-    audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published });
+    // Kept per site so the scorecard can measure how much notice staff were given. Only sites with shifts
+    // count, or an empty week published early would score as on time. The first and the latest are enough.
+    const publishedAt = ctx.now().toISOString();
+    for (const siteId of sitesPublished) {
+      const earlier = org.publications.filter((p) => p.siteId === siteId && p.weekStart === ws).sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+      const keep = new Set(earlier.slice(0, 1));
+      org.publications = org.publications.filter((p) => !(p.siteId === siteId && p.weekStart === ws) || keep.has(p));
+      org.publications.push({ siteId, weekStart: ws, publishedAt, by: actorName(g) });
+    }
+    audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
     return { published };
   });
 
@@ -412,12 +520,60 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const g = guard(ctx, req, org);
     for (const siteId of new Set(req.body.rows.map((r) => r.siteId))) g.allow('demand.manage', siteId);
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
-    // Pushed figures are the real forecast: never marked as profile rows, which set-up may replace.
-    const incoming = new Map(req.body.rows.map(({ source: _source, ...r }) => [key(r), r as HourForecast]));
+    const existing = new Map(org.state.forecast.map((f) => [key(f), f]));
+    // Pushed figures are the real forecast: never marked as profile rows, which set-up may replace. A feed
+    // replaces the figures but keeps the model's underneath, so a change is still scored as an override.
+    const incoming = new Map(
+      req.body.rows.map(({ source: _source, ...r }) => {
+        const { siteId, date, hour, sales, covers } = r;
+        const prior = existing.get(key(r));
+        if (prior?.modelSales === undefined) return [key(r), { siteId, date, hour, sales, covers } as HourForecast];
+        const changed = sales !== prior.modelSales || covers !== prior.modelCovers;
+        return [key(r), { siteId, date, hour, sales, covers, modelSales: prior.modelSales, modelCovers: prior.modelCovers, ...(changed ? { overriddenBy: actorName(g) } : {}) } as HourForecast];
+      }),
+    );
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];
     audit(org, actorName(g), 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };
   });
+
+  // For a site with no forecasting feed: the week worked from its own takings, day by day.
+  app.post<{ Body: SitesWeek & { replace?: boolean } }>(
+    '/v1/forecast/from-takings',
+    {
+      ...write,
+      schema: {
+        tags: ['Forecast'],
+        description:
+          "Forecasts the week from each site's past takings: the same day last year scaled by the recent trend, else the recent same weekdays. Days already forecast are left alone unless replace is true.",
+        body: { ...sitesWeekBody, properties: { ...sitesWeekBody.properties, replace: { type: 'boolean' } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const siteIds = sitesOf(org, req.body, true);
+      const g = guard(ctx, req, org);
+      for (const id of siteIds) g.allow('demand.manage', id);
+      const dates = weekDates(req.body.weekStart);
+      // A day on the typical week alone is set-up's placeholder: its own takings say more, so it is filled like an empty one.
+      const forecast = (siteId: string, date: string) => org.state.forecast.some((f) => f.siteId === siteId && f.date === date && f.sales > 0 && f.source !== 'profile');
+      const days: (DayForecast & { filled: boolean })[] = [];
+      const rows: HourForecast[] = [];
+      for (const siteId of siteIds) {
+        const worked = forecastFromTakings(org.state, siteId, dates);
+        for (const d of worked.days) {
+          // A day with nothing to work from keeps whatever it had.
+          const filled = d.basis !== 'none' && (req.body.replace === true || !forecast(siteId, d.date));
+          days.push({ ...d, filled });
+          if (filled) rows.push(...worked.rows.filter((r) => r.date === d.date));
+        }
+      }
+      const replaced = new Set(days.filter((d) => d.filled).map((d) => `${d.siteId}|${d.date}`));
+      org.state.forecast = [...org.state.forecast.filter((f) => !replaced.has(`${f.siteId}|${f.date}`)), ...rows];
+      audit(org, actorName(g), 'forecast.from_takings', { siteIds, weekStart: req.body.weekStart, days: replaced.size, replace: req.body.replace === true });
+      return { filled: replaced.size, days };
+    },
+  );
 
   app.get<{ Querystring: Range }>('/v1/sales', { ...read, schema: { tags: ['Sales'], querystring: rangeQuery, description: 'Actual takings by site and day, net of VAT.' } }, async (req) =>
     // Takings by site go with the rota: whoever sees a site's rota sees its takings, as they see its forecast.

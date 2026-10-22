@@ -3,7 +3,7 @@
 import { weekStart } from '../engine/time';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -27,6 +27,11 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
     items: [
       { id: 'rota', label: 'Rota', scope: 'week', siteOnly: true, plans: true },
       { id: 'demand', label: 'Demand', scope: 'week', siteOnly: true, plans: true },
+      // The three moves a week: each one changes the rota.
+      { id: 'coach', label: 'Coach', scope: 'week', siteOnly: true, offered: (all) => all('rota.edit') },
+      { id: 'forecast', label: 'Forecast', scope: 'week', siteOnly: true },
+      // Occasions, weather, events, bookings and school holidays ahead, with what the forecast allows for.
+      { id: 'calendar', label: 'Calendar', scope: 'people', siteOnly: true },
       { id: 'clock', label: 'Clock in', scope: 'people', siteOnly: true, offered: (all) => all('time.record') },
     ],
   },
@@ -49,11 +54,20 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
     items: [
       { id: 'team', label: 'Labour cost', scope: 'week' },
       { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
+      // Proposals from whoever sets pay, decided by finance.
+      { id: 'pay', label: 'Pay approvals', scope: 'people', offered: (_all, a) => a('pay.approve') || a('pay.edit') },
       { id: 'close', label: 'Close', scope: 'week', offered: (_all, a) => a('close.export') },
     ],
   },
   // Labour cost against takings and payroll accuracy: money throughout, for those who see cost.
-  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports', scope: 'week', offered: (all) => all('costs.view') }] },
+  {
+    heading: 'Reporting',
+    items: [
+      { id: 'reports', label: 'Reports', scope: 'week', offered: (all) => all('costs.view') },
+      // The labour programme: the ladder, milestones and the verified saving, in money.
+      { id: 'programme', label: 'Programme', scope: 'week', offered: (all) => all('costs.view') },
+    ],
+  },
   {
     heading: 'Organisation',
     items: [

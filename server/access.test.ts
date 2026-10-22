@@ -208,6 +208,21 @@ describe('managing people', () => {
     expect((await t.call('POST', '/v1/users', { key: 'integration' }, { email: 'x@ws.example', name: 'X', audience: 'operator', roleId: 'owner' })).status).toBe(403);
   });
 
+  it('lets a viewer see the forecast and calendar but not change them or take moves', async () => {
+    // The sample group, for its sites.
+    const k = await fresh(new MemoryStore(['demo'], TODAY));
+    const boss = await owner(k);
+    const t = { ...k, boss, gm: await invite(k, boss, 'gm@ws.example', 'gm password long') };
+    expect((await t.call('GET', '/v1/calendar?siteId=mar', t.gm.cookie)).status).toBe(200);
+    expect((await t.call('GET', '/v1/forecast/adjustments', t.gm.cookie)).status).toBe(200);
+    expect((await t.call('POST', '/v1/forecast/adjustments', t.gm.cookie, { siteId: 'mar', date: '2026-10-30', factor: 1.2, reason: 'event' })).status).toBe(403);
+    expect((await t.call('POST', '/v1/forecast/model', t.gm.cookie, { siteId: 'mar', weekStart: '2026-10-26' })).status).toBe(403);
+    expect((await t.call('POST', '/v1/coach/moves', t.gm.cookie, { siteId: 'mar', weekStart: '2026-10-26' })).status).toBe(403);
+    expect((await t.call('POST', '/v1/local-events', t.gm.cookie, { siteId: 'mar', date: '2026-10-30', name: 'Street party' })).status).toBe(403);
+    expect((await t.call('PUT', '/v1/settings/benchmarking', t.gm.cookie, { benchmarking: true })).status).toBe(403);
+    expect((await t.call('POST', '/v1/forecast/adjustments', t.boss, { siteId: 'mar', date: '2026-10-30', factor: 1.2, reason: 'event' })).status).toBe(201);
+  });
+
   it('ends access at once when someone is suspended', async () => {
     const t = await withTeam();
     expect((await t.call('POST', `/v1/users/${t.gm.id}/suspend`, t.boss)).status).toBe(200);
@@ -331,5 +346,23 @@ describe('the hosted app', () => {
   it('has no public key: the old demo key is refused', async () => {
     const k = await fresh();
     expect((await k.call('GET', '/v1/sites', { key: 'dev-key' })).status).toBe(401);
+  });
+});
+
+describe('the WS lead', () => {
+  it('is named only by a WS key, in that organisation only, and no app-made key can carry the scope', async () => {
+    const ws = { key: 'ws', orgId: 'demo', name: 'WS', scopes: ['programme:lead'] as unknown as ['*'] };
+    const k = await kit({ store: new MemoryStore([], TODAY), accounts: false, keys: [...INTEGRATION, ws] });
+    const boss = await owner(k);
+    const lead = await invite(k, boss, 'lead@ws.example', 'lead password long');
+    const name = (who: Parameters<Kit['call']>[2]) => k.call('PUT', '/v1/programme-leads/lead@ws.example', who, { lead: true });
+    // Neither the owner nor the operator's own full-access key can make someone the lead.
+    expect((await name(boss)).status).toBe(403);
+    expect((await name({ key: 'integration' })).status).toBe(403);
+    expect((await name({ key: 'ws' })).status).toBe(200);
+    expect((await k.call('GET', '/auth/me', lead.cookie)).body.lead).toBe(true);
+    expect((await k.call('GET', '/auth/me', boss)).body.lead).toBe(false);
+    expect((await k.store.getUser('lead@ws.example'))?.leadOrgs).toEqual(['demo']);
+    expect((await k.call('POST', '/v1/api-keys', boss, { name: 'Mine', scopes: ['programme:lead'] })).status).toBe(400);
   });
 });

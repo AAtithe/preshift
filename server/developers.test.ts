@@ -229,10 +229,12 @@ describe('webhooks', () => {
     const t = await boot();
     await t.call('POST', '/v1/webhooks', undefined, { url: 'https://hr.example/in', events: ['*'] });
     await t.call('PATCH', '/v1/employees/mar-2', undefined, { hourlyRate: 14.5 });
+    // A person's rate change is a proposal for finance: the event says one is waiting, never the amount.
     expect(t.sent).toHaveLength(1);
     const event = JSON.parse(t.sent[0].body);
-    expect(event.type).toBe('employee.updated');
-    expect(event.data).toEqual({ id: 'mar-2', fields: ['hourlyRate'] });
+    expect(event.type).toBe('pay.change_proposed');
+    expect(Object.keys(event.data).sort()).toEqual(['employeeId', 'id']);
+    expect(event.data.employeeId).toBe('mar-2');
     expect(t.sent[0].body).not.toContain('14.5');
   });
 

@@ -86,6 +86,8 @@ export function withoutRecord(req: FastifyRequest, org: OrgData): boolean {
 
 export interface Guard {
   actor: Actor;
+  /** Today in the organisation's calendar, as the checks were made. */
+  today: string;
   /** The person, for a personal key. */
   user?: User;
   can: (p: Permission, siteId?: string) => boolean;
@@ -133,7 +135,7 @@ export function guard(ctx: AppContext, req: FastifyRequest, org: OrgData): Guard
     return (row: { siteId: string }) => reach === 'all' || reach.has(row.siteId);
   };
 
-  return { actor, user, can: check, allow, sites, at };
+  return { actor, user, today, can: check, allow, sites, at };
 }
 
 export const actorName = (g: Guard) => (g.actor.kind === 'system' ? g.actor.name : g.actor.user.name);

@@ -2,15 +2,18 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Employee } from '../../src/engine/types';
 import { requireScope } from '../auth';
+import { addDays, ageOn } from '../../src/engine/time';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { enqueue } from '../outbox';
 import { employeeBody, idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { payTermsOf } from '../../src/engine/payChanges';
 import { employeeView } from './hr';
+import { changesRate, pendingFor, proposedTerms, proposePayChange, proposes } from './pay';
 
 // Fields payroll holds a copy of; changing any of them is synced to TeamPay.
-const PAYROLL_FIELDS: (keyof Employee)[] = [
+export const PAYROLL_FIELDS: (keyof Employee)[] = [
   'name', 'dateOfBirth', 'siteId', 'payBasis', 'hourlyRate', 'annualSalary',
   'contractedHours', 'irregularHours', 'pensionEnrolled',
 ];
@@ -28,10 +31,35 @@ function visible(g: Guard, e: Employee) {
   return sitesOfPerson(e).some((siteId) => at({ siteId }));
 }
 
-/** What a reader receives: pay withheld unless they see labour cost or set pay where the person works. */
+/** How far ahead the rota reaches: a right to work expiry inside it is shown so those shifts are blocked. */
+const ROTA_REACH_DAYS = 56;
+
+/**
+ * What a reader receives. Pay is withheld unless they see labour cost or set pay where the person
+ * works. Personal details are withheld unless they manage the team or read HR there: a supervisor
+ * running a shift needs who is on and who is under 18, not an adult's date of birth, the evidence of
+ * someone's immigration status, their holiday record or the number of the card that clocks them in.
+ */
 export function forReader(g: Guard, e: Employee): Employee {
-  if (sitesOfPerson(e).some((s) => g.can('costs.view', s) || g.can('pay.edit', s))) return e;
-  return { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
+  const sites = sitesOfPerson(e);
+  const seesPay = sites.some((s) => g.can('costs.view', s) || g.can('pay.edit', s));
+  const seesPersonal = sites.some((s) => g.can('team.manage', s) || g.can('hr.view', s));
+  // The holiday record is what the Holiday tab works from, offered to those who see cost.
+  const seesHoliday = seesPersonal || seesPay;
+  const out: Employee = seesPay ? { ...e } : { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
+  if (!seesHoliday) delete out.holiday;
+  if (!seesPersonal) {
+    const rtw = e.rightToWork;
+    // An expiry the rota can reach stays, so a shift after it is still blocked; others say only checked or not.
+    const expiry = rtw?.expiry && rtw.expiry <= addDays(g.today, ROTA_REACH_DAYS) ? rtw.expiry : undefined;
+    out.under18 = Boolean(e.dateOfBirth) && ageOn(e.dateOfBirth, g.today) < 18;
+    // Someone under 18 is held to limits that turn on their exact age and school leaving date.
+    if (!out.under18) out.dateOfBirth = '';
+    out.personalHidden = true;
+    out.rightToWork = rtw && { checked: rtw.checked, ...(expiry ? { expiry } : {}) };
+    delete out.badgeId;
+  }
+  return out;
 }
 
 function payChanged(before: Partial<Employee>, after: Partial<Employee>) {
@@ -39,12 +67,12 @@ function payChanged(before: Partial<Employee>, after: Partial<Employee>) {
 }
 
 /** Pay is never set by the person paid, whatever their roles. */
-function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
+export function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
   g.allow('pay.edit', e.siteId);
   if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else changes your own pay.');
 }
 
-function queueUpsert(org: OrgData, e: Employee) {
+export function queueUpsert(org: OrgData, e: Employee) {
   enqueue(org, {
     type: 'employee.upsert',
     payload: { employeeId: e.id },
@@ -61,6 +89,14 @@ function validateEmployment(org: OrgData, e: Employee) {
   if (unknown.length) throw notFound(`Site ${unknown.join(', ')}`);
 }
 
+/** A person as the caller may see them, with any pay change waiting for finance if they set or approve pay there. */
+function shown(req: Parameters<typeof employeeView>[0], g: Guard, org: OrgData, e: Employee): Employee {
+  const view = forReader(g, employeeView(req, e, g));
+  if (view.payHidden || !(g.can('pay.edit', e.siteId) || g.can('pay.approve', e.siteId))) return view;
+  const pending = pendingFor(org, e.id);
+  return pending ? { ...view, pendingPay: pending } : view;
+}
+
 export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   // Staff records hold dates of birth, pay and right to work: a scope of their own, not rota:read.
   const read = { preHandler: requireScope('employees:read') };
@@ -69,7 +105,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => {
     const org = orgOf(req);
     const g = guard(ctx, req, org);
-    return org.state.employees.filter((e) => visible(g, e)).map((e) => forReader(g, employeeView(req, e, g)));
+    return org.state.employees.filter((e) => visible(g, e)).map((e) => shown(req, g, org, e));
   });
 
   app.get<{ Params: { id: string } }>('/v1/employees/:id', { ...read, schema: { tags: ['Employees'], params: idParam } }, async (req) => {
@@ -77,7 +113,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     const g = guard(ctx, req, org);
     const e = org.state.employees.find((x) => x.id === req.params.id);
     if (!e || !visible(g, e)) throw notFound(`Employee ${req.params.id}`);
-    return forReader(g, employeeView(req, e, g));
+    return shown(req, g, org, e);
   });
 
   app.post<{ Body: Partial<Employee> }>(
@@ -98,6 +134,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       g.allow('team.manage', home.id);
       // A starter's rate is pay like any other: without pay.edit they start at nought for someone who sets pay to fix.
       if (req.body.hourlyRate || req.body.annualSalary) g.allow('pay.edit', home.id);
+      // A person's starter begins at nought, with their rate proposed to finance like any other change.
+      const proposal = (req.body.hourlyRate || req.body.annualSalary) && proposes(g, org, ctx.store.todayISO())
+        ? { payBasis: req.body.payBasis!, hourlyRate: req.body.hourlyRate ?? 0, annualSalary: req.body.annualSalary ?? 0 }
+        : null;
       const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
         entityId: home.entityId,
         coverSiteIds: [],
@@ -119,12 +159,14 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       };
       // Copies are added through their own route once the record exists.
       if (e.rightToWork) e.rightToWork = { ...e.rightToWork, documents: [] };
+      if (proposal) Object.assign(e, { hourlyRate: 0, annualSalary: 0 });
       validateEmployment(org, e);
+      if (proposal) proposePayChange(org, g, e, proposal, undefined, ctx.store.todayISO());
       org.state.employees.push(e);
       queueUpsert(org, e);
       audit(org, actorName(g), 'employee.created', { id: e.id });
       await kick(ctx, org);
-      return reply.code(201).send(forReader(g, employeeView(req, e, g)));
+      return reply.code(201).send(shown(req, g, org, e));
     },
   );
 
@@ -137,7 +179,9 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (i < 0) throw notFound(`Employee ${req.params.id}`);
       const before = org.state.employees[i];
       const g = guard(ctx, req, org);
-      const after: Employee = { ...before, ...req.body, id: before.id };
+      // A person changing the rate proposes it: the pay in force stays until finance approves.
+      const proposal = changesRate(before, req.body) && proposes(g, org, ctx.store.todayISO()) ? proposedTerms(before, req.body) : null;
+      const after: Employee = { ...before, ...req.body, id: before.id, ...(proposal ? payTermsOf(before) : {}) };
       if (Object.keys(req.body).some((k) => !PAY_FIELDS.includes(k as keyof Employee))) {
         g.allow('team.manage', before.siteId);
         if (after.siteId !== before.siteId) g.allow('team.manage', after.siteId);
@@ -154,14 +198,18 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
             '(with a P45) and a new starter in the other, so mark them as a leaver and add them again under the new company.',
         );
       }
+      if (proposal) proposePayChange(org, g, after, proposal, undefined, ctx.store.todayISO());
       org.state.employees[i] = after;
       if (after.startDate && after.startDate !== before.startDate) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
       }
       if (PAYROLL_FIELDS.some((f) => before[f] !== after[f])) queueUpsert(org, after);
-      audit(org, actorName(g), 'employee.updated', { id: after.id, fields: Object.keys(req.body) });
+      // A proposed rate has not changed the record: it is reported when finance approves it.
+      const changed = Object.keys(req.body).filter((k) => !proposal || !(['payBasis', 'hourlyRate', 'annualSalary'] as string[]).includes(k));
+      // Only the rate was asked for: the proposal is the event, and the record has not changed yet.
+      if (changed.length) audit(org, actorName(g), 'employee.updated', { id: after.id, fields: changed });
       await kick(ctx, org);
-      return forReader(g, employeeView(req, after, g));
+      return shown(req, g, org, after);
     },
   );
 

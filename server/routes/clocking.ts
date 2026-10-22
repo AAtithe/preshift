@@ -8,7 +8,7 @@ import { forReader } from './employees';
 import { geofenceBody, geoFixBody, idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { employeeView } from './hr';
-import { clockIn, clockOut, endBreak, onBreak } from './time';
+import { clockIn, clockOut, clockTime, endBreak, isFixedReader, onBreak } from './time';
 
 const REPEAT_TAP_MINUTES = 2;
 
@@ -116,8 +116,9 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Clocking'],
         description:
-          'A card tapped on a site reader. Clocks the card holder in, or out if they are already in. The reader is fixed at ' +
-          'the site, so no device location is required; one sent is recorded with the entry.',
+          'A card tapped on a site reader. Clocks the card holder in, or out if they are already in. A reader fixed at the ' +
+          'site under its own API key needs no location, and may send the time of a tap it held while offline. A card read ' +
+          "on a signed-in person's phone or tablet needs the device inside the site's geofence, and is timed by the server.",
         body: {
           type: 'object',
           required: ['badgeId', 'siteId'],
@@ -132,10 +133,11 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
       const employee = badgeId ? org.state.employees.find((e) => e.badgeId === badgeId) : undefined;
       if (!employee) throw new HttpError(404, 'unknown_card', 'This card is not enrolled. Ask a manager to add it to your profile.');
       const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
-      const opts = { method: 'card' as const, at: req.body.at, location: req.body.location };
+      const at = clockTime(req, req.body.at);
+      const opts = { method: 'card' as const, at, location: req.body.location, fixedReader: isFixedReader(req) };
       const person = { id: employee.id, name: employee.name };
       // Readers often send one tap twice. A second tap within two minutes is the same tap, not a clock-out.
-      const { date, minute } = londonParts(req.body.at ? new Date(req.body.at) : new Date());
+      const { date, minute } = londonParts(at ? new Date(at) : new Date());
       const now = minutesSince(date, minute);
       const last = org.timeEntries
         .filter((t) => t.employeeId === employee.id && t.source === 'clock')
@@ -145,7 +147,7 @@ export function clockingRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       // Someone tapping while on a break is coming back from it, not leaving for the day.
       if (open && onBreak(open)) {
-        return { action: 'break_end', employee: person, entry: endBreak(open, req.body.at) };
+        return { action: 'break_end', employee: person, entry: endBreak(open, at) };
       }
       if (open) {
         // A tap at another site closes the shift where it was opened, so hours are never left running.

@@ -1,3 +1,4 @@
+import { EposSetup } from './EposSetup';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 import { ApiKeys, Webhooks } from './DeveloperSettings';
@@ -9,8 +10,10 @@ export interface Account {
   orgId: string;
   /** Every organisation the person may switch to, this one included. */
   organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
-  /** Set in the public demo, where each visitor has a sandbox of their own. */
+  /** Set for a public demo visitor, who has a sandbox of their own. */
   demo?: boolean;
+  /** The Williams, Stanley & Co. lead on the labour programme, in this organisation. */
+  lead?: boolean;
 }
 
 interface EmailStatus {
@@ -32,7 +35,7 @@ const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD',
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
-export function SettingsView({ account, canSettings }: { account: Account | null; canSettings: boolean }) {
+export function SettingsView({ account, canSettings, onSalesChanged }: { account: Account | null; canSettings: boolean; onSalesChanged?: () => void }) {
   if (account?.demo) {
     return (
       <div className="settings">
@@ -41,10 +44,14 @@ export function SettingsView({ account, canSettings }: { account: Account | null
           <p className="small muted">
             In the live product this is where the Claude API key and email are set up, where API keys and webhooks are made for other systems to plug in. Each person changes their own password under
             Your profile. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
-            your own copy of the demo group, and it is deleted after a day.
+            your own copy of the demo group, kept apart from every customer, and it is wiped at midnight UK time.
           </p>
-          <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
+          <form method="post" action="/demo/start">
+            <input type="hidden" name="fresh" value="1" />
+            <button type="submit" className="link small">Start again with a fresh copy</button>
+          </form>
         </section>
+        <EposSetup onSynced={onSalesChanged} />
       </div>
     );
   }
@@ -58,6 +65,7 @@ export function SettingsView({ account, canSettings }: { account: Account | null
           nobody else ever knows it, and keeps their name, password and authenticator under Your profile.
         </p>
       </section>
+      {canSettings && <EposSetup onSynced={onSalesChanged} />}
       {canSettings && <ClaudeKey />}
       {canSettings && <EmailSetup />}
       {canSettings && <ApiKeys />}
