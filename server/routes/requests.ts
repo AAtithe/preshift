@@ -14,6 +14,7 @@ import type { Absence, AbsenceType, Availability, Employee, OpenShift, Shift, St
 import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
+import { managerDigests } from '../digest';
 import { emailNotifications, notify, syncTold } from '../notify';
 import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -52,7 +53,7 @@ export function balanceOf(org: OrgData, e: Employee, today: string) {
 }
 
 /** The permission that decides each kind, and the API scope a key needs for it. */
-function authority(kind: StaffRequest['kind']) {
+export function authority(kind: StaffRequest['kind']) {
   if (kind === 'swap' || kind === 'open_shift') return { permission: 'rota.publish', scope: 'rota:write' } as const;
   if (kind === 'time_off' || kind === 'sickness') return { permission: 'hr.manage', scope: 'hr:write' } as const;
   return { permission: 'team.manage', scope: 'rota:write' } as const;
@@ -292,6 +293,35 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     );
   }
+
+  // The morning email: each signed-in manager sees what it would say today, and turns it on or off for themselves.
+  app.get(
+    '/v1/requests/digest',
+    { ...read, schema: { tags, description: "The caller's morning email of staff requests: whether it is on, and what it would say today. Signed-in people only." } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      if (!g.user) throw new HttpError(403, 'forbidden', 'The morning email goes to people, not API keys.');
+      const mine = managerDigests({ ...org, settings: { ...org.settings, digestOff: [] } }, today()).find((d) => d.user.id === g.user!.id);
+      return { on: !(org.settings.digestOff ?? []).includes(g.user.id), email: g.user.email, sections: mine?.sections ?? [], count: mine?.count ?? 0 };
+    },
+  );
+
+  app.put<{ Body: { on: boolean } }>(
+    '/v1/requests/digest',
+    { ...read, schema: { tags, description: 'Turns the morning email on or off for the caller.', body: { type: 'object', required: ['on'], properties: { on: { type: 'boolean' } }, additionalProperties: false } } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      if (!g.user) throw new HttpError(403, 'forbidden', 'The morning email goes to people, not API keys.');
+      const off = new Set(org.settings.digestOff ?? []);
+      if (req.body.on) off.delete(g.user.id);
+      else off.add(g.user.id);
+      org.settings.digestOff = [...off];
+      audit(org, actorName(g), 'requests.digest_set', { on: req.body.on });
+      return { on: req.body.on };
+    },
+  );
 
   const openShiftView = (req: FastifyRequest, org: OrgData, o: OpenShift) => {
     const names = namesOf(org.state);

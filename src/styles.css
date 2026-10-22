@@ -1183,3 +1183,5 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .requests-post { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
 .requests-post label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .requests-post p { grid-column: 1 / -1; margin: 0; }
+.requests-digest { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; }
+.requests-digest input { margin-top: 3px; }

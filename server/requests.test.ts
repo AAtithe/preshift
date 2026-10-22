@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { addDays, weekStart } from '../src/engine/time';
+import { managerDigests, sendManagerDigests } from './digest';
+import { emailSetting } from './mail';
 import { kit, type Kit } from './testkit';
 
 const PASSWORD = 'pint of best bitter';
@@ -328,5 +330,77 @@ describe('sickness', () => {
     expect((await k.call('POST', '/v1/staff/sick/back', ben, { lastDayOff: addDays(today, -1) })).body.error).toBe('invalid_dates');
     expect((await k.call('POST', '/v1/staff/sick/back', ben, { lastDayOff: tomorrow })).status).toBe(200);
     expect((await me(ben)).sick).toBeNull();
+  });
+});
+
+describe('managers\' morning email', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function waiting() {
+    const { k, join, me } = await boot();
+    const ben = await join('mar-12');
+    const zara = await join('mar-15');
+    const lee = await join('shd-5');
+    const today = (await me(ben)).today;
+    await k.call('POST', '/v1/staff/requests/holiday', ben, { from: addDays(today, 20), to: addDays(today, 21), note: 'Cousin visiting' });
+    await k.call('POST', '/v1/staff/sick', zara, { note: 'Flu' });
+    await k.call('POST', '/v1/staff/requests/holiday', lee, { from: addDays(today, 20), to: addDays(today, 20) });
+    await k.call('POST', '/v1/open-shifts', KEY, { siteId: 'mar', roleId: 'bar', date: addDays(today, 2), startMinute: 1080, endMinute: 1380 });
+    // An open swap nobody has agreed to is not the manager's yet.
+    const day = await clearDay(k, today);
+    const id = await postAndPublish(k, bar('mar-12', day));
+    await k.call('POST', '/v1/staff/swaps', ben, { shiftId: id });
+    return { k, today };
+  }
+
+  it('tells each manager only what is theirs to decide, with no reasons', async () => {
+    const { k, today } = await waiting();
+    const org = await k.store.load('demo');
+    const digests = managerDigests(org, today);
+    const of = (email: string) => digests.find((d) => d.user.email === email);
+    const priya = of('priya@marylebonegroup.example')!;
+    const text = JSON.stringify(priya.sections);
+    expect(text).toMatch(/Ben Ford, Marylebone: holiday/);
+    expect(text).toMatch(/Zara Ahmed, Marylebone: off sick since/);
+    expect(text).toMatch(/nobody has claimed it yet/);
+    expect(text).not.toMatch(/Leo Martins|Cousin visiting|Flu|Bartender at Marylebone to/);
+    expect(priya.count).toBe(3);
+    // Hannah runs Shoreditch: only Leo's holiday.
+    expect(JSON.stringify(of('hannah@marylebonegroup.example')!.sections)).toMatch(/Leo Martins/);
+    // A floor supervisor decides none of it, so gets nothing.
+    expect(of('grace@marylebonegroup.example')).toBeUndefined();
+    // Suspended and invited people get nothing.
+    expect(of('chris@marylebonegroup.example')).toBeUndefined();
+  });
+
+  it('can be turned off by each person, and shows them what it would say', async () => {
+    const { k, today } = await waiting();
+    const priya = await k.as('priya@marylebonegroup.example');
+    const preview = await k.call('GET', '/v1/requests/digest', priya);
+    expect(preview.body).toMatchObject({ on: true, email: 'priya@marylebonegroup.example', count: 3 });
+    expect((await k.call('PUT', '/v1/requests/digest', priya, { on: false })).body).toEqual({ on: false });
+    const org = await k.store.load('demo');
+    expect(managerDigests(org, today).some((d) => d.user.email === 'priya@marylebonegroup.example')).toBe(false);
+    expect((await k.call('GET', '/v1/requests/digest', priya)).body.on).toBe(false);
+    expect((await k.call('GET', '/v1/requests/digest', KEY)).status).toBe(403);
+  });
+
+  it('goes once a day, through the organisation\'s own Resend, and not without it', async () => {
+    const { k, today } = await waiting();
+    const sent: { to: string[]; subject: string; text: string }[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ id: `m_${sent.length}` }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    expect(await sendManagerDigests(k.store, today)).toEqual({ orgs: 0, sent: 0 });
+    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
+    const first = await sendManagerDigests(k.store, today);
+    expect(first.orgs).toBe(1);
+    expect(first.sent).toBe(sent.length);
+    const priya = sent.find((m) => m.to[0] === 'priya@marylebonegroup.example')!;
+    expect(priya.subject).toBe('Staff requests: 3 waiting for you');
+    expect(priya.text).toMatch(/https:\/\/rota\.ws\.example\/app\/\?view=requests/);
+    expect(priya.text).not.toMatch(/Flu|Cousin/);
+    expect(await sendManagerDigests(k.store, today)).toEqual({ orgs: 0, sent: 0 });
   });
 });

@@ -121,6 +121,8 @@ export interface OrgData {
   notifications?: StaffNotification[];
   /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
   toldWeeks?: Record<string, string[]>;
+  /** The London day the managers' morning digest last went out, so it goes once a day. */
+  lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
   webhookDeliveries?: WebhookDelivery[];
   users: User[];
@@ -165,6 +167,8 @@ export interface OrgSettings {
    * in return sees the cohort's. Off until an admin turns it on: give to get.
    */
   benchmarking?: boolean;
+  /** People (user ids) who have turned off the morning email of staff requests waiting for them. */
+  digestOff?: string[];
 }
 
 export type UserRole = 'admin' | 'member';

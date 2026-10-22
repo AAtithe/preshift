@@ -161,3 +161,24 @@ export function staffNoticeEmail(to: string, name: string, notices: { title: str
   const text = [`Hello ${name},`, '', ...notices.flatMap((n) => [n.title, n.body, '']), link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
   return { to, subject, text, html: letter([`Hello ${name},`, ...lines], { label: 'Open the staff app', link }, notes) };
 }
+
+/**
+ * A manager's morning: what staff have asked for that is theirs to decide, sickness to cover and
+ * open shifts still unfilled. Names, dates and times only, never a reason for absence or pay.
+ */
+export function managerDigestEmail(to: string, name: string, count: number, sections: { heading: string; lines: string[] }[], link: string): Mail {
+  const opening = `${count} thing${count === 1 ? '' : 's'} from your team need${count === 1 ? 's' : ''} you today.`;
+  const notes = ['Each is checked again against the rota rules when you decide it, and the person is told straight away.', 'Turn this email off on the Staff requests screen.'];
+  const text = [
+    `Good morning ${name},`, '', opening, '',
+    ...sections.flatMap((s) => [s.heading, ...s.lines.map((l) => `- ${l}`), '']),
+    link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.',
+  ].join('\n');
+  const body = sections.flatMap((s) => [s.heading, ...s.lines]);
+  return {
+    to,
+    subject: `Staff requests: ${count} waiting for you`,
+    text,
+    html: letter([`Good morning ${name},`, opening, ...body], { label: 'Open Staff requests', link }, notes),
+  };
+}

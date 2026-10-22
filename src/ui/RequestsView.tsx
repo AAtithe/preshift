@@ -91,6 +91,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
   const [openShifts, setOpenShifts] = useState<OpenShiftView[]>([]);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [posting, setPosting] = useState(false);
+  const [digest, setDigest] = useState<{ on: boolean; email: string; count: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -103,6 +104,17 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
     }
   }, []);
   useEffect(() => void load(), [load]);
+  // People only: an API key has no morning email.
+  useEffect(() => void api.get<{ on: boolean; email: string; count: number }>('/v1/requests/digest').then(setDigest).catch(() => setDigest(null)), []);
+
+  async function setDigestOn(on: boolean) {
+    try {
+      await api.put('/v1/requests/digest', { on });
+      setDigest((d) => (d ? { ...d, on } : d));
+    } catch (e) {
+      setMessage({ text: (e as Error).message, bad: true });
+    }
+  }
 
   const inScope = (requests ?? []).filter((r) => siteIds.includes(r.siteId));
   const waiting = inScope.filter((r) => r.status === 'pending' || r.status === 'accepted');
@@ -197,6 +209,12 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
         the rota: a swap or claim that would break the Working Time Regulations, double book someone or put them on a role they are
         not trained for is refused. The person is told the moment you decide, in the app and by email.
       </p>
+      {digest && (
+        <label className="muted small requests-digest">
+          <input type="checkbox" checked={digest.on} onChange={(e) => void setDigestOn(e.target.checked)} /> Email me each morning at {digest.email} with what is waiting for me
+          {digest.on ? ` (today it would list ${digest.count})` : ''}. Sent only when something is waiting; names and dates only, never a reason for absence.
+        </label>
+      )}
       {message && <p className={`notice${message.bad ? ' error' : ''}`}>{message.text}</p>}
       {requests === null && <p className="muted">Loading</p>}
 

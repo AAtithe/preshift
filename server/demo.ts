@@ -56,6 +56,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/hr/overview': true,
   // Staff requests and open shifts work on the visitor's own sandbox, as the rota does.
   'GET /v1/requests': true,
+  // The morning email: visitors may look at it; nothing is ever emailed from a sandbox.
+  'GET /v1/requests/digest': true,
+  'PUT /v1/requests/digest': true,
   'POST /v1/requests/:id/approve': true,
   'POST /v1/requests/:id/decline': true,
   'GET /v1/open-shifts': true,

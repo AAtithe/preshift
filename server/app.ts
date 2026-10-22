@@ -38,6 +38,7 @@ import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
 import { emailNotifications } from './notify';
+import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -277,6 +278,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await deliverAllWebhooks(store, options.webhookFetch);
     return { ok: true };
+  });
+
+  // Each morning: every manager hears what staff have asked for that is theirs to decide. Once a
+  // day per organisation, however often it is called.
+  app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
