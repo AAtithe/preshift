@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { weekCost } from '../../src/engine/cost';
+import { weekCost, weekOnCosts } from '../../src/engine/cost';
 import { employmentAllowanceIssues, employmentAllowanceWeek } from '../../src/engine/allowance';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/journal';
 import { addDays, weekDates } from '../../src/engine/time';
@@ -219,18 +219,35 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       const cost = weekCost(state, periodStart);
       const queued = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
       const created = [];
-      for (const { entity, batch } of batches) {
+      for (const { entity, batch: hours } of batches) {
+        // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
+        const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id));
+        for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
+        // Back pay not yet sent goes with this batch; arrears sent with a batch since replaced go again with this one.
+        const replaced = new Set(org.submissions.filter((s) => s.status === 'superseded').map((s) => s.id));
+        const owed = org.payChanges.filter((c) => c.backPay && (!c.backPay.sentIn || replaced.has(c.backPay.sentIn)) &&
+          org.state.employees.find((e) => e.id === c.employeeId)?.entityId === entity.id);
+        const batch = {
+          ...hours,
+          adjustments: owed.map((c) => {
+            const e = org.state.employees.find((x) => x.id === c.employeeId)!;
+            return {
+              employeeId: e.id,
+              ...(e.payrollId ? { payrollId: e.payrollId } : {}),
+              amount: c.backPay!.amount,
+              description: `Back pay from ${c.backPay!.from} to ${c.backPay!.to}`,
+              reference: c.id,
+            };
+          }),
+        };
         // Anyone not yet in payroll is set up first; the outbox delivers in order.
-        for (const line of batch.lines) {
+        for (const line of [...batch.lines, ...batch.adjustments]) {
           const e = org.state.employees.find((x) => x.id === line.employeeId)!;
           if (!e.payrollId && !queued.has(e.id)) {
             enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
             queued.add(e.id);
           }
         }
-        // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
-        const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id));
-        for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
         const version = mine.length + 1;
         const people = new Set(org.state.employees.filter((e) => e.entityId === entity.id).map((e) => e.id));
         const submission = {
@@ -246,6 +263,13 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           createdBy: actorName(g),
           accrued: Object.fromEntries([...cost.employees].filter(([id]) => people.has(id)).map(([id, c]) => [id, c.total])),
         };
+        // Back pay costs what any pay costs: priced on top of the week's pay, so on-costs cross thresholds as payroll's will.
+        for (const a of batch.adjustments) {
+          const e = org.state.employees.find((x) => x.id === a.employeeId)!;
+          const gross = cost.employees.get(e.id)?.gross ?? 0;
+          submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + a.amount).total - weekOnCosts(e, gross).total) * 100) / 100;
+        }
+        for (const c of owed) c.backPay!.sentIn = submission.id;
         org.submissions.push(submission);
         enqueue(org, {
           type: 'hours.submit',

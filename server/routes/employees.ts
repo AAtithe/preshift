@@ -10,7 +10,7 @@ import { employeeBody, idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { payTermsOf } from '../../src/engine/payChanges';
 import { employeeView } from './hr';
-import { changesRate, pendingFor, proposedTerms, proposePayChange, proposes } from './pay';
+import { approverExists, changesRate, pendingFor, proposedTerms, proposePayChange, proposes, recordDirect } from './pay';
 
 // Fields payroll holds a copy of; changing any of them is synced to TeamPay.
 export const PAYROLL_FIELDS: (keyof Employee)[] = [
@@ -174,6 +174,9 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (proposal) Object.assign(e, { hourlyRate: 0, annualSalary: 0 });
       validateEmployment(org, e);
       if (proposal) proposePayChange(org, g, e, proposal, undefined, ctx.store.todayISO());
+      else if (e.hourlyRate || e.annualSalary) {
+        recordDirect(org, g, e, { payBasis: e.payBasis, hourlyRate: 0, annualSalary: 0 }, approverExists(org, g, ctx.store.todayISO()) ? 'system' : 'no_approver', ctx.store.todayISO());
+      }
       org.state.employees.push(e);
       queueUpsert(org, e);
       audit(org, actorName(g), 'employee.created', { id: e.id });
@@ -213,6 +216,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       if (proposal) proposePayChange(org, g, after, proposal, undefined, ctx.store.todayISO());
       org.state.employees[i] = after;
+      // Pay set without a second person still goes on the pay history, with how it was set.
+      if (!proposal && changesRate(before, req.body)) {
+        recordDirect(org, g, after, payTermsOf(before), approverExists(org, g, ctx.store.todayISO()) ? 'system' : 'no_approver', ctx.store.todayISO());
+      }
       if (after.startDate && after.startDate !== before.startDate) {
         org.state.shifts = org.state.shifts.filter((s) => !(s.employeeId === after.id && s.date < after.startDate!));
       }

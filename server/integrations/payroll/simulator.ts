@@ -99,17 +99,20 @@ export class TeamPaySimulator implements PayrollProvider {
     // fixed pattern. It knows nothing of 80% of earnings, so a low earner's SSP comes back too high,
     // which is what the check on each pay run is there to catch.
     const sspByEmployee = new Map((batch.sickness ?? []).map((s) => [s.employeeId, Math.round(s.dates.length * (UK_RATES_2026_27.ssp.weeklyRate / s.qualifyingDaysPerWeek) * 100) / 100]));
+    // One-off sums such as back pay are added to gross pay on top of the week's pay, as a payroll does.
+    const extra = new Map<string, number>();
+    for (const a of batch.adjustments ?? []) extra.set(a.employeeId, (extra.get(a.employeeId) ?? 0) + a.amount);
     const employees: PayRun['employees'] = [];
     for (const person of people) {
       if (!person.payrollId) continue;
       const hours = hoursByEmployee.get(person.id) ?? 0;
       const ssp = sspByEmployee.get(person.id) ?? 0;
-      if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0 && ssp === 0) continue;
+      if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0 && ssp === 0 && !extra.has(person.id)) continue;
       // Salary is paid as salary; hourly pay is the lines, topped up to any guaranteed hours.
       const gross =
-        person.payBasis === 'salaried'
+        (person.payBasis === 'salaried'
           ? person.annualSalary / 52
-          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate);
+          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate)) + (extra.get(person.id) ?? 0);
       // Price on-costs with the same statutory model; a real payroll's rounding differs slightly.
       const cost = weekOnCosts(person, gross);
       employees.push({

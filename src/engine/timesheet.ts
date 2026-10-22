@@ -52,12 +52,25 @@ export interface PayrollSicknessLine {
   sspEstimate: number;
 }
 
+/** A one-off sum added to someone's gross pay, such as back pay from a pay change approved late. */
+export interface PayrollAdjustment {
+  employeeId: string;
+  payrollId?: string;
+  amount: number;
+  /** What it is, for the payslip: the pay change it comes from and the dates it covers. */
+  description: string;
+  /** The pay change, so payroll never pays the same arrears twice. */
+  reference: string;
+}
+
 export interface PayrollHoursBatch {
   periodStart: string;
   periodEnd: string;
   lines: PayrollHoursLine[];
   /** Sickness on which SSP is due in the period. Absent on batches sent before SSP was checked. */
   sickness?: PayrollSicknessLine[];
+  /** Back pay and other one-off sums. Absent on batches sent before back pay was carried. */
+  adjustments?: PayrollAdjustment[];
   /** Approved entries skipped because their person is salaried (paid by salary, not hours). */
   salariedEntryIds: string[];
   totalHours: number;

@@ -1,3 +1,4 @@
+import type { PayPolicy } from '../src/engine/payPolicy';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
@@ -133,6 +134,10 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** How fast finance decides pay changes, and the day hours go to payroll. Defaults apply when absent. */
+  payPolicy?: PayPolicy;
+  /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
+  payDailyOn?: string;
   /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
   staffLoginLog: StaffLoginEvent[];
   /** Sign-offs of staff logins closed and opened again. Never removed. */

@@ -80,6 +80,12 @@ export class TeamPayProvider implements PayrollProvider {
           qualifying_days_per_week: s.qualifyingDaysPerWeek,
           ssp_estimate: s.sspEstimate,
         })),
+        adjustments: (batch.adjustments ?? []).filter((a) => a.payrollId).map((a) => ({
+          employee_id: a.payrollId,
+          amount: a.amount,
+          description: a.description,
+          reference: a.reference,
+        })),
       },
       idempotencyKey,
     );
