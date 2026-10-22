@@ -831,3 +831,13 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .table.takings td, .table.takings th { padding-left: 4px; padding-right: 4px; }
 .takings-input { width: 68px; text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .report-kpis { grid-template-columns: repeat(2, 1fr); } }
+
+.doc-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.doc-list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); font-size: 13px; }
+.doc-list a { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.doc-list button.link:first-of-type { margin-left: auto; }
+.doc-history { flex-basis: 100%; margin: 4px 0 0; padding-left: 18px; }
+.file-pick { position: relative; display: inline-block; margin-top: 4px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.file-pick:hover { border-color: var(--muted); }
+.file-pick.busy { opacity: 0.6; cursor: progress; }
+.file-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }

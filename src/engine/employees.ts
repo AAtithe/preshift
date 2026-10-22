@@ -103,6 +103,15 @@ export function reviewEmployee(
   } else if (rtw.expiry && rtw.expiry <= addDays(today, LOOKAHEAD_DAYS)) {
     push('right-to-work-expiring', 'warn', `Right to work expires on ${rtw.expiry}. Book the follow-up check now.`);
   }
+  const copies = rtw?.documents?.length ?? 0;
+  // Once someone has left, retention may already have removed the copy and the date on purpose.
+  const left = Boolean(employee.leaveDate && employee.leaveDate < today);
+  if (rtw?.checked && copies === 0 && !left) {
+    push('right-to-work-copy', 'warn', 'Checked, but no copy of the documents is held. Without a copy there is no statutory excuse.');
+  }
+  if (rtw?.checked && !rtw.checkedOn && !left) {
+    push('right-to-work-date', 'warn', 'Record the date the right to work check was done. The statutory excuse needs it.');
+  }
 
   if (!employee.pensionEnrolled && age >= rates.pensionMinAge && age < rates.pensionMaxAge) {
     const weekly =
