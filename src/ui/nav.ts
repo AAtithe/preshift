@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'clients' | 'billing';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'clients' | 'billing';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -112,7 +112,15 @@ export const NAV: NavGroup[] = [
   },
   // Everyone who signs in keeps their own details, password and authenticator here.
   { id: 'you', heading: 'You', items: [{ id: 'profile', label: 'Your profile', scope: 'org', title: 'You', access: 'everyone' }] },
-  { id: 'help', heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help', access: 'everyone' }] },
+  {
+    id: 'help',
+    heading: 'Help',
+    items: [
+      { id: 'howto', label: 'How to', scope: 'org', title: 'Help', access: 'everyone' },
+      // Questions, bugs and ideas for the client's WS client partner. The API decides who answers.
+      { id: 'support', label: 'Support', scope: 'org', title: 'Help', access: 'everyone' },
+    ],
+  },
 ];
 export const NAV_ITEMS = NAV.flatMap((g) => g.items);
 export const ALL = '';
