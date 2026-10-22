@@ -227,3 +227,28 @@ test('a supervisor sees only their sections, and the API refuses the rest', asyn
   expect(status).toBe(403);
   await page.evaluate(() => localStorage.removeItem('preshift.demoKey'));
 });
+
+test('the organisation picker names where you are and moves only on a deliberate choice', async ({ page }) => {
+  // The account is given two more organisations in the browser only; the switch itself is refused,
+  // so the check never moves a real session.
+  await page.route('**/auth/me', async (route) => {
+    const body = await (await route.fetch()).json();
+    const others = [{ orgId: 'e2e-a', name: 'Harbour Kitchens Ltd', current: false, home: false }, { orgId: 'e2e-b', name: 'Northern Taverns Ltd', current: false, home: false }];
+    await route.fulfill({ json: { ...body, organisations: [...body.organisations, ...others] } });
+  });
+  await page.route('**/auth/switch', (route) => route.fulfill({ status: 403, json: { message: 'You have no access to that organisation.' } }));
+  await page.reload();
+
+  const picker = page.locator('.op-trigger');
+  await expect(picker).toContainText('3 you work in');
+  await picker.click();
+  const options = page.getByRole('listbox', { name: 'Organisations' }).getByRole('option');
+  await expect(options).toHaveCount(3);
+  await expect(page.locator('.op-option.selected')).toContainText('Home');
+  await page.keyboard.press('Escape');
+  await expect(options).toHaveCount(0);
+
+  await picker.click();
+  await options.filter({ hasText: 'Harbour Kitchens Ltd' }).click();
+  await expect(page.locator('.op-error')).toHaveText('You have no access to that organisation.');
+});

@@ -19,6 +19,7 @@ import { DemandView } from './DemandView';
 import { EmployeeEditor } from './EmployeeEditor';
 import { ForecastView } from './ForecastView';
 import { dayLabel } from './format';
+import { OrgPicker } from './OrgPicker';
 import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
@@ -338,6 +339,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         <div className="wordmark">
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
+        <OrgPicker account={account} />
         <SideNav groups={nav} active={activeTab} onOpen={openSection} />
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
@@ -356,7 +358,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             <span className="eyebrow">{section.label}</span>
             <div className="mast-controls">
               <DemoSwitch me={me} />
-              <OrgSwitch account={account} />
             </div>
           </div>
           <div className="mast-title">
@@ -779,33 +780,6 @@ function describeChange(before: Shift | null, after: Shift, state: { employees: 
 }
 
 interface DemoPerson { id: string; name: string; jobTitle?: string; status: string }
-
-/**
- * For someone who works in more than one organisation: moves the session to another, then
- * starts the app again there, as everything on screen belongs to the one it came from.
- */
-function OrgSwitch({ account }: { account: Account | null }) {
-  const [error, setError] = useState<string | null>(null);
-  const orgs = account?.organisations ?? [];
-  if (orgs.length < 2 || actingAsDemo) return null;
-  async function choose(orgId: string) {
-    setError(null);
-    const res = await fetch('/auth/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) }).catch(() => null);
-    if (res?.ok) return location.reload();
-    setError((await res?.json().catch(() => null))?.message ?? 'Could not switch. Check your connection and try again.');
-  }
-  return (
-    <label className="demo-switch">
-      <span className="muted small">Organisation</span>
-      <select value={account!.orgId} onChange={(e) => void choose(e.target.value)} aria-label="Organisation">
-        {orgs.map((o) => (
-          <option key={o.orgId} value={o.orgId}>{o.name}</option>
-        ))}
-      </select>
-      {error && <span className="small bad-text" role="alert">{error}</span>}
-    </label>
-  );
-}
 
 /** Demo only: sign in as any seeded person to see what their roles allow. Absent outside the demo. */
 function DemoSwitch({ me }: { me: Me | null }) {
