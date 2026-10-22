@@ -239,7 +239,7 @@ test('the organisation picker names where you are and moves only on a deliberate
   await page.route('**/auth/switch', (route) => route.fulfill({ status: 403, json: { message: 'You have no access to that organisation.' } }));
   await page.reload();
 
-  const picker = page.locator('.op-trigger');
+  const picker = page.getByRole('button', { name: /^Organisation:/ });
   await expect(picker).toContainText('3 you work in');
   await picker.click();
   const options = page.getByRole('listbox', { name: 'Organisations' }).getByRole('option');
@@ -251,4 +251,25 @@ test('the organisation picker names where you are and moves only on a deliberate
   await picker.click();
   await options.filter({ hasText: 'Harbour Kitchens Ltd' }).click();
   await expect(page.locator('.op-error')).toHaveText('You have no access to that organisation.');
+});
+
+test('viewing as someone else says so on every screen, and one click returns to yourself', async ({ page }) => {
+  // Acting as a demo person is a development build feature, so this runs against the local server only.
+  test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
+  const card = page.getByRole('button', { name: 'Viewing as' });
+  await expect(card).toContainText('Yourself');
+  await expect(page.locator('.acting-banner')).toHaveCount(0);
+
+  await card.click();
+  const people = page.getByRole('listbox', { name: 'People' }).getByRole('option');
+  await expect(people.first()).toHaveAttribute('aria-selected', 'true');
+  const someone = people.nth(1);
+  const name = (await someone.locator('.op-option-name').textContent())!.trim();
+  await someone.click();
+
+  await expect(page.locator('.acting-banner')).toContainText(`You are viewing the app as ${name}`);
+  await expect(card).toContainText(name);
+  await page.getByRole('button', { name: 'Back to yourself' }).click();
+  await expect(page.locator('.acting-banner')).toHaveCount(0);
+  await expect(card).toContainText('Yourself');
 });
