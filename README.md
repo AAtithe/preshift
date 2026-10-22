@@ -118,7 +118,13 @@ people have enrolled. The demo's enrolled people share the published secret
 Email goes through Resend once someone with settings rights saves a Resend key, a from address on a
 verified domain and the app's address under Settings. Invitations and resets are then emailed to the
 person and the link is never shown to whoever sent it, so nobody else can set their password; until
-then the link is shown once, to hand over in person. People who forget their password use "Forgot your
+then the link is shown once, to hand over in person. Two rules stop a reset becoming a takeover. Resetting
+someone's password or authenticator, or sending them a fresh invitation, needs the authority to give them
+every role they hold: an operations director can reset a GM, never the people manager or the owner, and
+Williams, Stanley & Co. never changes the accounts of a client's own people. And the link for anyone
+holding rights that move money or reach confidential records (pay, payroll, locking, the journal, access,
+settings, cases, staff data requests) only ever goes to their own email, never handed over, even to the
+owner. People who forget their password use "Forgot your
 password?" on the sign-in page: a single-use link, valid for 30 minutes, emailed only once email is set
 up. Its reply never says whether an account exists, and one account gets at most three emails an hour;
 invitations are capped at three sends an hour too. Every link's token sits after `#`, so it never
