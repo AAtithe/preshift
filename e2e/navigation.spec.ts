@@ -29,12 +29,23 @@ async function go(page: Page, label: string) {
 }
 const heading = (page: Page) => page.locator('.mast-title h1');
 
-/** The options of a scope picker, without its "All ..." entry. */
-async function choices(page: Page, label: 'Site' | 'Entity') {
-  const options = await page.getByLabel(label, { exact: true }).locator('option').evaluateAll((os) =>
-    (os as HTMLOptionElement[]).filter((o) => o.value).map((o) => o.textContent!.trim()),
-  );
-  return options;
+const picker = (page: Page) => page.getByRole('button', { name: 'Site or company' });
+const option = (page: Page, name: string) =>
+  page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText(name, { exact: true }) });
+
+/** The sites, or the companies, the scope picker offers. With one company it lists only sites. */
+async function choices(page: Page, kind: 'site' | 'entity', within?: string) {
+  await picker(page).click();
+  const scope = within ? page.locator('.sp-group').filter({ has: option(page, within) }) : page.locator('.sp-menu');
+  const names = await scope.locator(`.sp-option[data-kind="${kind}"] .sp-name`).allTextContents();
+  await page.keyboard.press('Escape');
+  return names;
+}
+
+/** Chooses a site or a company from the scope picker. */
+async function choose(page: Page, name: string) {
+  await picker(page).click();
+  await option(page, name).click();
 }
 
 async function signIn(page: Page) {
@@ -72,10 +83,10 @@ for (const scope of ['all sites', 'one site'] as const) {
   test(`every section opens with the right header controls: ${scope}`, async ({ page }) => {
     let title = 'All sites';
     if (scope === 'one site') {
-      title = (await choices(page, 'Site'))[0];
-      await page.getByLabel('Site', { exact: true }).selectOption({ label: title });
+      title = (await choices(page, 'site'))[0];
+      await choose(page, title);
     }
-    const several = scope === 'all sites' && (await choices(page, 'Site')).length > 1;
+    const several = scope === 'all sites' && (await choices(page, 'site')).length > 1;
     // From one site, Sites steps back out to every site; that has its own test below.
     for (const label of scope === 'all sites' ? SECTIONS : SECTIONS.filter((l) => l !== 'Sites')) {
       await go(page, label);
@@ -86,7 +97,7 @@ for (const scope of ['all sites', 'one site'] as const) {
       const choosing = several && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
       await expect(heading(page)).toHaveText(ORG.includes(label) ? orgTitle(label) : title);
-      await expect(page.getByLabel('Site', { exact: true })).toHaveCount(ORG.includes(label) ? 0 : 1);
+      await expect(picker(page)).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('button', { name: 'Clear week' })).toHaveCount(PLANNING.includes(label) && !choosing ? 1 : 0);
@@ -96,7 +107,7 @@ for (const scope of ['all sites', 'one site'] as const) {
 }
 
 test('a site-only section across several sites asks for a site, then opens it there', async ({ page }) => {
-  const sites = await choices(page, 'Site');
+  const sites = await choices(page, 'site');
   test.skip(sites.length < 2, 'Needs at least two sites');
   await go(page, 'Payroll');
   const chooser = page.locator('.site-chooser');
@@ -109,21 +120,34 @@ test('a site-only section across several sites asks for a site, then opens it th
 });
 
 test('the chooser only offers the sites in the chosen entity', async ({ page }) => {
-  const entities = await choices(page, 'Entity');
+  const entities = await choices(page, 'entity');
   test.skip(entities.length < 2, 'Needs at least two entities');
-  await page.getByLabel('Entity').selectOption({ label: entities[0] });
-  const inEntity = await choices(page, 'Site');
+  await choose(page, entities[0]);
+  const inEntity = await choices(page, 'site', entities[0]);
   test.skip(inEntity.length < 2, 'Needs an entity with at least two sites');
   await go(page, 'Rota');
   await expect(page.locator('.site-chooser').getByRole('button')).toHaveText(inEntity.map((s) => new RegExp(s)));
 });
 
+test('the trail above a site steps back out to its company, then to every site', async ({ page }) => {
+  const entities = await choices(page, 'entity');
+  test.skip(entities.length < 2, 'Needs at least two companies');
+  const site = (await choices(page, 'site', entities[0]))[0];
+  await choose(page, site);
+  await expect(heading(page)).toHaveText(site);
+  const trail = page.getByRole('navigation', { name: 'Scope' });
+  await trail.getByRole('button', { name: entities[0] }).click();
+  await expect(heading(page)).toHaveText(entities[0]);
+  await trail.getByRole('button', { name: 'All sites' }).click();
+  await expect(heading(page)).toHaveText('All sites');
+});
+
 test('changing site keeps you in the section you are in', async ({ page }) => {
-  const sites = await choices(page, 'Site');
+  const sites = await choices(page, 'site');
   test.skip(sites.length < 2, 'Needs at least two sites');
-  await page.getByLabel('Site', { exact: true }).selectOption({ label: sites[0] });
+  await choose(page, sites[0]);
   await go(page, 'Absence');
-  await page.getByLabel('Site', { exact: true }).selectOption({ label: sites[sites.length - 1] });
+  await choose(page, sites[sites.length - 1]);
   await expect(item(page, 'Absence')).toHaveAttribute('aria-current', 'page');
   await expect(heading(page)).toHaveText(sites[sites.length - 1]);
 });
@@ -136,12 +160,12 @@ test('opening a site from the overview goes to its rota, and Sites steps back ou
   await expect(heading(page)).toHaveText(name);
   await go(page, 'Sites');
   await expect(heading(page)).toHaveText('All sites');
-  await expect(page.getByLabel('Site', { exact: true })).toHaveValue('');
+  await expect(page.locator('.sp-crumbs')).toHaveCount(0);
 });
 
 test('Back and refresh return to the same place', async ({ page }) => {
-  const site = (await choices(page, 'Site'))[0];
-  await page.getByLabel('Site', { exact: true }).selectOption({ label: site });
+  const site = (await choices(page, 'site'))[0];
+  await choose(page, site);
   await go(page, 'Holiday');
   await go(page, 'Payroll');
   await page.getByLabel('Next week').click();
