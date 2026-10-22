@@ -56,6 +56,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/hr/overview': true,
   'GET /v1/hr/records': true,
   'GET /v1/time-entries': true,
+  // Tips and cost of sales: read-only, the sandbox's own.
+  'GET /v1/tronc': true,
+  'GET /v1/prime': true,
   'GET /v1/time-entries/break-check': true,
   'GET /v1/time-entries/compare': true,
   'GET /v1/integrations/payroll': true,

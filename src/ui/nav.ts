@@ -3,7 +3,7 @@
 import { weekStart } from '../engine/time';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -19,6 +19,11 @@ export type Offered = (atAll: AtAll, allow: Allow) => boolean;
 export type Scope = 'week' | 'people' | 'org';
 // title heads an organisation section; it defaults to Organisation.
 export type NavItem = { id: Tab; label: string; scope: Scope; title?: string; siteOnly?: boolean; plans?: boolean; offered?: Offered };
+/** Reads clocked hours, as the API allows: whoever records time, approves it, or checks payroll. */
+const readsTime: Offered = (all, a) => all('time.record') || all('time.approve') || a('payroll.view');
+/** Money worked from clocked hours: cost everywhere in scope, and the right to read the hours. */
+const costedTime: Offered = (all, a) => all('costs.view') && readsTime(all, a);
+
 export const NAV: { heading: string; items: NavItem[] }[] = [
   // Side by side labour cost by site: for those who see cost everywhere in scope.
   { heading: 'Overview', items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true, offered: (all) => all('costs.view') }] },
@@ -33,6 +38,8 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
       // Occasions, weather, events, bookings and school holidays ahead, with what the forecast allows for.
       { id: 'calendar', label: 'Calendar', scope: 'people', siteOnly: true },
       { id: 'clock', label: 'Clock in', scope: 'people', siteOnly: true, offered: (all) => all('time.record') },
+      // Today's trading pace against the rota: who to send home, and what it saves on the week.
+      { id: 'cutcall', label: 'Cut call', scope: 'people', siteOnly: true, offered: costedTime },
     ],
   },
   {
@@ -47,6 +54,8 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'training', label: 'Training', scope: 'people', offered: (all) => all('hr.view') },
       { id: 'reviews', label: 'Probation and reviews', scope: 'people', offered: (all) => all('hr.view') },
       { id: 'cases', label: 'Cases', scope: 'people', offered: (_all, a) => a('hr.cases') },
+      // Who may leave, from clocked hours, and what replacing them costs: personnel and pay together.
+      { id: 'retention', label: 'Retention', scope: 'people', siteOnly: true, offered: (all, a) => all('hr.view') && costedTime(all, a) },
     ],
   },
   {
@@ -54,6 +63,9 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
     items: [
       { id: 'team', label: 'Labour cost', scope: 'week' },
       { id: 'payroll', label: 'Payroll', scope: 'week', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
+      // Clocked hours against the rota by cause, before they are approved, and the week's labour flash.
+      { id: 'actuals', label: 'Clocked vs rota', scope: 'week', siteOnly: true, offered: costedTime },
+      { id: 'tronc', label: 'Tronc', scope: 'week', siteOnly: true, offered: costedTime },
       // Proposals from whoever sets pay, decided by finance.
       { id: 'pay', label: 'Pay approvals', scope: 'people', offered: (_all, a) => a('pay.approve') || a('pay.edit') },
       { id: 'close', label: 'Close', scope: 'week', offered: (_all, a) => a('close.export') },
@@ -66,6 +78,9 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'reports', label: 'Reports', scope: 'week', offered: (all) => all('costs.view') },
       // The labour programme: the ladder, milestones and the verified saving, in money.
       { id: 'programme', label: 'Programme', scope: 'week', offered: (all) => all('costs.view') },
+      { id: 'prime', label: 'Prime cost', scope: 'week', siteOnly: true, offered: costedTime },
+      // Minimum wage, right to work, Working Time and tips, priced as a regulator would.
+      { id: 'risk', label: 'Compliance risk', scope: 'week', siteOnly: true, offered: costedTime },
     ],
   },
   {

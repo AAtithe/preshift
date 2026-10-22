@@ -5,14 +5,14 @@ import { expect, test, type Page } from '@playwright/test';
 // read from the page, so the same checks run against the local demo or a deployed site.
 
 const SECTIONS = [
-  'Sites', 'Rota', 'Demand', 'Clock in',
-  'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
-  'Labour cost', 'Payroll', 'Close', 'Reports',
+  'Sites', 'Rota', 'Demand', 'Clock in', 'Cut call',
+  'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases', 'Retention',
+  'Labour cost', 'Payroll', 'Clocked vs rota', 'Tronc', 'Close', 'Reports', 'Prime cost', 'Compliance risk',
   'Integrations', 'GDPR', 'Access', 'Settings', 'How to',
 ];
-const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Staff', 'Payroll'];
+const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Cut call', 'Staff', 'Retention', 'Payroll', 'Clocked vs rota', 'Tronc', 'Prime cost', 'Compliance risk'];
 const PLANNING = ['Sites', 'Rota', 'Demand'];
-const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close', 'Reports'];
+const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Clocked vs rota', 'Tronc', 'Close', 'Reports', 'Prime cost', 'Compliance risk'];
 const ORG = ['Integrations', 'GDPR', 'Access', 'Settings', 'How to'];
 
 const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });

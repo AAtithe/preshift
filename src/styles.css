@@ -1147,3 +1147,21 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .chip.school { background: var(--surface-2); color: var(--accent); border-left: 2px solid var(--accent); }
 .chip.school.quiet { color: var(--muted); }
 .reminder.kind-school { border-left-color: var(--accent); }
+
+/* Clocked vs rota, cut call, tronc, prime cost, compliance risk and retention. */
+.actuals .intro, .cut-call .intro, .tronc .intro, .prime .intro, .risk .intro, .retention .intro { max-width: 860px; margin: 0 0 12px; }
+.bench-grid, .tronc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+.tronc-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+.bench-grid > .panel, .tronc-grid > .panel { padding: 14px 16px; }
+.grid-wrap.flat { max-height: none; }
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.score-head { min-width: 110px; }
+.score { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.score-bar { display: block; height: 100%; background: var(--muted); }
+.score-bar.bad { background: var(--bad-fill); }
+.score-bar.warn { background: var(--warn-fill); }
+.score-bar.good { background: var(--good-fill); }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+@media (max-width: 900px) {
+  .bench-grid, .tronc-grid { grid-template-columns: minmax(0, 1fr); }
+}

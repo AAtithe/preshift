@@ -30,6 +30,12 @@ import { TrainingView } from './TrainingView';
 import { IntegrationsView } from './IntegrationsView';
 import { PayApprovalsView } from './PayApprovalsView';
 import { PayrollView } from './PayrollView';
+import { ActualsView } from './ActualsView';
+import { CutCallView } from './CutCallView';
+import { PrimeView } from './PrimeView';
+import { RetentionView } from './RetentionView';
+import { RiskView } from './RiskView';
+import { TroncView } from './TroncView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
@@ -614,6 +620,20 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {activeTab === 'actuals' && single && <ActualsView state={state} siteId={single.id} week={week} asOf={today} onOpenPayroll={() => setTab('payroll')} />}
+              {activeTab === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} />}
+              {activeTab === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
+              {activeTab === 'risk' && single && <RiskView state={state} siteId={single.id} week={week} asOf={today} />}
+              {activeTab === 'retention' && single && <RetentionView state={state} siteId={single.id} asOf={today} />}
+              {activeTab === 'cutcall' && single && (
+                <CutCallView
+                  state={state}
+                  site={single}
+                  today={londonParts(new Date()).date}
+                  now={londonParts(new Date()).minute}
+                  onApply={allow('rota.edit', single.id) ? (shift) => actions.saveShift(shift, false) : undefined}
+                />
+              )}
               {activeTab === 'pay' && (
                 <PayApprovalsView
                   state={state}
