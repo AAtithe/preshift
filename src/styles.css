@@ -1062,3 +1062,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .setup-nav { display: flex; justify-content: space-between; gap: 8px; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .first-run { display: grid; gap: 16px; padding: 24px 16px; max-width: 1140px; margin: 0 auto; }
+.override-form { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; flex-wrap: wrap; }
+.override-form textarea { flex: 1 1 260px; min-width: 0; font: inherit; font-size: 13px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
+.notice ul.issues { columns: 1; padding-left: 0; }
+.cover-summary .trend-table { margin: 8px 0; }
