@@ -266,6 +266,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/staff-logins': false,
   'POST /v1/staff-logins/:id/invite': false,
   'DELETE /v1/staff-logins/:id': false,
+  'GET /v1/staff-logins/review': false,
+  'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
   'GET /v1/dev/people': false,
   // Not reached with a visitor's session: signature-checked, or the staff app's own sign-in.
