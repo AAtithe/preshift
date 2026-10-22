@@ -1156,3 +1156,5 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .chip.school { background: var(--surface-2); color: var(--accent); border-left: 2px solid var(--accent); }
 .chip.school.quiet { color: var(--muted); }
 .reminder.kind-school { border-left-color: var(--accent); }
+
+.accuracy-findings { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }

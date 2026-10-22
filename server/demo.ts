@@ -171,6 +171,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/forecast/model': true,
   'PATCH /v1/forecast/hour': true,
   'GET /v1/forecast/accuracy': true,
+  'GET /v1/forecast/accuracy/report': true,
   'POST /v1/coach/moves': true,
   'POST /v1/coach/apply': true,
   'POST /v1/coach/dismiss': true,

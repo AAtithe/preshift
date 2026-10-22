@@ -81,6 +81,7 @@ export interface MailRecord {
   to: string;
   kind: MailKind;
   userId?: string;
+  employeeId?: string;
   sentAt: string;
   /** Who sent it: a person's name, or the sign-in page for "Forgot your password?". */
   by: string;

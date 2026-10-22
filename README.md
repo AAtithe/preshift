@@ -28,7 +28,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | GMs | Redesigned rota in WS colours: a service timeline drawn over each day's sales curve, drag to move or resize shifts, draw a shift on empty space, borrow cover from sister sites, and a rota P&L beside every screen. | Every edit shows its cost and legality as it is made, so the GM sees labour % move before they commit, not after. |
 | People | HR file per person, holiday entitlement balances per leave year, and a break check on finished shifts. | The records an employment tribunal or HMRC would ask for are kept where the rota is made. |
 | Admin | GDPR request log for staff data, an Integrations page showing every connection's health, and a public demo with a private sandbox per visitor. | Compliance and prospects are handled in the product, not in spreadsheets and screen shares. |
-| Everyone | CI typechecks and runs the full suite (479 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (722 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -192,14 +192,14 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 519 tests across 48 files (engine, forecasting from takings, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 722 tests across 65 files (engine, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (697 across 63 files)
+npm test         # engine, UI rules, assistant and API tests (722 across 65 files)
 npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 ```

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { cohortBenchmark, quartileOf, type BenchmarkMetric, type SiteSample } from '../../src/engine/benchmark';
 import { moveIssues, realisedSaving, recordOf, weeklyMoves, type MoveRecord } from '../../src/engine/coach';
 import { forecastAccuracy, overrideForecast } from '../../src/engine/forecast';
+import { accuracyReport } from '../../src/engine/forecastreport';
 import { weekMetrics } from '../../src/engine/metrics';
 import { baselineFromHistory, MILESTONES, newProgramme, programmeStatus, wholeWeeks, type Programme } from '../../src/engine/programme';
 import { finishedWeeks, siteScorecard, type Scorecard } from '../../src/engine/scorecard';
@@ -269,6 +270,33 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       requireSite(org, req.query.siteId);
       guard(ctx, req, org).allow('rota.view', req.query.siteId);
       return forecastAccuracy(org.state.forecast, org.state.actuals ?? [], req.query.siteId, req.query.from, req.query.to);
+    },
+  );
+
+  app.get<{ Querystring: { siteIds: string; week: string; weeks?: number } }>(
+    '/v1/forecast/accuracy/report',
+    {
+      ...read,
+      schema: {
+        tags: ['Forecast'],
+        description:
+          "Forecast against takings for several sites over several weeks ending with `week`: day and hourly error, bias, sales over and under forecast and the labour they imply at each site's target, and days of the week wrong the same way. Sites the caller cannot see are left out.",
+        querystring: {
+          type: 'object',
+          required: ['siteIds', 'week'],
+          properties: { siteIds: { type: 'string', minLength: 1 }, week: isoDate, weeks: { type: 'integer', minimum: 1, maximum: 26 } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const ids = [...new Set(req.query.siteIds.split(',').map((s) => s.trim()).filter(Boolean))];
+      for (const id of ids) requireSite(org, id);
+      // The same right as the forecast and takings it reads: rota.view, site by site.
+      const g = guard(ctx, req, org);
+      const seen = ids.filter((id) => g.can('rota.view', id));
+      if (seen.length === 0) throw new HttpError(403, 'forbidden', 'None of these sites is yours to see');
+      return accuracyReport(org.state, org.state.actuals ?? [], seen, weekStart(req.query.week), req.query.weeks ?? 8, today());
     },
   );
 

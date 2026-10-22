@@ -237,6 +237,22 @@ describe('access to right to work copies and takings', () => {
     }
   });
 
+  it('reports forecast accuracy only for the sites a person sees', async () => {
+    const call = await setup();
+    const url = (ids: string, extra = '') => `/v1/forecast/accuracy/report?siteIds=${ids}&week=2026-10-12&weeks=2${extra}`;
+    const mine = await call('GET', url('mar,shd'), undefined, 'priya');
+    expect(mine.status).toBe(200);
+    expect(mine.body.sites.map((s: { siteId: string }) => s.siteId)).toEqual(['mar']);
+    expect(mine.body.weeks).toHaveLength(2);
+    expect((await call('GET', url('shd'), undefined, 'priya')).status).toBe(403);
+    expect((await call('GET', url('nowhere'), undefined, 'priya')).status).toBe(404);
+    expect((await call('GET', url('mar', '&weeks=27'), undefined, 'priya')).status).toBe(400);
+    const all = await call('GET', url('mar,shd'));
+    expect(all.body.sites).toHaveLength(2);
+    // The seed trades every day before today against a forecast, so the group is measured.
+    expect(all.body.total.measuredDays).toBeGreaterThan(0);
+  });
+
   it('lets a site key in its takings, and only its own', async () => {
     const call = await setup();
     expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: 4200 }] }, 'priya')).status).toBe(200);
