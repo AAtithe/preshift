@@ -178,6 +178,7 @@ describe('Sign in with Preshift', () => {
     const kept = await connect(k2);
     const list = await k2.app.inject({ method: 'GET', url: '/oauth/connections', headers: { cookie: kept.cookie } });
     expect(list.body).toContain('Claude');
+    expect(list.body).toContain('href="/app/"');
     const id = list.body.match(/\/oauth\/connections\/(grant_[^/]+)\/revoke/)![1];
     const gone = await k2.app.inject({ method: 'POST', url: `/oauth/connections/${id}/revoke`, headers: { cookie: kept.cookie } });
     expect(gone.statusCode).toBe(303);

@@ -469,7 +469,7 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
       reply,
       200,
       'Connected apps',
-      `<h1>Connected apps</h1><p>Apps you have let act as you in ${escape(orgLabel(me.org))}. Disconnecting stops them at once.</p>${rows ? `<table>${rows}</table>` : '<p class="quiet">None.</p>'}`,
+      `<h1>Connected apps</h1><p>Apps you have let act as you in ${escape(orgLabel(me.org))}. Disconnecting stops them at once.</p>${rows ? `<table>${rows}</table>` : '<p class="quiet">None yet. To connect Claude, add this Preshift address followed by /mcp as a custom connector in Claude.</p>'}<p class="quiet" style="margin-top:20px"><a href="/app/" style="color:inherit">Back to Preshift</a></p>`,
     );
   });
 
