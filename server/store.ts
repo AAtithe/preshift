@@ -6,6 +6,7 @@ import { addDays, toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import type { EposConnection } from './integrations/epos/provider';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -111,6 +112,8 @@ export interface OrgData {
   payChanges: PayChange[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  /** The till the organisation has connected, if any. Its access token lives in the settings store. */
+  epos?: EposConnection;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }

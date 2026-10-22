@@ -618,6 +618,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   week={week}
                   today={today}
                   onSaveSales={actions.saveSales}
+                  onSalesChanged={() => void actions.refreshSales()}
                   payrollAccess={allow('payroll.view')}
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
@@ -628,7 +629,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {activeTab === 'access' && <AccessView state={state} />}
-              {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} />}
+              {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
