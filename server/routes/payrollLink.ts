@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { adoptPayroll, candidates, differences, type MatchLevel } from '../../src/engine/payrollMatch';
+import { payTermsOf, sameTerms } from '../../src/engine/payChanges';
 import type { Employee } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -10,11 +11,14 @@ import { enqueue } from '../outbox';
 import { employerStatus } from '../payrollEmployers';
 import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
-import { allowPay } from './employees';
+import { approverExists, NO_APPROVER, pendingFor, proposePayChange, proposes } from './pay';
 
 // Linking a person in Preshift to the record their payroll already holds, for a team that was on
-// TeamPay before Preshift. Linking decides where their hours are paid, so it needs payroll.send;
-// settling a difference in pay also needs the right to change that person's pay.
+// TeamPay before Preshift. Linking decides where their hours are paid, so it needs payroll.send.
+// A difference in pay is settled under the same two-person rule as any pay change: taking
+// TeamPay's pay into Preshift is a proposal finance approves, and sending Preshift's pay to TeamPay
+// changes what the person is actually paid, so finance (pay.approve) decides it themselves. A
+// business with nobody else who can approve applies either at once, as pay changes do there.
 
 type Keep = 'payroll' | 'preshift';
 
@@ -89,6 +93,8 @@ export function payrollLinkRoutes(app: FastifyInstance, ctx: AppContext) {
             // A link to an id the payroll no longer holds is shown, never quietly dropped.
             missingFromPayroll: !!e.payrollId && !record,
             review: e.payrollReview ?? null,
+            // The proposal raised to take TeamPay's pay, while finance has it.
+            pendingPay: e.payrollReview?.payChangeId ? pendingFor(org, e.id) ?? null : null,
             // A starter stopped because TeamPay may already hold them, or holds two equally likely records.
             held: e.payrollId ? null : held.get(e.id) ?? null,
             suggestions: e.payrollId
@@ -145,12 +151,32 @@ export function payrollLinkRoutes(app: FastifyInstance, ctx: AppContext) {
       if (diffs.length && !keep) {
         throw new HttpError(422, 'differences', `${e.name} differs from TeamPay. Say which is right.`, diffs);
       }
-      // Either answer changes someone's pay on one side or the other.
-      if (diffs.some((d) => d.pay)) allowPay(g, e);
+      const today = ctx.store.todayISO();
+      const pay = diffs.filter((d) => d.pay);
+      const twoPeople = approverExists(org, g, today);
+      // Duties stay split as they are for pay: whoever links raises TeamPay's figure as a proposal for
+      // finance, and only finance sends Preshift's figure over what payroll pays. Never on your own pay.
+      if (pay.length && g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else decides your own pay.');
+      if (pay.length && keep === 'preshift' && twoPeople && g.actor.kind === 'user') g.allow('pay.approve', e.siteId);
 
       const now = new Date().toISOString();
       let next: Employee = { ...e, payrollId, payrollEmployerId: employerId, payrollReview: undefined };
-      if (diffs.length && keep === 'payroll') next = { ...adoptPayroll(next, diffs, record), payrollReview: undefined };
+      let proposal: { id: string } | null = null;
+      if (diffs.length && keep === 'payroll') {
+        // Everything but pay is taken now. Pay is taken now only where nobody else could approve it.
+        const propose = pay.length > 0 && proposes(g, org, today);
+        const adopted = adoptPayroll(next, propose ? diffs.filter((d) => !d.pay) : diffs, record);
+        next = { ...adopted, payrollReview: undefined };
+        if (propose) {
+          const after = payTermsOf(adoptPayroll(next, pay, record));
+          if (!sameTerms(after, payTermsOf(next))) {
+            // Raised by whoever links, without pay.edit: it proposes payroll's own figure, not a rate of their choosing.
+            proposal = proposePayChange(org, g, next, after, `To match their TeamPay record (${payrollId})`, today);
+            // Hours wait while finance has it: the review keeps the pay differences until it is approved.
+            next = { ...next, payrollReview: { linkedAt: now, how: e.payrollReview?.how ?? 'manual', differences: pay, payChangeId: proposal.id } };
+          }
+        }
+      }
       org.state.employees[i] = next;
 
       // A starter still waiting to be created would now make a second record: it is withdrawn.
@@ -166,9 +192,11 @@ export function payrollLinkRoutes(app: FastifyInstance, ctx: AppContext) {
         keep: diffs.length ? keep : undefined,
         differences: diffs.map((d) => d.field),
         withdrawn,
+        ...(proposal ? { payChange: proposal.id } : {}),
+        ...(pay.length && !twoPeople ? { note: NO_APPROVER } : {}),
       });
       await kick(ctx, org);
-      return { employee: next, differences: diffs, kept: diffs.length ? keep : null, withdrawn };
+      return { employee: next, differences: diffs, kept: diffs.length ? keep : null, withdrawn, payChange: proposal };
     },
   );
 

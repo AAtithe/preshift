@@ -1,7 +1,7 @@
 // Matching Preshift's people to the records a payroll already holds, so a team that is already on
 // TeamPay is linked rather than set up a second time. Pure, so the API and the screen agree.
 
-import type { Employee, PayrollDifference } from './types';
+import type { Employee, PayrollDifference, PayrollReview } from './types';
 
 /** What the payroll holds about a person, as far as matching needs it. */
 export interface PayrollPerson {
@@ -101,8 +101,21 @@ export function adoptPayroll(e: Employee, diffs: PayrollDifference[], r: Payroll
       next.irregularHours = r.contractedHours === 0;
     }
   }
-  // A change of basis brings the other side's pay figure with it.
-  if (next.payBasis === 'hourly' && r.payBasis === 'hourly' && r.hourlyRate !== undefined) next.hourlyRate = r.hourlyRate;
-  if (next.payBasis === 'salaried' && r.payBasis === 'salaried' && r.annualSalary !== undefined) next.annualSalary = r.annualSalary;
+  // A change of basis brings the other side's pay figure with it; nothing else here touches pay.
+  if (diffs.some((d) => d.field === 'payBasis')) {
+    if (next.payBasis === 'hourly' && r.hourlyRate !== undefined) next.hourlyRate = r.hourlyRate;
+    if (next.payBasis === 'salaried' && r.annualSalary !== undefined) next.annualSalary = r.annualSalary;
+  }
   return next;
+}
+
+/**
+ * A review brought up to date with the record as it now stands, typically after finance approved
+ * payroll's pay: differences that have closed drop out, and none left means nothing to review.
+ */
+export function refreshReview(e: Employee, review: PayrollReview): PayrollReview | undefined {
+  const differences = review.differences
+    .map((d) => ({ ...d, preshift: e[d.field] as string | number }))
+    .filter((d) => (typeof d.preshift === 'number' && typeof d.payroll === 'number' ? Math.abs(d.preshift - d.payroll) >= 0.005 : d.preshift !== d.payroll));
+  return differences.length ? { ...review, differences } : undefined;
 }

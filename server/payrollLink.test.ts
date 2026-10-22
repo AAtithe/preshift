@@ -11,8 +11,10 @@ async function setup() {
   const { app, ctx } = await buildApp({
     apiKeys: [
       { key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*'] },
-      // WS payroll may send payroll but not change anyone's pay.
+      // WS payroll may send payroll but not change or approve anyone's pay.
       { key: 'payroll', orgId: 'demo', name: 'Ravi', scopes: ['*'], userId: 'usr_ws_payroll', mfa: true },
+      // The finance director approves pay and may send payroll, but does not propose pay.
+      { key: 'finance', orgId: 'demo', name: 'Nadia', scopes: ['*'], userId: 'usr_fd', mfa: true },
     ],
     store,
     provider: simulator,
@@ -27,6 +29,8 @@ async function setup() {
     });
     return { status: res.statusCode, body: res.body ? res.json() : undefined };
   };
+  // Approving pay needs an authenticator; the sample finance director has not set one up yet.
+  (await store.load('demo')).users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = true;
   const employer = (await call('GET', '/v1/integrations/payroll/link?entityId=wdl')).body.employerId as string;
   const dispatch = async () => {
     const org = await store.load('demo');
@@ -128,13 +132,30 @@ describe('linking by hand', () => {
     expect((await t.call('POST', `/v1/employees/${b.id}/payroll-link`, { payrollId: left })).body.error).toBe('payroll_leaver');
   });
 
-  it('needs the right to change pay to settle a pay difference, and can send Preshift\'s pay to TeamPay', async () => {
+  it("takes TeamPay's pay as a proposal finance approves, holding hours until then", async () => {
+    const t = await setup();
+    const tp = t.simulator.addExisting(t.employer, { name: 'Sam Cook', dateOfBirth: '1990-01-01', hourlyRate: 14.25, contractedHours: 40 });
+    const sam = (await t.call('POST', '/v1/employees', SAM)).body;
+    const linked = await t.call('POST', `/v1/employees/${sam.id}/payroll-link`, { payrollId: tp, keep: 'payroll' }, 'payroll');
+    expect(linked.status).toBe(200);
+    expect(linked.body.payChange).toMatchObject({ status: 'pending', after: { hourlyRate: 14.25 } });
+    const waiting = await t.employee(sam.id);
+    expect(waiting.hourlyRate).toBe(15);
+    expect(waiting.payrollReview).toMatchObject({ payChangeId: linked.body.payChange.id, differences: [{ field: 'hourlyRate' }] });
+
+    expect((await t.call('POST', `/v1/pay-changes/${linked.body.payChange.id}/approve`, {}, 'finance')).status).toBe(200);
+    const approved = await t.employee(sam.id);
+    expect(approved.hourlyRate).toBe(14.25);
+    expect(approved.payrollReview).toBeUndefined();
+  });
+
+  it("needs finance to send Preshift's pay over what TeamPay pays", async () => {
     const t = await setup();
     const tp = t.simulator.addExisting(t.employer, { name: 'Sam Cook', dateOfBirth: '1990-01-01', hourlyRate: 14.25, contractedHours: 40 });
     const sam = (await t.call('POST', '/v1/employees', SAM)).body;
     const refused = await t.call('POST', `/v1/employees/${sam.id}/payroll-link`, { payrollId: tp, keep: 'preshift' }, 'payroll');
     expect(refused.status).toBe(403);
-    expect((await t.call('POST', `/v1/employees/${sam.id}/payroll-link`, { payrollId: tp, keep: 'preshift' })).status).toBe(200);
+    expect((await t.call('POST', `/v1/employees/${sam.id}/payroll-link`, { payrollId: tp, keep: 'preshift' }, 'finance')).status).toBe(200);
     await t.dispatch();
     expect(t.simulator.employees.get(tp)!.hourlyRate).toBe(15);
   });

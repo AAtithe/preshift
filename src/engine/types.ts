@@ -520,6 +520,8 @@ export interface PayrollReview {
   /** 'auto' when a starter matched an existing record on name and date of birth. */
   how: 'auto' | 'manual';
   differences: PayrollDifference[];
+  /** The pay proposal raised to take payroll's pay, waiting for finance. */
+  payChangeId?: string;
 }
 
 /** A school holiday. Estimates are the usual pattern; council dates replace them. */

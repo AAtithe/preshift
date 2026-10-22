@@ -38,4 +38,15 @@ describe('matching people to payroll records', () => {
     const next = adoptPayroll(person, differences(person, r), r);
     expect(next).toMatchObject({ name: 'Marco A. Bianchi', hourlyRate: 15.5, contractedHours: 0, irregularHours: true });
   });
+
+  it('never touches pay when only other fields are taken', () => {
+    const r = record({ name: 'Marco A. Bianchi', hourlyRate: 15.5 });
+    const nameOnly = differences(person, r).filter((d) => !d.pay);
+    expect(adoptPayroll(person, nameOnly, r).hourlyRate).toBe(person.hourlyRate);
+  });
+
+  it('brings the pay figure across when the basis itself changes', () => {
+    const r = record({ payBasis: 'salaried', annualSalary: 34000, hourlyRate: undefined });
+    expect(adoptPayroll(person, differences(person, r), r)).toMatchObject({ payBasis: 'salaried', annualSalary: 34000 });
+  });
 });

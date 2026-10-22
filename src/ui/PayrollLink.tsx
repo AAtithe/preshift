@@ -23,6 +23,7 @@ interface Person {
   missingFromPayroll: boolean;
   review: PayrollReview | null;
   held: 'possible_match' | 'ambiguous_match' | null;
+  pendingPay: { id: string; requestedBy: string; requestedAt: string } | null;
   suggestions: { payrollId: string; level: MatchLevel; differences: PayrollDifference[] }[];
 }
 interface LinkView {
@@ -112,15 +113,21 @@ export function PayrollLink({ state, entityId, canLink, onChanged }: Props) {
         <>
           <h3 className="section-title">Needs a decision ({review.length})</h3>
           <p className="small">
-            Linked, but Preshift and TeamPay disagree. Nothing is sent to TeamPay for them, and their hours wait, until you say which
-            is right. Settling a difference in pay needs the right to change pay.
+            Linked, but Preshift and TeamPay disagree. Nothing is sent to TeamPay for them, and their hours wait, until it is
+            settled. Pay follows the two-person rule: choosing TeamPay's pay sends it to finance as a pay change to approve, and
+            sending Preshift's pay over what TeamPay pays is finance's own decision.
           </p>
           {review.map((p) => (
             <div key={p.employeeId} className="link-card">
               <div className="link-head"><b>{p.name}</b> <span className="muted small">{siteName(p.siteId)} · TeamPay {p.payrollId}</span></div>
               <Differences diffs={p.review!.differences} />
+              {p.pendingPay && (
+                <p className="small warn-text">
+                  TeamPay's pay is with finance to approve, proposed by {p.pendingPay.requestedBy}. Hours wait until it is decided.
+                </p>
+              )}
               <div className="row-actions">
-                <button disabled={busy || !canLink} onClick={() => void settle(p, 'payroll')}>TeamPay is right</button>
+                <button disabled={busy || !canLink || !!p.pendingPay} onClick={() => void settle(p, 'payroll')}>TeamPay is right</button>
                 <button disabled={busy || !canLink} onClick={() => void settle(p, 'preshift')}>Preshift is right</button>
                 <button className="link" disabled={busy || !canLink} onClick={() => void unlink(p)}>Wrong person, unlink</button>
               </div>
