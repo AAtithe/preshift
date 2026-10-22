@@ -607,4 +607,18 @@ describe('paid travel between sites', () => {
     expect(shd.hours).toBe(4);
     expect(batch.totalHours).toBeCloseTo(8.72, 2);
   });
+
+  it('counts paid travel as hours worked for holiday accrual', () => {
+    const s = state();
+    const p = person(s);
+    const worked = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    const today = addDays(WEEK, 1);
+    const b = holidayBalance(p, worked, today, undefined, undefined, s.sites);
+    expect(b.basis).toBe('accrual');
+    expect(b.travelHours).toBeCloseTo(43 / 60, 2);
+    expect(b.accruedHours - holidayBalance(p, worked, today).accruedHours).toBeCloseTo((43 / 60) * 0.1207, 1);
+    // Fixed hours entitlement is set by the contract, so travel does not change it.
+    const fixedHours = { ...p, contractedHours: 40, irregularHours: false };
+    expect(holidayBalance(fixedHours, worked, today, undefined, undefined, s.sites).accruedHours).toBe(holidayBalance(fixedHours, worked, today).accruedHours);
+  });
 });
