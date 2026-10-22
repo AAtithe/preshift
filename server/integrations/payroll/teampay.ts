@@ -64,6 +64,7 @@ export class TeamPayProvider implements PayrollProvider {
       {
         period_start: batch.periodStart,
         period_end: batch.periodEnd,
+        ...(batch.payDate ? { pay_date: batch.payDate } : {}),
         source: 'preshift',
         lines: batch.lines.map((l) => ({
           employee_id: l.payrollId,

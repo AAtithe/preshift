@@ -12,6 +12,7 @@ import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
+import { assertRotaOpen, isRotaLocked } from '../payPeriods';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
 
@@ -154,6 +155,11 @@ function replaceWeeks(org: OrgData, g: Guard, ws: string, sites: { siteId: strin
     if (touched.length) {
       throw new HttpError(409, 'worked_shift', 'Shifts that have started or been clocked cannot be moved or removed here.', touched.map((s) => s.id));
     }
+    // Shifts in a locked pay period stay exactly as they are, and none can be added to it.
+    assertRotaOpen(org, [
+      ...current.filter((s) => !(kept.has(s.id) && sameShift(s, kept.get(s.id)!))),
+      ...incoming.filter((s) => !(byId.has(s.id) && sameShift(byId.get(s.id)!, s))),
+    ]);
     return { siteId, incoming };
   });
   const replaced = new Set(plans.map((p) => p.siteId));
@@ -211,6 +217,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     validateShift(org, shift);
     g.allow('rota.edit', shift.siteId);
     allowRoster(g, org, shift);
+    assertRotaOpen(org, [shift]);
     org.state.shifts.push(shift);
     audit(org, actorName(g), 'shift.created', { id: shift.id });
     return reply.code(201).send({ shift, issues: shiftIssues(org, shift) });
@@ -226,6 +233,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       const old = org.state.shifts[i];
       const g = guard(ctx, req, org);
       g.allow('rota.edit', old.siteId);
+      // A locked period gives the lock as the reason: unlocking is what would let the change through.
+      assertRotaOpen(org, [old]);
       if (isWorked(org, old)) {
         const moved = (['employeeId', 'roleId', 'siteId', 'date', 'startMinute'] as const).filter((k) => req.body[k] !== undefined && req.body[k] !== old[k]);
         if (moved.length) throw workedError(old, 'only its finish time and break can change.');
@@ -233,6 +242,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       const shift: Shift = { ...old, ...req.body, id: req.params.id, published: false };
       validateShift(org, shift);
+      assertRotaOpen(org, [shift]);
       // Moving a shift needs the right at both ends.
       g.allow('rota.edit', shift.siteId);
       if (reassigned(org.state.shifts[i], shift)) allowRoster(g, org, shift);
@@ -248,6 +258,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!shift) throw notFound(`Shift ${req.params.id}`);
     const g = guard(ctx, req, org);
     g.allow('rota.edit', shift.siteId);
+    assertRotaOpen(org, [shift]);
     if (isWorked(org, shift)) throw workedError(shift, 'it cannot be removed. Record an absence on the timesheet instead.');
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
     audit(org, actorName(g), 'shift.deleted', { id: req.params.id });
@@ -296,7 +307,13 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       const late = new Set(result.added.filter((s) => hasStarted(s, now)).map((s) => s.id));
       result.added = result.added.filter((s) => !late.has(s.id));
       result.unfilled = result.unfilled.filter((gap) => !hasStarted({ date: gap.date, startMinute: gap.toHour * 60 - 1 }, now));
-      org.state.shifts = result.shifts.filter((s) => !late.has(s.id));
+      // Nobody whose rota is locked for payroll gains or loses a shift: the locked days are left exactly as they were.
+      const before = new Map(org.state.shifts.map((s) => [s.id, s]));
+      const frozen = (s: Shift) => isRotaLocked(org, s);
+      const lockedOut = new Set(result.added.filter(frozen).map((s) => s.id));
+      result.added = result.added.filter((s) => !lockedOut.has(s.id));
+      const built = result.shifts.filter((s) => !late.has(s.id) && !lockedOut.has(s.id) && !(frozen(s) && before.has(s.id)));
+      org.state.shifts = [...built, ...org.state.shifts.filter(frozen)];
       audit(org, actorName(g), 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
       return { added: result.added, unfilled: result.unfilled };
     },
@@ -412,7 +429,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const dates = weekDates(req.body.weekStart);
     const now = londonParts(new Date());
     // Worked shifts stay: clearing a week plans it afresh, it does not rewrite what happened.
-    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)) || isWorked(org, s, now));
+    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)) || isWorked(org, s, now) || isRotaLocked(org, s));
     const removed = org.state.shifts.length - keep.length;
     const kept = keep.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date)).length;
     org.state.shifts = keep;

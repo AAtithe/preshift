@@ -8,6 +8,7 @@ import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
+import type { PayPeriodRecord } from './payPeriods';
 import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
@@ -33,6 +34,9 @@ export interface PayrollSubmission {
   entityId?: string;
   /** The payroll employer the batch went to, once sent. */
   employerId?: string;
+  /** The company's payroll it was passed for, and its payday. Absent on weekly batches sent before pay schedules. */
+  scheduleId?: string;
+  payDate?: string;
 }
 
 export interface PayRunRecord {
@@ -129,6 +133,8 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** Pay periods acted on: rota locked, time cards approved, hours passed to payroll. Absent on organisations saved before. */
+  payPeriods?: PayPeriodRecord[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */

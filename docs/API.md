@@ -298,6 +298,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (a one-time link, valid 7 days. Once email is set up under Settings it is emailed to the person's own address, their login's once they have joined, else the one on their record, and the answer is `{emailed: true, to, expiresAt}` with no link. `{handOver: true}`, no address or a send Resend refuses returns `{emailed: false, reason, path, expiresAt}` to pass on, `reason` being `handed_over`, `no_address`, `email_not_set_up` or `send_failed`. `GET /v1/staff-logins` carries each person's `lastEmail` with what Resend reported, bounces included. Once the person has set up their login, a new link, their password reset, only ever goes to the address they signed up with: `handOver` or no email set up is refused with `email_only` before any link is made, and a failed send returns no link. Closing the login and inviting again starts afresh), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
 | Travel | `PUT /v1/sites/:id/location` (`{postcode}`, looked up on postcodes.io, or `{lat, lng}`; clears looked-up journeys to and from the site), `POST /v1/sites/travel/refresh` (TfL journey planner for every pair of located sites, each way, weekday 17:00, public transport or walking; hand-set times kept; a labelled straight-line estimate where TfL has no answer), `PUT`/`DELETE /v1/sites/:id/travel/:toId` (`{minutes}` set by hand, both ways). Journeys are kept on each site as `travel: {siteId: {minutes, source: tfl\|estimate\|manual, mode, checkedAt}}`. Shift responses carry `travel` (blocking: cannot get there in time), `travel-tight` and `travel-unknown` issues. A same-day journey between sites is paid working time: costs, journals and payroll submissions include it, charged to the shift travelled to, and payroll hours lines carry `travelHours` (already inside `hours`). What a company pays for travel is set with `PATCH /v1/entities/:id` `{travelPay: {basis: normal\|minimum\|fixed, hourly?}}`: `minimum` is the minimum wage for each person's age, `fixed` needs `hourly` and is lifted to the minimum wage where it is lower, and `normal` clears the policy. Travel at a rate other than the person's normal rate is its own hours line with `travel: true` and that `rate`. `TFL_APP_KEY` is optional; the planner works without one at low volume. |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |
+| Pay periods | `GET /v1/pay-schedules` (each company's payrolls, people on each and the next six periods), `POST /v1/pay-schedules/preview` (`{schedule}`: problems, or the next twelve periods), `PUT /v1/entities/:id/pay-schedules` (`{schedules}`, settings.manage; `invalid_schedule`, `schedule_in_use`, `period_in_flight`; an empty list goes back to weekly), `PUT /v1/employees/:id/pay-schedule` (`{scheduleId}`, payroll.send), `GET /v1/pay-periods?date=&previous=` (the period each payroll is in, and up to 12 before, with status and cutoff), `GET /v1/pay-periods/:entityId/:scheduleId/:periodStart` (time cards and history), `POST .../lock-rota` (time.lock at every site the period reaches), `POST .../unlock-rota` (`{reason}`; refused once passed), `POST .../approve` (`{employeeIds?}`, time.approve; needs the rota locked), `POST .../pass` (`{reason?}`, payroll.send; needs the period ended, the rota locked and every card approved; a second pass is a correction and needs a reason) |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |
 
@@ -322,6 +323,40 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 5. When TeamPay completes the run it sends `payroll.run.completed`. Preshift fetches the run
    and reports the variance between what was accrued and what payroll cost, per person.
 6. Tronc stays in TeamPay Tronc and allocates from the same hours TeamPay receives.
+
+## Pay calendars and the pay period close
+
+Each company sets the payrolls it runs (`entity.paySchedules`), and each person is paid on one of
+them (`employee.payScheduleId`, absent for the company's first). A company that sets none runs
+weekly, Monday to Sunday, paid the Friday after, with hours due by noon on the Tuesday: what
+Preshift did before calendars could be set.
+
+| Frequency | Settings | How the dates fall |
+| --- | --- | --- |
+| `weekly`, `fortnightly`, `four_weekly` | `anchorDate` (first day of any period), `payDaysAfterPeriodEnd` | Fixed cycle of 7, 14 or 28 days from the anchor. Payday the set number of days after the period ends. |
+| `monthly` | `periodEndDay` (31 = month end), `payDay` (31 = last working day), `payMonthOffset` (0 same month, 1 month after) | Hours run from the day after the previous period end. A calendar month paid in arrears is `periodEndDay: 31, payMonthOffset: 1`. |
+| `last_friday` | `periodEndDaysBeforePay` (5 = the Sunday before) | Payday the last Friday of the month. The period ends a set number of days before that Friday, so periods are four or five whole weeks. |
+
+Every schedule also has `cutoffDaysBeforePay` and `cutoffTime` (UK time). Paydays and cutoffs on a
+weekend or England and Wales bank holiday move to the working day before; a cutoff that would then
+fall inside the period itself (Christmas week) moves to the first working day after it instead. A
+schedule is refused (`invalid_schedule`) if, in any of its next two years of periods, hours would be
+due or paid before the period's last day is worked.
+
+The close for each period, per company and payroll:
+
+1. Lock the rota. No shift of anyone this payroll pays can be added, moved or removed in the period
+   (409 `rota_locked` from shifts, week replace, the coach and the assistant; build and clear leave
+   locked shifts as they are). Unlocking needs a reason and is refused once the hours are passed.
+2. Approve time cards. One card per person: rostered against clocked hours, approved hours, shifts
+   not clocked and clocking with no shift. Approval needs the rota locked, follows the approver's
+   sites and never covers their own hours.
+3. Pass to payroll. Needs the period ended, every entry approved or rejected, and a TeamPay
+   employer. The batch carries the period and `pay_date`; each approved entry is stamped with the
+   period (`passedIn`) and never sent by another payroll, so moving a person between payrolls
+   cannot pay hours twice. A pass after the cutoff is allowed and marked `late`. Passing again is a
+   correction with a reason, a new version that supersedes the last. A company with its own
+   calendars cannot use the weekly `POST /v1/payroll/submissions` (409 `pay_schedules_set`).
 
 ## One payroll per PAYE scheme
 

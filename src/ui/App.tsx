@@ -31,6 +31,7 @@ import { TrainingView } from './TrainingView';
 import { IntegrationsView } from './IntegrationsView';
 import { PayApprovalsView } from './PayApprovalsView';
 import { PayrollView } from './PayrollView';
+import { PayPeriodsView } from './PayPeriodsView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
@@ -613,6 +614,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {shown === 'periods' && <PayPeriodsView state={state} today={today} allow={allow} onChanged={actions.refreshShifts} />}
               {shown === 'pay' && (
                 <PayApprovalsView
                   state={state}

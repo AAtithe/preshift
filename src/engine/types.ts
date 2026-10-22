@@ -1,6 +1,8 @@
 // Core domain model. Times are minutes from midnight on the shift's date;
 // an end time past 1440 means the shift runs over midnight.
 
+import type { PaySchedule } from './payPeriods';
+
 export type Department = 'FOH' | 'BOH' | 'BAR' | 'MGMT';
 
 export interface Role {
@@ -42,6 +44,11 @@ export interface Entity {
   leaveYearStart?: string;
   /** What this company pays for travel between sites within a working day. Defaults to the normal rate. */
   travelPay?: TravelPay;
+  /**
+   * The payrolls this company runs, each with its own calendar of periods, paydays and cutoffs. The
+   * first is where anyone not placed on another is paid. None set means weekly, as before schedules.
+   */
+  paySchedules?: PaySchedule[];
 }
 
 /**
@@ -183,6 +190,8 @@ export interface Employee {
   siteId: string;
   /** The employing entity, whose PAYE scheme pays them. */
   entityId: string;
+  /** Which of their company's payrolls pays them. Absent means the company's first. */
+  payScheduleId?: string;
   /** Other sites the person is willing and trained to cover. */
   coverSiteIds: string[];
   /** Roles this person is trained for; the first is their primary role. */
@@ -434,6 +443,8 @@ export interface TimeEntry {
   breaks?: BreakPeriod[];
   approvedBy?: string;
   approvedAt?: string;
+  /** The pay period it was passed to payroll in, so it is never paid again by another payroll. */
+  passedIn?: string;
 }
 
 /**

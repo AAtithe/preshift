@@ -684,6 +684,17 @@ button.link.site-link { padding: 0; color: var(--ink); font-weight: 600; }
 .close-intro h2 { margin: 0 0 6px; font: 650 26px/1.1 var(--serif); letter-spacing: -0.02em; color: var(--ink); }
 .ea-note { padding: 0 16px 12px; }
 .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+.pipeline.three { grid-template-columns: repeat(3, 1fr); }
+.period-bar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+.period-bar label, .pay-periods .reason, .schedule-editor label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.period-dates { margin: 0 0 10px; line-height: 1.6; }
+.pay-periods .reason { margin-bottom: 10px; max-width: 60ch; }
+.period-history { margin: 10px 0; font-size: 13px; }
+.pay-calendars { margin-top: 24px; display: grid; gap: 12px; }
+.pay-calendars h3 { margin: 0; }
+.schedule-editor { display: grid; gap: 10px; margin-top: 8px; }
+.schedule-editor fieldset { border: 1px solid var(--rule); border-radius: var(--radius); display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; padding: 10px 12px; }
+.schedule-editor .row, .pay-calendars .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .step { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
 .step.done { border-color: var(--good-fill); }
 .step-head { display: flex; gap: 8px; align-items: center; }

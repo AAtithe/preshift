@@ -44,6 +44,8 @@ export interface PayrollHoursLine {
 export interface PayrollHoursBatch {
   periodStart: string;
   periodEnd: string;
+  /** The payday these hours are for, when passed from a pay period. */
+  payDate?: string;
   lines: PayrollHoursLine[];
   /** Approved entries skipped because their person is salaried (paid by salary, not hours). */
   salariedEntryIds: string[];
