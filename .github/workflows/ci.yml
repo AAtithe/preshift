@@ -1,6 +1,6 @@
 name: CI
 
-# Every pull request must typecheck and pass the test suite before it merges.
+# Every pull request must typecheck, pass the test suite and pass the browser checks before it merges.
 # Runs on main too, so a red main shows up on its own rather than on the next PR.
 on:
   pull_request:
@@ -29,3 +29,23 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  e2e:
+    name: Browser checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

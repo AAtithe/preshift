@@ -44,14 +44,13 @@ interface Props {
   /** Holds settings.manage: sees the keys' details and manages them. */
   canSettings: boolean;
   /** The one site in scope, if any: the Payroll and Clock in tabs work on one site. */
-  singleSite: boolean;
   today: string;
   onOpen: (target: IntegrationTarget) => void;
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-export function IntegrationsView({ state, account, canSettings, singleSite, today, onOpen }: Props) {
+export function IntegrationsView({ state, account, canSettings, today, onOpen }: Props) {
   const [payroll, setPayroll] = useState<PayrollStatus | null>(null);
   const [payrollError, setPayrollError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -147,13 +146,7 @@ export function IntegrationsView({ state, account, canSettings, singleSite, toda
           health={payrollHealth}
           purpose="Starters, changes and leavers sync as they are saved. Approved clocked hours go across as one batch per company, and the completed pay run comes back to be reconciled against the labour accrual."
           action={
-            <button
-              disabled={!singleSite}
-              title={singleSite ? undefined : 'Choose one site to open Payroll'}
-              onClick={() => onOpen('payroll')}
-            >
-              Open Payroll
-            </button>
+            <button onClick={() => onOpen('payroll')}>Open Payroll</button>
           }
         >
           {payrollError && <p className="bad-text small">{payrollError}</p>}
@@ -282,7 +275,7 @@ export function IntegrationsView({ state, account, canSettings, singleSite, toda
           health={clockHealth}
           purpose="A USB RFID reader on the entrance tablet, or a phone's NFC on Android Chrome. Each site's geofence decides where signing in by name, and clocking from a phone, is allowed."
           action={
-            <button disabled={!singleSite} title={singleSite ? undefined : 'Choose one site to open Clock in'} onClick={() => onOpen('clock')}>
+            <button onClick={() => onOpen('clock')}>
               Open Clock in
             </button>
           }
@@ -306,7 +299,7 @@ export function IntegrationsView({ state, account, canSettings, singleSite, toda
           health={staffHealth}
           purpose="Staff clock in and out on their own phones, record breaks and see their published shifts. Logins are separate from manager accounts and reach nothing else."
           action={
-            <button disabled={!singleSite} title={singleSite ? undefined : 'Choose one site to open Clock in'} onClick={() => onOpen('clock')}>
+            <button onClick={() => onOpen('clock')}>
               Send invites
             </button>
           }
