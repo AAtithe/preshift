@@ -998,6 +998,7 @@ dd.tone-good { color: var(--good); }
 .travel-pay-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .travel-pay-row > .strong { min-width: 200px; }
 .travel-pay-row .travel-cell input { width: 72px; }
+.travel-unchosen { color: var(--warn); }
 .travel-cell input { width: 56px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .travel-source { display: block; margin-top: 4px; font: 500 10px/1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .travel-source.tfl { color: var(--good); }
@@ -1110,6 +1111,8 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 @media print { .command-bar, .shifty, .shifty-launcher { display: none; } }
 .statement tr.memo th, .statement tr.memo td { padding-top: 0; font-size: 11px; color: var(--muted); font-style: italic; }
 .statement tr.memo th { padding-left: 28px; }
+.statement tr.warn-memo th { color: var(--warn); font-style: normal; white-space: normal; line-height: 1.4; }
+.travel-missing { margin: 0 16px 12px; padding: 8px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 13px; }
 .table tr.clickable:hover td { background: var(--surface-2); }
 .table tr.detail > td { background: var(--surface-2); padding: 4px 8px 10px 24px; }
 .table.compact td { padding: 4px 8px; border-bottom: none; }
@@ -1272,3 +1275,6 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 @media (max-width: 900px) {
   .bench-grid, .tronc-grid { grid-template-columns: minmax(0, 1fr); }
 }
+.login-flags { margin: 4px 0 0; padding-left: 16px; }
+.login-review-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.login-review-form input { min-width: 200px; flex: 1; }

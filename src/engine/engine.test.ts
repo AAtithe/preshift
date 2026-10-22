@@ -743,6 +743,59 @@ describe('paid travel between sites', () => {
     expect(batch.totalHours).toBeCloseTo(8.72, 2);
   });
 
+  it('counts moves to a site with no postcode as unpriced, on the site travelled to', () => {
+    const s = state();
+    const p = person(s);
+    s.shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    expect(weekCost(s, WEEK, 'mar').travel.unpriced).toBe(0);
+    s.sites = s.sites.map(({ location: _l, travel: _t, ...x }) => (x.id === 'mar' ? x : { ...x, location: _l, travel: _t }));
+    expect(weekCost(s, WEEK, 'mar').travel).toMatchObject({ unpriced: 1, cost: 0 });
+    expect(weekCost(s, WEEK, 'shd').travel.unpriced).toBe(0);
+    expect(weekCost(s, WEEK).travel.unpriced).toBe(1);
+  });
+
+  it('counts travel as working time towards weekly limits, for salaried staff too', () => {
+    const s = state();
+    const p = { ...person(s), maxWeeklyHours: 8 };
+    const shifts = [at(p.id, 'home', 'shd', 12, 16), at(p.id, 'away', 'mar', 17, 21)];
+    const maxHours = (e: Employee, sites: typeof s.sites) => checkEmployeeWeek(e, WEEK, shifts, [], undefined, { sites }).find((i) => i.code === 'max-hours');
+    // Eight hours of shifts is at the limit; the 43 minute journey takes them over it.
+    expect(maxHours(p, [])).toBeUndefined();
+    expect(maxHours(p, s.sites)?.message).toMatch(/8\.7h rostered, 0\.7h of it travel between sites/);
+    const salaried = { ...p, payBasis: 'salaried' as const, annualSalary: 40_000 };
+    expect(maxHours(salaried, s.sites)).toBeDefined();
+    // Their pay does not move with it.
+    expect(employeeWeekCost(salaried, shifts, undefined, 1, s.sites).gross).toBe(employeeWeekCost(salaried, shifts).gross);
+  });
+
+  it('lets an averaging company pay travel below the minimum wage, topping the week up where it must', () => {
+    const s = state();
+    const travel = 43 / 60;
+    const shifts = (id: string) => [at(id, 'home', 'shd', 12, 16), at(id, 'away', 'mar', 17, 21)];
+    const averaging = (e: Employee) => s.entities.map((x) => (x.id === e.entityId ? { ...x, travelPay: { basis: 'fixed' as const, hourly: 5, averaging: true } } : x));
+    // On £13 an hour, eight hours plus travel at £5 averages under £12.71: the gap is topped up.
+    const low = { ...person(s), hourlyRate: 13, dateOfBirth: '1990-01-01' };
+    const lowCost = employeeWeekCost(low, shifts(low.id), undefined, 1, s.sites, averaging(low));
+    expect(lowCost.gross).toBeCloseTo(12.71 * (8 + travel), 1);
+    expect(lowCost.minimumWageTopUp).toBeCloseTo(12.71 * (8 + travel) - 8 * 13 - travel * 5, 1);
+    // On £16 the week already averages well over it, so £5 travel stands.
+    const high = { ...low, hourlyRate: 16 };
+    const highCost = employeeWeekCost(high, shifts(high.id), undefined, 1, s.sites, averaging(high));
+    expect(highCost.minimumWageTopUp).toBe(0);
+    expect(highCost.gross).toBeCloseTo(8 * 16 + travel * 5, 1);
+
+    // The week's issues say so, and payroll pays the top-up on the travel line.
+    const week = { ...s, employees: s.employees.map((e) => (e.id === low.id ? low : e)), entities: averaging(low), shifts: shifts(low.id) };
+    expect(checkWeek(week, WEEK).find((i) => i.code === 'travel-minimum-wage' && i.employeeId === low.id)?.message).toMatch(/£\d+\.\d\d is added to their travel pay/);
+    const entry = (id: string, siteId: string, start: number, end: number) => ({
+      id, employeeId: low.id, siteId, roleId: 'server', date: WEEK, clockIn: start * 60, clockOut: end * 60, breakMinutes: 0, status: 'approved' as const,
+    });
+    const batch = payrollHours([low], [entry('a', 'shd', 12, 16), entry('b', 'mar', 17, 21)] as never, WEEK, '2026-10-25', s.sites, averaging(low));
+    const paid = batch.lines.reduce((sum, l) => sum + l.hours * l.rate, 0);
+    expect(batch.lines.find((l) => l.travel)!.rate).toBeGreaterThan(5);
+    expect(paid).toBeGreaterThanOrEqual(12.71 * batch.totalHours - 0.005);
+  });
+
   it('counts paid travel as hours worked for holiday accrual', () => {
     const s = state();
     const p = person(s);

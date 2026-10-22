@@ -40,16 +40,27 @@ export interface Entity {
   payrollEmployerId?: string;
   /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
   leaveYearStart?: string;
-  /** What this company pays for travel between sites within a working day. Defaults to the normal rate. */
+  /**
+   * What this company pays for travel between sites within a working day. Unset means nobody has
+   * chosen yet: it is paid at the normal rate meanwhile, and set-up asks for a choice.
+   */
   travelPay?: TravelPay;
 }
 
 /**
  * The hourly rate for travel between sites: each person's normal rate, the minimum wage for their
- * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate never pays
- * below it.
+ * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate is lifted to
+ * it on every hour, unless the company opts to average over the pay period instead.
  */
-export type TravelPay = { basis: 'normal' } | { basis: 'minimum' } | { basis: 'fixed'; hourly: number };
+export type TravelPay =
+  | { basis: 'normal' }
+  | { basis: 'minimum' }
+  /**
+   * `averaging` lets the rate sit below the minimum wage, as the law allows, as long as the pay
+   * period's total pay over work and travel averages at least the minimum wage; any shortfall is
+   * topped up on the travel pay.
+   */
+  | { basis: 'fixed'; hourly: number; averaging?: boolean };
 
 export interface Site {
   id: string;
@@ -290,7 +301,11 @@ export type AbsenceType = 'sickness' | 'unauthorised' | 'compassionate' | 'depen
 /** A spell of absence other than holiday, which lives on `leave`. Dates are inclusive. */
 export interface Absence {
   id: string;
-  type: AbsenceType;
+  /**
+   * Always stored. Withheld by the API from readers who need only the days off: whether someone was
+   * off sick is health data, kept to those who read HR files or see pay (sick pay turns on it).
+   */
+  type?: AbsenceType;
   from: string;
   /** Last day off. Absent while the person is still off. */
   to?: string;

@@ -2,7 +2,7 @@ import type { Employee, Entity, RotaState, Shift, Site } from './types';
 import { UK_RATES_2026_27, type UkRates } from './ukRates';
 import { weekDates } from './time';
 import { employedShare } from './employees';
-import { travelMinutesInto, travelRate } from './travel';
+import { travelMinutesInto, travelPay as travelPayFor, travelRate, unpricedMoves } from './travel';
 
 export function shiftPaidMinutes(shift: Shift): number {
   return Math.max(0, shift.endMinute - shift.startMinute - shift.breakMinutes);
@@ -28,6 +28,8 @@ export interface EmployeeWeekCost {
   paidHours: number;
   /** Of which travel between sites during a working day. */
   travelHours: number;
+  /** Added to travel pay so the week averages the minimum wage, where the company averages. */
+  minimumWageTopUp: number;
   gross: number;
   holiday: number;
   employerNi: number;
@@ -58,8 +60,8 @@ export interface WeekCost {
   parts: { gross: number; holiday: number; employerNi: number; pension: number };
   /** Cost of people paid but not rostered (salaried or guaranteed hours). */
   unallocated: number;
-  /** Paid travel between sites in scope: hours, and the loaded cost they carry. */
-  travel: { hours: number; cost: number };
+  /** Paid travel between sites in scope: hours, the loaded cost they carry, and moves with no journey time to cost. */
+  travel: { hours: number; cost: number; unpriced: number };
 }
 
 function round2(n: number) {
@@ -87,13 +89,20 @@ export function employeeWeekCost(
   const workedHours = shifts.reduce((sum, s) => sum + shiftPaidHours(s), 0);
   const paidHours = workedHours + travelHours;
   const firstDate = shifts.reduce((min, s) => (s.date < min ? s.date : min), shifts[0]?.date ?? '9999-12-31');
-  const travelPay = travelHours > 0 ? travelHours * travelRate(employee, entities, firstDate, rates) : 0;
+  const workPay = workedHours * employee.hourlyRate;
+  const travel = travelPayFor(employee, entities, firstDate, { workHours: workedHours, workPay, travelHours }, rates);
   // Guaranteed contracted hours are a floor on pay, met by work and travel alike.
   const gross =
     employee.payBasis === 'salaried'
       ? (employee.annualSalary / 52) * share
-      : Math.max(workedHours * employee.hourlyRate + travelPay, employee.contractedHours * share * employee.hourlyRate);
-  return { employeeId: employee.id, paidHours: round2(paidHours), travelHours: round2(travelHours), ...weekOnCosts(employee, gross, rates) };
+      : Math.max(workPay + travel.pay + travel.topUp, employee.contractedHours * share * employee.hourlyRate);
+  return {
+    employeeId: employee.id,
+    paidHours: round2(paidHours),
+    travelHours: round2(travelHours),
+    minimumWageTopUp: round2(travel.topUp),
+    ...weekOnCosts(employee, gross, rates),
+  };
 }
 
 /**
@@ -135,7 +144,7 @@ export function weekCost(
   const shifts = new Map<string, ShiftCost>();
   let total = 0;
   let unallocated = 0;
-  const travel = { hours: 0, cost: 0 };
+  const travel = { hours: 0, cost: 0, unpriced: 0 };
   const sites = state.sites ?? [];
   const parts = { gross: 0, holiday: 0, employerNi: 0, pension: 0 };
   const addParts = (c: { gross: number; holiday: number; employerNi: number; pension: number }) => {
@@ -152,10 +161,14 @@ export function weekCost(
     if (own.length === 0 && (share === 0 || (employee.payBasis === 'hourly' && employee.contractedHours === 0))) continue;
     const cost = employeeWeekCost(employee, own, rates, share, sites, state.entities);
     const travelInto = travelMinutesInto(own, sites);
+    if (sites.length > 0) travel.unpriced += unpricedMoves(own, sites).filter((m) => !siteId || m.toId === siteId).length;
     // An hour of travel weighs what it pays against an hour of work, so each site carries what it caused.
+    // Any minimum wage top-up is travel pay too, so it lands where the travel does.
+    const allTravel = [...travelInto.values()].reduce((a, b) => a + b, 0) / 60;
     const travelWeight =
-      employee.payBasis === 'hourly' && employee.hourlyRate > 0 && own.length > 0
-        ? travelRate(employee, state.entities ?? [], own.reduce((m, s) => (s.date < m ? s.date : m), own[0].date), rates) / employee.hourlyRate
+      employee.payBasis === 'hourly' && employee.hourlyRate > 0 && allTravel > 0
+        ? (travelRate(employee, state.entities ?? [], own.reduce((m, s) => (s.date < m ? s.date : m), own[0].date), rates) * allTravel + cost.minimumWageTopUp) /
+          (employee.hourlyRate * allTravel)
         : 1;
     const scoped = siteId ? own.filter((s) => s.siteId === siteId) : own;
     const unrostered = own.length === 0; // salaried or guaranteed-hours staff with no shifts
@@ -163,7 +176,7 @@ export function weekCost(
 
     employees.set(employee.id, cost);
     // Spread by exact weighted hours: the rounded figure would leave pennies unallocated once travel is in.
-    const hours = own.reduce((sum, s) => sum + shiftPaidHours(s), 0) + ([...travelInto.values()].reduce((a, b) => a + b, 0) / 60) * travelWeight;
+    const hours = own.reduce((sum, s) => sum + shiftPaidHours(s), 0) + allTravel * travelWeight;
     for (const shift of scoped) {
       const travelHours = (travelInto.get(shift.id) ?? 0) / 60;
       const share = hours > 0 ? (shiftPaidHours(shift) + travelHours * travelWeight) / hours : 0;
@@ -203,6 +216,6 @@ export function weekCost(
     total: round2(total),
     unallocated: round2(unallocated),
     parts: rounded,
-    travel: { hours: round2(travel.hours), cost: round2(travel.cost) },
+    travel: { hours: round2(travel.hours), cost: round2(travel.cost), unpriced: travel.unpriced },
   };
 }

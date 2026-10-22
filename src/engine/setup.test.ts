@@ -58,6 +58,16 @@ describe('forecast from a typical week', () => {
 });
 
 describe('validation', () => {
+  it('asks each company with more than one site to choose how travel between sites is paid', () => {
+    const one = ready();
+    const travel = (d: SetupDraft) => validateSetup(d).filter((i) => i.message.includes('travel between sites is paid'));
+    expect(travel(one)).toEqual([]);
+    const two = { ...one, sites: [...one.sites, { ...one.sites[0], id: 'second', name: 'Farringdon' }] };
+    expect(travel(two)).toEqual([expect.objectContaining({ severity: 'warn' })]);
+    const chosen = { ...two, entities: two.entities.map((e) => ({ ...e, travelPay: { basis: 'normal' as const } })) };
+    expect(travel(chosen)).toEqual([]);
+  });
+
   it('passes a complete set-up and will not pass a blank trading week', () => {
     expect(validateSetup(ready()).filter((i) => i.severity === 'block')).toEqual([]);
     const blank = validateSetup(emptyDraft()).map((i) => i.message);
