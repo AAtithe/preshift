@@ -16,13 +16,15 @@ interface Props {
   showCost: boolean;
   /** Why publishing is not offered, when it is for want of the right rather than the rota. */
   publishRefused?: string;
+  /** Offered to whoever manages demand at every site in view, when the week has no forecast. */
+  onForecast?: () => void;
 }
 
 /**
  * The rota read as a management P&L: forecast sales, the four parts of loaded labour, the
  * contribution left after labour, and the verdict against target. Sits beside every screen.
  */
-export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish, showCost, publishRefused }: Props) {
+export function PnlRail({ state, metrics, issues, canPublish, published, blocks, onPublish, showCost, publishRefused, onForecast }: Props) {
   // Site-scoped parts: anyone borrowed brings only the share of their week worked here.
   const { gross, holiday, employerNi: ni, pension } = metrics.cost.parts;
   // Tie the statement to the labour cost the rest of the page and the journal use.
@@ -31,6 +33,8 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
   const sales = Math.round(metrics.forecastSales);
   const over = metrics.varianceToTarget > 0;
   const empty = metrics.labourCost === 0;
+  // No sales forecast: labour % and the budget have nothing to be judged against.
+  const noForecast = metrics.forecastSales === 0;
   const scaleMax = Math.max(metrics.targetPct * 1.5, metrics.labourPct * 1.05);
   const dayMax = Math.max(metrics.targetPct * 1.5, ...metrics.days.map((d) => d.labourPct));
   const name = (id: string) => state.employees.find((e) => e.id === id)?.name.split(' ')[0] ?? '';
@@ -49,6 +53,19 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
         </div>
       )}
       {showCost && (<>
+      {noForecast ? (
+      <div className="rail-section">
+        <div className="eyebrow">Rota P&amp;L · forecast</div>
+        <div className="rail-verdict">
+          <span className="rail-pct muted">No forecast</span>
+        </div>
+        <p className="muted small">
+          There is no sales forecast for this week, so labour % and the budget cannot be judged. Target {pct(metrics.targetPct, 0)}.
+          {!empty && ` Labour rostered so far: ${money(metrics.labourCost)}.`}
+        </p>
+        {onForecast && <button className="primary" onClick={onForecast}>Forecast from past takings</button>}
+      </div>
+      ) : (
       <div className="rail-section">
         <div className="eyebrow">Rota P&amp;L · forecast</div>
         <div className="rail-verdict">
@@ -69,6 +86,7 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
           </p>
         )}
       </div>
+      )}
 
       <table className="statement">
         <tbody>
@@ -116,7 +134,11 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
             <div key={d.date} className="rail-day">
               <span>{dayLabel(d.date).short}</span>
               <Bullet mini value={d.labourPct} target={metrics.targetPct} max={dayMax} />
-              <span className={`tnum ${d.labourCost ? (d.labourPct > metrics.targetPct ? 'bad-text' : 'good-text') : 'muted'}`}>{pct(d.labourPct)}</span>
+              {d.forecastSales === 0 ? (
+                <span className="muted small">No forecast</span>
+              ) : (
+                <span className={`tnum ${d.labourCost ? (d.labourPct > metrics.targetPct ? 'bad-text' : 'good-text') : 'muted'}`}>{pct(d.labourPct)}</span>
+              )}
             </div>
           ))}
         </div>
