@@ -298,3 +298,79 @@ describe('staff app invitation emails', () => {
     expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body).toMatchObject({ emailed: false, reason: 'email_not_set_up' });
   });
 });
+
+describe('the review of staff logins closed and opened again', () => {
+  async function bootPeople() {
+    const person = (key: string, userId: string) => ({ key, orgId: 'demo', name: `${key} key`, scopes: ['*' as const], userId, mfa: true });
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const { app } = await buildApp({
+      apiKeys: [{ key: 'system', orgId: 'demo', name: 'System', scopes: ['*'] }, person('owner', 'usr_owner'), person('gm', 'usr_gm_mar'), person('fd', 'usr_fd')],
+      store,
+      provider: new TeamPaySimulator(),
+      autoDispatch: false,
+    });
+    const as = (key: string) => (method: string, url: string, body?: unknown) =>
+      app.inject({ method: method as 'GET', url, headers: { authorization: `Bearer ${key}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, payload: body !== undefined ? JSON.stringify(body) : undefined })
+        .then((r) => ({ status: r.statusCode, body: r.body ? r.json() : undefined }));
+    const join = async (by: (m: string, u: string, b?: unknown) => Promise<{ body: { path: string } }>, person: string, email: string) => {
+      const link = (await by('POST', `/v1/staff-logins/${person}/invite`, { handOver: true })).body;
+      const params = Object.fromEntries(new URLSearchParams(link.path.split('#')[1]));
+      const res = await app.inject({ method: 'POST', url: '/v1/staff/join', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ ...params, email, password: PASSWORD }) });
+      expect(res.statusCode).toBe(200);
+    };
+    return { store, owner: as('owner'), gm: as('gm'), fd: as('fd'), system: as('system'), join };
+  }
+  const PERIOD = '/v1/staff-logins/review?from=2020-01-01&to=2099-12-31';
+
+  it('shows a close, re-invite and re-join with a new address as high risk, to those who audit, and lets someone else sign it off', async () => {
+    const t = await bootPeople();
+    await t.join(t.gm, 'mar-2', 'sam@example.com');
+    expect((await t.gm('DELETE', '/v1/staff-logins/mar-2')).status).toBe(204);
+    await t.join(t.gm, 'mar-2', 'sam.other@example.com');
+
+    // The finance director audits across the organisation; the GM's audit right is one site's, and a key is nobody.
+    const seen = await t.fd('GET', PERIOD);
+    expect(seen.status).toBe(200);
+    expect(seen.body.summary).toEqual({ closed: 1, needsReview: 1, highRisk: 1 });
+    const [c] = seen.body.cases;
+    expect(c).toMatchObject({ employeeId: 'mar-2', status: 'rejoined', previousEmail: 'sam@example.com', newEmail: 'sam.other@example.com', risk: 'high', needsReview: true });
+    expect(c.flags).toEqual(['same_person', 'handed_over', 'new_address']);
+    expect((await t.gm('GET', PERIOD)).status).toBe(403);
+    expect((await t.system('GET', PERIOD)).status).toBe(403);
+
+    // A sign-off needs a reason, is made once, and is recorded in the audit trail.
+    expect((await t.fd('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'concern', note: 'short' })).status).toBe(400);
+    const signed = await t.fd('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'concern', note: 'Sam did not ask for this. Raised with HR.' });
+    expect(signed.status).toBe(201);
+    expect(signed.body.review).toMatchObject({ by: 'Nadia Rahman', outcome: 'concern' });
+    expect((await t.owner('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'genuine', note: 'Looked at it again.' })).status).toBe(409);
+    expect((await t.fd('GET', PERIOD)).body.summary.needsReview).toBe(0);
+    const org = await t.store.load('demo');
+    expect(org.audit.some((a) => a.action === 'staff.login_reviewed' && a.actor === 'Nadia Rahman')).toBe(true);
+  });
+
+  it('never lets whoever closed or re-invited a login sign it off, and keeps the record after the audit log is trimmed', async () => {
+    const t = await bootPeople();
+    await t.join(t.owner, 'mar-3', 'kit@example.com');
+    await t.owner('DELETE', '/v1/staff-logins/mar-3');
+    await t.join(t.owner, 'mar-3', 'kit@example.com');
+    const [c] = (await t.owner('GET', PERIOD)).body.cases;
+    const own = await t.owner('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'genuine', note: 'Kit lost their phone.' });
+    expect(own.status).toBe(409);
+    expect(own.body.error).toBe('review_refused');
+
+    // A month of phone clock-ins can push a close off the audit log; the review reads its own record.
+    const org = await t.store.load('demo');
+    for (let i = 0; i < 6000; i++) org.audit.push({ at: new Date().toISOString(), actor: 'x', action: 'time.phone_clock_in' });
+    org.audit.splice(0, org.audit.length - 5000);
+    expect(org.audit.some((a) => a.action === 'staff.login_closed')).toBe(false);
+    expect((await t.fd('GET', PERIOD)).body.cases).toHaveLength(1);
+    expect((await t.fd('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'genuine', note: 'Kit lost their phone; confirmed with Kit.' })).status).toBe(201);
+  });
+
+  it('counts only a login that was there as closed', async () => {
+    const t = await bootPeople();
+    expect((await t.gm('DELETE', '/v1/staff-logins/mar-4')).status).toBe(204);
+    expect((await t.fd('GET', PERIOD)).body.cases).toEqual([]);
+  });
+});

@@ -12,12 +12,19 @@ import { emailSetting, linkFor, parseEmailSettings, sendMail, staffInviteEmail }
 import { latestByEmployee, recordSent } from '../maillog';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
-import { geoFixBody, idParam } from '../schemas';
+import { geoFixBody, idParam, isoDate } from '../schemas';
+import { canOrgWide } from '../../src/engine/access';
+import { loginCases, reviewRefusal, type StaffLoginEvent } from '../../src/engine/loginreview';
 import { audit, welfareOf, type OrgData, type StaffLogin, type Store } from '../store';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
 
 const INVITE_DAYS = 7;
+
+/** Writes to the staff login log beside the audit entry: the close review reads this, as the audit log is trimmed. */
+function logLogin(org: OrgData, event: Omit<StaffLoginEvent, 'at'>) {
+  org.staffLoginLog.push({ at: new Date().toISOString(), ...event });
+}
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const sameHash = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -181,6 +188,7 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     };
     if (!(await store.putStaffLogin(next))) throw new HttpError(409, 'email_taken', 'That email is already used by another staff login.');
     audit(org, `staff:${employee.id}`, 'staff.login_activated', { employeeId: employee.id });
+    logLogin(org, { employeeId: employee.id, kind: 'activated', by: `staff:${employee.id}`, email });
     await store.save(org);
     await signedIn(req, reply, store, next, issued);
     return overview({ login: next, org, employee }, store);
@@ -442,16 +450,89 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
         if (id !== null) {
           if (id) recordSent(org, id, { to, kind: 'staff_invite', employeeId: employee.id, by: actor(req) });
           audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: true });
+          logLogin(org, { employeeId: employee.id, kind: 'invited', by: actor(req), emailed: true });
           // The link stays between the person and their inbox.
           return reply.code(201).send({ emailed: true, to, expiresAt });
         }
         audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: false });
+        logLogin(org, { employeeId: employee.id, kind: 'invited', by: actor(req), emailed: false });
         // Never handed back for a login they have set up, even when the email fails.
         if (joined) return reply.code(201).send({ emailed: false, reason: 'send_failed', expiresAt, emailProblem: 'The email did not go. Check the email settings and send again; this link only ever goes to their own email.' });
         return reply.code(201).send({ emailed: false, reason: 'send_failed', path, expiresAt, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' });
       }
       audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: false });
+      logLogin(org, { employeeId: employee.id, kind: 'invited', by: actor(req), emailed: false });
       return reply.code(201).send({ emailed: false, reason: why, path, expiresAt });
+    },
+  );
+
+  // ----- The review of logins closed and opened again -----
+
+  /** A person who reads the access trail across the organisation: reviews are signed by name, so never a key. */
+  const loginReviewer = (req: FastifyRequest) => {
+    const g = guard(ctx, req, orgOf(req));
+    const today = store.todayISO();
+    if (g.actor.kind !== 'user') throw new HttpError(403, 'forbidden', 'Staff login reviews are made by people signed in, never by an integration key.');
+    if (!canOrgWide(g.actor.user, 'audit.view', today) && !canOrgWide(g.actor.user, 'users.manage', today)) {
+      throw new HttpError(403, 'forbidden', 'Reviewing staff logins needs audit or access management rights across the organisation.');
+    }
+    return actorName(g);
+  };
+  const casesOf = (org: OrgData, from: string, to: string) => {
+    const people = new Map(org.state.employees.map((e) => [e.id, e]));
+    return loginCases(org.staffLoginLog, org.loginReviews, org.timeEntries, from, to).map((c) => ({
+      ...c,
+      name: people.get(c.employeeId)?.name ?? c.employeeId,
+      siteId: people.get(c.employeeId)?.siteId ?? null,
+    }));
+  };
+
+  app.get<{ Querystring: { from: string; to: string } }>(
+    '/v1/staff-logins/review',
+    {
+      schema: {
+        tags: ['Staff app'],
+        description:
+          'Every staff login closed between `from` and `to`, followed through any re-invite and re-join, flagged where the same person closed and re-invited it, ' +
+          'the new link was handed over, it was set up with a different email, or hours have been clocked by phone since. Opened-again logins need a sign-off.',
+        querystring: { type: 'object', required: ['from', 'to'], properties: { from: isoDate, to: isoDate } },
+      },
+    },
+    async (req) => {
+      loginReviewer(req);
+      const cases = casesOf(orgOf(req), req.query.from, req.query.to);
+      return {
+        cases,
+        summary: { closed: cases.length, needsReview: cases.filter((c) => c.needsReview).length, highRisk: cases.filter((c) => c.risk === 'high' && c.needsReview).length },
+      };
+    },
+  );
+
+  app.post<{ Body: { caseId: string; outcome: 'genuine' | 'concern'; note: string } }>(
+    '/v1/staff-logins/review',
+    {
+      schema: {
+        tags: ['Staff app'],
+        description: 'Signs off one login closed and opened again: genuine, or a concern to follow up. Never by whoever closed or re-invited it.',
+        body: {
+          type: 'object',
+          required: ['caseId', 'outcome', 'note'],
+          additionalProperties: false,
+          properties: { caseId: { type: 'string' }, outcome: { enum: ['genuine', 'concern'] }, note: { type: 'string', minLength: 10, maxLength: 2000 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const by = loginReviewer(req);
+      const org = orgOf(req);
+      const found = casesOf(org, '0000-01-01', '9999-12-31').find((c) => c.id === req.body.caseId);
+      if (!found) throw notFound(`Login close ${req.body.caseId}`);
+      const refused = reviewRefusal(found, by);
+      if (refused) throw new HttpError(409, 'review_refused', refused);
+      const review = { caseId: found.id, at: new Date().toISOString(), by, outcome: req.body.outcome, note: req.body.note.trim() };
+      org.loginReviews.push(review);
+      audit(org, by, 'staff.login_reviewed', { employeeId: found.employeeId, caseId: found.id, outcome: review.outcome, risk: found.risk });
+      return reply.code(201).send({ ...found, review, needsReview: false });
     },
   );
 
@@ -460,8 +541,11 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...write, schema: { tags: ['Staff app'], description: 'Closes a staff login and signs them out on every phone.', params: idParam } },
     async (req, reply) => {
       const employee = employeeOf(req);
+      const existed = await store.getStaffLogin(req.principal.orgId, employee.id);
       await store.deleteStaffLogin(req.principal.orgId, employee.id);
       audit(orgOf(req), actor(req), 'staff.login_closed', { employeeId: employee.id });
+      // Only a login that was there is a close to review.
+      if (existed) logLogin(orgOf(req), { employeeId: employee.id, kind: 'closed', by: actor(req) });
       return reply.code(204).send();
     },
   );
