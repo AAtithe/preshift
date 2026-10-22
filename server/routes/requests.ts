@@ -151,7 +151,10 @@ function managerView(req: FastifyRequest, g: Guard, org: OrgData, r: StaffReques
 }
 
 /** Whether the caller sees this request at all: they hold the deciding permission at its site. */
-function sees(g: Guard, r: StaffRequest) {
+function sees(req: FastifyRequest, g: Guard, r: StaffRequest) {
+  // That someone is off sick, or asked for compassionate or family leave, is health and family data:
+  // only for those who read personnel files, so a rota key never learns of it.
+  if ((r.kind === 'sickness' || r.kind === 'time_off') && !hasScope(req, 'hr:read')) return false;
   return g.can(authority(r.kind).permission, r.siteId);
 }
 
@@ -246,7 +249,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       const since = addDays(today(), -DECIDED_SHOWN_DAYS);
       return requestsOf(org)
-        .filter((r) => (!req.query.siteId || r.siteId === req.query.siteId) && sees(g, r))
+        .filter((r) => (!req.query.siteId || r.siteId === req.query.siteId) && sees(req, g, r))
         .filter((r) => open(r) || (req.query.status === 'all' && (r.decidedAt ?? r.createdAt).slice(0, 10) >= since))
         .sort((a, b) => Number(open(b)) - Number(open(a)) || a.createdAt.localeCompare(b.createdAt))
         .map((r) => managerView(req, g, org, r, today()));
@@ -273,7 +276,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
         const org = orgOf(req);
         const g = guard(ctx, req, org);
         const r = requestsOf(org).find((x) => x.id === req.params.id);
-        if (!r || !sees(g, r)) throw notFound(`Request ${req.params.id}`);
+        if (!r || !sees(req, g, r)) throw notFound(`Request ${req.params.id}`);
         const { permission, scope } = authority(r.kind);
         if (!hasScope(req, scope)) throw new HttpError(403, 'forbidden', `This key lacks the ${scope} scope`);
         for (const s of decidingSites(org, r)) g.allow(permission, s);

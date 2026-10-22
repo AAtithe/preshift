@@ -8,7 +8,7 @@ const PASSWORD = 'pint of best bitter';
 const KEY = { key: 'manager' };
 
 async function boot() {
-  const k = await kit({ keys: [{ key: 'manager', orgId: 'demo', name: 'GM', scopes: ['*'] }] });
+  const k = await kit({ keys: [{ key: 'manager', orgId: 'demo', name: 'GM', scopes: ['*'] }, { key: 'rota-only', orgId: 'demo', name: 'Rota tool', scopes: ['rota:read', 'rota:write'] as never }] });
   const join = async (person: string) => {
     const res = await k.call('POST', `/v1/staff-logins/${person}/invite`, KEY);
     expect(res.status).toBe(201);
@@ -312,6 +312,11 @@ describe('sickness', () => {
     // The shift now blocks publication until it is re-covered.
     const blocked = await k.call('POST', '/v1/rota/publish', KEY, { siteId: 'mar', weekStart: weekStart(tomorrow) });
     expect(blocked.body.error).toBe('compliance_block');
+
+    // A rota key without HR access never learns that someone is off sick.
+    const rotaKey = (await k.call('GET', '/v1/requests', { key: 'rota-only' })).body;
+    expect(rotaKey.some((r: { kind: string }) => r.kind === 'sickness')).toBe(false);
+    expect((await k.call('POST', `/v1/requests/${sick.body.id}/approve`, { key: 'rota-only' }, {})).status).toBe(404);
 
     // Staff cannot withdraw a sickness report; a manager acknowledges it.
     expect((await k.call('POST', `/v1/staff/requests/${sick.body.id}/cancel`, ben)).status).toBe(409);
