@@ -29,7 +29,7 @@ import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { webRoutes } from './routes/web';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
-import { MemoryStore, PgStore, type Store } from './store';
+import { API_CALL_RETENTION_DAYS, MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
 export interface BuildOptions {
@@ -190,6 +190,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
     await deliverAllWebhooks(store, options.webhookFetch);
+    await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     if (demo) await sweepSandboxes(store);
     return { ok: true };
   });
@@ -248,6 +249,28 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         reply.code(e.statusCode).header('content-type', 'application/json; charset=utf-8');
         return JSON.stringify({ error: e.code, message: e.message });
       }
+    });
+    // Every call made with an API key is recorded, refused ones included, after the save above so
+    // the status is final. Written before the response leaves: on serverless hosting work after it
+    // can be cut off, and an access log with gaps proves nothing. A failed write never fails the call.
+    api.addHook('onSend', async (req, reply, payload) => {
+      const call = req.apiCall;
+      if (!call) return payload;
+      const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+      await store
+        .logApiCall({
+          orgId: call.orgId,
+          keyId: call.keyId,
+          at: new Date(call.started).toISOString(),
+          method: req.method,
+          path: req.url,
+          status: reply.statusCode,
+          ip: forwarded || req.ip,
+          ms: Date.now() - call.started,
+          ...(call.refused ? { refused: call.refused } : {}),
+        })
+        .catch((err) => app.log.error(err, 'Could not record an API call'));
+      return payload;
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);

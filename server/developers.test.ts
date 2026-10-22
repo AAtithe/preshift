@@ -145,6 +145,103 @@ describe('API keys made in the app', () => {
   });
 });
 
+describe('per-call API logging', () => {
+  it('records every call a key makes, newest first, for its own organisation only', async () => {
+    const t = await boot();
+    const made = await t.makeKey(['rota:read']);
+    await t.call('GET', '/v1/sites', { key: made.key });
+    await t.call('GET', `/v1/shifts?siteId=mar&from=${WEEK}`, { key: made.key });
+    await t.call('POST', '/v1/shifts', { key: made.key }, SHIFT);
+
+    const log = await t.call('GET', `/v1/api-keys/${made.id}/calls`);
+    expect(log.status).toBe(200);
+    expect(log.body.calls.map((c: { method: string; path: string; status: number }) => [c.method, c.path, c.status])).toEqual([
+      ['POST', '/v1/shifts', 403],
+      ['GET', `/v1/shifts?siteId=mar&from=${WEEK}`, 200],
+      ['GET', '/v1/sites', 200],
+    ]);
+    expect(log.body.calls[0]).toMatchObject({ ip: expect.any(String), ms: expect.any(Number), at: expect.any(String) });
+    // People signed in to the app are in the audit trail, not this log.
+    expect(log.body.calls).toHaveLength(3);
+  });
+
+  it('keeps a revoked key on record and logs every later attempt to use it', async () => {
+    const t = await boot();
+    const made = await t.makeKey(['rota:read']);
+    await t.call('GET', '/v1/sites', { key: made.key });
+    expect((await t.call('DELETE', `/v1/api-keys/${made.id}`)).status).toBe(204);
+    expect((await t.call('DELETE', `/v1/api-keys/${made.id}`)).status).toBe(404);
+
+    const attempt = await t.call('GET', '/v1/employees', { key: made.key });
+    expect(attempt.status).toBe(401);
+    const keys = (await t.call('GET', '/v1/api-keys')).body.keys;
+    expect(keys[0]).toMatchObject({ id: made.id, revokedAt: expect.any(String), revokedBy: expect.any(String) });
+    const calls = (await t.call('GET', `/v1/api-keys/${made.id}/calls`)).body.calls;
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/v1/employees', status: 401, refused: 'revoked' });
+    expect(calls[1]).toMatchObject({ path: '/v1/sites', status: 200 });
+    expect(calls[1].refused).toBeUndefined();
+  });
+
+  it('logs calls refused for going over the rate limit', async () => {
+    const t = await boot({ rateLimit: 1 });
+    const made = await t.makeKey(['rota:read']);
+    await t.call('GET', '/v1/sites', { key: made.key });
+    expect((await t.call('GET', '/v1/sites', { key: made.key })).status).toBe(429);
+    const calls = (await t.call('GET', `/v1/api-keys/${made.id}/calls`)).body.calls;
+    expect(calls[0]).toMatchObject({ status: 429, refused: 'rate_limited' });
+  });
+
+  it('exports the log as CSV, safe to open in a spreadsheet, and records who downloaded it', async () => {
+    const t = await boot();
+    const made = await t.makeKey(['rota:read']);
+    await t.call('GET', '/v1/sites?q=%3D1%2B1', { key: made.key });
+    const res = await t.app.inject({ method: 'GET', url: `/v1/api-keys/${made.id}/calls?format=csv`, headers: { cookie: t.cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+    expect(res.headers['content-disposition']).toMatch(/attachment/);
+    const lines = res.body.trim().split('\n');
+    expect(lines[0]).toBe('at,method,path,status,refused,ip,ms');
+    expect(lines[1]).toContain('GET,/v1/sites?q=%3D1%2B1,200');
+    const org = await t.ctx.store.load('demo');
+    expect(org.audit.at(-1)).toMatchObject({ action: 'access.api_calls_exported', detail: { id: made.id, count: 1 } });
+  });
+
+  it('shows the log only to a person with settings.manage and their authenticator, within their organisation', async () => {
+    const t = await boot();
+    const made = await t.makeKey(['rota:read', 'webhooks:write']);
+    expect((await t.call('GET', `/v1/api-keys/${made.id}/calls`, { key: made.key })).status).toBe(403);
+    expect((await t.call('GET', `/v1/api-keys/${made.id}/calls`, { cookie: t.unproved })).status).toBe(403);
+    expect((await t.call('GET', '/v1/api-keys/key_unknown/calls')).status).toBe(404);
+  });
+
+  it('deletes calls older than 13 months on the daily run', async () => {
+    const t = await boot({ env: { CRON_SECRET: 'cron' } });
+    const made = await t.makeKey(['rota:read']);
+    await t.call('GET', '/v1/sites', { key: made.key });
+    const old = new Date(Date.now() - 400 * 86_400_000).toISOString();
+    await t.ctx.store.logApiCall({ orgId: 'demo', keyId: made.id, at: old, method: 'GET', path: '/v1/roles', status: 200, ip: '1.2.3.4', ms: 3 });
+    expect((await t.call('GET', `/v1/api-keys/${made.id}/calls`)).body.calls).toHaveLength(2);
+    const run = await t.app.inject({ method: 'GET', url: '/internal/dispatch', headers: { authorization: 'Bearer cron' } });
+    expect(run.statusCode).toBe(200);
+    const calls = (await t.call('GET', `/v1/api-keys/${made.id}/calls`)).body.calls;
+    expect(calls.map((c: { path: string }) => c.path)).toEqual(['/v1/sites']);
+  });
+
+  it('keeps the log in Postgres, filtered by time', async () => {
+    const db = new PGlite();
+    const query = async (text: string, params: unknown[]) => (await db.query(text, params)).rows as Record<string, unknown>[];
+    const store = new PgStore(query, ['demo'], '2026-10-21');
+    const base = { orgId: 'demo', keyId: 'key_1', method: 'GET', status: 200, ip: '1.2.3.4', ms: 5 };
+    await store.logApiCall({ ...base, at: '2026-10-01T09:00:00.000Z', path: '/v1/sites' });
+    await store.logApiCall({ ...base, at: '2026-10-02T09:00:00.000Z', path: '/v1/roles', refused: 'revoked', status: 401 });
+    await store.logApiCall({ ...base, keyId: 'key_2', at: '2026-10-02T10:00:00.000Z', path: '/v1/shifts' });
+    expect((await store.listApiCalls('demo', 'key_1', { limit: 10 })).map((c) => c.path)).toEqual(['/v1/roles', '/v1/sites']);
+    expect((await store.listApiCalls('demo', 'key_1', { from: '2026-10-02T00:00:00.000Z', limit: 10 }))[0]).toMatchObject({ refused: 'revoked' });
+    expect(await store.listApiCalls('other', 'key_1', { limit: 10 })).toEqual([]);
+    expect(await store.purgeApiCalls('2026-10-02T00:00:00.000Z')).toBe(1);
+  });
+});
+
 describe('staff records and pay need employees:read', () => {
   it('keeps people, pay by person and clock locations from a rota:read key, and gives them to one with employees:read', async () => {
     const t = await boot();
