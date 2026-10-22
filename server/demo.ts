@@ -106,6 +106,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/pay-changes/:id/approve': true,
   'POST /v1/pay-changes/:id/reject': true,
   'POST /v1/pay-changes/:id/withdraw': true,
+  'GET /v1/pay-policy': true,
+  'PUT /v1/pay-policy': true,
+  // Sends email: a visitor's sandbox emails nobody.
+  'POST /v1/pay-changes/remind': false,
+  'GET /v1/hr/sick-pay': true,
   // Whether a till is connected: never in a sandbox, so this only ever says not connected.
   'GET /v1/integrations/epos': true,
   'POST /v1/dev/simulate-clocking': true,

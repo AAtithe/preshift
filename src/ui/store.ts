@@ -154,9 +154,13 @@ export function useRotaStore() {
       return employee;
     },
     /** Proposes new pay: it goes to finance, and the person's pay stays as it is until approved. */
-    proposePay: (employeeId: string, terms: PayTerms, reason: string) =>
+    proposePay: (employeeId: string, terms: PayTerms, reason: string, effectiveFrom?: string) =>
       guard(async () => {
-        const change = await api.post<PayChange>(`/v1/employees/${employeeId}/pay-changes`, { ...terms, ...(reason.trim() ? { reason: reason.trim() } : {}) });
+        const change = await api.post<PayChange>(`/v1/employees/${employeeId}/pay-changes`, {
+          ...terms,
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+          ...(effectiveFrom ? { effectiveFrom } : {}),
+        });
         const employee = await api.get<Employee>(`/v1/employees/${employeeId}`);
         setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
         return change;

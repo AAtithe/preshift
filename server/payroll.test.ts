@@ -210,6 +210,38 @@ describe('payroll per PAYE scheme', () => {
     expect(org.audit.some((a) => a.action === 'payroll.ssp_mismatch')).toBe(true);
   });
 
+  it('sends back pay with the next hours, again if that batch is replaced, and never twice', async () => {
+    const payroll = new RecordingPayroll();
+    const { call, ctx, store } = await setup(payroll);
+    await call('PATCH', '/v1/entities/wdl', { payrollEmployerId: 'er_west' });
+    await approvedShift(call, 'mar-7', 'mar', 'server');
+    const org = await store.load('demo');
+    const terms = (hourlyRate: number) => ({ payBasis: 'hourly' as const, hourlyRate, annualSalary: 0 });
+    org.payChanges.push({
+      id: 'pay_late', employeeId: 'mar-8', siteId: 'mar', before: terms(12.71), after: terms(13.25), status: 'approved',
+      requestedBy: 'Kate Morgan', requestedAt: '2026-10-01T09:00:00.000Z', effectiveFrom: '2026-10-05', appliedOn: '2026-10-21',
+      backPay: { from: '2026-10-05', to: '2026-10-20', hours: 20, amount: 10.8, basis: 'clocked' },
+    });
+    const first = (await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' })).body.submissions[0];
+    // The arrears are priced into the accrual, so the pay run is compared like for like.
+    expect(first.accrued['mar-8']).toBeGreaterThan(10.8);
+    await call('POST', '/v1/integrations/payroll/sync-employees', {});
+    await ctx.dispatcher.processDue();
+    const sent = () => payroll.calls.filter((c) => c.method === 'submitHours').map((c) => (c.detail as PayrollHoursBatch).adjustments);
+    expect(sent().at(-1)).toEqual([expect.objectContaining({ employeeId: 'mar-8', amount: 10.8, reference: 'pay_late', description: 'Back pay from 2026-10-05 to 2026-10-20' })]);
+
+    // Resending the week replaces the batch, so the arrears go again with the new one; the next week's batch carries none.
+    await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' });
+    await ctx.dispatcher.processDue();
+    expect(sent().at(-1)).toHaveLength(1);
+    expect(org.payChanges.find((c) => c.id === 'pay_late')!.backPay!.sentIn).not.toBe(first.id);
+    const next = await call('POST', '/v1/time-entries', { employeeId: 'mar-7', siteId: 'mar', roleId: 'server', date: '2026-10-26', clockIn: 600, clockOut: 960, breakMinutes: 20 });
+    await call('POST', '/v1/time-entries/approve', { ids: [next.body.id] });
+    await call('POST', '/v1/payroll/submissions', { weekStart: '2026-10-26', entityId: 'wdl' });
+    await ctx.dispatcher.processDue();
+    expect(sent().at(-1)).toEqual([]);
+  });
+
   it('has the simulator pay SSP at the flat rate over the days a week the person works', () => {
     const state = seedState('2026-10-21');
     const person = { ...state.employees.find((e) => e.id === 'mar-8')!, payrollId: 'p1' };
