@@ -96,4 +96,15 @@ describe('travel between sites', () => {
     expect(res.status).toBeLessThan(300);
     expect(res.body.issues.find((i: { code: string }) => i.code === 'travel')?.message).toMatch(/20 minutes, the journey takes about 41 \(TfL, tube, bus\)/);
   });
+
+  it('sets what a company pays for travel, and refuses a fixed rate with no amount', async () => {
+    const call = await setup(stubFetch().impl);
+    const fixed = await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'fixed', hourly: 13.456 } });
+    expect(fixed.body.travelPay).toEqual({ basis: 'fixed', hourly: 13.46 });
+    expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'fixed' } })).status).toBe(400);
+    expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'weekly' } })).status).toBe(400);
+    expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'minimum' } })).body.travelPay).toEqual({ basis: 'minimum' });
+    // Normal is the default, so choosing it clears the policy.
+    expect((await call('PATCH', '/v1/entities/wdl', { travelPay: { basis: 'normal' } })).body.travelPay).toBeUndefined();
+  });
 });
