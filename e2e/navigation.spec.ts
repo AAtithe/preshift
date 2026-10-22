@@ -6,14 +6,14 @@ import { expect, test, type Page } from '@playwright/test';
 
 const SECTIONS = [
   'Sites', 'Rota', 'Demand', 'Clock in',
-  'HR overview', 'Staff', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
+  'HR overview', 'Staff', 'Onboarding', 'Holiday', 'Absence', 'Training', 'Probation and reviews', 'Cases',
   'Labour cost', 'Payroll', 'Close', 'Reports',
-  'Integrations', 'GDPR', 'Access', 'Settings', 'How to',
+  'Integrations', 'GDPR', 'Access', 'Settings', 'Your profile', 'How to',
 ];
 const SITE_ONLY = ['Rota', 'Demand', 'Clock in', 'Staff', 'Payroll'];
 const PLANNING = ['Sites', 'Rota', 'Demand'];
 const WEEK = ['Sites', 'Rota', 'Demand', 'Labour cost', 'Payroll', 'Close', 'Reports'];
-const ORG = ['Integrations', 'GDPR', 'Access', 'Settings', 'How to'];
+const ORG = ['Integrations', 'GDPR', 'Access', 'Settings', 'Your profile', 'How to'];
 
 const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });
 const heading = (page: Page) => page.locator('.mast-title h1');
@@ -66,7 +66,7 @@ for (const scope of ['all sites', 'one site'] as const) {
 
       const choosing = several && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
-      await expect(heading(page)).toHaveText(label === 'How to' ? 'Help' : ORG.includes(label) ? 'Organisation' : title);
+      await expect(heading(page)).toHaveText(label === 'How to' ? 'Help' : label === 'Your profile' ? 'You' : ORG.includes(label) ? 'Organisation' : title);
       await expect(page.getByLabel('Site', { exact: true })).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);

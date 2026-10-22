@@ -183,7 +183,7 @@ export function EnrolDialog({ email, onClose }: { email: string; onClose: () => 
 }
 
 /** Shown once. The person must say they have kept them before carrying on. */
-function RecoveryCodes({ codes, email, onDone }: { codes: string[]; email: string; onDone: () => void }) {
+export function RecoveryCodes({ codes, email, onDone }: { codes: string[]; email: string; onDone: () => void }) {
   const [kept, setKept] = useState(false);
   return (
     <div className="modal-backdrop">
