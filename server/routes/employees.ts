@@ -72,7 +72,7 @@ function payChanged(before: Partial<Employee>, after: Partial<Employee>) {
 /** Pay is never set by the person paid, whatever their roles. */
 export function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
   g.allow('pay.edit', e.siteId);
-  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else changes your own pay.');
+  if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else changes your own pay.');
 }
 
 /**
@@ -81,7 +81,7 @@ export function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
  * person it is about is no check at all.
  */
 function notOwnRecord(g: Guard, e: Pick<Employee, 'id'>) {
-  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own staff record.');
+  if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own staff record.');
 }
 
 export function queueUpsert(org: OrgData, e: Employee) {
