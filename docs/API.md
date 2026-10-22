@@ -172,6 +172,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /v1/me` | The key, the person it acts as, and their live permissions |
+| `PATCH /v1/me` | Your own name and job title, for anyone signed in or on their own personal key. Email, roles and the rota link are not changed here; integration keys are refused |
 | `GET /v1/access/catalogue` | Roles, permissions, paired-duty rules |
 | `GET/POST /v1/users`, `GET/PATCH /v1/users/:id` | Directory, invite with first role, edit name, title and rota link |
 | `POST /v1/users/:id/grants`, `PATCH/DELETE /v1/users/:id/grants/:mid` | Grant (422 refused, 409 `needs_confirmation`), change end date, revoke (kept, marked revoked) |

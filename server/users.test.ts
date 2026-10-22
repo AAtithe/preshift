@@ -107,4 +107,33 @@ describe('users and access', () => {
     expect((await call('GET', '/v1/access/health')).body.attention.some((a: { kind: string }) => a.kind === 'review_due')).toBe(false);
     expect((await call('GET', '/v1/me')).body.user.id).toBe('usr_owner');
   });
+  it('lets anyone signed in change their own name and title, and nothing else', async () => {
+    const call = await setup();
+    // A supervisor has no access management, yet keeps their own profile.
+    const grace = await current.as('grace@marylebonegroup.example');
+    const res = await current.call('PATCH', '/v1/me', grace, { name: '  Grace Mensah-Owusu ', jobTitle: 'Senior Supervisor' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: 'usr_sup', name: 'Grace Mensah-Owusu', jobTitle: 'Senior Supervisor', email: 'grace@marylebonegroup.example' });
+    expect((await current.call('GET', '/v1/me', grace)).body.user.name).toBe('Grace Mensah-Owusu');
+    // Email, roles and the rota link are someone else's to change.
+    const ignored = (await current.call('PATCH', '/v1/me', grace, { email: 'new@example.com', employeeId: null, memberships: [] })).body;
+    expect(ignored).toMatchObject({ email: 'grace@marylebonegroup.example', employeeId: 'mar-7' });
+    expect(ignored.memberships).toHaveLength(1);
+    expect((await current.call('PATCH', '/v1/me', grace, { name: '   ' })).status).toBe(400);
+    // Clearing the title is allowed, and every change is on the record.
+    expect((await current.call('PATCH', '/v1/me', grace, { jobTitle: '' })).body.jobTitle).toBeUndefined();
+    const trail = (await call('GET', '/v1/access/audit?userId=usr_sup')).body.filter((e: { action: string }) => e.action === 'user.updated');
+    expect(trail).toHaveLength(2);
+    expect(trail.map((e: { detail: { fields: string[] } }) => e.detail.fields)).toEqual([['jobTitle'], ['name', 'jobTitle']]);
+  });
+
+  it('keeps integration keys and people without a record off the profile route', async () => {
+    const call = await setup();
+    expect((await call('PATCH', '/v1/me', { name: 'Robot' }, 'rota')).status).toBe(403);
+    await current.store.createUser(account('norecord@example.com'));
+    const norecord = await current.as('norecord@example.com');
+    expect((await current.call('PATCH', '/v1/me', norecord, { name: 'Someone' })).body.error).toBe('no_record');
+    // A personal key acts as its person.
+    expect((await call('PATCH', '/v1/me', { jobTitle: 'GM, Marylebone' }, 'gm')).body).toMatchObject({ id: 'usr_gm_mar', jobTitle: 'GM, Marylebone' });
+  });
 });

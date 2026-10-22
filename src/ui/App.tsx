@@ -31,6 +31,7 @@ import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
+import { ProfileView } from './ProfileView';
 import { SettingsView, type Account } from './SettingsView';
 import { SetupView } from './SetupView';
 import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
@@ -166,7 +167,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const canPublish = atAll('rota.publish');
   const offered = (t: NavItem) => !t.offered || t.offered(atAll, allow);
   const nav = NAV.map((g) => ({ ...g, items: g.items.filter(offered) })).filter((g) => g.items.length > 0);
-  const fallback = nav[0]?.items[0]?.id ?? 'settings';
+  const fallback = nav[0]?.items[0]?.id ?? 'profile';
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
   // A site-only section opened across several sites shows the site chooser instead.
@@ -334,7 +335,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
             <>
-              <span className="small">Signed in as {account.email}</span>
+              <button className="link small" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
           )}
@@ -583,6 +584,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {activeTab === 'access' && <AccessView state={state} />}
               {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} />}
+              {activeTab === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
