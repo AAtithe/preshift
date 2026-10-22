@@ -24,7 +24,7 @@ established facts. Treat each as a hypothesis.
 | Forecast-led build | Available, heavy to configure | Available | Limited | Built in, from Preshift's own sales and covers feeds |
 | Ledger integration | Payroll export | Payroll | Payroll export | Labour accrual journal for a 3-day close |
 | Setup | Months, consultancy-led | Weeks | Fast | Done for you by WS and Preshift onboarding |
-| Price point | High | Mid | Mid | Bundled with WS service or Preshift Core |
+| Price point | High | Mid | Mid | £119 per site a month, £99 from the sixth site, never per head; bundled into the WS fee for WS clients |
 
 The wedge is not "better scheduling". Scheduling is a commodity. The wedge is that the rota
 is the first document in the month-end close, and only an accounting firm can make that true.

@@ -31,7 +31,8 @@ locally. Set these to connect to real TeamPay:
 | `PRESHIFT_TRIAL_DAYS` | Free trial for a self sign-up, in days. Defaults to 14 |
 | `STRIPE_SECRET_KEY` | Stripe secret key (`sk_live_...` or `sk_test_...`). Billing is on only when this, the webhook secret and the price are all set |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_...`) of the Stripe webhook pointed at `/v1/integrations/stripe/webhook`, sending `checkout.session.completed`, `customer.subscription.created`, `.updated`, `.deleted`, `invoice.paid` and `invoice.payment_failed` |
-| `STRIPE_PRICE_ID` | The recurring Stripe price, per site per month or year. The subscription's quantity is the organisation's site count |
+| `STRIPE_PRICE_ID` | The monthly Stripe price, graduated per site from `src/engine/pricing.ts`. Make it with `npm run stripe:prices`, which prints the value. The subscription's quantity is the organisation's site count |
+| `STRIPE_PRICE_ID_ANNUAL` | The yearly price made by the same script (two months free). Without it only monthly billing is offered |
 | `PRESHIFT_APP_URL` | Optional. The address Stripe returns people to after Checkout and the customer portal; defaults to the address they came in on |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes), `/internal/webhooks` (every 15 minutes, webhook retries) `/internal/demo-reset` (the demo's midnight reset) and `/internal/digest` (06:35 UTC, the managers' morning email of staff requests) |
 

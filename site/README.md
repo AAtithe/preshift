@@ -23,6 +23,10 @@ The true cost calculator in `main.js` mirrors `employeeWeekCost` in `src/engine/
 When the statutory rates in `src/engine/ukRates.ts` change each April, update the `RATES`
 block in `main.js` and the figures in the page copy to match.
 
+The price calculator in `main.js` mirrors `PRICING` in `src/engine/pricing.ts`, which Stripe and the
+Billing page charge from. Change prices there first; `server/pricing.test.ts` fails until the `PRICING`
+block in `main.js` and the figures in the pricing section's copy match.
+
 To refresh the product screens after the app changes: run `npm run dev`, sign in with the local
 development login it prints, build a full future week from the forecast, and capture each view at
 1440 x 1000 (2x) with the site set to Marylebone and any notices dismissed. Save them to `site/img`

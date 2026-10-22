@@ -40,7 +40,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Staff | Holiday asked for in the app with the balance shown first, other time off (compassionate, dependants, family, unpaid), sickness reported from the phone with the fit note photographed, weekly availability proposed for approval, and one-off days they cannot work. | Requests arrive in writing with the balance and the floor in view, so leave is booked on time and the holiday provision follows it. |
 | GMs | Rota, then Staff requests: every request waiting, each with what it would do now (rules broken, shifts it clashes with, who else is off, holiday left after it). Approve or decline with a note. Open shifts posted to everyone eligible, a sick person's shift put out for cover in one click, and claims given to one person. | Cover is found through the app at the cheapest legal person, and every swap and claim is checked by the same compliance engine as the rota, so a self-service change can never break the Working Time Regulations. |
 | GMs | Each morning, an email to every manager listing what is theirs to decide: sickness to cover, requests waiting (with how long each has waited) and open shifts in the week ahead still unfilled. Only sent when something is waiting, names and dates only, and each person can turn it off on Staff requests. | Requests are decided the day they arrive, not when the GM next opens the screen, so staff trust the app enough to keep using it. |
-| Everyone | CI typechecks and runs the full suite (830 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (842 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -214,7 +214,7 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 830 tests across 78 files (support desk, staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 842 tests across 80 files (support desk, staff requests, swaps, open shifts, notifications and the managers' morning email, engine, pricing, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
@@ -400,12 +400,43 @@ links. The sign-in page then offers "Start a free trial", and the marketing site
    business, with them as its owner, on a free trial (`PRESHIFT_TRIAL_DAYS`, default 14), and they
    land in Set-up. Like any owner, they set up an authenticator before settings and billing open.
 
-Billing is for those organisations alone. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and
-`STRIPE_PRICE_ID` (a recurring price per site), and point a Stripe webhook at
+### Pricing
+
+Published on the marketing site, charged by Stripe and quoted on the Billing page from one source,
+`src/engine/pricing.ts`:
+
+| | Per site a month, before VAT |
+| --- | --- |
+| Sites 1 to 5 | £119 |
+| Sites 6 to 20 | £99 |
+| More than 20 sites | Group plan, agreed with us |
+
+- Per site, everything included, never per member of staff: hospitality hires seasonally and turns
+  staff over fast, and a per-head price charges for the flexibility a rota exists to manage.
+- Graduated: each site is charged at its band's rate, so adding a site never makes the others dearer.
+  Eight sites are 5 x £119 + 3 x £99 = £892 a month.
+- Yearly is ten months' price for twelve. 14 days free, no card, month to month after.
+- Founding operators: 30% off for 24 months, through a Stripe promotion code on the founding coupon.
+- Williams, Stanley & Co. clients: within their WS fee, never billed here.
+- TeamPay bills payroll itself; the rota assistant runs on the customer's own Claude key.
+
+To change a price, edit `src/engine/pricing.ts`, bump its `version`, update the `PRICING` block in
+`site/main.js` and the figures in the page copy (`server/pricing.test.ts` fails until they agree),
+then run `npm run stripe:prices` and set the new price ids. Existing subscribers stay on the price
+they bought until moved.
+
+### Setting up Stripe
+
+`STRIPE_SECRET_KEY=sk_test_... npm run stripe:prices` creates the product, the monthly and yearly
+graduated prices and the founding coupon from `src/engine/pricing.ts` (add `-- --dry-run` to see what
+it would do; run again safely, it reuses what exists). Set `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, and the `STRIPE_PRICE_ID` and `STRIPE_PRICE_ID_ANNUAL` it prints, and point a
+Stripe webhook at
 `/v1/integrations/stripe/webhook` (events listed in `docs/API.md`). Organisation, then Billing:
 
-- Subscribe opens Stripe Checkout for the organisation's own sites (the sample group's never count,
-  minimum one). Trial days left carry over, so paying early costs nothing. Checkout collects the
+- The page quotes the organisation's own sites band by band, with VAT, monthly or yearly. Subscribe
+  opens Stripe Checkout for those sites (the sample group's never count, minimum one; above 20, a
+  group plan instead). Trial days left carry over, so paying early costs nothing. Checkout collects the
   billing address and VAT number, and accepts promotion codes.
 - Manage billing opens Stripe's customer portal: card, VAT invoices, company details, cancelling.
 - When sites are added or closed, one button brings the sites paid for into line; Stripe prorates it.
