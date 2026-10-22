@@ -10,6 +10,7 @@ import { addDays, ageOn, formatMinute, parseClock, weekDates, weekStart } from '
 import type { Absence, AbsenceType, Employee, RotaState, Shift, TimeEntry } from '../engine/types';
 import { minimumWageFor } from '../engine/ukRates';
 import type { ToolDefinition } from './rotaTools';
+import { askable, coverCandidates, MAX_NOTE, notAskedBecause, openingOf } from '../engine/cover';
 
 /**
  * Tools for Shifty (the chat) and the command bar. Lookups read the app's own data. Anything that
@@ -55,6 +56,7 @@ export type Proposal = { id: string; summary: string; details: Detail[]; warning
   | { kind: 'add_shift'; shift: Shift }
   | { kind: 'remove_shift'; shiftId: string }
   | { kind: 'publish_week'; siteIds: string[]; weekStart: string }
+  | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean }
   | { kind: 'draft_rota'; instruction: string }
   | { kind: 'go_to'; screen: Screen }
 );
@@ -191,6 +193,21 @@ export const APP_TOOLS: ToolDefinition[] = [
     name: 'propose_publish',
     description: "Proposes publishing a week's rota to staff phones, for the manager to confirm. Refused while there are blocking issues.",
     input_schema: object({ site_ids: { type: ['array', 'null'], items: { type: 'string' } }, week_start: NULLABLE_STRING }),
+  },
+  {
+    name: 'propose_ask_cover',
+    description:
+      'Proposes asking for cover for one shift by id (from list_shifts), when its person cannot work it, for the manager to confirm. ' +
+      'Preshift asks only the people who could legally work it (trained, free, within availability, rest and hours rules, agreed to ' +
+      'work at the site), cheapest first, by the staff app and the channel each chose. The result says who would be asked and why ' +
+      'others would not. If the person is off sick, propose the absence too with propose_record_absence. The note goes to everyone ' +
+      'asked: use it for what helps them decide (a busy night, an early finish), never for why the person is off.',
+    input_schema: object({
+      shift_id: { type: 'string' },
+      note: { ...NULLABLE_STRING, description: 'Up to 280 characters for the people asked; null for none.' },
+      first_to_accept: { type: ['boolean', 'null'], description: 'True or null: the first to say yes gets it. False: the manager chooses among those who say yes.' },
+      urgent: { type: ['boolean', 'null'], description: 'True sends through quiet hours; for a shift tonight or early tomorrow.' },
+    }),
   },
   {
     name: 'open_rota_assistant',
@@ -592,6 +609,60 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
           warnings: s.published ? ['It has been published, so tell them it has gone.'] : [],
         };
         return { result: { proposed: true, awaiting_confirmation: true }, label: proposal.summary, proposal };
+      }
+
+      case 'propose_ask_cover': {
+        const id = str(input, 'shift_id');
+        const s = ctx.state.shifts.find((x) => x.id === id);
+        if (!s) throw new InputError(`No shift ${id}. Use list_shifts.`);
+        if (hasStarted(s, ctx.now)) throw new InputError('That shift has started, so cover can no longer be asked for it.');
+        const original = ctx.state.employees.find((e) => e.id === s.employeeId);
+        const note = optStr(input, 'note')?.trim() || null;
+        if (note && note.length > MAX_NOTE) throw new InputError(`Keep the note under ${MAX_NOTE} characters.`);
+        // Everyone asked reads the note, so it never says who is off or why.
+        const first = original?.name.split(' ')[0].toLowerCase();
+        if (note && ((first && note.toLowerCase().includes(first)) || /\b(sick\w*|ill|illness|unwell|hospital\w*|covid|injur\w*|bereave\w*|funeral|pregnan\w*|doctor|gp)\b/i.test(note))) {
+          throw new InputError('Keep who is off and why out of the note: everyone asked reads it. Say what helps them decide, such as a busy night.');
+        }
+        const all = coverCandidates(ctx.state, openingOf(s), { shiftId: s.id, exclude: s.employeeId });
+        const asked = all.filter(askable);
+        if (asked.length === 0) {
+          throw new InputError('Nobody trained for this role can legally work that shift. It is a gap to fill by hiring or cross-training, or by changing the shift.');
+        }
+        const notAsked = all.filter((c) => !askable(c));
+        const firstToAccept = input.first_to_accept !== false;
+        const label = `${s.date} ${formatMinute(s.startMinute)} to ${formatMinute(s.endMinute)}, ${roleName(ctx, s.roleId)} at ${siteName(ctx, s.siteId)}`;
+        const names = asked.map((c) => c.employee.name);
+        const proposal: Proposal = {
+          id: proposalId(),
+          kind: 'ask_cover',
+          shiftId: s.id,
+          employeeIds: asked.map((c) => c.employee.id),
+          note,
+          firstToAccept,
+          urgent: input.urgent === true,
+          summary: `Ask for cover for ${original?.name ?? 'this'}'s shift, ${label}`,
+          details: [
+            { label: 'Asks', value: `${asked.length}: ${names.slice(0, 6).join(', ')}${names.length > 6 ? ` and ${names.length - 6} more` : ''}, cheapest first` },
+            { label: 'Who gets it', value: firstToAccept ? 'The first to say yes, re-checked at that moment' : 'You choose among those who say yes' },
+            ...(note ? [{ label: 'Note', value: note }] : []),
+            ...(notAsked.length ? [{ label: 'Not asked', value: `${notAsked.length}, who cannot legally work it or are not trained` }] : []),
+          ],
+          warnings: [
+            ...(s.published ? [] : ['The shift is not published yet, so whoever takes it sees it once the week is published.']),
+            ...(input.urgent === true ? ['Urgent: it reaches people through their quiet hours.'] : []),
+          ],
+        };
+        return {
+          result: {
+            proposed: true,
+            awaiting_confirmation: true,
+            would_ask: asked.map((c) => ({ name: c.employee.name, from_another_site: c.borrowed })),
+            not_asked: notAsked.slice(0, 10).map((c) => ({ name: c.employee.name, why: notAskedBecause(c) })),
+          },
+          label: proposal.summary,
+          proposal,
+        };
       }
 
       case 'propose_publish': {
