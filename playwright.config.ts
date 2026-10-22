@@ -2,7 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Browser checks against the real app. By default they start the API and the web app together, as in
 // npm run dev, and sign in as the local dev user. Set PRESHIFT_E2E_URL to check a deployed site
-// instead, with PRESHIFT_E2E_EMAIL and PRESHIFT_E2E_PASSWORD for an admin account there. The checks
+// instead, with PRESHIFT_E2E_EMAIL and PRESHIFT_E2E_PASSWORD for an admin account there, or
+// PRESHIFT_E2E_DEMO=1 to go in through its public demo, a fresh sandbox per test. The checks
 // only navigate: they never build, clear, publish or save.
 const target = process.env.PRESHIFT_E2E_URL;
 

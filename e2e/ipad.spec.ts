@@ -1,4 +1,5 @@
 import { devices, expect, test, type Page } from '@playwright/test';
+import { NAV } from '../src/ui/nav';
 
 // The rota on an iPad-sized touch screen. Chromium stands in for Safari here, so this catches
 // touch handling we control (hold to lift, swipe to scroll, the tap that opens the picker) but
@@ -8,8 +9,19 @@ const { defaultBrowserType: _browser, ...ipad } = devices['iPad Pro 11 landscape
 test.use({ ...ipad });
 // They share one server's rota for the week, so they take turns.
 test.describe.configure({ mode: 'serial' });
+// They build, move and stretch shifts, so they run against the local server only: checks of a
+// deployed site only navigate.
+test.skip(!!process.env.PRESHIFT_E2E_URL, 'Changes the rota, so local only');
 
-const item = (page: Page, label: string) => page.getByRole('navigation', { name: 'Management' }).getByRole('button', { name: label, exact: true });
+const bar = (page: Page) => page.getByRole('navigation', { name: 'Management' });
+
+/** Opens a section from the bar, unfolding its group first if it is folded away. */
+async function go(page: Page, label: string) {
+  const group = NAV.find((g) => g.items.some((t) => t.label === label))!;
+  const toggle = page.locator(`[data-group="${group.id}"] .nav-toggle`);
+  if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  await bar(page).getByRole('button', { name: label, exact: true }).click();
+}
 
 async function openTimeline(page: Page) {
   await page.goto('/login?next=/app/');
@@ -17,11 +29,11 @@ async function openTimeline(page: Page) {
   await form.locator('input[name=email]').fill('dev@preshift.local');
   await form.locator('input[name=password]').fill('preshift-dev-password');
   await form.getByRole('button', { name: 'Sign in' }).click();
-  await expect(item(page, 'Sites')).toBeVisible();
-  const site = page.getByLabel('Site', { exact: true });
-  const options = await site.locator('option').allTextContents();
-  await site.selectOption({ label: options.find((o) => o === 'Marylebone') ?? options[1] });
-  await item(page, 'Rota').click();
+  await expect(bar(page)).toBeVisible();
+  // Marylebone, from the scope picker in the heading.
+  await page.getByRole('button', { name: 'Site or company' }).click();
+  await page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText('Marylebone', { exact: true }) }).click();
+  await go(page, 'Rota');
   await page.getByRole('tab', { name: 'Service timeline' }).click();
   await expect(page.locator('.tl-lane').first()).toBeVisible();
   // A fresh server may have no rota this week yet: build one from the forecast to work with.

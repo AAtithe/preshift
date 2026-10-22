@@ -110,7 +110,7 @@ async function requireEmailFor(store: Store, org: OrgData, reason: string | null
  * for someone active with no account to reset, a day. Only its hash is kept, and a new link
  * replaces any earlier one. Accounts are reset with the account's own link (issueReset).
  */
-function issueInvite(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
+export function issueInvite(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
   for (const [k, v] of Object.entries(org.inviteTokens)) if (v.userId === user.id) delete org.inviteTokens[k];
   const token = `${org.orgId}.${randomBytes(24).toString('base64url')}`;
   const expiresAt = addDays(now.toISOString().slice(0, 10), kind === 'invite' ? INVITE_DAYS : 1);
@@ -167,9 +167,11 @@ async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, 
  * works elsewhere too: suspending it here must not sign it out of another organisation, and the
  * guard already refuses a suspended person here on every request.
  */
-async function signOutEverywhere(store: Store, email: string) {
+async function signOutEverywhere(store: Store, org: OrgData, email: string) {
   const account = await store.getUser(email);
-  if (account && !sharedAccount(account)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
+  // Only an account that belongs here. A record can name any email, including one that never
+  // accepted the invitation, and suspending it must not sign out a stranger's account elsewhere.
+  if (account && account.orgId === org.orgId && !sharedAccount(account)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
 }
 
 /**
@@ -288,9 +290,10 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
 
 export function userRoutes(app: FastifyInstance, ctx: AppContext) {
   // People are managed by people: a signed-in session or a personal key, never an integration
-  // key, which could otherwise grant itself anything if it leaked.
+  // key, which could otherwise grant itself anything if it leaked. The one exception is a deployment
+  // key WS holds (programme:lead), which appoints the WS client partner and is held to WS roles alone.
   const byPerson = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.principal.userId && !req.principal.email) {
+    if (!req.principal.userId && !req.principal.email && !req.principal.scopes.includes('programme:lead')) {
       return reply.code(403).send({ error: 'forbidden', message: 'Access is managed by people signed in, never by an integration key.' });
     }
   };
@@ -314,6 +317,43 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       permissions: user ? ALL_PERMISSIONS.filter((p) => can(user, p, today())) : ALL_PERMISSIONS,
     };
   });
+
+  // Your own profile, for anyone signed in or on their own personal key. Email is the identity, and
+  // roles, sites and the rota link are set by someone else, so only the name and job title change here.
+  app.patch<{ Body: { name?: string; jobTitle?: string } }>(
+    '/v1/me',
+    {
+      preHandler: byPerson,
+      schema: {
+        tags,
+        description: 'Changes your own name or job title. Email, roles and the rota record you are linked to are changed on the Access tab by someone else.',
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { name: { type: 'string', minLength: 1, maxLength: 120 }, jobTitle: { type: 'string', maxLength: 120 } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const actor = actorOf(req, org, today());
+      if (actor.kind !== 'user') throw new HttpError(409, 'no_record', 'You have no profile in this organisation yet. Ask whoever manages access to add you on the Access tab.');
+      const target = findUser(org, actor.user.id);
+      const name = req.body.name?.trim();
+      if (req.body.name !== undefined && !name) throw new HttpError(400, 'invalid_request', 'Your name cannot be blank');
+      const fields: string[] = [];
+      if (name !== undefined && name !== target.name) {
+        target.name = name;
+        fields.push('name');
+      }
+      if (req.body.jobTitle !== undefined && (req.body.jobTitle.trim() || undefined) !== target.jobTitle) {
+        target.jobTitle = req.body.jobTitle.trim() || undefined;
+        fields.push('jobTitle');
+      }
+      if (fields.length) audit(org, target.name, 'user.updated', { userId: target.id, fields, self: true });
+      return target;
+    },
+  );
 
   app.get('/v1/access/catalogue', { schema: { tags, description: 'Every role, permission and paired-duty rule.' } }, async () => ({
     roles: ROLES,
@@ -492,7 +532,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       const target = findUser(org, req.params.id);
       const out = await accountAction(ctx.store, org, actorOf(req, org, today()), target, action, today(), handOverAsked(req.body));
       // A suspended person's sessions end now, not when they next try something.
-      if (action === 'suspend') await signOutEverywhere(ctx.store, target.email);
+      if (action === 'suspend') await signOutEverywhere(ctx.store, org, target.email);
       return out;
     });
   }
@@ -587,7 +627,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         try {
           const target = findUser(org, id);
           const out: { user: User } & Partial<Delivery> = await accountAction(ctx.store, org, actor, target, req.body.action, today());
-          if (req.body.action === 'suspend') await signOutEverywhere(ctx.store, target.email);
+          if (req.body.action === 'suspend') await signOutEverywhere(ctx.store, org, target.email);
           results.push({ userId: id, ok: true, emailed: out.emailed, inviteUrl: out.inviteUrl });
         } catch (e) {
           results.push({ userId: id, ok: false, error: (e as Error).message });

@@ -28,9 +28,18 @@ const pairParams = {
  * The daily check: plans again any organisation's journeys that are missing or out of date, so the
  * travel check and its cost do not drift as routes change. Times set by hand are kept.
  */
-export async function refreshStaleTravel(store: Store, fetchImpl: Fetch, appKey?: string, today = londonParts(new Date()).date) {
+export async function refreshStaleTravel(
+  store: Store,
+  fetchImpl: Fetch,
+  appKey?: string,
+  today = londonParts(new Date()).date,
+  /** Organisations to leave alone, and a time to stop by so the scheduled run never overruns. */
+  limits: { skip?: (orgId: string) => boolean; deadline?: number } = {},
+) {
   let refreshed = 0;
   for (const orgId of await store.orgIds()) {
+    if (limits.skip?.(orgId)) continue;
+    if (limits.deadline && Date.now() > limits.deadline) break;
     const org = await store.load(orgId);
     if (!travelIsStale(org.state.sites, today)) continue;
     const result = await refreshTravel(org.state.sites, fetchImpl, today, appKey);

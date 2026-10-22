@@ -1,11 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
+import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
-import { toISODate } from '../src/engine/time';
+import { addDays, toISODate } from '../src/engine/time';
+import type { MoveRecord } from '../src/engine/coach';
+import type { Programme } from '../src/engine/programme';
+import type { EventFeed } from './integrations/feeds';
+import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import { isSandbox, SANDBOX_PREFIX } from './sandbox';
+import type { EposConnection } from './integrations/epos/provider';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -75,6 +82,7 @@ export interface MailRecord {
   to: string;
   kind: MailKind;
   userId?: string;
+  employeeId?: string;
   sentAt: string;
   /** Who sent it: a person's name, or the sign-in page for "Forgot your password?". */
   by: string;
@@ -91,6 +99,19 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  /** Every weekly move offered to a GM, and whether it was taken. */
+  moves: MoveRecord[];
+  /** When each site's week was published, for measuring notice. */
+  publications: Publication[];
+  /** The labour programme each site is on, if any. */
+  programmes: Programme[];
+  settings: OrgSettings;
+  /** Where each site's local events come from. */
+  eventFeeds: EventFeed[];
+  /** Reminders someone has dealt with or set aside, so they stop showing. */
+  reminderStates: ReminderState[];
+  /** The London date weather and events were last fetched for this organisation by the daily run. */
+  lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
   /** Events waiting to reach, or recently sent to, those systems. */
@@ -107,10 +128,40 @@ export interface OrgData {
   mail: Record<string, MailRecord>;
   /** Personnel file entries: training, reviews, cases, documents and notes. Served only to HR scopes. */
   hrRecords: HrRecord[];
+  /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
+  payChanges: PayChange[];
+  /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
+  staffLoginLog: StaffLoginEvent[];
+  /** Sign-offs of staff logins closed and opened again. Never removed. */
+  loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  /** The till the organisation has connected, if any. Its access token lives in the settings store. */
+  epos?: EposConnection;
+  /**
+   * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
+   * it after that; the row is kept, with its audit trail, rather than deleted.
+   */
+  closed?: { at: string; by: string };
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
+}
+
+export interface ReminderState {
+  key: string;
+  siteId: string;
+  status: 'done' | 'dismissed';
+  at: string;
+  by: string;
+  note?: string;
+}
+
+export interface OrgSettings {
+  /**
+   * Shares this organisation's site figures, anonymised, with other operators who also share, and
+   * in return sees the cohort's. Off until an admin turns it on: give to get.
+   */
+  benchmarking?: boolean;
 }
 
 export type UserRole = 'admin' | 'member';
@@ -165,7 +216,10 @@ export interface UserStore {
   getUser(email: string): Promise<UserRecord | null>;
   listUsers(orgId: string): Promise<UserRecord[]>;
   hasUsers(): Promise<boolean>;
-  /** Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists. */
+  /**
+   * Adds the person; false if the email is taken. With onlyIfFirst, also false once anyone exists.
+   * Demo visitors never count as anyone, here or in hasUsers, so the demo cannot block owner setup.
+   */
   createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
   updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
   deleteUser(email: string): Promise<void>;
@@ -227,16 +281,50 @@ export interface ApiKeyRecord {
   endsWith: string;
   createdAt: string;
   createdBy: string;
+  /** The person who made it: what they may not do for themselves, the key may not do for them. */
+  createdById?: string;
   lastUsedAt?: string;
+  /**
+   * Set when revoked. A revoked key is kept, never deleted, so a later attempt to use it is still
+   * recognised, refused and logged against it: the evidence a breach investigation needs.
+   */
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
+/** One request made with an API key. Kept 13 months for breach investigation. */
+export interface ApiCall {
+  orgId: string;
+  /** The app key's id, or `env:<name>` for a key set by deployment. */
+  keyId: string;
+  at: string;
+  method: string;
+  /** Path and query as sent. */
+  path: string;
+  status: number;
+  ip: string;
+  ms: number;
+  /** Set when the key was refused before reaching any data: revoked or rate limited. */
+  refused?: 'revoked' | 'rate_limited';
 }
 
 export interface ApiKeyStore {
   getApiKeyByHash(hash: string): Promise<ApiKeyRecord | null>;
+  /** Every key the organisation has made, revoked ones included. */
   listApiKeys(orgId: string): Promise<ApiKeyRecord[]>;
   /** Creates or replaces, by hash. */
   putApiKey(key: ApiKeyRecord): Promise<void>;
-  deleteApiKey(orgId: string, id: string): Promise<boolean>;
+  /** Marks the key revoked; false if it is unknown or already revoked. */
+  revokeApiKey(orgId: string, id: string, by: string): Promise<boolean>;
+  logApiCall(call: ApiCall): Promise<void>;
+  /** Newest first. */
+  listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }): Promise<ApiCall[]>;
+  /** Removes calls made before the given time; returns how many. */
+  purgeApiCalls(before: string): Promise<number>;
 }
+
+/** How long API call records are kept: the partner's 12 months, plus a month to report on them. */
+export const API_CALL_RETENTION_DAYS = 396;
 
 export interface StaffStore {
   getStaffLogin(orgId: string, employeeId: string): Promise<StaffLogin | null>;
@@ -294,11 +382,37 @@ export interface Store extends UserStore, StaffStore, ApiKeyStore, DocumentStore
   todayISO(): string;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
-  /** Removes the organisation's data for good. Used only to clear away expired demo sandboxes. */
-  deleteOrg(orgId: string): Promise<void>;
+  /** The demo sandboxes only, never a customer organisation. */
+  sandboxIds(): Promise<string[]>;
+  /**
+   * Deletes a demo sandbox for good: its data, its visitor account, staff logins, documents and API keys. Refuses
+   * anything that is not a sandbox id, in code and again in the database statement itself, so no
+   * fault in the caller can delete a customer.
+   */
+  deleteSandbox(orgId: string): Promise<void>;
+}
+
+function assertSandbox(orgId: string) {
+  if (!isSandbox(orgId)) throw new Error(`Refusing to delete ${orgId}: only demo sandboxes can be deleted`);
 }
 
 const newSecret = () => randomBytes(32).toString('hex');
+
+/** One rise waiting for finance in the demo, so the approvals screen has something on it. */
+function seedPayChanges(today: string): PayChange[] {
+  return [{
+    id: 'pay_demo1',
+    employeeId: 'mar-5',
+    siteId: 'mar',
+    before: { payBasis: 'hourly', hourlyRate: 12.71, annualSalary: 0 },
+    after: { payBasis: 'hourly', hourlyRate: 13.25, annualSalary: 0 },
+    reason: 'Six months in, signed off on the pass and covering prep. Brings him level with the other KPs on 30 hours.',
+    status: 'pending',
+    requestedBy: 'Kate Morgan',
+    requestedById: 'usr_people',
+    requestedAt: `${addDays(today, -2)}T10:15:00.000Z`,
+  }];
+}
 
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   // The demo's fictional people never go into a deployment: there they would sit on the real Access tab
@@ -308,13 +422,21 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   return {
     orgId,
     // A copy each: the seed's objects are shared, and one organisation's change must not show in another's.
-    state: seeded ? structuredClone(seedState(today)) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
+    state: seeded
+      ? structuredClone(seedState(today))
+      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [], schoolHolidays: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
     outbox: [],
     processedWebhookIds: new Set(),
     audit: [],
+    moves: [],
+    publications: [],
+    programmes: [],
+    settings: {},
+    eventFeeds: [],
+    reminderStates: [],
     users: people.users,
     accessReviews: people.reviews,
     inviteTokens: {},
@@ -322,6 +444,9 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     mail: {},
     authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
+    payChanges: seeded ? seedPayChanges(today ?? toISODate(new Date())) : [],
+    staffLoginLog: [],
+    loginReviews: [],
   };
 }
 
@@ -342,7 +467,20 @@ export function upgradeState(state: RotaState): RotaState {
     entityId: e.entityId || sites.find((s) => s.id === e.siteId)?.entityId || fallback,
     coverSiteIds: e.coverSiteIds ?? [],
   }));
-  return { ...state, entities, sites, employees, sales: state.sales ?? [] };
+  return {
+    ...state,
+    entities,
+    sites,
+    employees,
+    sales: state.sales ?? [],
+    actuals: state.actuals ?? [],
+    forecastAdjustments: state.forecastAdjustments ?? [],
+    weather: state.weather ?? [],
+    localEvents: state.localEvents ?? [],
+    bookings: state.bookings ?? [],
+    bookingPace: state.bookingPace ?? [],
+    schoolHolidays: state.schoolHolidays ?? [],
+  };
 }
 
 export class MemoryStore implements Store {
@@ -377,8 +515,18 @@ export class MemoryStore implements Store {
     return [...this.orgs.keys()];
   }
 
-  async deleteOrg(orgId: string) {
+  async sandboxIds() {
+    return [...this.orgs.keys()].filter(isSandbox);
+  }
+
+  async deleteSandbox(orgId: string) {
+    assertSandbox(orgId);
     this.orgs.delete(orgId);
+    for (const [email, user] of this.users) if (user.orgId === orgId) this.users.delete(email);
+    for (const [key, login] of this.staff) if (login.orgId === orgId) this.staff.delete(key);
+    for (const key of this.documents.keys()) if (key.startsWith(`${orgId}/`)) this.documents.delete(key);
+    for (let i = this.documentAccess.length - 1; i >= 0; i--) if (this.documentAccess[i].orgId === orgId) this.documentAccess.splice(i, 1);
+    for (const [hash, key] of this.apiKeys) if (key.orgId === orgId) this.apiKeys.delete(hash);
   }
 
   async sessionSecret() {
@@ -395,11 +543,11 @@ export class MemoryStore implements Store {
   }
 
   async hasUsers() {
-    return this.users.size > 0;
+    return [...this.users.values()].some((u) => !isSandbox(u.orgId));
   }
 
   async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
-    if (this.users.has(user.email) || (options.onlyIfFirst && this.users.size > 0)) return false;
+    if (this.users.has(user.email) || (options.onlyIfFirst && (await this.hasUsers()))) return false;
     this.users.set(user.email, { ...user });
     return true;
   }
@@ -469,10 +617,33 @@ export class MemoryStore implements Store {
     this.apiKeys.set(key.hash, { ...key });
   }
 
-  async deleteApiKey(orgId: string, id: string) {
-    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id);
-    if (found) this.apiKeys.delete(found.hash);
+  async revokeApiKey(orgId: string, id: string, by: string) {
+    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id && !k.revokedAt);
+    if (found) this.apiKeys.set(found.hash, { ...found, revokedAt: new Date().toISOString(), revokedBy: by });
     return !!found;
+  }
+
+  private apiCalls: ApiCall[] = [];
+
+  async logApiCall(call: ApiCall) {
+    this.apiCalls.push({ ...call });
+    // Memory is for development and tests; keep it bounded.
+    if (this.apiCalls.length > 100_000) this.apiCalls.splice(0, this.apiCalls.length - 100_000);
+  }
+
+  async listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }) {
+    return this.apiCalls
+      .filter((c) => c.orgId === orgId && c.keyId === keyId && (!options.from || c.at >= options.from) && (!options.to || c.at < options.to))
+      .reverse()
+      .slice(0, options.limit)
+      .map((c) => ({ ...c }));
+  }
+
+  async purgeApiCalls(before: string) {
+    const kept = this.apiCalls.filter((c) => c.at >= before);
+    const removed = this.apiCalls.length - kept.length;
+    this.apiCalls = kept;
+    return removed;
   }
 
   private readonly documents = new Map<string, StoredFile>();
@@ -595,6 +766,18 @@ export class PgStore implements Store {
         [],
       );
       await this.query('create index if not exists api_keys_org_idx on preshift.api_keys (org_id)', []);
+      await this.query(
+        `create table if not exists preshift.api_calls (
+           seq bigserial primary key,
+           org_id text not null,
+           key_id text not null,
+           at timestamptz not null,
+           data jsonb not null
+         )`,
+        [],
+      );
+      await this.query('create index if not exists api_calls_key_idx on preshift.api_calls (org_id, key_id, at)', []);
+      await this.query('create index if not exists api_calls_at_idx on preshift.api_calls (at)', []);
       // Base64 text rather than bytea: Neon's HTTP driver and PGlite pass strings identically.
       await this.query(
         `create table if not exists preshift.documents (
@@ -677,9 +860,23 @@ export class PgStore implements Store {
     return rows.map((r) => String(r.org_id));
   }
 
-  async deleteOrg(orgId: string) {
+  async sandboxIds() {
     await this.init();
-    await this.query('delete from preshift.orgs where org_id = $1', [orgId]);
+    const rows = await this.query(`select org_id from preshift.orgs where org_id like '${SANDBOX_PREFIX}%'`, []);
+    return rows.map((r) => String(r.org_id));
+  }
+
+  async deleteSandbox(orgId: string) {
+    assertSandbox(orgId);
+    await this.init();
+    // The prefix is repeated in each statement: even a wrong id from the caller cannot reach a customer row.
+    const only = `and org_id like '${SANDBOX_PREFIX}%'`;
+    await this.query(`delete from preshift.api_keys where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.document_access where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.documents where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.staff_logins where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.users where org_id = $1 ${only}`, [orgId]);
+    await this.query(`delete from preshift.orgs where org_id = $1 ${only}`, [orgId]);
   }
 
   private secretCache: string | null = null;
@@ -712,7 +909,7 @@ export class PgStore implements Store {
 
   async hasUsers() {
     await this.init();
-    return (await this.query('select 1 from preshift.users limit 1', [])).length > 0;
+    return (await this.query(`select 1 from preshift.users where org_id not like '${SANDBOX_PREFIX}%' limit 1`, [])).length > 0;
   }
 
   async createUser(user: UserRecord, options: { onlyIfFirst?: boolean } = {}) {
@@ -720,7 +917,7 @@ export class PgStore implements Store {
     // One statement, so two people racing to create the first account cannot both succeed.
     const rows = await this.query(
       `insert into preshift.users (email, org_id, data)
-       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users)
+       select $1, $2, $3 where not $4 or not exists (select 1 from preshift.users where org_id not like '${SANDBOX_PREFIX}%')
        on conflict do nothing returning email`,
       [user.email, user.orgId, JSON.stringify(user), Boolean(options.onlyIfFirst)],
     );
@@ -820,10 +1017,42 @@ export class PgStore implements Store {
     );
   }
 
-  async deleteApiKey(orgId: string, id: string) {
+  async revokeApiKey(orgId: string, id: string, by: string) {
     await this.init();
-    const rows = await this.query('delete from preshift.api_keys where org_id = $1 and id = $2 returning id', [orgId, id]);
+    // One statement, so two people revoking at once both see the key revoked and only one records it.
+    const rows = await this.query(
+      `update preshift.api_keys set data = data || jsonb_build_object('revokedAt', $3::text, 'revokedBy', $4::text)
+       where org_id = $1 and id = $2 and not (data ? 'revokedAt') returning id`,
+      [orgId, id, new Date().toISOString(), by],
+    );
     return rows.length > 0;
+  }
+
+  async logApiCall(call: ApiCall) {
+    await this.init();
+    await this.query('insert into preshift.api_calls (org_id, key_id, at, data) values ($1, $2, $3, $4)', [
+      call.orgId,
+      call.keyId,
+      call.at,
+      JSON.stringify(call),
+    ]);
+  }
+
+  async listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }) {
+    await this.init();
+    const rows = await this.query(
+      `select data from preshift.api_calls
+       where org_id = $1 and key_id = $2 and ($3::timestamptz is null or at >= $3) and ($4::timestamptz is null or at < $4)
+       order by at desc, seq desc limit $5`,
+      [orgId, keyId, options.from ?? null, options.to ?? null, options.limit],
+    );
+    return rows.map((r) => jsonFrom<ApiCall>(r.data));
+  }
+
+  async purgeApiCalls(before: string) {
+    await this.init();
+    const rows = await this.query('with gone as (delete from preshift.api_calls where at < $1 returning 1) select count(*)::int as n from gone', [before]);
+    return Number(rows[0].n);
   }
 
   async putDocument(orgId: string, id: string, file: StoredFile) {
@@ -922,6 +1151,10 @@ function deserialise(data: unknown, version: number): OrgData {
   return {
     ...raw,
     hrRecords: raw.hrRecords ?? [],
+    payChanges: raw.payChanges ?? [],
+    // Organisations saved before the staff login review began their log empty.
+    staffLoginLog: raw.staffLoginLog ?? [],
+    loginReviews: raw.loginReviews ?? [],
     state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],
@@ -930,6 +1163,13 @@ function deserialise(data: unknown, version: number): OrgData {
     mail: raw.mail ?? {},
     authenticators: raw.authenticators ?? {},
     processedWebhookIds: new Set(raw.processedWebhookIds),
+    // Organisations saved before coaching and the programme existed.
+    moves: raw.moves ?? [],
+    publications: raw.publications ?? [],
+    programmes: raw.programmes ?? [],
+    settings: raw.settings ?? {},
+    eventFeeds: raw.eventFeeds ?? [],
+    reminderStates: raw.reminderStates ?? [],
     version,
   };
 }

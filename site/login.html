@@ -40,6 +40,11 @@
       .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
       .foot.intro { margin: -6px 0 16px; }
       .foot a, .linkish { color: var(--accent); }
+      .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 18px 0 10px; }
+      .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+      .button-secondary { display: block; text-align: center; text-decoration: none; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); background: transparent; }
+      .button-secondary:hover, .button-secondary:focus-visible { background: var(--good-bg); }
+      .button-secondary + .button-secondary { margin-top: 8px; }
       [hidden] { display: none; }
     </style>
   </head>
@@ -62,7 +67,12 @@
       <p class="msg bad" id="badlink" role="alert" hidden>This link is not valid, or has been used. Ask for a new one.</p>
       <p class="msg bad" id="expired" role="alert" hidden>This link has expired. Ask for a new one.</p>
       <p class="msg bad" id="elsewhere" role="alert" hidden>That email already has a Preshift account. Open the link again and sign in with its password.</p>
+      <p class="msg bad" id="registered" role="alert" hidden>That email already has a Preshift account. Sign in with it instead.</p>
+      <p class="msg bad" id="details" role="alert" hidden>Give your business name and your own name.</p>
+      <p class="msg bad" id="busy" role="alert" hidden>Too many sign-ups just now. Try again tomorrow, or email hello@preshift.co.uk.</p>
+      <p class="msg bad" id="nosignup" role="alert" hidden>Sign-up is not open on this system. Email hello@preshift.co.uk to get started.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
+      <p class="msg ok" id="signupsent" role="status" hidden>Check your email. We have sent a link to confirm it is yours; it works once and expires in 24 hours. Nothing after a few minutes? Check spam.</p>
       <p class="msg ok" id="sent" role="status" hidden>If that email has an account, a reset link is on its way. It works once and expires in 30 minutes. Nothing after a few minutes? Check spam, or ask whoever manages access in your organisation to reset it.</p>
 
       <section id="signin">
@@ -73,8 +83,36 @@
           <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
           <button type="submit">Sign in</button>
         </form>
+        <div id="newcomer" hidden>
+          <p class="or"><span>Not a customer yet?</span></p>
+          <a class="button-secondary" href="#start" id="signup-link" hidden>Start a free trial</a>
+          <a class="button-secondary" href="/demo" id="demo-link" hidden>Try the live demo</a>
+        </div>
         <p class="foot"><a href="#forgot" id="forgot-link">Forgot your password?</a></p>
         <p class="foot">Access is set up by whoever manages access in your organisation. They send you a link to set your password.</p>
+      </section>
+
+      <section id="start" hidden>
+        <h1>Start your free trial</h1>
+        <p class="foot intro">No card needed. We email you a link to confirm your address, then you choose a password and set up your sites.</p>
+        <form method="post" action="/auth/signup">
+          <label>Business name <input name="business" autocomplete="organization" maxlength="120" required /></label>
+          <label>Your name <input name="name" autocomplete="name" maxlength="120" required /></label>
+          <label>Your work email <input type="email" name="email" autocomplete="email" required /></label>
+          <button type="submit">Email me a link</button>
+        </form>
+        <p class="foot">Already have an account? <a href="/login">Sign in</a></p>
+      </section>
+
+      <section id="confirm" hidden>
+        <h1 id="confirm-title">Choose your password</h1>
+        <p class="foot intro" id="confirm-who">Choose a password only you know.</p>
+        <form method="post" action="/auth/signup/complete">
+          <input type="hidden" name="token" />
+          <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit">Start my trial</button>
+        </form>
       </section>
 
       <section id="setpassword" hidden>
@@ -129,18 +167,45 @@
         for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
       }
       // A message shows when the server names it as the error; "signed out" and "sent" are bare flags.
-      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'suspended', 'badlink', 'expired', 'elsewhere']) {
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'suspended', 'badlink', 'expired', 'elsewhere', 'registered', 'details', 'busy', 'nosignup']) {
         if (params.get('error') === id) document.getElementById(id).hidden = false;
       }
-      for (const id of ['signedout', 'sent']) if (params.has(id)) document.getElementById(id).hidden = false;
+      for (const id of ['signedout', 'sent', 'signupsent']) if (params.has(id)) document.getElementById(id).hidden = false;
       const show = (id) => {
-        for (const section of ['signin', 'forgot', 'reset', 'setpassword']) document.getElementById(section).hidden = section !== id;
+        for (const section of ['signin', 'forgot', 'reset', 'setpassword', 'start', 'confirm']) document.getElementById(section).hidden = section !== id;
         document.querySelector(`#${id} input:not([type=hidden])`)?.focus();
       };
       document.getElementById('forgot-link').addEventListener('click', (e) => {
         e.preventDefault();
         show('forgot');
       });
+      document.getElementById('signup-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        show('start');
+      });
+      // The marketing site links straight to the trial form; a form sent back with a problem reopens it.
+      const wantsSignup = location.hash === '#start' || params.get('signup') === '1';
+      if (wantsSignup) show('start');
+
+      // A sign-up link: the email is proved, so the person chooses their password and their
+      // organisation is made. The token is after # for the same reason as a reset.
+      const signupToken = location.hash.startsWith('#signup=') ? decodeURIComponent(location.hash.slice(8)) : null;
+      if (signupToken) {
+        history.replaceState(null, '', '/login' + location.search);
+        show('confirm');
+        document.querySelector('#confirm input[name=token]').value = signupToken;
+        fetch('/auth/signup/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: signupToken }) })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((who) => {
+            document.getElementById('confirm-title').textContent = 'Welcome, ' + who.name;
+            document.getElementById('confirm-who').textContent =
+              'Your email ' + who.email + ' is confirmed. Choose a password only you know to open ' + who.business + ' on Preshift.';
+          })
+          .catch(() => {
+            show('signin');
+            if (!params.get('error')) document.getElementById('badlink').hidden = false;
+          });
+      }
 
       // A reset link carries its token after #, which never reaches a server. Take it out of the
       // address bar straight away so it is not left in history or shared by accident.
@@ -213,7 +278,14 @@
       fetch('/auth/status')
         .then((r) => (r.ok ? r.json() : null))
         .then((status) => {
-          if (!status?.setupNeeded || resetToken || inviteToken) return;
+          if (status?.demoAvailable) document.getElementById('demo-link').hidden = false;
+          if (status?.signupAvailable) document.getElementById('signup-link').hidden = false;
+          if (status?.demoAvailable || status?.signupAvailable) document.getElementById('newcomer').hidden = false;
+          if (wantsSignup && !status?.signupAvailable) {
+            show('signin');
+            if (!params.get('error')) document.getElementById('nosignup').hidden = false;
+          }
+          if (!status?.setupNeeded || resetToken || inviteToken || signupToken) return;
           document.getElementById('signin').hidden = true;
           document.getElementById('setup').hidden = false;
           document.querySelector('#setup input[name=email]').focus();

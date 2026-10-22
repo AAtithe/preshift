@@ -1,8 +1,9 @@
-import type { Employee, RestOverride, RotaState, Shift, Site } from './types';
+import type { Employee, RestOverride, RotaState, SchoolPeriod, Shift, Site } from './types';
+import { isSchoolDay } from './school';
 import { employeeWeekCost, shiftPaidMinutes, shiftsInWeek } from './cost';
-import { employedShare, isEmployedOn } from './employees';
+import { employedShare, isEmployedOn, ruleAge } from './employees';
 import { isAbsentOn } from './hr';
-import { absoluteMinute, ageOn, addDays, weekDates, weekday } from './time';
+import { absoluteMinute, addDays, ageOn, weekDates, weekday } from './time';
 import { travelIssues, travelMinutesInto } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
@@ -32,6 +33,74 @@ export function requiredBreakMinutes(shiftMinutes: number, age: number): number 
   return shiftMinutes > 6 * H ? 20 : 0;
 }
 
+export type Nation = NonNullable<Site['nation']>;
+
+/** The last Friday of June in a year. */
+function lastFridayOfJune(year: number): string {
+  const d = `${year}-06-30`;
+  return addDays(d, -((weekday(d) - 4 + 7) % 7));
+}
+
+/**
+ * The last day someone is of compulsory school age, from gov.uk "Know when
+ * you can leave school". England and Wales: the last Friday in June if they
+ * will be 16 by the end of the summer holidays (taken as 31 August), otherwise
+ * the year after. Scotland: 31 May if they turn 16 between March and
+ * September, otherwise the start of the Christmas holidays (taken as 20
+ * December). Northern Ireland: 30 June if they turn 16 by 1 July, otherwise
+ * the year after.
+ */
+export function schoolLeavingDate(dateOfBirth: string, nation: Nation = 'england'): string {
+  const year = Number(dateOfBirth.slice(0, 4)) + 16;
+  const sixteenth = `${year}${dateOfBirth.slice(4)}`;
+  const md = dateOfBirth.slice(5);
+  if (nation === 'scotland') {
+    if (md >= '03-01' && md <= '09-30') return `${year}-05-31`;
+    return md >= '10-01' ? `${year}-12-20` : `${year - 1}-12-20`;
+  }
+  if (nation === 'northern_ireland') return md <= '07-01' ? `${year}-06-30` : `${year + 1}-06-30`;
+  return sixteenth <= `${year}-08-31` ? lastFridayOfJune(year) : lastFridayOfJune(year + 1);
+}
+
+/** Still of compulsory school age on this date, so the child employment rules apply rather than the young worker ones. */
+export const isChildOn = (employee: Pick<Employee, 'dateOfBirth'>, date: string, nation: Nation = 'england') =>
+  // No date of birth (withheld from this reader as an adult's, or not yet entered) is never read as a child.
+  Boolean(employee.dateOfBirth) && date <= schoolLeavingDate(employee.dateOfBirth, nation);
+
+/** The break a shift needs for this person on this date: a child needs an hour once a shift passes four hours. */
+export function breakFor(employee: Pick<Employee, 'dateOfBirth' | 'personalHidden' | 'under18'>, date: string, shiftMinutes: number, nation: Nation = 'england'): number {
+  if (isChildOn(employee, date, nation)) return shiftMinutes > 4 * H ? 60 : 0;
+  return requiredBreakMinutes(shiftMinutes, ruleAge(employee, date));
+}
+
+export interface ComplianceOptions {
+  /** The person's home site's confirmed school holidays. Estimates are never used here: until the council's dates are in, it is term time. */
+  schoolHolidays?: SchoolPeriod[];
+  nation?: Nation;
+  /** Roles in the bar department, for the school-age bar warning. */
+  barRoleIds?: string[];
+  /** Sites, so travel between them counts as working time; without them it is left out. */
+  sites?: Site[];
+}
+
+/**
+ * What the checks need to know about a person. School holidays are their home
+ * site's: a child's school follows where they live, and the home site is the
+ * best stand-in for that, wherever they cover.
+ */
+export function complianceOptions(state: Pick<RotaState, 'sites' | 'schoolHolidays'> & Partial<Pick<RotaState, 'roles'>>, employee: Pick<Employee, 'siteId'>): ComplianceOptions {
+  return {
+    barRoleIds: (state.roles ?? []).filter((r) => r.department === 'BAR').map((r) => r.id),
+    schoolHolidays: (state.schoolHolidays ?? []).filter((p) => p.siteId === employee.siteId),
+    nation: state.sites.find((s) => s.id === employee.siteId)?.nation ?? 'england',
+    sites: state.sites,
+  };
+}
+
+/** School hours on a school day; no child may work in them. */
+const SCHOOL_FROM = 8 * H + 30;
+const SCHOOL_TO = 15 * H + 30;
+
 function overlaps(a: Shift, b: Shift, anchor: string) {
   const a0 = absoluteMinute(anchor, a.date, a.startMinute);
   const a1 = absoluteMinute(anchor, a.date, a.endMinute);
@@ -59,8 +128,7 @@ export function checkEmployeeWeek(
   context: Shift[],
   overrides: RestOverride[] = [],
   rates: UkRates = UK_RATES_2026_27,
-  /** Sites, so travel between them counts as working time; without them it is left out. */
-  sites: Site[] = [],
+  options: ComplianceOptions = {},
 ): Issue[] {
   const issues: Issue[] = [];
   const dates = weekDates(weekStartDate);
@@ -75,9 +143,18 @@ export function checkEmployeeWeek(
   const week = mine.filter((s) => inWeek.has(s.date));
   // Someone not on the books this week, and not rostered, has nothing to check.
   if (week.length === 0 && !dates.some((d) => isEmployedOn(employee, d))) return [];
-  const age = ageOn(employee.dateOfBirth, weekStartDate);
+  const age = ruleAge(employee, weekStartDate);
   const young = age < 18;
   const push = (i: Omit<Issue, 'employeeId'>) => issues.push({ employeeId: employee.id, ...i });
+  const nation = options.nation ?? 'england';
+  const confirmed = options.schoolHolidays ?? [];
+  const child = (date: string) => isChildOn(employee, date, nation);
+  // Anyone of school age this week is held to the child rules, which are stricter than the young worker ones they replace.
+  const childWeek = week.some((s) => child(s.date));
+  // Daily limits are per day, not per shift: two short shifts on one day count together, and the one that tips it over is flagged.
+  const paidSoFar = new Map<string, number>();
+  const beforeSchoolSoFar = new Map<string, number>();
+  const barRoles = new Set(options.barRoleIds ?? []);
   // A rest breach a manager has overridden still shows, as a warning carrying who and why.
   const pushRest = (i: Omit<Issue, 'employeeId' | 'overrideKey'>, key: string) => {
     const o = overrides.find((x) => x.employeeId === employee.id && x.key === key);
@@ -97,13 +174,13 @@ export function checkEmployeeWeek(
 
     if (length <= 0) push({ ...base, code: 'invalid-time', severity: 'block', message: 'Shift ends before it starts.' });
 
-    const needed = requiredBreakMinutes(length, age);
+    const needed = child(shift.date) ? (length > 4 * H ? 60 : 0) : requiredBreakMinutes(length, age);
     if (shift.breakMinutes < needed) {
       push({
         ...base,
         code: 'break',
         severity: 'block',
-        message: `${(length / H).toFixed(1)}h shift needs a ${needed} minute break${young ? ' (under 18)' : ''}.`,
+        message: `${(length / H).toFixed(1)}h shift needs a ${needed} minute break${child(shift.date) ? ' (school age: an hour after four hours)' : young ? ' (under 18)' : ''}.`,
       });
     }
     if (!isEmployedOn(employee, shift.date)) {
@@ -129,9 +206,9 @@ export function checkEmployeeWeek(
       push({ ...base, code: 'not-trained', severity: 'warn', message: 'Not signed off for this role.' });
     }
     if (employee.payBasis === 'hourly') {
-      const band = minimumWageFor(ageOn(employee.dateOfBirth, shift.date), rates);
-      // Withheld pay reads as nought; the API, which holds the real rate, makes this check for that reader.
-      if (band && !employee.payHidden && employee.hourlyRate < band.hourly) {
+      const band = minimumWageFor(ruleAge(employee, shift.date), rates);
+      // Withheld pay or age reads as nought or a guess; the API, which holds both, makes this check for that reader.
+      if (band && !employee.payHidden && !employee.personalHidden && employee.hourlyRate < band.hourly) {
         push({
           ...base,
           code: 'minimum-wage',
@@ -140,8 +217,38 @@ export function checkEmployeeWeek(
         });
       }
     }
-    if (young) {
-      if (length - shift.breakMinutes > 8 * H) {
+    const dayPaid = (paidSoFar.get(shift.date) ?? 0) + Math.max(0, length - shift.breakMinutes);
+    paidSoFar.set(shift.date, dayPaid);
+    if (child(shift.date)) {
+      const childAge = ageOn(employee.dateOfBirth, shift.date);
+      const paid = dayPaid;
+      const day = weekday(shift.date);
+      const schoolDay = isSchoolDay(shift.date, confirmed);
+      const longDay = childAge <= 14 ? 5 * H : 8 * H;
+      const cap = day === 6 || schoolDay ? 2 * H : longDay;
+      const capLabel = day === 6 ? 'on a Sunday' : schoolDay ? 'on a school day' : day === 5 ? 'on a Saturday' : 'in the school holidays';
+      if (childAge < 13) {
+        push({ ...base, code: 'child-age', severity: 'block', message: 'Children under 13 cannot be employed (13 only where local byelaws allow).' });
+      }
+      if (shift.startMinute < 7 * H || shift.endMinute > 19 * H) {
+        push({ ...base, code: 'child-time', severity: 'block', message: 'School age: no work before 07:00 or after 19:00.' });
+      }
+      if (paid > cap) {
+        push({ ...base, code: 'child-daily', severity: 'block', message: `School age: at most ${cap / H} hours ${capLabel} (${(paid / H).toFixed(1)}h rostered).` });
+      }
+      if (schoolDay && shift.startMinute < SCHOOL_TO && shift.endMinute > SCHOOL_FROM) {
+        push({ ...base, code: 'child-school-hours', severity: 'block', message: 'School age: no work during school hours on a school day. If it is a holiday there, add the council\'s dates for the site.' });
+      }
+      const before = (beforeSchoolSoFar.get(shift.date) ?? 0) + (schoolDay && shift.endMinute <= SCHOOL_FROM ? length : 0);
+      beforeSchoolSoFar.set(shift.date, before);
+      if (schoolDay && shift.endMinute <= SCHOOL_FROM && before > H) {
+        push({ ...base, code: 'child-before-school', severity: 'block', message: 'School age: no more than one hour before school.' });
+      }
+      if (barRoles.has(shift.roleId)) {
+        push({ ...base, code: 'child-bar', severity: 'warn', message: 'School age: check local byelaws and licensing before rostering behind a bar.' });
+      }
+    } else if (young) {
+      if (dayPaid > 8 * H) {
         push({ ...base, code: 'young-daily', severity: 'block', message: 'Under 18s cannot work more than 8 hours a day.' });
       }
       // Hospitality may roster under 18s until midnight in limited cases; flag rather than block.
@@ -189,10 +296,19 @@ export function checkEmployeeWeek(
 
   // Travel between sites within the day is working time for everyone, salaried staff included,
   // so it counts towards the weekly limits even where it does not change pay.
-  const travelMinutes = [...travelMinutesInto(mine, sites)].filter(([id]) => week.some((s) => s.id === id)).reduce((sum, [, m]) => sum + m, 0);
+  const travelMinutes = [...travelMinutesInto(mine, options.sites ?? [])].filter(([id]) => week.some((s) => s.id === id)).reduce((sum, [, m]) => sum + m, 0);
   const hours = (week.reduce((sum, s) => sum + shiftPaidMinutes(s), 0) + travelMinutes) / H;
   const rostered = `${hours.toFixed(1)}h rostered${travelMinutes > 0 ? `, ${(travelMinutes / H).toFixed(1)}h of it travel between sites` : ''}`;
-  if (young && hours > 40) {
+  if (childWeek) {
+    // A week with any school day in it is a term-time week; only confirmed holidays count as holidays.
+    const termWeek = dates.slice(0, 5).some((d) => isSchoolDay(d, confirmed));
+    const childAge = ageOn(employee.dateOfBirth, weekStartDate);
+    const cap = termWeek ? 12 : childAge <= 14 ? 25 : 35;
+    if (hours > cap) {
+      push({ code: 'child-weekly', severity: 'block', message: `School age: at most ${cap} hours a week ${termWeek ? 'in term time' : 'in the school holidays'} (${rostered}).` });
+    }
+    push({ code: 'child-permit', severity: 'warn', message: 'School age: check the council\'s child employment permit is on file, and two clear weeks off in the school holidays this year.' });
+  } else if (young && hours > 40) {
     push({ code: 'young-weekly', severity: 'block', message: `Under 18s are capped at 40 hours a week (${rostered}).` });
   }
   if (!young && hours > 48 && !employee.optedOutOf48) {
@@ -221,7 +337,7 @@ export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: str
   return state.employees
     .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
     .flatMap((e) => [
-      ...checkEmployeeWeek(e, weekStartDate, context, state.restOverrides, undefined, state.sites),
+      ...checkEmployeeWeek(e, weekStartDate, context, state.restOverrides, undefined, complianceOptions(state, e)),
       ...travelIssues(e, context, state.sites),
       ...averagingIssues(e, weekStartDate, state),
     ]);

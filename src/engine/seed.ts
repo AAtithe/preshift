@@ -1,5 +1,8 @@
-import type { Absence, DaySales, DemandRule, Employee, Entity, HourForecast, HrProfile, HrRecord, Role, RotaState, Site } from './types';
+import type { Absence, Booking, BookingPace, DaySales, DemandRule, Employee, Entity, HourActual, HourForecast, HrProfile, HrRecord, Role, RotaState, Site } from './types';
 import { COURSES, requiredCourses } from './hr';
+import { PACE_LEADS } from './bookings';
+import { daypartOf, DAYPARTS } from './forecast';
+import { estimatedHolidays, schoolYearOf } from './school';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -147,12 +150,100 @@ function forecast(start: string): HourForecast[] {
           const hour = Number(h);
           if (hour * 60 < site.openMinute || hour * 60 >= site.closeMinute) continue;
           const sales = Math.round(day * share);
+          const covers = Math.round(sales / AVERAGE_SPEND);
+          rows.push({ siteId: site.id, date, hour, sales, covers, modelSales: sales, modelCovers: covers });
+        }
+      });
+    }
+  }
+  return rows;
+}
+
+/** Repeatable noise in [-1, 1] for a key, so the demo history is the same on every run. */
+function noise(key: string): number {
+  let h = 2166136261;
+  for (const c of key) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return ((Math.abs(h) % 2001) / 1000) - 1;
+}
+
+/**
+ * Twelve weeks of till history up to yesterday: the forecast pattern, a little
+ * busier each week (trade is growing), with day and hour noise either way.
+ */
+function actuals(start: string, today: string): HourActual[] {
+  const rows: HourActual[] = [];
+  const holidays = [...estimatedHolidays(schoolYearOf(today) - 1), ...estimatedHolidays(schoolYearOf(today))];
+  for (const site of sites) {
+    for (let w = -12; w <= 0; w++) {
+      weekDates(addDays(start, w * 7)).forEach((date, weekday) => {
+        if (date >= today) return;
+        const growth = 1 + 0.004 * (w + 12);
+        const dayNoise = 1 + 0.08 * noise(`${site.id}${date}`);
+        const day = DAILY[site.id as keyof typeof DAILY][weekday] * growth * dayNoise;
+        for (const [h, share] of Object.entries(CURVE)) {
+          const hour = Number(h);
+          if (hour * 60 < site.openMinute || hour * 60 >= site.closeMinute) continue;
+          // Marylebone's weekday lunches pick up families in the school holidays.
+          const holidayLunch = site.id === 'mar' && weekday < 5 && hour >= 11 && hour < 15 && holidays.some((p) => p.start <= date && p.end >= date) ? 1.15 : 1;
+          const sales = Math.max(0, Math.round(day * share * holidayLunch * (1 + 0.12 * noise(`${site.id}${date}${hour}`))));
           rows.push({ siteId: site.id, date, hour, sales, covers: Math.round(sales / AVERAGE_SPEND) });
         }
       });
     }
   }
   return rows;
+}
+
+/** Share of a day's final bookings already made `lead` days out: most come in the last fortnight. */
+const filled = (lead: number) => Math.exp(-lead / 9);
+const BOOKED_SHARE = 0.6;
+
+/**
+ * Marylebone takes bookings: twelve weeks of how its days filled up, and the
+ * next three weeks on the books, with next Saturday's dinner pacing well ahead
+ * and a party of 24 booked for Halloween. The other sites are walk-in led.
+ */
+function bookingDemo(start: string, today: string, actualRows: HourActual[], forecastRows: HourForecast[]): { bookings: Booking[]; pace: BookingPace[] } {
+  const pace: BookingPace[] = [];
+  const covers = (rows: { date: string; hour: number; covers: number; siteId: string }[], date: string, dp: string) =>
+    rows.filter((r) => r.siteId === 'mar' && r.date === date && daypartOf(r.hour).id === dp).reduce((s, r) => s + r.covers, 0);
+  const pastDays = [...new Set(actualRows.filter((a) => a.siteId === 'mar' && a.date < addDays(today, -1)).map((a) => a.date))];
+  for (const date of pastDays) {
+    for (const dp of DAYPARTS) {
+      const final = dp.id === 'lunch' || dp.id === 'dinner' ? Math.round(covers(actualRows, date, dp.id) * BOOKED_SHARE) : 0;
+      pace.push({ siteId: 'mar', date, daypart: dp.id, booked: PACE_LEADS.map((l) => Math.round(final * filled(l))), leads: [...PACE_LEADS] });
+    }
+  }
+  const bookings: Booking[] = [];
+  const saturday = addDays(start, 5);
+  for (let d = today; d < addDays(today, 21); d = addDays(d, 1)) {
+    for (const dp of ['lunch', 'dinner'] as const) {
+      const lift = d === saturday && dp === 'dinner' ? 1.45 : 1;
+      const final = Math.round(covers(forecastRows, d, dp) * BOOKED_SHARE * lift);
+      const lead = Math.round((Date.parse(d) - Date.parse(today)) / 86_400_000);
+      const n = Math.max(0, Math.round(final / 4));
+      for (let i = 1; i <= n; i++) {
+        // The i-th of n bookings is made when the day is i/n filled; only those already made are on the books today.
+        const madeLead = Math.round(-9 * Math.log(i / n));
+        if (madeLead < lead) continue;
+        bookings.push({
+          id: `resdiary:demo-${d}-${dp}-${i}`,
+          siteId: 'mar',
+          source: 'resdiary',
+          date: d,
+          startMinute: (dp === 'lunch' ? 12 * 60 : 19 * 60) + (i % 4) * 30,
+          covers: 2 + (i % 3) * 2,
+          status: 'booked',
+          createdAt: addDays(d, -madeLead),
+        });
+      }
+    }
+  }
+  const halloween = `${today.slice(0, 4)}-10-31`;
+  if (halloween >= today && halloween < addDays(today, 21)) {
+    bookings.push({ id: 'resdiary:demo-party', siteId: 'mar', source: 'resdiary', date: halloween, startMinute: 19 * 60 + 30, covers: 24, status: 'booked', createdAt: addDays(today, -12) });
+  }
+  return { bookings, pace };
 }
 
 /** Ids the sample group uses, so set-up can tell sample data from a customer's own. */
@@ -182,16 +273,24 @@ function takings(rows: HourForecast[], today: string): DaySales[] {
 
 export function seedState(today = toISODate(new Date())): RotaState {
   const start = weekStart(today);
+  const history = actuals(start, today);
+  const fc = forecast(start);
+  const demo = bookingDemo(start, today, history, fc);
   return {
     // West End Dining claims for the group. Payroll to last Sunday left £1,850, so it runs out this week or next.
-    entities: entities.map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
-    sites,
-    roles,
+    // Copies, so one organisation's edits can never reach another seeded from the same data (demo sandboxes, tests).
+    entities: structuredClone(entities).map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
+    sites: structuredClone(sites),
+    roles: structuredClone(roles),
     employees: withHr(employees(today), today),
     shifts: [],
-    forecast: forecast(start),
-    demandRules: rules,
-    sales: takings(forecast(start), today),
+    forecast: fc,
+    demandRules: structuredClone(rules),
+    sales: takings(fc, today),
+    actuals: history,
+    forecastAdjustments: [],
+    bookings: demo.bookings,
+    bookingPace: demo.pace,
   };
 }
 

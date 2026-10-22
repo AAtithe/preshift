@@ -1,8 +1,8 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Issue } from '../engine/compliance';
-import { isEmployedOn } from '../engine/employees';
+import { isEmployedOn, ruleAge } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
-import { ageOn, formatMinute, toISODate, weekday } from '../engine/time';
+import { formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
 import { dropBlocker, keyChange, moveShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
 import { DragReadout } from './DragReadout';
@@ -199,7 +199,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                           <div>
                             <div className="name">
                               {e.name}
-                              {ageOn(e.dateOfBirth, dates[0]) < 18 && <span className="tag">Under 18</span>}
+                              {ruleAge(e, dates[0]) < 18 && <span className="tag">Under 18</span>}
                             </div>
                             <div className="meta">
                               {e.siteId !== site.id && <span className="tag borrowed">Cover from {state.sites.find((x) => x.id === e.siteId)?.name}</span>}

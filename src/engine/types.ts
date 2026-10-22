@@ -73,11 +73,15 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** The EPOS location whose takings are this site's, once the till is connected. */
+  eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Which nation's school calendar applies. England when absent; only England and Wales get an estimate. */
+  nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
   /** A typical trading week, used to forecast any week no sales system has sent figures for. */
   salesProfile?: SalesProfile;
-  /** Where the site is, for journeys between sites. Set from its postcode. */
+  /** Where the site is, for journeys between sites, its weather and nearby events. Set from its postcode. */
   location?: SiteLocation;
   /** Journey times from this site to others, by destination site id. */
   travel?: Record<string, SiteTravel>;
@@ -224,6 +228,16 @@ export interface Employee {
   leaveDate?: string;
   /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
   payHidden?: boolean;
+  /**
+   * Set by the API when the reader may not see personal details: an adult's date of birth then reads as empty,
+   * right to work as checked or not (with an expiry only when it falls within the rota's reach), and the
+   * holiday record and card are withheld. `under18` then carries what the young worker rules need.
+   */
+  personalHidden?: boolean;
+  /** With personalHidden: whether the person is under 18 today. */
+  under18?: boolean;
+  /** Set by the API: a pay change proposed for this person and waiting for finance. */
+  pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
@@ -318,6 +332,15 @@ export interface HrRecord {
   notes?: string;
   createdBy: string;
   createdAt: string;
+  /** Every change, oldest first, with what it replaced: a record can always be shown as it stood. Kept by the server. */
+  history?: HrRecordChange[];
+}
+
+/** One change to an HR record: who made it, when, and the values it replaced. */
+export interface HrRecordChange {
+  at: string;
+  by: string;
+  before: Partial<Omit<HrRecord, 'id' | 'employeeId' | 'kind' | 'createdBy' | 'createdAt' | 'history'>>;
 }
 
 export interface Shift {
@@ -340,8 +363,50 @@ export interface HourForecast {
   hour: number; // 0-23
   sales: number; // net of VAT
   covers: number;
-  /** 'profile' when worked from the site's typical week. Figures sent by a sales system carry none and always win. */
+  /**
+   * What the baseline model said, kept when someone overrides it, so each
+   * override can be scored against what actually happened.
+   */
+  modelSales?: number;
+  modelCovers?: number;
+  /** Who last changed the figure away from the model, and why. */
+  overriddenBy?: string;
+  overrideReason?: string;
+  /** 'profile' when worked from the site's typical week. Figures sent by a sales system or the model carry none and win. */
   source?: 'profile';
+}
+
+/** What one trading hour actually took, from the till. The forecast model learns from these. */
+export interface HourActual {
+  siteId: string;
+  date: string;
+  hour: number; // 0-23
+  sales: number; // net of VAT
+  covers: number;
+}
+
+export type AdjustmentReason = 'weather' | 'event' | 'bank_holiday' | 'closure' | 'other';
+
+/**
+ * A known one-off that moves a day's trade: a heatwave, a match at the stadium
+ * down the road, a closure. Applied to the model as a multiplier on the day, or
+ * on a span of hours when only part of the day is affected.
+ */
+export interface ForecastAdjustment {
+  id: string;
+  siteId: string;
+  date: string;
+  /** 1.15 is fifteen per cent busier, 0 is closed. */
+  factor: number;
+  reason: AdjustmentReason;
+  note?: string;
+  fromHour?: number;
+  toHour?: number;
+  /**
+   * Set when the model added it itself: 'auto' from history (occasions, events, weather), 'bookings'
+   * from covers already on the books. People's adjustments have none.
+   */
+  source?: 'auto' | 'bookings';
 }
 
 /** How a role's demand is driven by the forecast. */
@@ -407,6 +472,16 @@ export interface DaySales {
   covers?: number;
   /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
   source: 'till' | 'manual' | 'import';
+  /** Completed orders, where the till reports them. */
+  orders?: number;
+  /** Takings by hour, from a till feed: history to forecast from. Hours past midnight run on (24 is 00:00 the next morning). */
+  hours?: HourSales[];
+}
+
+export interface HourSales {
+  hour: number;
+  netSales: number;
+  orders: number;
 }
 
 export interface RotaState {
@@ -417,8 +492,127 @@ export interface RotaState {
   shifts: Shift[];
   forecast: HourForecast[];
   demandRules: DemandRule[];
+  /** Till actuals by hour. Absent on organisations saved before forecasting learnt from history. */
+  actuals?: HourActual[];
+  forecastAdjustments?: ForecastAdjustment[];
+  /** Daily weather per site: observed for days gone, forecast for days ahead. */
+  weather?: DailyWeather[];
+  /** Things on near a site: matches, concerts, markets. From feeds or entered by hand. */
+  localEvents?: LocalEvent[];
+  /** Table bookings for days still to come, and the last day or two. No guest details are ever kept. */
+  bookings?: Booking[];
+  /** How past days filled up: covers on the books at set lead times, kept once the bookings themselves are gone. */
+  bookingPace?: BookingPace[];
+  /** School holidays confirmed for a site: from its council's feed or entered by hand. */
+  schoolHolidays?: (SchoolPeriod & { siteId: string })[];
   /** Actual takings by day. Absent on organisations saved before takings were recorded. */
   sales?: DaySales[];
   /** Recorded by the API only; never sent with shifts. */
   restOverrides?: RestOverride[];
 }
+
+/** A school holiday. Estimates are the usual pattern; council dates replace them. */
+export interface SchoolPeriod {
+  id: string;
+  start: string;
+  /** Last day of the holiday, inclusive. */
+  end: string;
+  name: string;
+  kind: 'half_term' | 'christmas' | 'easter' | 'summer' | 'inset' | 'other';
+  source: 'estimate' | 'council' | 'manual';
+  feedId?: string;
+}
+
+export type BookingStatus = 'booked' | 'cancelled' | 'no_show' | 'completed';
+
+/**
+ * One table booking, as the booking system reports it, reduced to what the
+ * forecast needs: when, how many, and when it was made or cancelled. Names,
+ * phone numbers, emails and notes are never accepted or stored.
+ */
+export interface Booking {
+  /** The booking system's own reference, prefixed with its source. */
+  id: string;
+  siteId: string;
+  source: string;
+  date: string;
+  startMinute: number;
+  covers: number;
+  status: BookingStatus;
+  /** When the booking was made. Without it, a booking counts only on the day itself. */
+  createdAt?: string;
+  /** When it was cancelled, for a cancelled booking. */
+  cancelledAt?: string;
+}
+
+/** Covers on the books for one site, date and daypart at each of PACE_LEADS days before. */
+export interface BookingPace {
+  siteId: string;
+  date: string;
+  daypart: string;
+  booked: number[];
+  /** The lead times `booked` is read at, kept with the row so changing them later never misreads old rows. */
+  leads?: number[];
+}
+
+export interface DailyWeather {
+  siteId: string;
+  date: string;
+  tempMax: number;
+  tempMin: number;
+  precipitationMm: number;
+  /** WMO weather code, as Open-Meteo reports it. */
+  weatherCode?: number;
+  /** True once the day has happened and the figures are what was measured. */
+  observed: boolean;
+  fetchedAt: string;
+}
+
+export interface LocalEvent {
+  id: string;
+  siteId: string;
+  /** The feed it came from. Absent for events entered by hand. */
+  feedId?: string;
+  date: string;
+  /** Local start time in minutes, when known. */
+  startMinute?: number;
+  name: string;
+  venue?: string;
+  source: 'ics' | 'ticketmaster' | 'manual';
+}
+
+/** The terms a person is paid on. */
+export interface PayTerms {
+  payBasis: PayBasis;
+  hourlyRate: number;
+  annualSalary: number;
+}
+
+export type PayChangeStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'superseded';
+
+/**
+ * A change to someone's pay, proposed by a person who sets pay and decided by finance. The rate
+ * in force stays as it is until the change is approved; nobody approves their own proposal.
+ */
+export interface PayChange {
+  id: string;
+  employeeId: string;
+  /** Home site when proposed: decides who may see and approve it. */
+  siteId: string;
+  /** Terms in force when proposed. Approval is refused if they have moved since. */
+  before: PayTerms;
+  after: PayTerms;
+  reason?: string;
+  status: PayChangeStatus;
+  requestedBy: string;
+  /** The person's access record id, when a person proposed it. */
+  requestedById?: string;
+  requestedAt: string;
+  decidedBy?: string;
+  decidedById?: string;
+  decidedAt?: string;
+  note?: string;
+}
+
+/** What a person's record carries about a change waiting for approval. */
+export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt'>;

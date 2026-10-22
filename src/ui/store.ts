@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
 import type { DayForecast } from '../engine/forecasting';
-import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
+import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, PayChange, PayTerms, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
 import { weekDates } from '../engine/time';
 import type { Me } from './access/model';
 import { api } from './api';
@@ -29,7 +29,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       setMe(await api.get<Me>('/v1/me'));
-      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides] = await Promise.all([
+      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
@@ -39,8 +39,10 @@ export function useRotaStore() {
         api.get<RotaState['forecast']>('/v1/forecast'),
         api.get<DaySales[]>('/v1/sales'),
         api.get<RestOverride[]>('/v1/rota/overrides'),
+        api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
       ]);
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides });
+      // Till actuals stay on the server: the screens that need them ask for them.
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -90,6 +92,7 @@ export function useRotaStore() {
         return res;
       }),
     refreshShifts,
+    refreshSales,
     /** Records takings for the days given and removes the ones cleared. */
     saveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) =>
       guard(async () => {
@@ -144,11 +147,25 @@ export function useRotaStore() {
         return true;
       }),
     /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
+    /** Re-reads one person, after a change made elsewhere (a pay change approved) moved their record. */
+    refreshEmployee: async (id: string) => {
+      const employee = await api.get<Employee>(`/v1/employees/${id}`);
+      setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === id ? employee : x)) });
+      return employee;
+    },
+    /** Proposes new pay: it goes to finance, and the person's pay stays as it is until approved. */
+    proposePay: (employeeId: string, terms: PayTerms, reason: string) =>
+      guard(async () => {
+        const change = await api.post<PayChange>(`/v1/employees/${employeeId}/pay-changes`, { ...terms, ...(reason.trim() ? { reason: reason.trim() } : {}) });
+        const employee = await api.get<Employee>(`/v1/employees/${employeeId}`);
+        setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
+        return change;
+      }),
     saveEmployee: (employee: Employee, isNew: boolean, withPay = true) =>
       guard(async () => {
         // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
         // The personnel file and absence have routes of their own and are never sent back here.
-        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _ab, payHidden, ...fields } = employee;
+        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _ab, payHidden, pendingPay: _pp, ...fields } = employee;
         // Pay this reader never received is left out, never sent back as nought; without pay rights it is not sent at all.
         const { hourlyRate: _r, annualSalary: _a, ...unpaid } = fields;
         const kept = payHidden || !withPay ? unpaid : fields;
@@ -324,7 +341,7 @@ export function useHrRecords(setError: (message: string | null) => void) {
     records,
     save: (record: HrRecord, isNew: boolean) =>
       run(async () => {
-        const { id, createdBy: _b, createdAt: _a, ...body } = record;
+        const { id, createdBy: _b, createdAt: _a, history: _h, ...body } = record;
         const saved = isNew
           ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
           : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);
