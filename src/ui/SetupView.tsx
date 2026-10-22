@@ -263,8 +263,16 @@ function SitesStep({ draft, setDraft }: StepProps) {
             </select>
           </Field>
           <Field label="Opens"><input type="time" value={formatMinute(site.openMinute)} onChange={(e) => update(site.id, { openMinute: parseClock(e.target.value) })} /></Field>
-          <Field label="Closes" hint="Midnight at the latest">
-            <input type="time" value={formatMinute(site.closeMinute)} onChange={(e) => update(site.id, { closeMinute: parseClock(e.target.value) || 1440 })} />
+          <Field label="Closes" hint={site.closeMinute > 1440 ? 'The next morning' : 'After midnight is fine, up to 04:00'}>
+            <input
+              type="time"
+              value={formatMinute(site.closeMinute)}
+              // A closing time at or before opening is after midnight: 02:00 for a site opening at noon.
+              onChange={(e) => {
+                const at = parseClock(e.target.value);
+                update(site.id, { closeMinute: at <= site.openMinute ? at + 1440 : at });
+              }}
+            />
           </Field>
           <Field label="Labour target %">
             <Num label="Labour target percent" step={0.5} width={80} value={Math.round(site.labourTargetPct * 1000) / 10} onChange={(n) => update(site.id, { labourTargetPct: n / 100 })} />

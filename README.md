@@ -364,6 +364,13 @@ After that it is refused, and the sample can only be edited. Each site's typical
 on demand. Figures from a sales system replace it week by week and are never overwritten. A company,
 site or role that people, rotas or clocked time still use cannot be removed.
 
+Sites can trade past midnight, closing up to 04:00. The trading day then runs on: a bar open 16:00
+to 02:00 has Friday's demand, staffing and forecast run to 02:00, with the hours after midnight
+stored against Saturday's date (as a till or sales feed reports them) and read back as Friday night.
+The auto-build rosters shifts that finish at close, and each night's forecast still adds back to the
+day. Known limit: daily labour % and the forecast accuracy report still total by calendar date, so
+the after-midnight trade counts towards the next day there.
+
 ## Self sign-up and billing
 
 A business can start on Preshift without a set-up call. Switch it on with `PRESHIFT_SIGNUP=1` once the
