@@ -15,7 +15,7 @@ export interface EposLocation {
 export interface EposProvider {
   readonly name: string;
   listLocations(): Promise<EposLocation[]>;
-  /** Completed orders closed in [start, end), both ISO instants, net of VAT, tips and service charge. */
+  /** Completed orders closed in [start, end), both ISO instants, net of VAT, tips and service charge, each with its card tips. */
   fetchOrders(locationIds: string[], start: string, end: string): Promise<TillOrder[]>;
 }
 
@@ -54,4 +54,13 @@ export interface EposSyncResult {
   /** Days keyed in by hand, left as they were. */
   kept: { siteId: string; date: string }[];
   sites: { siteId: string; netSales: number; orders: number }[];
+  /** Card tips brought in as each day's card-tip figure. Absent on syncs from before the till fed tips. */
+  tips?: {
+    written: number;
+    /** Days whose card tips a manager keyed in by hand, left as they were. */
+    kept: { siteId: string; date: string }[];
+    /** Paid days the till now disagrees with: left as paid, for payroll to look at. */
+    paidDiffers: { siteId: string; date: string; paid: number; till: number }[];
+    total: number;
+  };
 }

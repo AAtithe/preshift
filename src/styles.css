@@ -1196,6 +1196,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .tips-taken { padding: 14px 16px; margin-top: 12px; overflow-x: auto; }
 .tips-taken td:first-child { white-space: nowrap; }
 .tips-taken input[type='number'] { width: 110px; text-align: right; }
+.tips-taken .till-mark { display: inline-block; margin-right: 6px; padding: 1px 5px; border-radius: 6px; font: 500 10px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: var(--surface-2); vertical-align: middle; }
 @media (max-width: 900px) {
   .bench-grid, .tronc-grid { grid-template-columns: minmax(0, 1fr); }
 }

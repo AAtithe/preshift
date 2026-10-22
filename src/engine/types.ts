@@ -535,6 +535,8 @@ export interface TipsTaken {
   amount: number;
   /** Date the money reached staff through payroll. */
   paidOn?: string;
+  /** Written by the till feed. A figure keyed in by hand has none, and the till never overwrites it. */
+  fromTill?: boolean;
 }
 
 export interface TroncScheme {

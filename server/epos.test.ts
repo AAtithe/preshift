@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SQUARE_VERSION, SquareProvider, squareNetSales } from './integrations/epos/square';
+import { SQUARE_VERSION, SquareProvider, squareNetSales, squareTips } from './integrations/epos/square';
 import { MemoryStore } from './store';
 import { enrol, kit, TODAY } from './testkit';
 
@@ -93,6 +93,83 @@ describe('Square takings', () => {
   });
 });
 
+describe('card tips from Square', () => {
+  it('takes each order’s card tips, less any refunded, apart from takings', () => {
+    expect(squareTips({ id: 'a', location_id: 'L', total_money: { amount: 6000 }, total_tip_money: { amount: 500 } })).toBe(5);
+    expect(squareTips({ id: 'b', location_id: 'L', net_amounts: { total_money: { amount: 4800 }, tip_money: { amount: 300 } } })).toBe(3);
+    expect(squareTips({ id: 'c', location_id: 'L', total_money: { amount: 1000 } })).toBe(0);
+  });
+
+  it('never touches a figure payroll has paid, and says where the till now disagrees', async () => {
+    const square = fakeSquare({
+      orders: [
+        order('1', 'LMAR', '2026-10-19T11:30:00Z', 1000, { total_tip_money: { amount: 4500, currency: 'GBP' } }),
+        order('2', 'LMAR', '2026-10-19T23:30:00Z', 200, { total_tip_money: { amount: 1250, currency: 'GBP' } }), // Monday night
+        order('3', 'LMAR', '2026-10-20T18:00:00Z', 800, { total_tip_money: { amount: 3000, currency: 'GBP' } }),
+        order('4', 'LMAR', '2026-10-21T18:00:00Z', 500, { total_tip_money: { amount: 2000, currency: 'GBP' } }),
+        order('5', 'LMAR', '2026-10-22T08:30:00Z', 50, { total_tip_money: { amount: 500, currency: 'GBP' } }), // today
+      ],
+    });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR' } });
+    // Tuesday was cashed up by hand; Wednesday's card tips were already paid.
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-20', source: 'card-tip', amount: 31 }, 'key');
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-21', source: 'card-tip', amount: 18 }, 'key');
+    await call('POST', '/v1/tronc/tips/paid', { siteId: 'mar', weekStart: '2026-10-19', paidOn: '2026-10-21' }, 'key');
+
+    const res = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-22' }, 'key');
+    expect(res.body.tips).toMatchObject({
+      written: 1,
+      kept: [],
+      paidDiffers: [
+        { siteId: 'mar', date: '2026-10-20', paid: 31, till: 30 },
+        { siteId: 'mar', date: '2026-10-21', paid: 18, till: 20 },
+      ],
+    });
+    // Monday had no figure when payroll paid, so nothing of it was paid: the till fills it in, unpaid.
+    const tips = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number; fromTill?: boolean; paidOn?: string }[];
+    const card = (d: string) => tips.find((t) => t.date === d && t.source === 'card-tip');
+    expect(card('2026-10-19')).toMatchObject({ amount: 57.5, fromTill: true });
+    expect(card('2026-10-19')?.paidOn).toBeUndefined();
+    // The paid days stand as paid.
+    expect(card('2026-10-20')).toMatchObject({ amount: 31, paidOn: '2026-10-21' });
+    expect(card('2026-10-21')).toMatchObject({ amount: 18, paidOn: '2026-10-21' });
+  });
+
+  it('fills in days nobody has cashed up, follows its own figures, and leaves a hand-keyed one', async () => {
+    const square = fakeSquare({
+      orders: [
+        order('1', 'LMAR', '2026-10-19T11:30:00Z', 1000, { total_tip_money: { amount: 4500, currency: 'GBP' } }),
+        order('2', 'LMAR', '2026-10-19T23:30:00Z', 200, { total_tip_money: { amount: 1250, currency: 'GBP' } }),
+        order('3', 'LMAR', '2026-10-20T18:00:00Z', 800, { total_tip_money: { amount: 3000, currency: 'GBP' } }),
+        order('4', 'LMAR', '2026-10-22T08:30:00Z', 50, { total_tip_money: { amount: 500, currency: 'GBP' } }), // today
+      ],
+    });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR' } });
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-20', source: 'card-tip', amount: 31 }, 'key');
+
+    const res = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-22' }, 'key');
+    expect(res.body.tips).toMatchObject({ written: 1, kept: [{ siteId: 'mar', date: '2026-10-20' }], paidDiffers: [], total: 87.5 });
+    const tips = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number; fromTill?: boolean }[];
+    const card = (d: string) => tips.find((t) => t.date === d && t.source === 'card-tip');
+    // Monday's lunch and its night after midnight, as one trading day.
+    expect(card('2026-10-19')).toMatchObject({ amount: 57.5, fromTill: true });
+    expect(card('2026-10-20')).toMatchObject({ amount: 31 });
+    expect(card('2026-10-20')?.fromTill).toBeUndefined();
+    expect(card('2026-10-22')).toBeUndefined();
+
+    // A manager correcting the till's figure makes it theirs: the next sync leaves it.
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-19', source: 'card-tip', amount: 60 }, 'key');
+    const again = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-21' }, 'key');
+    expect(again.body.tips.kept).toEqual(expect.arrayContaining([{ siteId: 'mar', date: '2026-10-19' }]));
+    const after = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number }[];
+    expect(after.find((t) => t.date === '2026-10-19' && t.source === 'card-tip')?.amount).toBe(60);
+  });
+});
+
 describe('connecting a till', () => {
   it('checks the token with Square before saving it, and never returns it', async () => {
     const { call } = await boot();
@@ -175,6 +252,9 @@ describe('syncing takings', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.written).toBe(9); // three sites, three finished days
     expect(res.body.sites.every((s: { netSales: number }) => s.netSales > 0)).toBe(true);
+    // The simulated till carries card tips too, for the tronc.
+    expect(res.body.tips.total).toBeGreaterThan(0);
+    expect(res.body.tips.written).toBeGreaterThan(0);
     expect((await call('DELETE', '/v1/integrations/epos')).status).toBe(200);
     const sales = (await call('GET', '/v1/sales?from=2026-10-19&to=2026-10-21')).body as { source: string }[];
     expect(sales.filter((s) => s.source === 'till')).toHaveLength(9);

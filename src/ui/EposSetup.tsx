@@ -11,6 +11,7 @@ export interface EposSyncResult {
   written: number;
   kept: { siteId: string; date: string }[];
   sites: { siteId: string; netSales: number; orders: number }[];
+  tips?: { written: number; kept: { siteId: string; date: string }[]; paidDiffers: { siteId: string; date: string; paid: number; till: number }[]; total: number };
 }
 
 export interface EposStatus {
@@ -43,7 +44,15 @@ export function describeSync(r: EposSyncResult, siteName: (id: string) => string
   if (!r.ok) return r.error ?? 'The sync failed.';
   const total = r.sites.reduce((s, x) => s + x.netSales, 0);
   const kept = r.kept.length ? ` ${r.kept.length} days keyed in by hand were kept (${[...new Set(r.kept.map((k) => siteName(k.siteId)))].join(', ')}).` : '';
-  return `${r.written} trading days brought in, ${r.from} to ${r.to}: ${money(total)} across ${r.sites.length} sites.${kept}`;
+  const t = r.tips;
+  const tips = t
+    ? ` Card tips ${money(t.total)}${t.kept.length ? `, ${t.kept.length} days keyed in by hand kept` : ''}.${
+        t.paidDiffers.length
+          ? ` The till has changed since payroll paid ${t.paidDiffers.map((d) => `${siteName(d.siteId)} ${d.date} (paid ${money(d.paid)}, till now ${money(d.till)})`).join(', ')}: payroll to check.`
+          : ''
+      }`
+    : '';
+  return `${r.written} trading days brought in, ${r.from} to ${r.to}: ${money(total)} across ${r.sites.length} sites.${kept}${tips}`;
 }
 
 /**
@@ -125,7 +134,8 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
     <section className="settings-card">
       <h2>EPOS</h2>
       <p className="muted small">
-        Takings come straight from the till, net of VAT, tips and service charge, by trading day and hour. Sales after midnight count
+        Takings come straight from the till, net of VAT, tips and service charge, by trading day and hour. Card tips come in
+        separately, as each day's card tips for the tronc. Sales after midnight count
         towards the night before. Days a manager keyed in by hand are never overwritten. Once connected, the last three days are brought
         in every morning; bring in more at any time below.
       </p>

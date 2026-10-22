@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mergeTill, tradingDays, tradingHour, type TillOrder } from './epos';
-import type { DaySales } from './types';
+import { mergeTill, mergeTillTips, tradingDays, tradingHour, type TillOrder, type TradingDay } from './epos';
+import type { DaySales, TipsTaken } from './types';
 
 const LONDON = 'Europe/London';
 
@@ -51,5 +51,52 @@ describe('merging till takings', () => {
     // Another site's takings are untouched.
     expect(r.sales.find((s) => s.siteId === 'fitz')?.netSales).toBe(999);
     expect(r.sales.filter((s) => s.siteId === 'mar' && s.date === '2026-10-20')).toHaveLength(1);
+  });
+});
+
+describe('card tips from the till', () => {
+  const day = (date: string, tips: number): [string, TradingDay] => [date, { date, netSales: 1000, orders: 30, hours: [], tips }];
+  const days = new Map([day('2026-10-19', 84.5), day('2026-10-20', 61), day('2026-10-21', 0), day('2026-10-22', 40)]);
+  const existing: TipsTaken[] = [
+    // Keyed in by hand at cash-up: it stands.
+    { id: 'h', siteId: 'mar', date: '2026-10-19', source: 'card-tip', amount: 90 },
+    // An earlier sync's figure: the till moves it.
+    { id: 'old', siteId: 'mar', date: '2026-10-20', source: 'card-tip', amount: 55, fromTill: true },
+    // A till figure on a day the till now shows none on: cleared.
+    { id: 'gone', siteId: 'mar', date: '2026-10-21', source: 'card-tip', amount: 12, fromTill: true },
+    // Service charge and another site are none of the till feed's business.
+    { id: 'sc', siteId: 'mar', date: '2026-10-20', source: 'service-charge', amount: 300 },
+    { id: 'fz', siteId: 'fitz', date: '2026-10-20', source: 'card-tip', amount: 7, fromTill: true },
+  ];
+
+  it('adds each order’s card tips into its trading day, apart from takings', () => {
+    const orders = [
+      { locationId: 'L', closedAt: '2026-10-19T12:00:00Z', netSales: 40, tips: 4 },
+      { locationId: 'L', closedAt: '2026-10-19T23:30:00Z', netSales: 20, tips: 2.5 },
+      { locationId: 'L', closedAt: '2026-10-19T13:00:00Z', netSales: 30 },
+    ];
+    expect(tradingDays(orders, 'Europe/London').get('2026-10-19')).toMatchObject({ netSales: 90, tips: 6.5 });
+  });
+
+  it('keeps hand-keyed figures, follows its own, clears a day it now shows none on, and leaves the rest alone', () => {
+    const r = mergeTillTips(existing, 'mar', ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22'], days);
+    const card = (d: string) => r.tips.find((t) => t.siteId === 'mar' && t.date === d && t.source === 'card-tip');
+    expect(r.kept).toEqual([{ siteId: 'mar', date: '2026-10-19' }]);
+    expect(card('2026-10-19')).toMatchObject({ amount: 90 });
+    expect(card('2026-10-20')).toMatchObject({ id: 'old', amount: 61, fromTill: true });
+    expect(card('2026-10-21')).toBeUndefined();
+    expect(card('2026-10-22')).toMatchObject({ amount: 40, fromTill: true });
+    expect(r.written).toBe(3);
+    expect(r.tips.find((t) => t.id === 'sc')?.amount).toBe(300);
+    expect(r.tips.find((t) => t.id === 'fz')?.amount).toBe(7);
+  });
+
+  it('never changes a figure payroll has paid, and says where the till now disagrees', () => {
+    const paid: TipsTaken[] = [{ id: 'p', siteId: 'mar', date: '2026-10-20', source: 'card-tip', amount: 55, fromTill: true, paidOn: '2026-10-25' }];
+    const r = mergeTillTips(paid, 'mar', ['2026-10-20'], days);
+    expect(r.tips).toEqual(paid);
+    expect(r.written).toBe(0);
+    expect(r.paidDiffers).toEqual([{ siteId: 'mar', date: '2026-10-20', paid: 55, till: 61 }]);
+    expect(mergeTillTips([{ ...paid[0], amount: 61 }], 'mar', ['2026-10-20'], days).paidDiffers).toEqual([]);
   });
 });

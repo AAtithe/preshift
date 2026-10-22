@@ -102,6 +102,7 @@ export function TipsTakenPanel({ siteId, week, asOf, tips, noServiceCharge, canR
                 const tip = recorded(date, s.id);
                 return (
                   <td key={s.id} className="num">
+                    {tip?.fromTill && <span className="till-mark" title="From the till. Entering a figure here replaces it, and the till then leaves the day alone.">till</span>}{' '}
                     {canRecord && !tip?.paidOn ? (
                       <input
                         type="number"
@@ -126,8 +127,9 @@ export function TipsTakenPanel({ siteId, week, asOf, tips, noServiceCharge, canR
       </table>
       {note && <p className="small">{note}</p>}
       <p className="small muted">
-        Enter each day's figures from the till and the cash-up; entering a day again corrects it. Paid figures are fixed:
-        payroll takes the payment back off before one can change.
+        Enter each day's figures from the cash-up; entering a day again corrects it. With a till connected, card tips come in
+        from it, marked till; a figure entered here replaces the till's for that day. Paid figures are fixed: payroll takes
+        the payment back off before one can change.
       </p>
     </div>
   );

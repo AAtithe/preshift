@@ -37,7 +37,10 @@ export class SquareSimulator implements EposProvider {
       for (let i = 0; i < count; i++) {
         const closedAt = londonInstant(f.date, f.hour, Math.floor((i * 60) / count));
         if (closedAt < start || closedAt >= end) continue;
-        orders.push({ locationId, closedAt, netSales: Math.round((sales / count) * 100) / 100 });
+        const net = Math.round((sales / count) * 100) / 100;
+        // About one table in three leaves a card tip of around ten per cent.
+        const tips = (seed + i) % 3 === 0 ? Math.round(net * 0.1 * 100) / 100 : 0;
+        orders.push({ locationId, closedAt, netSales: net, tips });
       }
     }
     return orders;

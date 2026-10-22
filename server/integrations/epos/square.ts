@@ -45,6 +45,12 @@ export function squareNetSales(order: SquareOrder): number {
   return (gross - tax - tip - service) / 100;
 }
 
+/** The card tips on an order, less any refunded, in pounds: the team's money, kept apart from takings. */
+export function squareTips(order: SquareOrder): number {
+  const n = order.net_amounts;
+  return (n ? pence(n.tip_money) : pence(order.total_tip_money)) / 100;
+}
+
 /** Square's Locations and Orders APIs, with a seller's access token. */
 export class SquareProvider implements EposProvider {
   readonly name: string;
@@ -117,7 +123,7 @@ export class SquareProvider implements EposProvider {
           if (!o.closed_at) continue;
           const currency = o.total_money?.currency;
           if (currency && currency !== 'GBP') throw new EposError(`Square order ${o.id} is in ${currency}. Preshift reports in pounds.`, false);
-          orders.push({ locationId: o.location_id, closedAt: o.closed_at, netSales: squareNetSales(o) });
+          orders.push({ locationId: o.location_id, closedAt: o.closed_at, netSales: squareNetSales(o), tips: squareTips(o) });
         }
         cursor = body.cursor;
         if (++pages > 400) throw new EposError('Square kept returning pages; stopped after 200,000 orders. Sync a shorter range.', false);
