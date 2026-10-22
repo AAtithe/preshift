@@ -40,7 +40,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Staff | Holiday asked for in the app with the balance shown first, other time off (compassionate, dependants, family, unpaid), sickness reported from the phone with the fit note photographed, weekly availability proposed for approval, and one-off days they cannot work. | Requests arrive in writing with the balance and the floor in view, so leave is booked on time and the holiday provision follows it. |
 | GMs | Rota, then Staff requests: every request waiting, each with what it would do now (rules broken, shifts it clashes with, who else is off, holiday left after it). Approve or decline with a note. Open shifts posted to everyone eligible, a sick person's shift put out for cover in one click, and claims given to one person. | Cover is found through the app at the cheapest legal person, and every swap and claim is checked by the same compliance engine as the rota, so a self-service change can never break the Working Time Regulations. |
 | GMs | Each morning, an email to every manager listing what is theirs to decide: sickness to cover, requests waiting (with how long each has waited) and open shifts in the week ahead still unfilled. Only sent when something is waiting, names and dates only, and each person can turn it off on Staff requests. | Requests are decided the day they arrive, not when the GM next opens the screen, so staff trust the app enough to keep using it. |
-| Everyone | CI typechecks and runs the full suite (928 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (954 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -92,6 +92,7 @@ accrual. If any step needs an explanation, that is the next thing to fix.
 | Kiosk for shared iPads | `/kiosk/` turns a shared iPad into a screen that only clocks people in and out at one site: card taps (USB reader, or a tablet's NFC) and sign-in by name for people on today's rota there. A manager pairs it on the iPad itself from Clock-in setup and is signed out in the same step; the iPad then holds its own credential for a year, which reaches nothing in the manager app or API. Removing it in setup stops it at once. Guide under Help, How to. | `src/kiosk/`, `kiosk/index.html`, `server/routes/kiosk.ts` |
 | Break check | Finished shifts with less rest break than the Working Time Regulations give (20 minutes in one block over 6 hours of work; 30 over 4.5 hours for under 18s) are flagged on the Payroll tab before approval, as too short or split. A manager can enter a break that was taken but not recorded; nothing is changed automatically, and approval is never blocked but is recorded against the flagged shifts. | `src/engine/breaks.ts`, `src/ui/BreakShortfalls.tsx` |
 | How to | Guides for GMs under Help in the management bar, starting with what to do about breaks below the legal minimum. The same steps appear as pop-ups on the Payroll tab: "What do I do?" beside the break flags, and a check before Approve all when flagged shifts are waiting. Add a guide in `src/ui/guides/index.ts`. | `src/ui/HowToView.tsx`, `src/ui/guides/` |
+| Support | Questions, bug reports and feature ideas under Help, answered by the client's Williams, Stanley & Co. client partner. The answers that fit appear as someone types (the same quick answers are in How to), a bug is triaged by what it stops, and each ticket shows its first response target in London working hours. A new ticket emails the partner; only their reply stops the clock and only they move a ticket on. Ideas collect one vote a person. | `src/engine/support.ts`, `server/routes/support.ts`, `src/ui/SupportView.tsx` |
 | Staff self-service | The staff app's Rota, Requests and Inbox tabs. Staff see who they work with, offer a shift to a named colleague (or in exchange for one of theirs) or to anyone eligible, and pick up open shifts; ask for holiday against their balance, for other time off, and propose weekly availability; mark one-off days they cannot work, which the rota warns on and the auto-build avoids; and report sickness and upload a fit note. A colleague agrees to a swap first, then a manager approves it. Every swap and claim is checked by the compliance engine for both people when it is asked, agreed and approved, so anything that would double book, break rest, young worker or child rules, or put someone on a role they are not trained for is refused. Holiday goes to whoever manages the team, time off and sickness to whoever keeps personnel files (only they read the reasons and fit notes), and swaps and open shifts to whoever publishes the rota. Nobody decides their own. Sickness is recorded the moment it is reported, so its shifts block publication until covered, and the manager can put each one out as an open shift. Each person is told in the app, and by email where it is set up, when their published week changes (only what changed), when a shift is cancelled, an open shift is posted for them, a swap is offered or agreed, and a request is decided. Each morning every manager is emailed what is theirs to decide (sickness to cover, requests and how long each has waited, open shifts unfilled in the week ahead), only when something is waiting, with no reasons or notes, and can turn it off for themselves. | `src/engine/requests.ts`, `server/routes/requests.ts`, `server/notify.ts`, `server/digest.ts`, `src/staff/SelfService.tsx`, `src/ui/RequestsView.tsx` |
 | Drag to move and resize | Drag a shift to another person or day, or drag either edge to change the hours in 15 minute steps. Labour cost, labour %, compliance flags and every chart recalculate live while you drag, and a readout beside the pointer shows the change to the week. Drops on approved leave or outside stated availability are refused with the reason, and resizes stop at the edge of availability (the shift editor remains the place for an agreed exception). On a tablet, press and hold a shift to lift it, so a swipe still scrolls; the edge grips work straight away. The grid scrolls when a shift is held near its edge. A first-use hint explains the gestures. Escape cancels, Undo reverses, and Alt with the arrow keys does the same from the keyboard. | `src/ui/RotaGrid.tsx`, `src/ui/drag.ts` |
 | Service timeline | The default rota view. Each day is drawn over its own forecast sales curve, with shifts as bars grouped front of house, bar and back of house, and a strip under each day reading hours short or over against demand. Bars drag along the day, by their ends, or up and down to another day, with the same live costing and leave and availability rules as the person grid, which stays one click away. | `src/ui/Timeline.tsx`, `src/ui/useShiftDrag.ts` |
@@ -213,7 +214,7 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 928 tests across 83 files (staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, clocked against rota, cut call, compliance pricing, tronc, prime cost, retention, demo trading history, clients and onboarding, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 954 tests across 87 files (pricing, support desk, staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, clocked against rota, cut call, compliance pricing, tronc, prime cost, retention, demo trading history, clients and onboarding, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
@@ -399,12 +400,43 @@ links. The sign-in page then offers "Start a free trial", and the marketing site
    business, with them as its owner, on a free trial (`PRESHIFT_TRIAL_DAYS`, default 14), and they
    land in Set-up. Like any owner, they set up an authenticator before settings and billing open.
 
-Billing is for those organisations alone. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and
-`STRIPE_PRICE_ID` (a recurring price per site), and point a Stripe webhook at
+### Pricing
+
+Published on the marketing site, charged by Stripe and quoted on the Billing page from one source,
+`src/engine/pricing.ts`:
+
+| | Per site a month, before VAT |
+| --- | --- |
+| Sites 1 to 5 | £119 |
+| Sites 6 to 20 | £99 |
+| More than 20 sites | Group plan, agreed with us |
+
+- Per site, everything included, never per member of staff: hospitality hires seasonally and turns
+  staff over fast, and a per-head price charges for the flexibility a rota exists to manage.
+- Graduated: each site is charged at its band's rate, so adding a site never makes the others dearer.
+  Eight sites are 5 x £119 + 3 x £99 = £892 a month.
+- Yearly is ten months' price for twelve. 14 days free, no card, month to month after.
+- Founding operators: 30% off for 24 months, through a Stripe promotion code on the founding coupon.
+- Williams, Stanley & Co. clients: within their WS fee, never billed here.
+- TeamPay bills payroll itself; the rota assistant runs on the customer's own Claude key.
+
+To change a price, edit `src/engine/pricing.ts`, bump its `version`, update the `PRICING` block in
+`site/main.js` and the figures in the page copy (`server/pricing.test.ts` fails until they agree),
+then run `npm run stripe:prices` and set the new price ids. Existing subscribers stay on the price
+they bought until moved.
+
+### Setting up Stripe
+
+`STRIPE_SECRET_KEY=sk_test_... npm run stripe:prices` creates the product, the monthly and yearly
+graduated prices and the founding coupon from `src/engine/pricing.ts` (add `-- --dry-run` to see what
+it would do; run again safely, it reuses what exists). Set `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, and the `STRIPE_PRICE_ID` and `STRIPE_PRICE_ID_ANNUAL` it prints, and point a
+Stripe webhook at
 `/v1/integrations/stripe/webhook` (events listed in `docs/API.md`). Organisation, then Billing:
 
-- Subscribe opens Stripe Checkout for the organisation's own sites (the sample group's never count,
-  minimum one). Trial days left carry over, so paying early costs nothing. Checkout collects the
+- The page quotes the organisation's own sites band by band, with VAT, monthly or yearly. Subscribe
+  opens Stripe Checkout for those sites (the sample group's never count, minimum one; above 20, a
+  group plan instead). Trial days left carry over, so paying early costs nothing. Checkout collects the
   billing address and VAT number, and accepts promotion codes.
 - Manage billing opens Stripe's customer portal: card, VAT invoices, company details, cancelling.
 - When sites are added or closed, one button brings the sites paid for into line; Stripe prorates it.

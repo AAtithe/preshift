@@ -288,6 +288,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // hands the device a credential lasting a year for a sandbox that ends at midnight.
   'POST /v1/kiosks': false,
   'GET /v1/staff-logins/review': false,
+  // Support is people answering people: a demo visitor is no named person, and nobody real is on the other end.
+  'GET /v1/support/tickets': false,
+  'POST /v1/support/tickets': false,
+  'POST /v1/support/answered': false,
+  'POST /v1/support/tickets/:id/vote': false,
+  'POST /v1/support/tickets/:id/comments': false,
+  'PATCH /v1/support/tickets/:id': false,
   'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
   'GET /v1/dev/people': false,
@@ -339,7 +346,7 @@ export function sandboxGuard(enabled: boolean) {
     if (!isSandbox(req.principal?.orgId)) return;
     if (!enabled) throw refused('The public demo has been switched off.');
     if (!sandboxRouteAllowed(req.method, req.routeOptions.url)) {
-      throw refused('This is the public demo, so invitations, passwords, keys, webhooks, email, identity documents and staff app logins are switched off here.');
+      throw refused('This is the public demo, so invitations, passwords, keys, webhooks, email, identity documents, staff app logins and support tickets are switched off here.');
     }
   };
 }

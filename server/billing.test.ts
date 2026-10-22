@@ -10,7 +10,7 @@ import { kit, type Kit } from './testkit';
 const OLIVIA = 'olivia@marylebonegroup.example';
 const OLIVIA_MFA = 'demo-usr_owner';
 const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift <hello@preshift.example>', appUrl: 'https://rota.preshift.example' };
-const STRIPE_ENV = { STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', STRIPE_PRICE_ID: 'price_site' };
+const STRIPE_ENV = { STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', STRIPE_PRICE_ID: 'price_site', STRIPE_PRICE_ID_ANNUAL: 'price_site_year' };
 const DAY = 86_400_000;
 
 let mails: { to: string[]; subject: string; text: string }[] = [];
@@ -46,8 +46,8 @@ function subscription(status: string, quantity = 1, id = 'sub_1') {
   return { id, object: 'subscription', customer: 'cus_1', status, cancel_at_period_end: false, items: { data: [{ id: 'si_1', quantity, current_period_end: 1_800_000_000 }] } };
 }
 
-async function boot(options: { stripe?: boolean; signup?: boolean; email?: boolean } = {}) {
-  const k = await kit({ fetch: fake as typeof fetch, env: options.stripe === false ? {} : STRIPE_ENV, signup: options.signup });
+async function boot(options: { stripe?: boolean; signup?: boolean; email?: boolean; env?: Record<string, string> } = {}) {
+  const k = await kit({ fetch: fake as typeof fetch, env: options.env ?? (options.stripe === false ? {} : STRIPE_ENV), signup: options.signup });
   if (options.email !== false) await k.store.setSetting(emailSetting('demo'), JSON.stringify(EMAIL));
   return k;
 }
@@ -171,7 +171,10 @@ describe('billing', () => {
     const k = await boot();
     const olivia = await selfServe(k);
     const view = await k.call('GET', '/v1/billing', olivia);
-    expect(view.body).toMatchObject({ standing: 'trial', trialDaysLeft: 10, stripe: true, canSubscribe: true, price: { amountPence: 4900, currency: 'gbp', interval: 'month' } });
+    expect(view.body).toMatchObject({ standing: 'trial', trialDaysLeft: 10, stripe: true, canSubscribe: true });
+    // The quote is the published price for the sites set up, monthly and yearly.
+    expect(view.body.quotes.month).toMatchObject({ sites: 1, netPence: 11_900, vatPence: 2_380, grossPence: 14_280 });
+    expect(view.body.quotes.year).toMatchObject({ sites: 1, netPence: 119_000 });
 
     const res = await k.call('POST', '/v1/billing/checkout', olivia);
     expect(res.status).toBe(200);
@@ -278,6 +281,46 @@ describe('billing', () => {
     expect(call.body.get('proration_behavior')).toBe('create_prorations');
     // A subscription in force is never bought twice.
     expect((await k.call('POST', '/v1/billing/checkout', olivia)).status).toBe(409);
+  });
+});
+
+describe('pricing in billing', () => {
+  it('takes an annual subscription on the annual price, and offers it only when that price is set', async () => {
+    const k = await boot();
+    const olivia = await selfServe(k);
+    expect((await k.call('POST', '/v1/billing/checkout', olivia, { interval: 'year' })).status).toBe(200);
+    expect(stripe.find((c) => c.path === '/checkout/sessions')!.body.get('line_items[0][price]')).toBe('price_site_year');
+    expect((await k.call('POST', '/v1/billing/checkout', olivia, { interval: 'fortnight' })).status).toBe(400);
+
+    const monthlyOnly = await boot({ env: { STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', STRIPE_PRICE_ID: 'price_site' } });
+    const o2 = await selfServe(monthlyOnly);
+    expect((await monthlyOnly.call('GET', '/v1/billing', o2)).body.quotes.year).toBeUndefined();
+    expect((await monthlyOnly.call('POST', '/v1/billing/checkout', o2, { interval: 'year' })).body.error).toBe('no_annual');
+  });
+
+  it('sends a group above the self-serve limit to a group plan rather than a card form', async () => {
+    const k = await boot();
+    const olivia = await selfServe(k);
+    const org = await k.store.load('demo');
+    const template = org.state.sites[0];
+    for (let i = 0; i < 21; i++) org.state.sites.push({ ...template, id: `own-${i}`, name: `Own ${i}` });
+    await k.store.save(org);
+    const view = await k.call('GET', '/v1/billing', olivia);
+    expect(view.body.quotes.month).toMatchObject({ sites: 21, groupPlan: true });
+    const res = await k.call('POST', '/v1/billing/checkout', olivia);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('group_plan');
+    expect(stripe).toEqual([]);
+  });
+
+  it('records whether the subscription is paid monthly or yearly', async () => {
+    const k = await boot();
+    await selfServe(k, { customerId: 'cus_1' });
+    await k.store.setSetting(customerSetting('cus_1'), 'demo');
+    const sub = subscription('active');
+    (sub.items.data[0] as Record<string, unknown>).price = { recurring: { interval: 'year' } };
+    await webhook(k, { type: 'customer.subscription.created', data: { object: sub } });
+    expect((await getBilling(k.store, 'demo'))!.interval).toBe('year');
   });
 });
 
