@@ -51,10 +51,25 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 const say = (e: unknown) => (e instanceof Problem ? e.message : 'Could not reach Preshift. Check your signal and try again.');
 
+/**
+ * The invite in the link, read once. Links carry it after #, which never reaches a server; links
+ * sent before that carry it in the query. Either way the address bar is cleared straight away, so
+ * the token is not left in history or shared by accident.
+ */
+function readInvite() {
+  const fromHash = new URLSearchParams(window.location.hash.slice(1));
+  const params = fromHash.get('invite') ? fromHash : new URLSearchParams(window.location.search);
+  if (!params.get('invite')) return null;
+  window.history.replaceState(null, '', '/staff/');
+  return { org: params.get('org') ?? '', person: params.get('person') ?? '', invite: params.get('invite') ?? '' };
+}
+
+/** Read when the app loads, once, before anything can render twice. */
+const INVITE = readInvite();
+
 /** The staff app: a person's own login on their own phone, to clock in and out and see their shifts. */
 export function StaffApp() {
-  const params = new URLSearchParams(window.location.search);
-  const invite = params.get('invite') ? { org: params.get('org') ?? '', person: params.get('person') ?? '', invite: params.get('invite') ?? '' } : null;
+  const invite = INVITE;
   const [view, setView] = useState<'loading' | 'login' | 'join' | 'home'>('loading');
   const [data, setData] = useState<Overview | null>(null);
   const [joining, setJoining] = useState<{ name: string; email: string } | null>(null);
@@ -68,7 +83,7 @@ export function StaffApp() {
 
   useEffect(() => {
     if (invite) {
-      call<{ name: string; email: string }>('GET', `/v1/staff/invite?${new URLSearchParams(invite)}`)
+      call<{ name: string; email: string }>('POST', '/v1/staff/invite', invite)
         .then((info) => { setJoining(info); setView('join'); })
         .catch((e) => { setError(say(e)); setView('login'); });
       return;
@@ -96,10 +111,7 @@ export function StaffApp() {
         <Join
           info={joining}
           onSubmit={async (email, password) => {
-            const overview = await call<Overview>('POST', '/v1/staff/join', { ...invite, email, password });
-            // The invite link only works once; take it out of the address bar and the history.
-            window.history.replaceState(null, '', '/staff/');
-            show(overview);
+            show(await call<Overview>('POST', '/v1/staff/join', { ...invite, email, password }));
           }}
         />
       )}
