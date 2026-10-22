@@ -163,6 +163,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/users/:id/resend-invite': false,
   'POST /v1/users/:id/reset-password': false,
   'POST /v1/users/:id/reset-authenticator': false,
+  // Sends a link to whatever address is typed, and moves an account.
+  'POST /v1/users/:id/email': false,
+  'DELETE /v1/users/:id/email': false,
   'POST /v1/me/authenticator/start': false,
   'POST /v1/me/authenticator/confirm': false,
   'POST /v1/me/authenticator/verify': false,

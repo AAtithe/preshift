@@ -45,6 +45,15 @@ export interface PayRunRecord {
   employerId?: string;
 }
 
+export interface EmailChange {
+  userId: string;
+  from: string;
+  to: string;
+  expiresAt: string;
+  requestedBy: string;
+  requestedAt: string;
+}
+
 export interface AuditEvent {
   at: string;
   /** The name the actor went by at the time, kept as written. */
@@ -124,6 +133,8 @@ export interface OrgData {
   inviteTokens: Record<string, { userId: string; expiresAt: string; kind?: 'invite' | 'reset' }>;
   /** When each person's invitation was last sent, to stop resend floods. */
   inviteSends: Record<string, string[]>;
+  /** Email changes waiting for the person to confirm from the new inbox, by the link's SHA-256. One per person. */
+  emailChanges: Record<string, EmailChange>;
   /** Authenticators by user id. */
   authenticators: Record<string, AuthenticatorRecord>;
   /** Emails sent through Resend, by Resend's id, with what Resend has reported since. Never their content. */
@@ -220,6 +231,8 @@ export interface UserStore {
    */
   createUser(user: UserRecord, options?: { onlyIfFirst?: boolean }): Promise<boolean>;
   updateUser(email: string, patch: Partial<Omit<UserRecord, 'email' | 'createdAt'>>): Promise<void>;
+  /** Moves the account to a new email, keeping everything else. False if the old one is gone or the new one is taken. */
+  renameUser(from: string, to: string): Promise<boolean>;
   deleteUser(email: string): Promise<void>;
   /** The person whose reset link this is, while it is unused and in date. */
   findUserByResetToken(tokenHash: string, nowSeconds: number): Promise<UserRecord | null>;
@@ -439,6 +452,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     accessReviews: people.reviews,
     inviteTokens: {},
     inviteSends: {},
+    emailChanges: {},
     mail: {},
     authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
@@ -555,6 +569,14 @@ export class MemoryStore implements Store {
 
   async deleteUser(email: string) {
     this.users.delete(email);
+  }
+
+  async renameUser(from: string, to: string) {
+    const user = this.users.get(from);
+    if (!user || this.users.has(to)) return false;
+    this.users.delete(from);
+    this.users.set(to, { ...user, email: to });
+    return true;
   }
 
   private readonly staff = new Map<string, StaffLogin>();
@@ -932,6 +954,18 @@ export class PgStore implements Store {
     await this.query('delete from preshift.users where email = $1', [email]);
   }
 
+  async renameUser(from: string, to: string) {
+    const user = await this.getUser(from);
+    if (!user) return false;
+    // The email is the primary key, so a taken address fails the update rather than overwriting it.
+    try {
+      const rows = await this.query('update preshift.users set email = $2, data = $3 where email = $1 returning email', [from, to, JSON.stringify({ ...user, email: to })]);
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   async getStaffLogin(orgId: string, employeeId: string) {
     await this.init();
     const rows = await this.query('select data from preshift.staff_logins where org_id = $1 and employee_id = $2', [orgId, employeeId]);
@@ -1153,6 +1187,7 @@ function deserialise(data: unknown, version: number): OrgData {
     accessReviews: raw.accessReviews ?? [],
     inviteTokens: raw.inviteTokens ?? {},
     inviteSends: raw.inviteSends ?? {},
+    emailChanges: raw.emailChanges ?? {},
     mail: raw.mail ?? {},
     authenticators: raw.authenticators ?? {},
     processedWebhookIds: new Set(raw.processedWebhookIds),

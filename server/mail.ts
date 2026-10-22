@@ -115,6 +115,35 @@ export function inviteEmail(to: string, name: string, invitedBy: string, role: s
   };
 }
 
+/** To the new address: confirm it, with the current password, to move the account across. */
+export function emailChangeEmail(to: string, name: string, from: string, by: string, link: string, days: number, existing: boolean): Mail {
+  const opening = `${by} has asked to change the email you use for Preshift from ${from} to this address.`;
+  const confirm = existing
+    ? 'Use this link and enter your current Preshift password to confirm. Your password, authenticator, roles and history all stay as they are; from then on you sign in with this address.'
+    : 'Use this link to confirm. Your invitation then comes to this address instead.';
+  const notes = [`The link works once and expires in ${days} days.`, 'If you were not expecting this, ignore it: nothing changes unless the link is used.'];
+  const text = [`Hello ${name},`, '', opening, confirm, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: 'Confirm your new email for Preshift', text, html: letter([`Hello ${name},`, opening, confirm], { label: 'Confirm this email', link }, notes) };
+}
+
+/** To the old address, with no link: so a change nobody asked for is seen by the person it affects. */
+export function emailChangeNotice(to: string, name: string, next: string, by: string): Mail {
+  const lines = [
+    `Hello ${name},`,
+    '',
+    `${by} has asked to move your Preshift account from this address to ${next}. Nothing changes until the new address is confirmed with your current password.`,
+    '',
+    'If you did not expect this, speak to whoever manages access in your organisation straight away, and keep your password to yourself.',
+    '',
+    'Preshift, by Preshift and Williams, Stanley & Co.',
+  ];
+  const text = lines.join('\n');
+  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#1c1b19;line-height:1.5;max-width:520px;margin:0 auto;padding:24px">
+${lines.filter(Boolean).map((t) => `<p>${escape(t)}</p>`).join('\n')}
+</body></html>`;
+  return { to, subject: 'Your Preshift email is being changed', text, html };
+}
+
 /**
  * A staff app invitation: the person sets up their own login on their phone, to clock in at the
  * site and see their own shifts. A new one is also how a forgotten password is reset.

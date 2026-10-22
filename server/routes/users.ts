@@ -8,7 +8,7 @@ import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
 import { actorOf, withoutRecord } from '../guard';
 import { authenticatorOf, authenticatorState } from './authenticator';
-import { accessResetEmail, emailSetting, inviteEmail, linkFor, parseEmailSettings, sendMail, type Mail } from '../mail';
+import { accessResetEmail, emailChangeEmail, emailChangeNotice, emailSetting, inviteEmail, linkFor, parseEmailSettings, sendMail, type Mail } from '../mail';
 import { hashPassword } from '../passwords';
 import { ADMIN_RESET_HOURS, issueReset } from './access';
 import { mailAttention } from '../../src/engine/mail';
@@ -20,6 +20,8 @@ import { audit, withCurrentNames, type OrgData } from '../store';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESENDS_PER_HOUR = 3;
+/** How long a link to confirm a new email address works. */
+export const EMAIL_CHANGE_DAYS = 3;
 const ACCESS_ACTIONS = ['user.', 'membership.', 'access.', 'invite.', 'authenticator.', 'email.'];
 
 const grantFields = {
@@ -154,7 +156,7 @@ async function deliver(store: Store, org: OrgData, path: string, mail: (link: st
 }
 
 /** Sends an invitation link to the person invited, naming who invited them and the role they start with. */
-async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false, emailOnly = false) {
+export async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false, emailOnly = false) {
   const role = roleOf(user.memberships.find((m) => m.active)?.roleId ?? '')?.name ?? 'a member of the team';
   // Someone who already signs in to Preshift accepts with their own password, not a new one.
   const existing = !!(await store.getUser(user.email));
@@ -192,6 +194,7 @@ function refuseElsewhere(account: UserRecord | null, org: OrgData, target: User)
 
 /** What the Access screen needs to know about each person's sign-in. Never the hash. */
 async function withAccounts(store: Store, org: OrgData, users: User[]) {
+  const today = store.todayISO();
   const accounts = new Map((await store.listUsers(org.orgId)).map((a) => [a.email, a]));
   const mail = latestByUser(org);
   const nowSecs = Math.floor(Date.now() / 1000);
@@ -207,6 +210,8 @@ async function withAccounts(store: Store, org: OrgData, users: User[]) {
         : { exists: false, locked: false, managedHere: true },
       // The last email sent to them and what Resend reported, so a link that never arrived shows.
       lastEmail: mail.get(u.id),
+      // A new address waiting for the person to confirm it from that inbox.
+      pendingEmail: Object.values(org.emailChanges).find((c) => c.userId === u.id && c.expiresAt >= today),
     };
   });
 }
@@ -461,6 +466,71 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       return target;
     },
   );
+
+  // A person's email is their identity, so someone else changes it, and only once the person has
+  // confirmed the new inbox with their current password. Their record, roles, history, password and
+  // authenticator all carry over. The old address is told, so a change nobody asked for is seen.
+  app.post<{ Params: { id: string }; Body: { email: string; handOver?: boolean } }>(
+    '/v1/users/:id/email',
+    {
+      ...manage,
+      schema: {
+        tags,
+        description: 'Starts changing a person\'s email. A link goes to the new address; the person confirms it with their current password. Returns the link only when it was not emailed.',
+        params: idParam,
+        body: { type: 'object', required: ['email'], additionalProperties: false, properties: { email: { type: 'string' }, handOver: { type: 'boolean' } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const actor = actorOf(req, org, today());
+      const target = findUser(org, req.params.id);
+      refuse(checkAuthority(actor, target, org.users, today()));
+      if (target.status === 'suspended') throw new HttpError(409, 'conflict', `${target.name} is suspended. Reactivate them first.`);
+      const email = req.body.email.trim().toLowerCase();
+      if (!EMAIL.test(email)) throw new HttpError(400, 'invalid_request', 'That is not an email address');
+      if (email === target.email) throw new HttpError(400, 'invalid_request', `${target.name} already uses ${email}`);
+      const other = org.users.find((u) => u.email === email);
+      if (other) throw new HttpError(409, 'exists', `${email} is already ${other.name}'s email here.`, { userId: other.id });
+      if (await ctx.store.getUser(email)) {
+        throw new HttpError(409, 'exists', `${email} already signs in to Preshift as someone else's account, so it cannot be moved onto ${target.name}. Ask them for an address that is not in use.`);
+      }
+      const account = await ctx.store.getUser(target.email);
+      if (account && account.orgId !== org.orgId) {
+        throw new HttpError(409, 'managed_elsewhere', `${target.name} signs in with an account another organisation manages, so their email is changed there.`);
+      }
+      for (const [k, v] of Object.entries(org.emailChanges)) if (v.userId === target.id) delete org.emailChanges[k];
+      const now = new Date();
+      const token = `${org.orgId}.${randomBytes(24).toString('base64url')}`;
+      const expiresAt = addDays(today(), EMAIL_CHANGE_DAYS);
+      org.emailChanges[hash(token)] = { userId: target.id, from: target.email, to: email, expiresAt, requestedBy: nameOf(actor), requestedAt: now.toISOString() };
+      const sent = await deliver(
+        ctx.store,
+        org,
+        `/login#email=${encodeURIComponent(token)}`,
+        (url) => emailChangeEmail(email, target.name, target.email, nameOf(actor), url, EMAIL_CHANGE_DAYS, !!account),
+        { kind: 'email_change', userId: target.id, by: nameOf(actor) },
+        req.body.handOver,
+      );
+      // Best effort: the old address hears of it whether or not the new one has had its link yet.
+      const settings = parseEmailSettings(await ctx.store.getSetting(emailSetting(org.orgId)));
+      const warned = !!(settings && account && (await sendMail(settings, emailChangeNotice(target.email, target.name, email, nameOf(actor)))) !== null);
+      audit(org, nameOf(actor), 'user.email_change_requested', { userId: target.id, to: email, emailed: sent.emailed, oldAddressTold: warned });
+      return { expiresAt, to: email, oldAddressTold: warned, ...sent };
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/v1/users/:id/email', { ...manage, schema: { tags, description: 'Withdraws an email change the person has not confirmed yet.', params: idParam } }, async (req) => {
+    const org = orgOf(req);
+    const actor = actorOf(req, org, today());
+    const target = findUser(org, req.params.id);
+    refuse(checkAuthority(actor, target, org.users, today()));
+    const pending = Object.entries(org.emailChanges).filter(([, v]) => v.userId === target.id);
+    if (!pending.length) throw new HttpError(409, 'conflict', `${target.name} has no email change waiting`);
+    for (const [k] of pending) delete org.emailChanges[k];
+    audit(org, nameOf(actor), 'user.email_change_cancelled', { userId: target.id });
+    return { ok: true };
+  });
 
   app.post<{ Params: { id: string }; Body: GrantBody }>(
     '/v1/users/:id/grants',

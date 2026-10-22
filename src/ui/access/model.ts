@@ -25,6 +25,9 @@ export interface AccountState {
 
 export const accountOf = (u: User) => (u as User & { account?: AccountState }).account;
 
+/** A new email waiting for the person to confirm it from that inbox. */
+export const pendingEmailOf = (u: User) => (u as User & { pendingEmail?: { to: string; expiresAt: string; requestedBy: string } }).pendingEmail;
+
 export function signInState(u: User): { text: string; tone: 'good' | 'bad' | 'muted' } {
   const a = accountOf(u);
   if (!a) return { text: 'Unknown', tone: 'muted' };
@@ -101,6 +104,10 @@ export function byArea(perms: Iterable<Permission>) {
 const ACTION_TEXT: Record<string, string> = {
   'user.invited': 'Invited',
   'user.updated': 'Updated details',
+  'user.email_change_requested': 'Asked to change email',
+  'user.email_change_cancelled': 'Withdrew an email change',
+  'user.email_changed': 'Email changed',
+  'user.email_change_failed': 'Email change could not finish',
   'user.suspended': 'Suspended',
   'user.reactivated': 'Reactivated',
   'user.authenticator_reset': 'Reset authenticator',
@@ -181,7 +188,7 @@ export type MailState = MailView;
 
 export const lastEmailOf = (u: User) => (u as User & { lastEmail?: MailState }).lastEmail;
 
-export const MAIL_KIND: Record<MailState['kind'], string> = { invite: 'Invitation', reset: 'Password reset', forgot: 'Forgotten password', staff_invite: 'Staff app invitation' };
+export const MAIL_KIND: Record<MailState['kind'], string> = { invite: 'Invitation', reset: 'Password reset', forgot: 'Forgotten password', staff_invite: 'Staff app invitation', email_change: 'New email confirmation' };
 
 const MAIL_STATUS: Record<MailState['status'], { text: string; tone: 'good' | 'bad' | 'muted' }> = {
   sent: { text: 'accepted by Resend, not yet confirmed delivered', tone: 'muted' },

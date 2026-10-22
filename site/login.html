@@ -148,6 +148,18 @@
         <p class="foot"><a href="/login">Back to sign in</a></p>
       </section>
 
+      <section id="newemail" hidden>
+        <h1>Confirm your new email</h1>
+        <p class="msg bad" id="newemail-error" role="alert" hidden></p>
+        <p class="msg ok" id="newemail-done" role="status" hidden></p>
+        <p class="foot intro" id="newemail-for" hidden></p>
+        <form id="newemail-form" hidden>
+          <label id="newemail-password">Your current Preshift password <input type="password" name="password" autocomplete="current-password" /></label>
+          <button type="submit" id="newemail-button">Confirm and sign in</button>
+        </form>
+        <p class="foot"><a href="/login">Back to sign in</a></p>
+      </section>
+
       <section id="setup" hidden>
         <h1>Create the owner account</h1>
         <p class="foot intro">This is the first sign-in on this system. The account you create here becomes the owner, and invites everyone else from the Access tab.</p>
@@ -172,7 +184,7 @@
       }
       for (const id of ['signedout', 'sent', 'signupsent']) if (params.has(id)) document.getElementById(id).hidden = false;
       const show = (id) => {
-        for (const section of ['signin', 'forgot', 'reset', 'setpassword', 'start', 'confirm']) document.getElementById(section).hidden = section !== id;
+        for (const section of ['signin', 'forgot', 'reset', 'setpassword', 'start', 'confirm', 'newemail']) document.getElementById(section).hidden = section !== id;
         document.querySelector(`#${id} input:not([type=hidden])`)?.focus();
       };
       document.getElementById('forgot-link').addEventListener('click', (e) => {
@@ -274,6 +286,56 @@
             if (!params.get('error')) document.getElementById('badlink').hidden = false;
           });
       }
+      // A link to confirm a new email address, sent to that address. The person proves it is them
+      // with their current password, so whoever asked for the change cannot finish it alone.
+      const emailToken = location.hash.startsWith('#email=') ? decodeURIComponent(location.hash.slice(7)) : null;
+      if (emailToken) {
+        history.replaceState(null, '', '/login');
+        show('newemail');
+        const fail = (message) => {
+          const el = document.getElementById('newemail-error');
+          el.textContent = message;
+          el.hidden = false;
+        };
+        const post = (body) =>
+          fetch('/auth/email-change', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+            .then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+        let needsPassword = true;
+        post({ token: emailToken })
+          .then(({ ok, body }) => {
+            if (!ok) return fail(body.message || 'This link does not work. Ask for a new one.');
+            needsPassword = body.needsPassword;
+            const who = document.getElementById('newemail-for');
+            who.textContent = needsPassword
+              ? `${body.name}, this moves your Preshift account from ${body.from} to ${body.to}. Your password, authenticator, roles and history stay as they are, and every other device is signed out.`
+              : `${body.name}, this sends your Preshift invitation to ${body.to} instead of ${body.from}.`;
+            who.hidden = false;
+            const password = document.querySelector('#newemail-form input[name=password]');
+            password.required = needsPassword;
+            document.getElementById('newemail-password').hidden = !needsPassword;
+            document.getElementById('newemail-button').textContent = needsPassword ? 'Confirm and sign in' : 'Confirm';
+            document.getElementById('newemail-form').hidden = false;
+            if (needsPassword) password.focus();
+          })
+          .catch(() => fail('Could not check the link. Check your connection and open it again.'));
+        document.getElementById('newemail-form').addEventListener('submit', (e) => {
+          e.preventDefault();
+          document.getElementById('newemail-error').hidden = true;
+          const password = needsPassword ? new FormData(e.target).get('password') : '';
+          post({ token: emailToken, password })
+            .then(({ ok, body }) => {
+              if (!ok) return fail(body.message || 'The email was not changed.');
+              if (body.signedIn) return location.assign('/app/');
+              document.getElementById('newemail-form').hidden = true;
+              const done = document.getElementById('newemail-done');
+              done.textContent = body.invited
+                ? 'Confirmed. A fresh invitation is on its way to this address: open it to choose your password.'
+                : 'Confirmed. Ask whoever invited you to resend your invitation; it now goes to this address.';
+              done.hidden = false;
+            })
+            .catch(() => fail('Could not confirm. Check your connection and try again.'));
+        });
+      }
       // On a fresh system there is nobody to sign in as yet, so offer the owner set-up instead.
       fetch('/auth/status')
         .then((r) => (r.ok ? r.json() : null))
@@ -285,7 +347,7 @@
             show('signin');
             if (!params.get('error')) document.getElementById('nosignup').hidden = false;
           }
-          if (!status?.setupNeeded || resetToken || inviteToken || signupToken) return;
+          if (!status?.setupNeeded || resetToken || inviteToken || signupToken || emailToken) return;
           document.getElementById('signin').hidden = true;
           document.getElementById('setup').hidden = false;
           document.querySelector('#setup input[name=email]').focus();

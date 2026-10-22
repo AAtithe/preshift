@@ -3,7 +3,7 @@
 
 import { ukDate, type Attention, type User } from './access';
 
-export type MailKind = 'invite' | 'reset' | 'forgot' | 'staff_invite';
+export type MailKind = 'invite' | 'reset' | 'forgot' | 'staff_invite' | 'email_change';
 export type MailStatus = 'sent' | 'delivered' | 'delayed' | 'bounced' | 'complained' | 'failed';
 
 export interface MailView {
@@ -21,7 +21,7 @@ export interface MailView {
   detail?: string;
 }
 
-const WHAT: Record<MailKind, string> = { invite: 'invitation', reset: 'password reset email', forgot: 'password reset email', staff_invite: 'staff app invitation' };
+const WHAT: Record<MailKind, string> = { invite: 'invitation', reset: 'password reset email', forgot: 'password reset email', staff_invite: 'staff app invitation', email_change: 'new email confirmation' };
 
 /**
  * An email that went wrong, while it still matters: an invitation while the person has not
@@ -36,7 +36,12 @@ export function mailAttention(users: User[], latest: Map<string, MailView>): Att
     if (!stillMatters) continue;
     const what = `${u.name}'s ${WHAT[m.kind]} to ${m.to}`;
     const because = m.detail ? ` (${m.detail.replace(/\.$/, '')})` : '';
-    const handOver = m.kind === 'invite' ? 'Withdraw the invitation and invite the right address, or resend it and hand the link over in person.' : 'Reset again and hand the link over in person.';
+    const handOver =
+      m.kind === 'invite'
+        ? 'Withdraw the invitation and invite the right address, or resend it and hand the link over in person.'
+        : m.kind === 'email_change'
+          ? 'Check the new address with them, then ask for the change again, or hand the link over in person.'
+          : 'Reset again and hand the link over in person.';
     if (m.status === 'bounced') {
       out.push({ kind: 'email_bounced', severity: 'warn', userId: u.id, message: `${what} bounced on ${ukDate(m.at)}${because}. ${handOver}` });
     } else if (m.status === 'failed') {

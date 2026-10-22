@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildApp, storeFromEnv } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore, PgStore, type Query } from './store';
+import { account } from './testkit';
 
 const WEEK = '2026-10-19';
 const KEYS = [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] }];
@@ -195,5 +196,15 @@ describe('the daily refresh against a busy organisation', () => {
     expect(rows.find((r) => r.hour === 19)).toMatchObject({ sales: 4321, overriddenBy: 'Admin' });
     const weather = (await call('GET', '/v1/weather?siteId=mar')).json() as unknown[];
     expect(weather.length).toBeGreaterThan(20);
+  });
+  it('moves an account to a new email, never onto one already taken', async () => {
+    const store = new PgStore(pglite(), ['demo'], '2026-10-21');
+    await store.createUser({ ...account('old@example.com'), lastOrgId: 'demo' });
+    await store.createUser(account('taken@example.com'));
+    expect(await store.renameUser('old@example.com', 'taken@example.com')).toBe(false);
+    expect(await store.renameUser('old@example.com', 'new@example.com')).toBe(true);
+    expect(await store.getUser('old@example.com')).toBeNull();
+    expect(await store.getUser('new@example.com')).toMatchObject({ email: 'new@example.com', lastOrgId: 'demo' });
+    expect(await store.renameUser('gone@example.com', 'other@example.com')).toBe(false);
   });
 });

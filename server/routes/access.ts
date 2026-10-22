@@ -11,7 +11,7 @@ import { isSandbox } from '../sandbox';
 import { audit, orgsOfAccount, type OrgData, type Store, type UserRecord } from '../store';
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { addEvent, fromWebhook, recordSent, verifyWebhook, webhookPath } from '../maillog';
-import { hashToken } from './users';
+import { hashToken, issueInvite, sendInvite } from './users';
 import { getBilling, standingOf } from '../billing';
 
 export const MAX_FAILURES = 5;
@@ -288,6 +288,74 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     // This session carries on, still proved by its authenticator code if it was.
     const token = await createSession({ email: user.email, orgId: claims.orgId }, await store.sessionSecret(), issued, claims.mfa);
     return reply.header('set-cookie', sessionCookie(token, secure(req))).send({ ok: true });
+  });
+
+  // Confirms a new email from the link sent to it. With only the token, says who it is for. With the
+  // current password too (when the person has one), moves the account and every record of it across,
+  // ends every other session and signs this one in on the new address.
+  app.post<{ Body: { token?: string; password?: string } }>('/auth/email-change', hidden, async (req, reply) => {
+    const gone = () => reply.code(410).send({ error: 'expired', message: 'This link has expired, has been used, or was withdrawn. Ask whoever manages access to send a new one.' });
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    const orgId = token.split('.')[0];
+    if (!orgId || !(await store.has(orgId))) return gone();
+    const org = await store.load(orgId);
+    const key = hashToken(token);
+    const change = org.emailChanges[key];
+    const record = change && org.users.find((u) => u.id === change.userId);
+    if (!change || !record || change.expiresAt < store.todayISO() || record.email !== change.from) return gone();
+    const account = await store.getUser(change.from);
+    if (req.body?.password === undefined) return { name: record.name, from: change.from, to: change.to, needsPassword: !!account };
+
+    if (await store.getUser(change.to)) throw new HttpError(409, 'exists', `${change.to} already signs in to Preshift, so it cannot be moved onto this account. Ask for the change again with another address.`);
+    // Only the account's home moves it, as only the home resets its password.
+    if (account && account.orgId !== orgId) return gone();
+    if (account) {
+      if (account.lockedUntil > now()) throw new HttpError(429, 'locked', 'Too many attempts. This account is paused for 15 minutes.');
+      if (!(await verifyPassword(account, req.body.password))) {
+        await wrongPassword(store, account);
+        throw new HttpError(400, 'wrong_password', 'That is not your current password.');
+      }
+    }
+    // The record moves first. An account whose record names another email would sign in here with
+    // no record at all, which at home means the organisation-wide access from before roles; so if
+    // the account cannot follow, the record goes back.
+    record.email = change.to;
+    delete org.emailChanges[key];
+    audit(org, record.name, 'user.email_changed', { userId: record.id, from: change.from, to: change.to, requestedBy: change.requestedBy });
+    // Someone yet to accept gets a fresh invitation at the address they have just proved, in the
+    // name of whoever asked for the change; the link sent to the old address stops working.
+    const mailOn = !!parseEmailSettings(await store.getSetting(emailSetting(orgId)));
+    const invited = mailOn && !account && record.status === 'invited' ? await sendInvite(store, org, { kind: 'system', name: change.requestedBy }, record, issueInvite(org, record, new Date()), false, true).catch(() => null) : null;
+    await store.save(org);
+    if (account) {
+      if (!(await store.renameUser(change.from, change.to))) {
+        const again = await store.load(orgId);
+        const back = again.users.find((u) => u.id === record.id);
+        if (back) back.email = change.from;
+        audit(again, record.name, 'user.email_change_failed', { userId: record.id, to: change.to });
+        await store.save(again);
+        throw new HttpError(409, 'exists', `${change.to} could not be moved onto this account. Ask for the change again.`);
+      }
+      await store.updateUser(change.to, { sessionsValidFrom: Date.now(), failedAttempts: 0, lockedUntil: 0, resetTokenHash: undefined, resetExpires: undefined });
+      // Every other organisation the account works in knows the person by this email. Elsewhere a
+      // record left on the old email refuses them, so a failure there shuts a door rather than opens one.
+      for (const other of orgsOfAccount(account)) {
+        if (other === orgId || !(await store.has(other))) continue;
+        try {
+          const elsewhere = await store.load(other);
+          const theirs = recordFor(elsewhere, change.from);
+          if (!theirs) continue;
+          theirs.email = change.to;
+          audit(elsewhere, theirs.name, 'user.email_changed', { userId: theirs.id, from: change.from, to: change.to });
+          await store.save(elsewhere);
+        } catch (err) {
+          console.error(`Email change not carried to ${other}:`, err);
+        }
+      }
+    }
+    if (!account) return { ok: true, signedIn: false, invited: !!invited?.emailed };
+    const session = await createSession({ email: change.to, orgId }, await store.sessionSecret(), Date.now());
+    return reply.header('set-cookie', sessionCookie(session, secure(req))).send({ ok: true, signedIn: true });
   });
 
   // Ends every other session of the person's, on any device, without changing the password: a

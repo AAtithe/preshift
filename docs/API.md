@@ -304,6 +304,8 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | `POST /v1/users/:id/reset-password` | Ends the password and every session; emails a single-use link, valid a day, for the person to set a new one, or returns it to hand over when email is not set up. Needs the authority to give the person every role they hold. For someone with rights that move money or reach confidential records the link is only ever emailed (409 `email_only` otherwise) |
 | `/login?link=`, `POST /auth/accept`, `GET /auth/link` | Public: the person sets their own password from an invitation or reset link (single use), and is signed in |
 | `POST /auth/sessions/end-others` | Signed in: ends every other session of yours on any device, keeps this one, and leaves the password unchanged |
+| `POST /v1/users/:id/email`, `DELETE /v1/users/:id/email` | Someone who manages access starts or withdraws a change of a person's email. A link goes to the new address (or back to them, if email is not set up) and the old address is told. Not for your own email, nor an address already in use. Lasts three days |
+| `POST /auth/email-change` | Public: with the link's token, says who it is for; with the person's current password too, moves their account and every record of it to the new address, ends every other session and signs them in |
 
 ## Endpoints
 

@@ -6,7 +6,7 @@ import type { RotaState } from '../../engine/types';
 import { api, ApiError } from '../api';
 import {
   actorLabel, actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today,
-  deliveryText, emailState, lastEmailOf, undelivered, unsettled, type AuditRow, type Delivery, type Me,
+  deliveryText, emailState, lastEmailOf, pendingEmailOf, undelivered, unsettled, type AuditRow, type Delivery, type Me,
 } from './model';
 
 interface Props {
@@ -50,6 +50,27 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
     }
   }
 
+  const pending = pendingEmailOf(user);
+
+  // The person confirms from the new inbox with their current password, so nobody can move an
+  // account onto an address its owner does not hold.
+  async function changeEmail() {
+    const typed = window.prompt(
+      `New email for ${user.name}. A link goes to that address and ${user.name} confirms it with their current password. Their roles, history, password and authenticator stay as they are, and ${user.email} is told.`,
+      pending?.to ?? '',
+    );
+    const to = typed?.trim();
+    if (!to) return;
+    setError(null);
+    try {
+      const res = await api.post<Delivery & { to: string; oldAddressTold: boolean }>(`/v1/users/${user.id}/email`, { email: to });
+      const told = res.oldAddressTold ? ` ${user.email} has been told.` : '';
+      await onChanged(deliveryText(`Email change to ${res.to} started. Nothing changes until ${user.name} confirms it`, res.to, res) + told);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Email change failed');
+    }
+  }
+
   const reachOf = (p: (typeof ALL_PERMISSIONS)[number]) => {
     const s = sitesWith(user, p, today());
     return s === 'all' ? 'Every site' : s.map((id) => siteName(state, id)).join(', ');
@@ -62,6 +83,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
           <div>
             <h2>{user.name}</h2>
             <div className="muted">{user.email}{user.jobTitle ? `, ${user.jobTitle}` : ''}</div>
+            {pending && <div className="small warn-text">Changing to {pending.to}, asked by {pending.requestedBy}. Waiting for {user.name} to confirm, until {shortDate(pending.expiresAt)}.</div>}
             <div className="chips">
               <span className={`pill status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
               <span className="pill">{AUDIENCE_LABEL[user.audience]}</span>
@@ -180,6 +202,12 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
                 onClick={() => void act('Password reset. Their old password and every session have stopped', () => api.post(`/v1/users/${user.id}/reset-password`, { handOver: true }), `Reset ${user.name}'s password and hand the link over yourself? Their last email did not arrive. Confirm who they are by phone or in person before you pass it on.`)}
               >
                 Reset and hand over the link
+              </button>
+            )}
+            {user.status !== 'suspended' && <button onClick={() => void changeEmail()}>Change email</button>}
+            {pending && (
+              <button onClick={() => void act('Email change withdrawn', () => api.del(`/v1/users/${user.id}/email`), `Withdraw the change to ${pending.to}? ${user.name} keeps ${user.email}.`)}>
+                Withdraw email change
               </button>
             )}
             {user.mfaEnrolled && (
