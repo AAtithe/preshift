@@ -343,6 +343,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
             <>
+              <a className="link" href="/oauth/connections" title="Claude and other apps you have let act as you, with a disconnect button">Connected apps</a>
               <button className="link small" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
               <a className="link" href="/auth/logout">Sign out</a>
             </>
