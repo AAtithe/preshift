@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
-import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
+import { checkEmployeeWeek, checkWeek, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { missingForecast } from '../../src/engine/setup';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
-import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
+import type { DaySales, HourForecast, RestOverride, Shift } from '../../src/engine/types';
 import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
@@ -93,8 +93,10 @@ function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-  return [...checkEmployeeWeek(employee, ws, context), ...travelIssues(employee, context, org.state.sites)];
+  return [...checkEmployeeWeek(employee, ws, context, org.state.restOverrides), ...travelIssues(employee, context, org.state.sites)];
 }
+
+type OverrideBody = { weekStart: string; key: string; reason: string };
 
 /**
  * Checks and then applies replacement weeks for one or more sites. Nothing changes unless every
@@ -380,6 +382,73 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     return { removed, kept };
   });
 
+  app.get('/v1/rota/overrides', { ...read, schema: { tags: ['Rota'], description: 'Rest breaches a manager has published through, with who and why.' } }, async (req) => {
+    const org = orgOf(req);
+    return (org.state.restOverrides ?? []).filter(guard(ctx, req, org).at('rota.view'));
+  });
+
+  // An override is a person's judgement, so it needs a person: never a system key, and never the
+  // rota assistant, which drafts through the engine. It is part of publishing, so it needs the
+  // right to publish the rota at the site where the short rest is worked.
+  const requirePerson = (req: { principal: { userId?: string; email?: string } }, doing: string) => {
+    if (!req.principal.userId && !req.principal.email) throw new HttpError(403, 'forbidden', `Only a person can ${doing}, not a system key`);
+  };
+  app.post<{ Body: OverrideBody }>(
+    '/v1/rota/overrides',
+    {
+      ...write,
+      schema: {
+        tags: ['Rota'],
+        description:
+          "Lets a rest breach be published, with the manager's reason. Give the issue's overrideKey and the week it was reported in. It covers that breach only: moving either shift makes a new one.",
+        body: {
+          type: 'object',
+          required: ['weekStart', 'key', 'reason'],
+          additionalProperties: false,
+          properties: { weekStart: siteWeekQuery.properties.weekStart, key: { type: 'string', maxLength: 500 }, reason: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      requirePerson(req, 'override a rest breach');
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const reason = req.body.reason.trim();
+      if (reason.length < 15) throw new HttpError(422, 'reason_required', 'Say why, and what compensatory rest they will get (at least 15 characters)');
+      const issue = checkWeek(org.state, req.body.weekStart).find((i) => i.overrideKey === req.body.key);
+      if (!issue || !OVERRIDABLE.has(issue.code)) throw notFound('Rest breach');
+      if (issue.overridden) throw new HttpError(409, 'conflict', 'That breach is already overridden');
+      const siteId = issueSiteId(org.state, issue)!;
+      g.allow('rota.publish', siteId);
+      const override: RestOverride = {
+        id: `ro_${randomUUID()}`,
+        employeeId: issue.employeeId,
+        siteId,
+        code: issue.code as RestOverride['code'],
+        key: req.body.key,
+        reason,
+        by: actorName(g),
+        at: new Date().toISOString(),
+      };
+      org.state.restOverrides = [...(org.state.restOverrides ?? []), override];
+      audit(org, actorName(g), 'rest.overridden', { id: override.id, employeeId: override.employeeId, code: override.code, date: issue.date, reason });
+      return reply.code(201).send(override);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/v1/rota/overrides/:id', { ...write, schema: { tags: ['Rota'], params: idParam } }, async (req, reply) => {
+    requirePerson(req, 'withdraw an override');
+    const org = orgOf(req);
+    const before = org.state.restOverrides ?? [];
+    const override = before.find((o) => o.id === req.params.id);
+    if (!override) throw notFound(`Override ${req.params.id}`);
+    const g = guard(ctx, req, org);
+    g.allow('rota.publish', override.siteId);
+    org.state.restOverrides = before.filter((o) => o.id !== req.params.id);
+    audit(org, actorName(g), 'rest.override_withdrawn', { id: req.params.id });
+    return reply.code(204).send();
+  });
+
   app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
     const siteIds = sitesOf(org, req.body, false);
@@ -387,8 +456,10 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     for (const id of siteIds) g.allow('rota.publish', id);
     const ws = req.body.weekStart;
     // All or nothing: a group publish is refused if any site in it has a blocking issue.
-    const blocks = checkWeek(org.state, ws, siteIds).filter((i) => i.severity === 'block');
+    const issues = checkWeek(org.state, ws, siteIds);
+    const blocks = issues.filter((i) => i.severity === 'block');
     if (blocks.length) throw new HttpError(409, 'compliance_block', 'Resolve blocking issues before publishing', blocks);
+    const overridden = issues.flatMap((i) => (i.overridden ? [i.overridden.id] : []));
     const dates = weekDates(ws);
     let published = 0;
     for (const s of org.state.shifts) {
@@ -397,7 +468,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
         published++;
       }
     }
-    audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published });
+    audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
     return { published };
   });
 
