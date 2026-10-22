@@ -39,7 +39,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Staff | Holiday asked for in the app with the balance shown first, other time off (compassionate, dependants, family, unpaid), sickness reported from the phone with the fit note photographed, weekly availability proposed for approval, and one-off days they cannot work. | Requests arrive in writing with the balance and the floor in view, so leave is booked on time and the holiday provision follows it. |
 | GMs | Rota, then Staff requests: every request waiting, each with what it would do now (rules broken, shifts it clashes with, who else is off, holiday left after it). Approve or decline with a note. Open shifts posted to everyone eligible, a sick person's shift put out for cover in one click, and claims given to one person. | Cover is found through the app at the cheapest legal person, and every swap and claim is checked by the same compliance engine as the rota, so a self-service change can never break the Working Time Regulations. |
 | GMs | Each morning, an email to every manager listing what is theirs to decide: sickness to cover, requests waiting (with how long each has waited) and open shifts in the week ahead still unfilled. Only sent when something is waiting, names and dates only, and each person can turn it off on Staff requests. | Requests are decided the day they arrive, not when the GM next opens the screen, so staff trust the app enough to keep using it. |
-| Everyone | CI typechecks and runs the full suite (803 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (810 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -211,16 +211,16 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 803 tests across 75 files (staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 810 tests across 75 files (staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (803 across 75 files)
+npm test         # engine, UI rules, assistant and API tests
 npm run build    # typecheck and production build
-npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
+npm run test:e2e # browser checks of the management bar and iPad touch (Playwright), against a local dev server
 ```
 
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and

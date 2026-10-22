@@ -1,10 +1,10 @@
 import type { Employee, RestOverride, RotaState, SchoolPeriod, Shift, Site } from './types';
 import { isSchoolDay } from './school';
-import { shiftPaidMinutes } from './cost';
-import { isEmployedOn, ruleAge } from './employees';
+import { employeeWeekCost, shiftPaidMinutes, shiftsInWeek } from './cost';
+import { employedShare, isEmployedOn, ruleAge } from './employees';
 import { isAbsentOn } from './hr';
 import { absoluteMinute, addDays, ageOn, weekDates, weekday } from './time';
-import { travelIssues } from './travel';
+import { travelIssues, travelMinutesInto } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
 
 export type Severity = 'block' | 'warn';
@@ -79,6 +79,8 @@ export interface ComplianceOptions {
   nation?: Nation;
   /** Roles in the bar department, for the school-age bar warning. */
   barRoleIds?: string[];
+  /** Sites, so travel between them counts as working time; without them it is left out. */
+  sites?: Site[];
 }
 
 /**
@@ -91,6 +93,7 @@ export function complianceOptions(state: Pick<RotaState, 'sites' | 'schoolHolida
     barRoleIds: (state.roles ?? []).filter((r) => r.department === 'BAR').map((r) => r.id),
     schoolHolidays: (state.schoolHolidays ?? []).filter((p) => p.siteId === employee.siteId),
     nation: state.sites.find((s) => s.id === employee.siteId)?.nation ?? 'england',
+    sites: state.sites,
   };
 }
 
@@ -292,24 +295,28 @@ export function checkEmployeeWeek(
     );
   }
 
-  const hours = week.reduce((sum, s) => sum + shiftPaidMinutes(s), 0) / H;
+  // Travel between sites within the day is working time for everyone, salaried staff included,
+  // so it counts towards the weekly limits even where it does not change pay.
+  const travelMinutes = [...travelMinutesInto(mine, options.sites ?? [])].filter(([id]) => week.some((s) => s.id === id)).reduce((sum, [, m]) => sum + m, 0);
+  const hours = (week.reduce((sum, s) => sum + shiftPaidMinutes(s), 0) + travelMinutes) / H;
+  const rostered = `${hours.toFixed(1)}h rostered${travelMinutes > 0 ? `, ${(travelMinutes / H).toFixed(1)}h of it travel between sites` : ''}`;
   if (childWeek) {
     // A week with any school day in it is a term-time week; only confirmed holidays count as holidays.
     const termWeek = dates.slice(0, 5).some((d) => isSchoolDay(d, confirmed));
     const childAge = ageOn(employee.dateOfBirth, weekStartDate);
     const cap = termWeek ? 12 : childAge <= 14 ? 25 : 35;
     if (hours > cap) {
-      push({ code: 'child-weekly', severity: 'block', message: `School age: at most ${cap} hours a week ${termWeek ? 'in term time' : 'in the school holidays'} (${hours.toFixed(1)}h rostered).` });
+      push({ code: 'child-weekly', severity: 'block', message: `School age: at most ${cap} hours a week ${termWeek ? 'in term time' : 'in the school holidays'} (${rostered}).` });
     }
     push({ code: 'child-permit', severity: 'warn', message: 'School age: check the council\'s child employment permit is on file, and two clear weeks off in the school holidays this year.' });
   } else if (young && hours > 40) {
-    push({ code: 'young-weekly', severity: 'block', message: `Under 18s are capped at 40 hours a week (${hours.toFixed(1)}h rostered).` });
+    push({ code: 'young-weekly', severity: 'block', message: `Under 18s are capped at 40 hours a week (${rostered}).` });
   }
   if (!young && hours > 48 && !employee.optedOutOf48) {
-    push({ code: 'wtr-48', severity: 'warn', message: `${hours.toFixed(1)}h rostered without a 48 hour opt-out. Must average 48h or less over 17 weeks.` });
+    push({ code: 'wtr-48', severity: 'warn', message: `${rostered} without a 48 hour opt-out. Must average 48h or less over 17 weeks.` });
   }
   if (hours > employee.maxWeeklyHours) {
-    push({ code: 'max-hours', severity: 'warn', message: `${hours.toFixed(1)}h exceeds their ${employee.maxWeeklyHours}h maximum.` });
+    push({ code: 'max-hours', severity: 'warn', message: `${rostered}, over their ${employee.maxWeeklyHours}h maximum.` });
   }
   const fullWeek = dates.every((d) => isEmployedOn(employee, d));
   if (fullWeek && employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
@@ -330,7 +337,31 @@ export function checkWeek(state: RotaState, weekStartDate: string, siteIds?: str
   const scope = siteIds === undefined ? null : new Set(typeof siteIds === 'string' ? [siteIds] : siteIds);
   return state.employees
     .filter((e) => !scope || scope.has(e.siteId) || context.some((s) => s.employeeId === e.id && scope.has(s.siteId)))
-    .flatMap((e) => [...checkEmployeeWeek(e, weekStartDate, context, state.restOverrides, undefined, complianceOptions(state, e)), ...travelIssues(e, context, state.sites)]);
+    .flatMap((e) => [
+      ...checkEmployeeWeek(e, weekStartDate, context, state.restOverrides, undefined, complianceOptions(state, e)),
+      ...travelIssues(e, context, state.sites),
+      ...averagingIssues(e, weekStartDate, state),
+    ]);
+}
+
+/**
+ * Where a company averages travel pay below the minimum wage, says when a week needed topping up
+ * and by how much: the top-up is already in the cost and on the payroll travel line.
+ */
+function averagingIssues(employee: Employee, weekStartDate: string, state: RotaState): Issue[] {
+  const policy = state.entities.find((x) => x.id === employee.entityId)?.travelPay;
+  if (policy?.basis !== 'fixed' || !policy.averaging || employee.payBasis !== 'hourly') return [];
+  const week = shiftsInWeek(state.shifts, weekStartDate).filter((s) => s.employeeId === employee.id);
+  const cost = employeeWeekCost(employee, week, undefined, employedShare(employee, weekStartDate), state.sites, state.entities);
+  if (cost.minimumWageTopUp < 0.01) return [];
+  return [
+    {
+      employeeId: employee.id,
+      code: 'travel-minimum-wage',
+      severity: 'warn',
+      message: `Travel at £${policy.hourly.toFixed(2)} an hour takes this week's average pay below the minimum wage: £${cost.minimumWageTopUp.toFixed(2)} is added to their travel pay to make it up.`,
+    },
+  ];
 }
 
 /** The site an issue belongs to: where its shift is worked, or the person's home site for a week-level issue. */
