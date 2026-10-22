@@ -14,7 +14,10 @@ interface Props {
   today: string;
   /** May change the rate, salary and pay basis. Without it pay is shown locked, or not at all if withheld. */
   canEditPay: boolean;
-  onSave: (employee: Employee) => void;
+  /** Pay changes go to finance for approval rather than applying on save. */
+  payNeedsApproval?: boolean;
+  /** The reason travels with a proposed pay change; finance sees it. */
+  onSave: (employee: Employee, payReason?: string) => void;
   onLeaver: (id: string, leaveDate: string) => void;
   /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
   onAddDocument: (id: string, file: Blob, fileName: string) => Promise<Employee>;
@@ -29,15 +32,18 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApproval, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
   const payLocked = !canEditPay;
   const [draft, setDraft] = useState<Employee>(employee);
   const [uploading, setUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ documentId: string; entries: DocumentAccess[] } | null>(null);
   const [leaveDay, setLeaveDay] = useState('');
+  const [payReason, setPayReason] = useState('');
   const [leaving, setLeaving] = useState<string | null>(null);
   const isNew = !state.employees.some((e) => e.id === employee.id);
+  const payChanged = !draft.payHidden && canEditPay &&
+    (draft.payBasis !== employee.payBasis || draft.hourlyRate !== employee.hourlyRate || draft.annualSalary !== employee.annualSalary);
   const set = <K extends keyof Employee>(key: K, value: Employee[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const rtw = draft.rightToWork ?? { checked: false };
 
@@ -231,6 +237,14 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
         <h3 className="section">Contract and pay</h3>
         {draft.payHidden && <p className="muted small">Pay is withheld from your view. Whoever manages pay sets the rate.</p>}
         {!draft.payHidden && payLocked && <p className="muted small">Pay is set by whoever manages pay, never by the person managing the team.</p>}
+        {employee.pendingPay && (
+          <p className="notice">
+            {employee.pendingPay.after.payBasis === 'salaried'
+              ? `${money(employee.pendingPay.after.annualSalary)} a year`
+              : `£${employee.pendingPay.after.hourlyRate.toFixed(2)} an hour`}{' '}
+            proposed by {employee.pendingPay.requestedBy}, waiting for finance. The pay below stays in force until it is approved.
+          </p>
+        )}
         <div className="form">
           {!draft.payHidden && (<>
           <label>
@@ -252,6 +266,13 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
             </label>
           )}
           </>)}
+          {payChanged && payNeedsApproval && (
+            <label className="wide-field">
+              Reason for the change (finance sees this)
+              <input value={payReason} onChange={(e) => setPayReason(e.target.value)} placeholder="e.g. passed probation, new responsibilities, market rate" />
+              <span className="muted small">Goes to finance for approval. Until then their current pay stays in force{isNew ? ', which for a starter is nought' : ''}.</span>
+            </label>
+          )}
           <label>
             Contracted hours a week (0 = flexible)
             <input type="number" min={0} step={1} value={draft.contractedHours} onChange={(e) => set('contractedHours', Number(e.target.value))} />
@@ -501,7 +522,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
           )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() })}>
+          <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() }, payChanged ? payReason : undefined)}>
             Save
           </button>
         </div>

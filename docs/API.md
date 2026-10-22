@@ -55,7 +55,9 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Publish | `rota.publish` |
 | Forecast upload | `demand.manage` at every site in the upload |
 | Rota week's cost, staff pay rates | `costs.view` or `pay.edit`; otherwise `metrics` is null and pay reads nought with `payHidden` |
-| Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record |
+| Starters, changes, leavers | `team.manage`; a rate, salary or pay basis also `pay.edit`, never on your own record. From a person this proposes the change (the response carries `pendingPay`) rather than applying it |
+| Pay changes | `GET /v1/pay-changes` (`pay.edit` or `pay.approve` at the site), `POST /v1/employees/:id/pay-changes` (`pay.edit`), `POST /v1/pay-changes/:id/approve` and `/reject` (`pay.approve`, never on your own proposal or pay; reject needs a `note`), `/withdraw` (`pay.edit`). Approval answers `409 stale` if the pay in force moved since the proposal |
+| Rostering another site's person | `rota.edit` at the shift's site, and either their agreement to cover it or `rota.edit` or `team.manage` at their home site (`403 not_cover`) |
 | Clocking, card taps, manual entries, edits | `time.record` |
 | Site clocking area (geofence) | `settings.manage`: a wider fence lets people clock in from elsewhere |
 | RFID cards | `team.manage` at the person's home site |
@@ -77,7 +79,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | No granting beyond your own | You can only grant permissions you hold where you grant them. The Owner and the WS client partner may appoint to their side without holding each duty, so the Owner can appoint a payroll manager without sending pay. |
 | Site managers | A GM or area manager grants site roles at their own sites only, and sees only the people at those sites. |
 | Sides | Operator roles are granted by the operator, WS roles by the WS client partner, outside roles always carry an end date. |
-| Paired duties | Checked across every role a person holds. Pay rates with sending payroll is refused. Starters with payroll, approving hours with pay rates, and access management with payroll need an accepted reason, which is kept on the grant. |
+| Paired duties | Checked across every role a person holds. Pay rates with sending payroll is refused. Proposing pay with approving it needs an accepted reason, and approving your own proposal is refused regardless. Starters with payroll, approving hours with pay rates, and access management with payroll need an accepted reason, which is kept on the grant. |
 | Authenticator | Pay, payroll, locking, the journal, settings and access management stay off for a role that requires an authenticator until the session has entered a code from it. The session cookie then names the enrolment it proved, so a reset or a new enrolment ends every older proof. A personal API key counts only if issued with `"mfa": true`. |
 | Yourself | Nobody changes their own access. |
 | Last administrator | Nothing removes, suspends or resets the last person who can manage access for the organisation. |

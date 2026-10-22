@@ -15,7 +15,7 @@ export type Permission =
   | 'rota.view' | 'rota.edit' | 'rota.publish' | 'demand.manage'
   | 'costs.view'
   | 'time.record' | 'time.approve' | 'time.lock'
-  | 'team.manage' | 'pay.edit'
+  | 'team.manage' | 'pay.edit' | 'pay.approve'
   | 'hr.view' | 'hr.manage' | 'hr.cases'
   | 'payroll.view' | 'payroll.send'
   | 'close.export'
@@ -37,7 +37,8 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
   'time.approve': { area: 'Time', label: 'Approve hours for pay' },
   'time.lock': { area: 'Time', label: 'Lock a pay period once sent' },
   'team.manage': { area: 'Team', label: 'Add starters, mark leavers, change availability' },
-  'pay.edit': { area: 'Team', label: 'Change pay rates and salaries' },
+  'pay.edit': { area: 'Team', label: 'Propose changes to pay rates and salaries' },
+  'pay.approve': { area: 'Finance', label: 'Approve pay rate changes proposed by someone else' },
   'hr.view': { area: 'HR', label: 'Read personnel files, absence reasons, training and reviews' },
   'hr.manage': { area: 'HR', label: 'Record absence, training, reviews and personnel details' },
   'hr.cases': { area: 'HR', label: 'See and record disciplinary, grievance and capability cases' },
@@ -54,7 +55,7 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
 /** Refused to a session without an authenticator when the role requires one. */
-export const STRONG: Permission[] = ['pay.edit', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage'];
+export const STRONG: Permission[] = ['pay.edit', 'pay.approve', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage'];
 
 export interface RoleDef {
   id: string;
@@ -76,8 +77,8 @@ const SITE_RUN: Permission[] = ['rota.view', 'rota.edit', 'rota.publish', 'deman
 export const ROLES: RoleDef[] = [
   {
     id: 'owner', name: 'Owner', audience: 'operator', scope: 'org', mfa: true, appoints: ['operator', 'external'],
-    about: 'Runs the business. Everything except approving hours and sending pay, which stay with the people who check them.',
-    permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve'),
+    about: 'Runs the business. Everything except approving hours, approving pay changes and sending pay, which stay with the people who check them.',
+    permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve' && p !== 'pay.approve'),
   },
   {
     id: 'ops_director', name: 'Operations director', audience: 'operator', scope: 'org', mfa: true,
@@ -86,8 +87,8 @@ export const ROLES: RoleDef[] = [
   },
   {
     id: 'finance_director', name: 'Finance director', audience: 'operator', scope: 'org', mfa: true,
-    about: 'Owns labour cost and the close. Sends pay and exports the journal, but cannot change who is paid what.',
-    permissions: [...VIEW, 'payroll.view', 'payroll.send', 'time.lock', 'close.export', 'audit.view'],
+    about: 'Owns labour cost and the close. Approves pay rate changes, sends pay and exports the journal, but cannot propose who is paid what.',
+    permissions: [...VIEW, 'pay.approve', 'payroll.view', 'payroll.send', 'time.lock', 'close.export', 'audit.view'],
   },
   {
     id: 'payroll_manager', name: 'Payroll manager', audience: 'operator', scope: 'org', mfa: true,
@@ -166,6 +167,7 @@ export interface Conflict {
 /** Paired duties, checked across everything one person holds in the organisation. */
 export const CONFLICTS: Conflict[] = [
   { a: 'pay.edit', b: 'payroll.send', effect: 'block', why: 'Could raise a pay rate and send it to payroll with nobody else seeing it.' },
+  { a: 'pay.edit', b: 'pay.approve', effect: 'warn', why: 'Could propose pay rises and approve them. Approving your own proposal is refused, but a second person in both roles could approve for each other.' },
   { a: 'team.manage', b: 'payroll.send', effect: 'warn', why: 'Could add a starter who does not exist and send their pay. The ghost employee.' },
   { a: 'time.approve', b: 'pay.edit', effect: 'warn', why: 'Could approve hours and set the rate those hours are paid at.' },
   { a: 'users.manage', b: 'payroll.send', effect: 'warn', why: 'Could grant payroll rights and then use them. Access and pay should sit apart.' },

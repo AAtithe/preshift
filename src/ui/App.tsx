@@ -25,6 +25,7 @@ import { HrOverview } from './HrOverview';
 import { CasesView, ReviewsView } from './ReviewsView';
 import { TrainingView } from './TrainingView';
 import { IntegrationsView } from './IntegrationsView';
+import { PayApprovalsView } from './PayApprovalsView';
 import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
@@ -42,7 +43,7 @@ import { TravelPanel } from './TravelPanel';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 type AtAll = Allow;
@@ -87,6 +88,8 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     heading: 'Finance',
     items: [
       { id: 'payroll', label: 'Payroll', siteOnly: true, offered: (all, a) => all('time.record') || all('time.approve') || a('payroll.view') },
+      // Proposals from whoever sets pay, decided by finance.
+      { id: 'pay', label: 'Pay approvals', offered: (_all, a) => a('pay.approve') || a('pay.edit') },
       { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
     ],
   },
@@ -523,6 +526,17 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {activeTab === 'pay' && (
+                <PayApprovalsView
+                  state={state}
+                  siteIds={siteIds}
+                  today={today}
+                  allow={allow}
+                  meId={me?.user?.id}
+                  meEmployeeId={me?.user?.employeeId}
+                  onChanged={actions.refreshEmployee}
+                />
+              )}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
               {activeTab === 'reports' && (
                 <ReportsView
@@ -615,9 +629,20 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
           employee={editingPerson}
           canEditPay={allow('pay.edit', editingPerson.siteId) && me?.user?.employeeId !== editingPerson.id}
           today={today}
-          onSave={async (employee) => {
+          payNeedsApproval={!!me?.user}
+          onSave={async (employee, payReason) => {
             const isNew = !state.employees.some((e) => e.id === employee.id);
             const withPay = allow('pay.edit', employee.siteId) && me?.user?.employeeId !== employee.id;
+            // A person's pay change is a proposal: save the rest, then send the pay to finance with its reason.
+            if (withPay && me?.user && payReason !== undefined) {
+              // The basis is pay too: it goes with the proposal, never ahead of it.
+              const original = state.employees.find((e) => e.id === employee.id);
+              const saved = await actions.saveEmployee(original ? { ...employee, payBasis: original.payBasis } : employee, isNew, false);
+              if (!saved) return;
+              const { payBasis, hourlyRate, annualSalary } = employee;
+              if (await actions.proposePay(saved.id, { payBasis, hourlyRate, annualSalary }, payReason)) setEditingPerson(null);
+              return;
+            }
             if (await actions.saveEmployee(employee, isNew, withPay)) setEditingPerson(null);
           }}
           onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}

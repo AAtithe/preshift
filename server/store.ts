@@ -2,9 +2,9 @@ import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
-import { toISODate } from '../src/engine/time';
+import { addDays, toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -102,6 +102,8 @@ export interface OrgData {
   mail: Record<string, MailRecord>;
   /** Personnel file entries: training, reviews, cases, documents and notes. Served only to HR scopes. */
   hrRecords: HrRecord[];
+  /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
+  payChanges: PayChange[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** Row version for optimistic locking in persistent stores. */
@@ -267,6 +269,22 @@ export interface Store extends UserStore, StaffStore, DocumentStore {
 
 const newSecret = () => randomBytes(32).toString('hex');
 
+/** One rise waiting for finance in the demo, so the approvals screen has something on it. */
+function seedPayChanges(today: string): PayChange[] {
+  return [{
+    id: 'pay_demo1',
+    employeeId: 'mar-5',
+    siteId: 'mar',
+    before: { payBasis: 'hourly', hourlyRate: 12.71, annualSalary: 0 },
+    after: { payBasis: 'hourly', hourlyRate: 13.25, annualSalary: 0 },
+    reason: 'Six months in, signed off on the pass and covering prep. Brings him level with the other KPs on 30 hours.',
+    status: 'pending',
+    requestedBy: 'Kate Morgan',
+    requestedById: 'usr_people',
+    requestedAt: `${addDays(today, -2)}T10:15:00.000Z`,
+  }];
+}
+
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
   // The demo's fictional people never go into a deployment: there they would sit on the real Access tab
   // and count as administrators, so the last real one could be removed. Local and test only.
@@ -289,6 +307,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     mail: {},
     authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
+    payChanges: seeded ? seedPayChanges(today ?? toISODate(new Date())) : [],
   };
 }
 
@@ -808,6 +827,7 @@ function deserialise(data: unknown, version: number): OrgData {
   return {
     ...raw,
     hrRecords: raw.hrRecords ?? [],
+    payChanges: raw.payChanges ?? [],
     state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],
