@@ -45,7 +45,7 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
     const worked = workedShifts(state.shifts.filter((s) => s.date <= today), entriesAsShifts(entries ?? []));
     return state.employees
       .filter((e) => siteIds.includes(e.siteId) && employeeStatus(e, today) !== 'left')
-      .map((e) => ({ e, b: holidayBalance(e, worked, today, yearStartOf(e.entityId)) }))
+      .map((e) => ({ e, b: holidayBalance(e, worked, today, yearStartOf(e.entityId), undefined, state.sites) }))
       .sort((a, b) => a.e.name.localeCompare(b.e.name));
   }, [state, siteIds, today, entries]);
 
@@ -193,7 +193,8 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
       </div>
       <p className="muted small">
         Fixed hours staff earn 5.6 weeks (or their contract) evenly through the leave year. Irregular hours staff
-        earn 12.07% of hours worked, from approved clocked time where it exists and the rota otherwise. The
+        earn 12.07% of hours worked, from approved clocked time where it exists and the rota otherwise. Paid travel
+        between sites in a working day is working time, so it counts too. The
         provision is what the business owes in holiday pay today; it should match the holiday accrual on the
         balance sheet.
       </p>
