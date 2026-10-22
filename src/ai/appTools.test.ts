@@ -2,7 +2,8 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it } from 'vitest';
 import { seedState } from '../engine/seed';
 import { runAppAgent } from './appAgent';
-import { executeAppTool, type AppToolContext, type Proposal } from './appTools';
+import { executeAppTool, SCREENS, type AppToolContext, type Proposal } from './appTools';
+import { NAV_ITEMS } from '../ui/nav';
 
 const WEEK = '2026-10-19';
 const ctx = (): AppToolContext => ({
@@ -85,6 +86,12 @@ describe('Shifty and command bar tools', () => {
     expect(JSON.stringify((await executeAppTool(c, 'propose_publish', { site_ids: null, week_start: null })).result)).toMatch(/no shifts/);
     const found = (await executeAppTool(c, 'find_people', { query: 'gra', site_id: null, include_leavers: false })).result as { name: string }[];
     expect(found.map((p) => p.name)).toContain('Grace Mensah');
+  });
+});
+
+describe('screens Shifty can open', () => {
+  it('match the management bar, so a new screen is never out of its reach', () => {
+    expect([...SCREENS].sort()).toEqual([...new Set(NAV_ITEMS.map((n) => n.id))].sort());
   });
 });
 

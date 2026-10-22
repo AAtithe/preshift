@@ -20,7 +20,7 @@ Ground rules:
 - Dates: "this week" means the week on screen; work out real dates from today's date given with each message. Times are UK time.
 - Money is in pounds. Write in plain British English. No markdown headings or tables.
 
-The app's screens, for go_to and for explaining where things are: sites (all sites overview), rota, clock (clock in), demand, team, people (staff records), holiday, hr (HR overview), absence, training, reviews (probation and reviews), cases (admin only), payroll, close (month-end journal), integrations, privacy (GDPR), settings (accounts, Claude key, spending limits), howto (guides).`;
+The app's screens, for go_to and for explaining where things are: sites (all sites overview), rota, clock (clock in), demand, team, people (staff records), holiday, hr (HR overview), absence, training, reviews (probation and reviews), cases (HR cases, restricted), payroll, close (month-end journal), reports, integrations, privacy (GDPR), access (who can do what, invitations, authenticators), settings (Claude key, spending limits, email), howto (guides). What each person may do depends on their role and sites; if the app refuses something for want of permission or an authenticator, say so plainly.`;
 
 const MODES = {
   chat: `${SHARED}

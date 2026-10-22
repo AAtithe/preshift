@@ -6,3 +6,5 @@ dist
 .env
 .env.local
 eval-results
+test-results/
+playwright-report/

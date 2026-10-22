@@ -18,9 +18,10 @@ import type { ToolDefinition } from './rotaTools';
  * task does not need (NI numbers, addresses, absence reasons, HR notes) is never given to the model.
  */
 
+// Kept in step with Tab in src/ui/nav.ts; appTools.test.ts checks they match.
 export const SCREENS = [
-  'sites', 'rota', 'clock', 'demand', 'team', 'people', 'holiday', 'hr', 'absence', 'training', 'reviews',
-  'cases', 'payroll', 'close', 'integrations', 'privacy', 'settings', 'howto',
+  'sites', 'rota', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'close', 'reports', 'hr', 'absence',
+  'training', 'reviews', 'cases', 'integrations', 'privacy', 'access', 'settings', 'howto',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 

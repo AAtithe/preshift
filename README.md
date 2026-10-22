@@ -55,7 +55,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (404 across 35 files)
+npm test         # engine, UI rules, assistant and API tests (412 across 36 files)
 npm run build    # typecheck and production build
 ```
 
@@ -92,7 +92,7 @@ environment variables.
 - First run. On a system with no accounts yet, the sign-in page offers "Create the owner account".
   Whoever completes it first becomes the owner (an admin), so do it straight after the first deploy.
   It can only ever happen once, enforced in the database.
-- Who can sign in. Separate from the People tab, which holds staff records. Admins add accounts with a first password and a role, reset passwords, change roles and
+- Who can sign in. Separate from the Staff section, which holds staff records. Admins add accounts with a first password and a role, reset passwords, change roles and
   remove people. Members use the app but cannot manage access. Every organisation keeps at least
   one admin, and nobody can remove themselves.
 - Rota assistant. An admin saves the organisation's Claude API key. It is kept on the server, shown
