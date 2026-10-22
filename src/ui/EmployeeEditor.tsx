@@ -52,8 +52,8 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
   const leaveYearStart = state.entities.find((x) => x.id === draft.entityId)?.leaveYearStart;
   // The editor has the rota only; the Holiday tab also counts clocked time.
   const balance = useMemo(
-    () => holidayBalance(draft, state.shifts.filter((s) => s.date <= today), today, leaveYearStart),
-    [draft, state.shifts, today, leaveYearStart],
+    () => holidayBalance(draft, state.shifts.filter((s) => s.date <= today), today, leaveYearStart, undefined, state.sites),
+    [draft, state.shifts, state.sites, today, leaveYearStart],
   );
   const numberOrUndefined = (v: string) => (v === '' ? undefined : Number(v));
 
@@ -411,7 +411,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
             {balance.year.start} to {balance.year.end}.{' '}
             {balance.basis === 'fixed'
               ? `${balance.entitlementHours.toFixed(1)}h entitlement`
-              : `${balance.accruedHours.toFixed(1)}h accrued at 12.07% of hours worked`}
+              : `${balance.accruedHours.toFixed(1)}h accrued at 12.07% of hours worked${balance.travelHours > 0 ? `, including ${balance.travelHours.toFixed(1)}h paid travel between sites` : ''}`}
             {balance.carriedOverHours > 0 && `, ${balance.carriedOverHours.toFixed(1)}h carried over`}
             , {balance.takenHours.toFixed(1)}h taken, {balance.bookedHours.toFixed(1)}h booked. A normal day counts as {balance.dayHours.toFixed(1)}h.
           </div>
