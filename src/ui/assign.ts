@@ -114,11 +114,11 @@ export function candidates(state: RotaState, opening: Opening, id: string): Cand
       };
       const week = shiftsInWeek(state.shifts, ws).filter((s) => s.employeeId === employee.id);
       const share = employedShare(employee, ws);
-      const before = employeeWeekCost(employee, week, undefined, share, state.sites);
-      const after = employeeWeekCost(employee, [...week, shift], undefined, share, state.sites);
+      const before = employeeWeekCost(employee, week, undefined, share, state.sites, state.entities);
+      const after = employeeWeekCost(employee, [...week, shift], undefined, share, state.sites, state.entities);
       const marginal = after.total - before.total;
       const travelMinutes = Math.round((after.travelHours - before.travelHours) * 60);
-      const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts, sites: state.sites }, ws, opening.siteId).total;
+      const atSite = (shifts: Shift[]) => weekCost({ employees: [employee], shifts, sites: state.sites, entities: state.entities }, ws, opening.siteId).total;
       const siteCost = atSite([...week, shift]) - atSite(week);
       const issues = [...checkEmployeeWeek(employee, ws, [...context, shift]), ...travelIssues(employee, [...context, shift], state.sites)].filter(
         (i) => i.shiftId === shift.id,

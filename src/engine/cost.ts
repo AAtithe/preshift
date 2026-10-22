@@ -1,8 +1,8 @@
-import type { Employee, RotaState, Shift, Site } from './types';
+import type { Employee, Entity, RotaState, Shift, Site } from './types';
 import { UK_RATES_2026_27, type UkRates } from './ukRates';
 import { weekDates } from './time';
 import { employedShare } from './employees';
-import { travelMinutesInto } from './travel';
+import { travelMinutesInto, travelRate } from './travel';
 
 export function shiftPaidMinutes(shift: Shift): number {
   return Math.max(0, shift.endMinute - shift.startMinute - shift.breakMinutes);
@@ -70,14 +70,19 @@ export function employeeWeekCost(
   share = 1,
   /** Sites, for paid travel between them; without them travel costs nothing. */
   sites: Site[] = [],
+  /** Companies, for the rate their travel is paid at; without them it is the normal rate. */
+  entities: Entity[] = [],
 ): EmployeeWeekCost {
   const travelHours = [...travelMinutesInto(shifts, sites).values()].reduce((a, b) => a + b, 0) / 60;
-  const paidHours = shifts.reduce((sum, s) => sum + shiftPaidHours(s), 0) + travelHours;
-  // Guaranteed contracted hours are paid whether or not they are rostered.
+  const workedHours = shifts.reduce((sum, s) => sum + shiftPaidHours(s), 0);
+  const paidHours = workedHours + travelHours;
+  const firstDate = shifts.reduce((min, s) => (s.date < min ? s.date : min), shifts[0]?.date ?? '9999-12-31');
+  const travelPay = travelHours > 0 ? travelHours * travelRate(employee, entities, firstDate, rates) : 0;
+  // Guaranteed contracted hours are a floor on pay, met by work and travel alike.
   const gross =
     employee.payBasis === 'salaried'
       ? (employee.annualSalary / 52) * share
-      : Math.max(paidHours, employee.contractedHours * share) * employee.hourlyRate;
+      : Math.max(workedHours * employee.hourlyRate + travelPay, employee.contractedHours * share * employee.hourlyRate);
   // Salaried pay already includes paid holiday; hourly staff accrue it on top.
   const holiday = employee.payBasis === 'hourly' ? gross * rates.holidayAccrualRate : 0;
   const earnings = gross + holiday;
@@ -104,7 +109,7 @@ export function shiftsInWeek(shifts: Shift[], start: string): Shift[] {
 }
 
 export function weekCost(
-  state: Pick<RotaState, 'employees' | 'shifts'> & { sites?: Site[] },
+  state: Pick<RotaState, 'employees' | 'shifts'> & { sites?: Site[]; entities?: Entity[] },
   start: string,
   siteId?: string,
   rates: UkRates = UK_RATES_2026_27,
@@ -129,18 +134,23 @@ export function weekCost(
     const own = weekShifts.filter((s) => s.employeeId === employee.id);
     const share = employedShare(employee, start);
     if (own.length === 0 && (share === 0 || (employee.payBasis === 'hourly' && employee.contractedHours === 0))) continue;
-    const cost = employeeWeekCost(employee, own, rates, share, sites);
+    const cost = employeeWeekCost(employee, own, rates, share, sites, state.entities);
     const travelInto = travelMinutesInto(own, sites);
+    // An hour of travel weighs what it pays against an hour of work, so each site carries what it caused.
+    const travelWeight =
+      employee.payBasis === 'hourly' && employee.hourlyRate > 0 && own.length > 0
+        ? travelRate(employee, state.entities ?? [], own.reduce((m, s) => (s.date < m ? s.date : m), own[0].date), rates) / employee.hourlyRate
+        : 1;
     const scoped = siteId ? own.filter((s) => s.siteId === siteId) : own;
     const unrostered = own.length === 0; // salaried or guaranteed-hours staff with no shifts
     if (siteId && scoped.length === 0 && !(unrostered && employee.siteId === siteId)) continue;
 
     employees.set(employee.id, cost);
-    // Spread by exact hours: the rounded figure would leave pennies unallocated once travel is in.
-    const hours = own.reduce((sum, s) => sum + shiftPaidHours(s), 0) + [...travelInto.values()].reduce((a, b) => a + b, 0) / 60;
+    // Spread by exact weighted hours: the rounded figure would leave pennies unallocated once travel is in.
+    const hours = own.reduce((sum, s) => sum + shiftPaidHours(s), 0) + ([...travelInto.values()].reduce((a, b) => a + b, 0) / 60) * travelWeight;
     for (const shift of scoped) {
       const travelHours = (travelInto.get(shift.id) ?? 0) / 60;
-      const share = hours > 0 ? (shiftPaidHours(shift) + travelHours) / hours : 0;
+      const share = hours > 0 ? (shiftPaidHours(shift) + travelHours * travelWeight) / hours : 0;
       const sc: ShiftCost = {
         shiftId: shift.id,
         paidHours: round2(shiftPaidHours(shift)),
@@ -156,7 +166,7 @@ export function weekCost(
       addParts(sc);
       if (travelHours > 0) {
         travel.hours += travelHours;
-        travel.cost += hours > 0 ? cost.total * (travelHours / hours) : 0;
+        travel.cost += hours > 0 ? cost.total * ((travelHours * travelWeight) / hours) : 0;
       }
     }
     if (unrostered) {

@@ -34,8 +34,8 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);
     const share = employedShare(employee, ws);
-    const without = employeeWeekCost(employee, week, undefined, share, state.sites);
-    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share, state.sites);
+    const without = employeeWeekCost(employee, week, undefined, share, state.sites, state.entities);
+    const withShift = employeeWeekCost(employee, [...week, draft], undefined, share, state.sites, state.entities);
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
       marginal: {

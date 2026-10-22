@@ -91,7 +91,10 @@ export function DemandView({ state, siteId, dates, onForecast }: Props) {
 function FromTakings({ state, siteId, dates, onForecast }: Props) {
   const [worked, setWorked] = useState<Worked | null>(null);
   const [busy, setBusy] = useState(false);
-  const empty = dates.filter((d) => forecastSalesForDay(state, siteId, d) === 0);
+  // Days with no forecast, or only set-up's typical week: both are better worked from takings.
+  const firm = (d: string) => state.forecast.some((f) => f.siteId === siteId && f.date === d && f.sales > 0 && f.source !== 'profile');
+  const empty = dates.filter((d) => !firm(d));
+  const typical = empty.filter((d) => forecastSalesForDay(state, siteId, d) > 0).length;
   const week = dates[0];
   // A result belongs to the week it was worked for.
   const shown = worked && worked.days[0]?.date === week ? worked : null;
@@ -111,7 +114,11 @@ function FromTakings({ state, siteId, dates, onForecast }: Props) {
       <div className="panel-body">
         {empty.length > 0 ? (
           <p>
-            {empty.length === dates.length ? 'No sales forecast for this week.' : `${empty.length} ${empty.length === 1 ? 'day has' : 'days have'} no sales forecast.`}{' '}
+            {typical === empty.length
+              ? `${empty.length === dates.length ? 'This week is' : `${empty.length} ${empty.length === 1 ? 'day is' : 'days are'}`} forecast from the typical week entered at set-up only.`
+              : empty.length === dates.length
+                ? 'No sales forecast for this week.'
+                : `${empty.length} ${empty.length === 1 ? 'day has' : 'days have'} no sales forecast${typical ? ` or only the typical week` : ''}.`}{' '}
             {onForecast
               ? 'Work it out from past takings: the same day last year, scaled by how the last four weeks compare with a year earlier, or where there is no year of history, the recent same weekdays.'
               : 'Whoever manages demand at this site can work one out from past takings.'}
@@ -123,7 +130,7 @@ function FromTakings({ state, siteId, dates, onForecast }: Props) {
           <div className="from-takings-actions">
             {empty.length > 0 ? (
               <button className="primary" disabled={busy} onClick={() => void run(false)}>
-                {empty.length === dates.length ? 'Forecast from past takings' : 'Fill from past takings'}
+                {typical === empty.length ? 'Use past takings instead' : empty.length === dates.length ? 'Forecast from past takings' : 'Fill from past takings'}
               </button>
             ) : (
               <button className="ghost" disabled={busy} onClick={() => void run(true)}>Rework from past takings</button>
