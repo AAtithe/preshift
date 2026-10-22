@@ -3,7 +3,7 @@
 import { weekStart } from '../engine/time';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -76,10 +76,11 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'integrations', label: 'Integrations', scope: 'org', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
       { id: 'privacy', label: 'GDPR', scope: 'org', offered: (_all, a) => a('privacy.manage') },
       { id: 'access', label: 'Access', scope: 'org', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },
-      // Everyone who signs in can change their own password there.
-      { id: 'settings', label: 'Settings', scope: 'org' },
+      { id: 'settings', label: 'Settings', scope: 'org', offered: (_all, a) => a('settings.manage') },
     ],
   },
+  // Everyone who signs in keeps their own details, password and authenticator here.
+  { heading: 'You', items: [{ id: 'profile', label: 'Your profile', scope: 'org', title: 'You' }] },
   { heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help' }] },
 ];
 export const NAV_ITEMS = NAV.flatMap((g) => g.items);

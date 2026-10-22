@@ -143,6 +143,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/users': true,
   'GET /v1/users/:id': true,
   'PATCH /v1/users/:id': true,
+  // Your own name and title, on the sandbox's own record: no account, password or authenticator.
+  'PATCH /v1/me': true,
   'POST /v1/users/:id/grants': true,
   'PATCH /v1/users/:id/grants/:mid': true,
   'DELETE /v1/users/:id/grants/:mid': true,
