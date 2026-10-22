@@ -120,7 +120,7 @@ describe('staff logins', () => {
     expect((await t.call('GET', '/v1/staff-logins', undefined, staff)).status).toBe(401);
   });
 
-  it('signs in, locks after five wrong passwords, and a new invite resets the password', async () => {
+  it('signs in, locks after five wrong passwords, and never hands over a link to a login someone has set up', async () => {
     const t = await boot();
     const first = (await t.join('mar-1', 'priya@example.com')).cookie;
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: 'wrong password!' })).status).toBe(401);
@@ -131,11 +131,13 @@ describe('staff logins', () => {
     for (let i = 0; i < 5; i++) await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: 'wrong password!' });
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: PASSWORD })).body.error).toBe('locked');
 
-    // Forgotten password: the manager sends a new invite. Old sessions end once it is used.
-    const reset = await t.call('POST', '/v1/staff/join', { ...(await t.invite('mar-1')), email: 'priya@example.com', password: 'a brand new password' });
-    expect(reset.status).toBe(200);
-    expect((await t.call('GET', '/v1/staff/me', undefined, first)).status).toBe(401);
-    expect((await t.call('GET', '/v1/staff/me', undefined, reset.cookie)).status).toBe(200);
+    // Forgotten password: a new link opens her clocking, so it only ever goes to her own email.
+    // Without email set up it is refused, and no link is made.
+    const refused = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('email_only');
+    expect(JSON.stringify(refused.body)).not.toMatch(/invite=/);
+    expect((await t.call('GET', '/v1/staff/me', undefined, first)).status).toBe(200);
   }, 60_000);
 
   it('ends access when the login is closed or the person leaves', async () => {
@@ -234,15 +236,46 @@ describe('staff app invitation emails', () => {
     expect((await t.manager('GET', '/v1/staff-logins')).body[0].lastEmail).toMatchObject({ status: 'bounced', detail: 'Mailbox does not exist' });
   });
 
-  it('sends a new link to the address the person signed up with, as a password reset', async () => {
+  it('sends a reset only to the address the person signed up with, never to the manager', async () => {
     const t = await withEmail('old@example.com');
     const first = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
     expect(first.body.emailed).toBe(true);
     const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
-    await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD });
+    const joined = await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD });
+
+    // Asking to hand it over is refused, and makes no link.
+    const handed = await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true });
+    expect(handed.status).toBe(409);
+    expect(handed.body.error).toBe('email_only');
+    expect(handed.body.message).toContain('priya@example.com');
+    expect(sent).toHaveLength(1);
+
+    // The reset goes to her own address. Old sessions end once she uses it.
     const again = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
     expect(again.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
     expect(sent[1].subject).toBe('Your new Preshift staff app link');
+    const resetLink = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[1].text)).hash.slice(1)));
+    const reset = await t.call('POST', '/v1/staff/join', { ...resetLink, email: 'priya@example.com', password: 'a brand new password' });
+    expect(reset.status).toBe(200);
+    expect((await t.call('GET', '/v1/staff/me', undefined, joined.cookie)).status).toBe(401);
+    expect((await t.call('GET', '/v1/staff/me', undefined, reset.cookie)).status).toBe(200);
+
+    // When Resend refuses, the link still never comes back.
+    refuse = true;
+    const failed = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(failed.body).toMatchObject({ emailed: false, reason: 'send_failed' });
+    expect(failed.body.path).toBeUndefined();
+  }, 60_000);
+
+  it('lets a manager start again by closing the login, which signs the person out everywhere', async () => {
+    const t = await withEmail();
+    const link = (await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body;
+    const params = Object.fromEntries(new URLSearchParams(link.path.split('#')[1]));
+    const me = (await t.call('POST', '/v1/staff/join', { ...params, email: 'priya@example.com', password: PASSWORD })).cookie;
+    expect((await t.manager('DELETE', '/v1/staff-logins/mar-1')).status).toBe(204);
+    expect((await t.call('GET', '/v1/staff/me', undefined, me)).status).toBe(401);
+    // A fresh login, which the person sets up anew, may be handed over like any first invite.
+    expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true })).body).toMatchObject({ emailed: false, reason: 'handed_over' });
   });
 
   it('hands the link back when asked, with no address, or when Resend refuses', async () => {
