@@ -1,10 +1,10 @@
 // The management bar: its sections, what each is scoped by, who is offered it, and where you are
 // in the address. App renders it; this file decides it.
 import { weekStart } from '../engine/time';
-import type { Permission } from '../engine/access';
+import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'clients' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -16,9 +16,10 @@ export type AtAll = Allow;
  * sends no others). `org` permissions count wherever they are held. Holding any one listed
  * permission is enough. `also` narrows that: every one of its permissions must be held as well, at
  * the same site for a site-by-site offer, for a section that needs two rights together (money worked
- * from clocked hours needs both the cost and the hours). 'everyone' is for what every signed-in person needs.
+ * from clocked hours needs both the cost and the hours). `audience` narrows a section to one side as
+ * well: Clients is for Williams, Stanley & Co. people only. 'everyone' is for what every signed-in person needs.
  */
-export type Access = 'everyone' | { scope?: Permission[]; org?: Permission[]; also?: Permission[] };
+export type Access = 'everyone' | { scope?: Permission[]; org?: Permission[]; also?: Permission[]; audience?: Audience };
 
 /** Reads clocked hours, as the API allows: whoever records time, approves it, or checks payroll. */
 const READS_TIME = { scope: ['time.record', 'time.approve'], org: ['payroll.view'] } satisfies Access;
@@ -82,6 +83,8 @@ export const NAV: NavGroup[] = [
       // Personnel files go by site, as the rest of the team's records do; cases are confidential.
       { id: 'hr', label: 'HR overview', scope: 'people', access: { scope: ['hr.view'] } },
       { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, access: { scope: ['team.manage', 'costs.view'] } },
+      // Each new person's first weeks as one checklist: legal steps before day one, the rest after.
+      { id: 'onboarding', label: 'Onboarding', scope: 'people', access: { scope: ['team.manage', 'hr.view'] } },
       // Balances are the team's records; the provision in pounds shows only with cost.
       { id: 'holiday', label: 'Holiday', scope: 'people', access: { scope: ['team.manage', 'costs.view'] } },
       { id: 'absence', label: 'Absence', scope: 'people', access: { scope: ['hr.view'] } },
@@ -117,6 +120,8 @@ export const NAV: NavGroup[] = [
       { id: 'access', label: 'Access', scope: 'org', access: { scope: ['users.sites'], org: ['users.manage', 'audit.view'] } },
       { id: 'integrations', label: 'Integrations', scope: 'org', access: { org: ['settings.manage', 'payroll.view'] } },
       { id: 'privacy', label: 'GDPR', scope: 'org', access: { org: ['privacy.manage'] } },
+      // Every client they hold a role in, and adding a new one. The API lists only the caller's own.
+      { id: 'clients', label: 'Clients', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['costs.view'], audience: 'ws' } },
       { id: 'settings', label: 'Settings', scope: 'org', access: { org: ['settings.manage'] } },
     ],
   },
@@ -134,16 +139,17 @@ export function sitesFor(item: NavItem, allow: Allow, siteIds: string[]): string
   return siteIds.filter((s) => (scope.some((p) => allow(p, s)) || org.some((p) => allow(p, s))) && also.every((p) => allow(p, s)));
 }
 
-/** Whether the person is offered the section anywhere in scope. */
-export function offered(item: NavItem, allow: Allow, siteIds: string[]): boolean {
+/** Whether the person is offered the section anywhere in scope. `audience` is the side they are on, if they have a record. */
+export function offered(item: NavItem, allow: Allow, siteIds: string[], audience?: Audience): boolean {
   if (item.access === 'everyone') return true;
   const { org = [], also = [] } = item.access;
+  if (item.access.audience && item.access.audience !== audience) return false;
   return (org.some((p) => allow(p)) && also.every((p) => allow(p))) || sitesFor(item, allow, siteIds).length > 0;
 }
 
 /** The bar as this person sees it: only what they are offered, and no empty groups. */
-export function visibleNav(allow: Allow, siteIds: string[]): NavGroup[] {
-  return NAV.map((g) => ({ ...g, items: g.items.filter((t) => offered(t, allow, siteIds)) })).filter((g) => g.items.length > 0);
+export function visibleNav(allow: Allow, siteIds: string[], audience?: Audience): NavGroup[] {
+  return NAV.map((g) => ({ ...g, items: g.items.filter((t) => offered(t, allow, siteIds, audience)) })).filter((g) => g.items.length > 0);
 }
 
 // Where you are lives in the address, so Back, refresh and a shared link all land on the same screen.

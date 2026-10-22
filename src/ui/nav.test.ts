@@ -62,6 +62,14 @@ describe('who sees which sections', () => {
     }
   });
 
+  it('offers Clients to Williams, Stanley & Co. people only, however much else someone holds', () => {
+    const clients = (u: User) => visibleNav(allowFor(u), SITES, u.audience).flatMap((g) => g.items.map((t) => t.id)).includes('clients');
+    expect(clients(person('ws_partner'))).toBe(true);
+    expect(clients(person('ws_accountant'))).toBe(true);
+    expect(clients(person('owner'))).toBe(false);
+    expect(clients(person('external_auditor'))).toBe(false);
+  });
+
   it('keeps HR files and cases to those who hold them', () => {
     expect(seen(person('viewer'))).not.toContain('HR overview');
     expect(seen(person('finance_director'))).not.toContain('Cases');

@@ -1159,6 +1159,26 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 
 .accuracy-findings { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
 
+/* Onboarding: new people and new clients, one checklist each. */
+.onboarding-progress { height: 6px; width: 120px; max-width: 100%; background: var(--paper-2); border-radius: 3px; overflow: hidden; }
+.onboarding-progress > span { display: block; height: 100%; background: var(--warn); }
+.onboarding-progress > span.good { background: var(--good); }
+.onboarding-progress > span.bad { background: var(--bad); }
+.table tr.onboarding-detail > td { background: var(--surface-2); }
+.onboarding-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.onboarding-steps li { display: grid; grid-template-columns: 64px 1fr auto; gap: 2px 10px; align-items: baseline; }
+.onboarding-steps li .badge { grid-row: span 2; justify-content: center; }
+.onboarding-steps li > div { grid-column: 2; }
+.onboarding-steps li > button { grid-column: 3; grid-row: 1; }
+.client-detail { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px 24px; }
+.client-detail .issues, .client-detail .row-actions { grid-column: 1 / -1; }
+.client-add { margin-bottom: 16px; }
+@media (max-width: 720px) {
+  .client-detail { grid-template-columns: 1fr; }
+  .client-add .form { grid-template-columns: 1fr; }
+  .client-add .form .span2 { grid-column: auto; }
+}
+
 /* Clocked vs rota, cut call, tronc, prime cost, compliance risk and retention. */
 .actuals .intro, .cut-call .intro, .tronc .intro, .prime .intro, .risk .intro, .retention .intro { max-width: 860px; margin: 0 0 12px; }
 .bench-grid, .tronc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
