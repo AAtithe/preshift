@@ -5,6 +5,7 @@ import { employmentAllowanceIssues, employmentAllowanceWeek } from '../../src/en
 import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/journal';
 import { addDays, weekDates } from '../../src/engine/time';
 import { entriesAsShifts, payrollHours, payrollVariance } from '../../src/engine/timesheet';
+import type { TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
@@ -142,6 +143,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
             periodStart,
             periodEnd,
             org.state.sites,
+            org.state.entities,
           ),
         }))
         .filter((b) => b.batch.lines.length > 0);
@@ -199,13 +201,14 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { payrollEmployerId?: string | null; payeReference?: string; leaveYearStart?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { payrollEmployerId?: string | null; payeReference?: string; leaveYearStart?: string; travelPay?: TravelPay } }>(
     '/v1/entities/:id',
     {
       ...write,
       schema: {
         tags: ['Payroll'],
-        description: "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, and its leave year start (MM-DD).",
+        description:
+          "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, its leave year start (MM-DD), and what it pays for travel between sites: the normal rate, the minimum wage for each person's age, or a fixed hourly rate (never below the minimum wage).",
         params: idParam,
         body: {
           type: 'object',
@@ -214,6 +217,15 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
             payrollEmployerId: { type: ['string', 'null'] },
             payeReference: { type: 'string' },
             leaveYearStart: { type: 'string', pattern: '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' },
+            travelPay: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['basis'],
+              properties: {
+                basis: { type: 'string', enum: ['normal', 'minimum', 'fixed'] },
+                hourly: { type: 'number', minimum: 0, maximum: 200 },
+              },
+            },
           },
         },
       },
@@ -244,6 +256,12 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       if (req.body.payeReference !== undefined) entity.payeReference = req.body.payeReference;
       if (req.body.leaveYearStart !== undefined) entity.leaveYearStart = req.body.leaveYearStart;
+      if (req.body.travelPay !== undefined) {
+        const t = req.body.travelPay;
+        if (t.basis === 'fixed' && typeof t.hourly !== 'number') throw new HttpError(400, 'travel_rate_missing', 'A fixed travel rate needs an hourly amount.');
+        // Normal is the default, so it is stored as no policy at all.
+        entity.travelPay = t.basis === 'normal' ? undefined : t.basis === 'minimum' ? { basis: 'minimum' } : { basis: 'fixed', hourly: Math.round(t.hourly * 100) / 100 };
+      }
       audit(org, actorName(g), 'entity.updated', { id: entity.id, fields: Object.keys(req.body) });
       return entity;
     },
