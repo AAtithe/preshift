@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
+import type { SupportTicket } from '../src/engine/support';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
@@ -9,7 +10,7 @@ import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
@@ -126,6 +127,16 @@ export interface OrgData {
   lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
+  /** Holiday, time off, sickness, availability, swaps and open shift claims from the staff app. */
+  requests?: StaffRequest[];
+  /** Shifts posted for anyone eligible to claim. */
+  openShifts?: OpenShift[];
+  /** What each member of staff has been told, newest last. */
+  notifications?: StaffNotification[];
+  /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
+  toldWeeks?: Record<string, string[]>;
+  /** The London day the managers' morning digest last went out, so it goes once a day. */
+  lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
   webhookDeliveries?: WebhookDelivery[];
   users: User[];
@@ -142,6 +153,8 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
+  support?: { tickets: SupportTicket[]; answeredByHelp: number };
   /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
   staffLoginLog: StaffLoginEvent[];
   /** Sign-offs of staff logins closed and opened again. Never removed. */
@@ -174,6 +187,8 @@ export interface OrgSettings {
    * in return sees the cohort's. Off until an admin turns it on: give to get.
    */
   benchmarking?: boolean;
+  /** People (user ids) who have turned off the morning email of staff requests waiting for them. */
+  digestOff?: string[];
 }
 
 export type UserRole = 'admin' | 'member';
@@ -362,7 +377,7 @@ export interface DocumentAccess {
   at: string;
   /** The signed-in person's email, or the API key's name. */
   actor: string;
-  via: 'session' | 'api key';
+  via: 'session' | 'api key' | 'staff app';
   ip?: string;
 }
 
