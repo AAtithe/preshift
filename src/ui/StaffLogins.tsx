@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Employee } from '../engine/types';
+import { emailState, type MailState } from './access/model';
 import { api, ApiError } from './api';
 
 interface StaffLoginRow {
@@ -9,7 +10,21 @@ interface StaffLoginRow {
   inviteWaiting: boolean;
   lastSignInAt: string | null;
   locked: boolean;
+  /** The last staff app invitation emailed, and what Resend reported. */
+  lastEmail: MailState | null;
 }
+
+type InviteResult =
+  | { emailed: true; to: string; expiresAt: string }
+  | { emailed: false; reason: 'handed_over' | 'email_not_set_up' | 'no_address' | 'send_failed'; path: string; expiresAt: string; emailProblem?: string };
+
+/** Why a link came back to hand over rather than going by email. */
+const WHY: Record<Exclude<InviteResult, { emailed: true }>['reason'], string | null> = {
+  handed_over: null,
+  email_not_set_up: 'Email is not set up under Settings, so this link is yours to pass on.',
+  no_address: 'There is no email on their record. Add one to their details to email invites from now on, or pass this link on.',
+  send_failed: 'The email did not go. Check the email settings, or pass this link on yourself.',
+};
 
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
@@ -19,7 +34,8 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
  */
 export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced: boolean }) {
   const [rows, setRows] = useState<StaffLoginRow[]>([]);
-  const [link, setLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null);
+  const [link, setLink] = useState<{ name: string; url: string; expiresAt: string; why: string | null } | null>(null);
+  const [emailed, setEmailed] = useState<{ person: Employee; to: string; expiresAt: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,10 +57,17 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
     }
   }
 
-  const invite = (person: Employee) =>
+  /** Emails the invite to the person where Preshift can; otherwise, or when asked, hands the link back. */
+  const invite = (person: Employee, handOver = false) =>
     run(async () => {
-      const res = await api.post<{ path: string; expiresAt: string }>(`/v1/staff-logins/${person.id}/invite`);
-      setLink({ name: person.name, url: `${window.location.origin}${res.path}`, expiresAt: res.expiresAt });
+      const res = await api.post<InviteResult>(`/v1/staff-logins/${person.id}/invite`, handOver ? { handOver: true } : undefined);
+      if (res.emailed) {
+        setLink(null);
+        setEmailed({ person, to: res.to, expiresAt: res.expiresAt });
+      } else {
+        setEmailed(null);
+        setLink({ name: person.name, url: `${window.location.origin}${res.path}`, expiresAt: res.expiresAt, why: WHY[res.reason] });
+      }
     });
 
   const share = async () => {
@@ -67,13 +90,22 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
       <p className="muted small">
         Staff with a login can clock in and out on their own phone, but only when the phone is inside this site's clocking area,
         and they see their own published shifts and hours. Send the invite privately: whoever opens it can set up the login.
-        Forgotten password? Send a new invite.
+        Forgotten password? Send a new invite. Once email is set up under Settings, invites go to the person's own email address.
       </p>
       {!siteFenced && <p className="small warn-text">Set the site location above first. Phones cannot clock in at a site without one.</p>}
       {message && <p className="small bad-text" role="alert">{message}</p>}
+      {emailed && (
+        <div className="notice" role="status">
+          <div className="strong">Invite emailed to {emailed.person.name} at {emailed.to}, valid until {when(emailed.expiresAt)}</div>
+          <p className="small muted">Only they see the link. If it does not arrive, this list will say so once Resend reports it.</p>
+          <button disabled={busy} onClick={() => void invite(emailed.person, true)}>Hand over a link instead</button>{' '}
+          <button className="link" onClick={() => setEmailed(null)}>Done</button>
+        </div>
+      )}
       {link && (
         <div className="notice">
           <div className="strong">Invite for {link.name}, valid until {when(link.expiresAt)}</div>
+          {link.why && <p className="small">{link.why}</p>}
           <input readOnly value={link.url} onFocus={(e) => e.currentTarget.select()} style={{ width: '100%', margin: '6px 0' }} aria-label="Invite link" />
           <button className="primary" onClick={() => void share()}>Share link</button>{' '}
           <button onClick={() => void navigator.clipboard.writeText(link.url).then(() => setMessage('Link copied.'))}>Copy</button>{' '}
@@ -104,6 +136,7 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
                     ) : (
                       <span className="muted">Invite expired</span>
                     )}
+                    {row?.lastEmail && <MailLine mail={row.lastEmail} />}
                   </td>
                   <td className="num">
                     <button disabled={busy} onClick={() => void invite(person)}>{row ? 'New invite' : 'Invite'}</button>{' '}
@@ -129,4 +162,9 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
       </div>
     </>
   );
+}
+
+function MailLine({ mail }: { mail: MailState }) {
+  const { text, tone } = emailState(mail);
+  return <div className={`small ${tone === 'bad' ? 'bad-text' : 'muted'}`}>{text}</div>;
 }

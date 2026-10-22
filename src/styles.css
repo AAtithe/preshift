@@ -1157,6 +1157,8 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .chip.school.quiet { color: var(--muted); }
 .reminder.kind-school { border-left-color: var(--accent); }
 
+.accuracy-findings { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
+
 /* Onboarding: new people and new clients, one checklist each. */
 .onboarding-progress { height: 6px; width: 120px; max-width: 100%; background: var(--paper-2); border-radius: 3px; overflow: hidden; }
 .onboarding-progress > span { display: block; height: 100%; background: var(--warn); }
