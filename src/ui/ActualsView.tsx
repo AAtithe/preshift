@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { clocksNeedingApproval, VARIANCE_GUIDE, VARIANCE_ORDER, weekFlash } from '../engine/actuals';
 import { formatMinute } from '../engine/time';
 import type { RotaState } from '../engine/types';
-import type { Action } from './store';
+import type { Command } from '../shared/commands';
 import { dayLabel, hours, money, money2, pct } from './format';
 import { Kpi } from './KpiBar';
 
@@ -11,10 +11,10 @@ interface Props {
   siteId: string;
   week: string;
   asOf: string;
-  dispatch: (action: Action) => void;
+  run: (cmd: Command) => Promise<boolean>;
 }
 
-export function ActualsView({ state, siteId, week, asOf, dispatch }: Props) {
+export function ActualsView({ state, siteId, week, asOf, run }: Props) {
   const flash = useMemo(() => weekFlash(state, siteId, week, asOf), [state, siteId, week, asOf]);
   const v = flash.variance;
   // Largest first: the few big overruns matter more than many two-minute clock-ins.
@@ -150,7 +150,7 @@ export function ActualsView({ state, siteId, week, asOf, dispatch }: Props) {
       <div className="section-head">
         <h3 className="section">Approve before payroll</h3>
         {pending.length > 0 && (
-          <button className="primary" onClick={() => dispatch({ type: 'approveClocks', ids: pending })}>
+          <button className="primary" onClick={() => run({ type: 'approveClocks', ids: pending })}>
             Approve all {pending.length}
           </button>
         )}
@@ -185,7 +185,7 @@ export function ActualsView({ state, siteId, week, asOf, dispatch }: Props) {
                     <td className="small">{items.map((i) => `${VARIANCE_GUIDE[i.kind].label.toLowerCase()} ${i.minutes}m`).join(', ')}</td>
                     <td className="num">{money2(extraCost(clockId))}</td>
                     <td className="num">
-                      <button onClick={() => dispatch({ type: 'approveClocks', ids: [clockId] })}>Approve</button>
+                      <button onClick={() => run({ type: 'approveClocks', ids: [clockId] })}>Approve</button>
                     </td>
                   </tr>
                 );

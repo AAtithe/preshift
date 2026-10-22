@@ -90,7 +90,13 @@ cost, prime cost against a mix-weighted target, the kitchen's and bar's own numb
 on recipe cost, and menu engineering. Runs on simulated till, invoice and stock data.
 
 Phase 2, first live sites (8 to 10 weeks):
-- Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
+- Done: persistence and auth. Postgres with row level security per organisation, scrypt
+  passwords and cookie sessions, owner, finance, GM, troncmaster and staff roles scoped to sites,
+  invites, server-enforced publishing and clocking, and an append-only audit trail.
+- Before the first live site: hosting in the UK with encrypted backups and point-in-time
+  recovery; invite and password reset emails; two-factor sign-in for owners and finance; a shared
+  store for login rate limits once there is more than one server; data processing agreements in
+  place between WS, Preshift and each client; a penetration test.
 - Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
   device's location against the clocking rules already in the engine.
 - Till dish sales, supplier invoices (from the purchase ledger or an invoice capture tool) and
@@ -104,8 +110,8 @@ Phase 2, first live sites (8 to 10 weeks):
 
 Phase 3:
 - Forecasting model trained on each site's actuals, weather and local events.
-- Tronc audit trail: who changed the scheme and when, troncmaster sign-off of each run, and the
-  three year record the Act requires, held server-side.
+- Tronc: troncmaster sign-off of each run, and the three year record the Act requires, on top of
+  the scheme change history the audit trail now keeps.
 - Holiday entitlement balances, right to work document capture and Home Office online share code checks.
 - Retention: record leavers and reasons, then recalibrate the signal points against who actually
   left; add the benchmark's turnover rate per 100 staff by concept.

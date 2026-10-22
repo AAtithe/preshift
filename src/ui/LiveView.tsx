@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { liveBoard, type LiveStatus } from '../engine/actuals';
-import { checkClockIn, endClock, startClock } from '../engine/clocking';
+import { checkClockIn } from '../engine/clocking';
 import { cutCall, type ShortHour } from '../engine/cutcall';
 import { ERA_ASSUMPTIONS } from '../engine/era';
 import { formatMinute, parseClock } from '../engine/time';
 import type { GeoPoint, RotaState } from '../engine/types';
-import type { Action } from './store';
+import type { Command } from '../shared/commands';
 import { dayLabel, money, pct } from './format';
 import { Kpi } from './KpiBar';
 
@@ -14,7 +14,9 @@ interface Props {
   siteId: string;
   today: string;
   initialMinute: number;
-  dispatch: (action: Action) => void;
+  run: (cmd: Command) => Promise<boolean>;
+  /** Whether this person runs the floor: the cut call and clocking other people in. */
+  canManage: boolean;
 }
 
 type Where = 'on-site' | 'away' | 'manager';
@@ -22,7 +24,7 @@ type Where = 'on-site' | 'away' | 'manager';
 const STATUS_LABEL: Record<LiveStatus, string> = { due: 'Due', late: 'Late', on: 'On shift', done: 'Finished', missed: 'No-show' };
 const STATUS_TONE: Record<LiveStatus, string> = { due: '', late: 'warn', on: 'good', done: '', missed: 'bad' };
 
-export function LiveView({ state, siteId, today, initialMinute, dispatch }: Props) {
+export function LiveView({ state, siteId, today, initialMinute, run, canManage }: Props) {
   const [now, setNow] = useState(initialMinute);
   const [where, setWhere] = useState<Where>('on-site');
   const [message, setMessage] = useState<{ tone: 'bad' | 'warn'; text: string } | null>(null);
@@ -45,22 +47,19 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
     return where === 'away' ? { lat: site.location.lat + 0.0055, lng: site.location.lng } : site.location;
   }
 
-  function clockIn(employeeId: string) {
+  async function clockIn(employeeId: string) {
+    // The same check the server makes, so the reason shows before anything is sent.
     const check = checkClockIn(state, employeeId, siteId, today, now, position());
     if (!check.ok) {
       setMessage({ tone: 'bad', text: `${name(employeeId)}: ${check.reason}` });
       return;
     }
-    const employee = state.employees.find((e) => e.id === employeeId)!;
-    const source = where === 'manager' ? 'manager' : 'geofence';
-    dispatch({ type: 'clockIn', clock: startClock(employeeId, siteId, employee.roleIds[0], today, now, check.shift, source) });
+    if (!(await run({ type: 'clockIn', employeeId, siteId, position: position(), demoAt: { date: today, minute: now } }))) return;
     setMessage(check.warnings.length ? { tone: 'warn', text: `${name(employeeId)}: ${check.warnings.join(' ')}` } : null);
   }
 
-  function clockOut(clockId: string, breakMinutes: number) {
-    const clock = state.clocks.find((c) => c.id === clockId)!;
-    dispatch({ type: 'clockOut', clock: endClock(clock, now, breakMinutes) });
-    setMessage(null);
+  async function clockOut(clockId: string, breakMinutes: number) {
+    if (await run({ type: 'clockOut', id: clockId, breakMinutes, demoAt: { date: today, minute: now } })) setMessage(null);
   }
 
   const tradedShare = call.forecastDay > 0 ? call.forecastSoFar / call.forecastDay : 0;
@@ -104,8 +103,8 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
         />
       </section>
 
-      <div className="live-grid">
-        <div className="panel">
+      <div className={canManage ? 'live-grid' : ''}>
+        {canManage && <div className="panel">
           <div className="panel-head">
             <h3>The cut call</h3>
             <label className="inline">
@@ -137,7 +136,7 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
                   </div>
                   <div className="call-act">
                     <span className="good-text strong">{money(r.saving)}</span>
-                    <button onClick={() => dispatch({ type: 'applyCut', shiftId: r.shiftId, endMinute: r.newEnd, breakMinutes: r.newBreakMinutes })}>
+                    <button onClick={() => run({ type: 'applyCut', shiftId: r.shiftId, endMinute: r.newEnd, breakMinutes: r.newBreakMinutes })}>
                       Apply
                     </button>
                   </div>
@@ -166,7 +165,7 @@ export function LiveView({ state, siteId, today, initialMinute, dispatch }: Prop
             Savings are worked on each person's whole week, after guaranteed hours and the NI and pension thresholds,
             so they are what payroll will actually not pay.
           </p>
-        </div>
+        </div>}
 
         <div className="panel">
           <h3>Who is in</h3>

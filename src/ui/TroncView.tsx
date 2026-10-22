@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { tipsStatement, troncCompliance, troncRun } from '../engine/tronc';
 import { addDays, weekDates } from '../engine/time';
 import type { RotaState, TroncScheme } from '../engine/types';
-import type { Action } from './store';
+import type { Command } from '../shared/commands';
 import { dayLabel, download, hours, money, money2 } from './format';
 import { Kpi } from './KpiBar';
 
@@ -11,17 +11,20 @@ interface Props {
   siteId: string;
   week: string;
   asOf: string;
-  dispatch: (action: Action) => void;
+  run: (cmd: Command) => Promise<boolean>;
+  /** The troncmaster sets the allocation; the owner sets the business's side of the scheme. */
+  canAllocate: boolean;
+  canSetPolicy: boolean;
 }
 
 const SOURCE_LABEL = { 'service-charge': 'Service charge', 'card-tip': 'Card tips', 'cash-pooled': 'Cash into the pool' };
 
-export function TroncView({ state, siteId, week, asOf, dispatch }: Props) {
+export function TroncView({ state, siteId, week, asOf, run: send, canAllocate, canSetPolicy }: Props) {
   const scheme = state.troncSchemes.find((s) => s.siteId === siteId);
   const run = useMemo(() => troncRun(state, siteId, week, asOf), [state, siteId, week, asOf]);
   const issues = useMemo(() => troncCompliance(state, siteId, week, asOf), [state, siteId, week, asOf]);
   const employee = (id: string) => state.employees.find((e) => e.id === id);
-  const update = (patch: Partial<TroncScheme>) => scheme && dispatch({ type: 'updateTroncScheme', scheme: { ...scheme, ...patch } });
+  const update = (patch: Partial<TroncScheme>) => scheme && send({ type: 'updateTroncScheme', scheme: { ...scheme, ...patch } });
   const saving = run.niSaving.employer + run.niSaving.employee;
   const traded = weekDates(week).some((d) => d < asOf);
 
@@ -97,13 +100,13 @@ export function TroncView({ state, siteId, week, asOf, dispatch }: Props) {
             <dt>Allocation decided by</dt>
             <dd>
               <label className="inline">
-                <input type="checkbox" checked={scheme.independent} onChange={(e) => update({ independent: e.target.checked })} />
+                <input type="checkbox" disabled={!canSetPolicy} checked={scheme.independent} onChange={(e) => update({ independent: e.target.checked })} />
                 The troncmaster, independently of the business
               </label>
             </dd>
             <dt>Service charge</dt>
             <dd>
-              <select value={scheme.serviceCharge} onChange={(e) => update({ serviceCharge: e.target.value as TroncScheme['serviceCharge'] })}>
+              <select disabled={!canSetPolicy} value={scheme.serviceCharge} onChange={(e) => update({ serviceCharge: e.target.value as TroncScheme['serviceCharge'] })}>
                 <option value="discretionary">Discretionary</option>
                 <option value="mandatory">Mandatory</option>
                 <option value="none">None</option>
@@ -130,6 +133,7 @@ export function TroncView({ state, siteId, week, asOf, dispatch }: Props) {
               <label key={r.id}>
                 {r.name}
                 <input
+                  disabled={!canAllocate}
                   type="number"
                   min={0}
                   step={1}
@@ -153,7 +157,7 @@ export function TroncView({ state, siteId, week, asOf, dispatch }: Props) {
               <button
                 className="primary"
                 disabled={run.shares.length === 0 || run.paid}
-                onClick={() => dispatch({ type: 'markTipsPaid', siteId, weekStart: week, date: asOf })}
+                onClick={() => send({ type: 'markTipsPaid', siteId, weekStart: week, date: asOf })}
               >
                 {run.paid ? 'Paid' : 'Mark paid'}
               </button>

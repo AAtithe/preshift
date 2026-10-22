@@ -103,38 +103,74 @@ for the risk of leaving, from data the system already holds, and prices what rep
 | Drivers | Which signals carry the risk across the site, and how much of it the rota controls. | `src/ui/RetentionView.tsx` |
 | Fairness | Reads no age, nationality, visa status or other protected characteristic; being on the legal minimum counts the same in every age band. For support conversations only, never for discipline, dismissal or selection. | `src/engine/retention.ts` |
 
+## Server, sign in and roles
+
+The app now runs against a server and Postgres, with sign in and roles. With no server it still
+runs as the offline demo, exactly as before.
+
+| Area | What it does | Where |
+| --- | --- | --- |
+| Tenancy | Every client's data in its own organisation, fenced by Postgres row level security on every table. The app connects as `preshift_app`, which owns nothing and cannot switch the fence off; a query with no organisation set sees no rows. | `server/migrations/001_init.sql`, `server/db.ts` |
+| Sign in | Email and password, hashed with scrypt; sessions in an HttpOnly, SameSite cookie, with only a hash of the token stored; ten wrong passwords locks an email for fifteen minutes; one login across several organisations, for an accountant with many clients. | `server/auth.ts` |
+| Roles | Owner, finance, GM, troncmaster and staff, each scoped to sites. Finance approves labour but cannot create it. Only the troncmaster sets the tronc allocation; the owner keeps the service charge and the policy. Staff see their own published shifts and nothing about anyone else's pay. | `server/permissions.ts` |
+| Server rules | The server is the authority where it matters: it refuses to publish a rota with a blocking compliance issue, and clocks people in on its own clock, on site and inside the window, whatever the browser says. | `server/commands.ts` |
+| Audit | Every change recorded with who, when and what, before and after where it matters. The app can add to the record but never change or delete it. | `server/repo.ts` |
+| Invites | Owners invite by role, site and, for staff and troncmasters, their employee record; the link works once and expires in seven days. | `src/ui/AccessView.tsx` |
+
 ## Running it
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # engine tests
-npm run build    # typecheck and production build
+npm run dev        # http://localhost:5173, the offline demo when no server is running
+npm test           # engine tests; server tests too when TEST_DATABASE_URL is set
+npm run build      # typecheck everything and build
 ```
 
+With the server, against a local Postgres 16:
+
+```bash
+# Once, as a Postgres superuser: a database, and the role the app connects as.
+createdb preshift_dev
+psql -c "create role preshift_app login password 'preshift-app-local'"
+MIGRATION_DATABASE_URL=postgres://postgres@localhost/preshift_dev npm run migrate
+
+# Then, alongside npm run dev:
+DATABASE_URL=postgres://preshift_app:preshift-app-local@localhost/preshift_dev \
+  ALLOW_SIGNUP=true ALLOW_DEMO_SEED=true npm run server
+
+# Server tests make and drop their own database:
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost/postgres npm test
+```
+
+`ALLOW_SIGNUP` lets anyone create an organisation and `ALLOW_DEMO_SEED` lets an owner load the
+demo over their data. Both are off unless set, and should stay off in production, where WS sets
+clients up. Cookies are marked Secure when `NODE_ENV=production`, which needs HTTPS.
+
 The demo runs two London sites (Marylebone and Shoreditch) with realistic teams, rates and
-forecasts. Last week and this week are built from forecast and traded through to 18:00 today, with
+forecasts. The last three weeks and this week are built from forecast and traded through to 18:00 today, with
 the habits that open the gap on a real floor: early clock-ins, closers running over, skipped
 breaks, the odd no-show and an unrostered shift. Today is trading slowly so there is a cut call to
 make. Salaried managers work the long weeks they do in practice, one of them on a salary that does
 not cover the hours; a student was hand-rostered to the full term-time limit last week and an
-overrun took them over it; a visa at Shoreditch runs out next week. The demo carries
-four weeks of history; last week a GM took most of a regular bartender's shifts away, and two
+overrun took them over it; a visa at Shoreditch runs out next week. Last week a GM took most of a regular bartender's shifts away, and two
 recent starters are still in their first three months. Both sites share a menu, take stock every
 Sunday night and buy from four suppliers; Shoreditch's bar over-pours. Marylebone runs an
 independent tronc with a discretionary service charge; Shoreditch has the GM deciding the
-allocation, a mandatory charge and no written policy. Data is held in the browser only; "Reset demo" regenerates it.
+allocation, a mandatory charge and no written policy. Offline, data is held in the browser only and
+"Reset demo" regenerates it; on the server, an owner can load the same demo with "Load demo data".
 
 ## Structure
 
 ```
 src/engine   Pure TypeScript domain logic. No UI, fully unit tested. This is the product.
+src/shared   The commands the app sends and the changes that come back, shared by both sides.
 src/ui       React front end over the engine.
+server       Fastify API, Postgres schema and migrations, auth, roles and audit.
 docs         Strategy and roadmap.
 ```
 
-The engine is deliberately framework-free so it can move server-side unchanged when we add
-persistence, multi-user access and integrations.
+The engine is framework-free and runs unchanged on both sides: the browser uses it to show the
+consequence of every change, and the server uses it to enforce the rules that matter.
 
 ## Statutory rates
 
