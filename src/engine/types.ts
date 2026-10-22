@@ -442,7 +442,7 @@ export interface TimeEntry {
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
   /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
-  method?: 'card' | 'device' | 'phone';
+  method?: 'card' | 'device' | 'phone' | 'kiosk';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
   /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */
