@@ -153,6 +153,63 @@ Webhook endpoints: `GET /v1/webhooks/events`, `GET/POST /v1/webhooks`, `PATCH/DE
 `POST /v1/webhooks/:id/test`, `POST /v1/webhooks/:id/rotate-secret`, `GET /v1/webhooks/deliveries`,
 `POST /v1/webhooks/deliveries/:id/retry`.
 
+## Plugging in: Claude and other MCP clients
+
+Preshift is also an MCP (Model Context Protocol) server, so Claude, or any assistant that speaks
+MCP, can read the rota, cost and compliance and run the week in plain English: "what is labour
+at Marylebone next week against target", "build the group for the 26th and tell me what will
+not publish", "approve Friday's clocked time at the bar".
+
+- The connector is `POST /mcp` on the same server (Streamable HTTP, stateless, JSON responses).
+  There is no event stream, so `GET /mcp` answers 405. Protocol versions `2025-06-18`,
+  `2025-03-26` and `2024-11-05` are accepted.
+- It authenticates exactly as the API does: `Authorization: Bearer psk_...`, a key made under
+  Settings, API keys. Make one key per assistant, named after it ("Claude, finance team"), with
+  only the scopes it needs. A key with `rota:read` alone gives a read-only connector that can
+  never change the rota.
+- Every tool is a call to a `/v1` route made with the caller's own key. The connector adds no
+  authority: scopes, site access, paired duties, compliance blocks, the audit trail and webhooks
+  apply exactly as they would to the same key calling the API. `tools/list` shows only the tools
+  the key may run, each marked read-only or not, and removing a shift is marked destructive so a
+  client asks before it runs.
+- A refusal comes back as the tool's result with Preshift's reason (a compliance block, a missing
+  permission), so the model can put it right rather than fail. An unknown tool or method is a
+  JSON-RPC error.
+- Each tool call is two requests against the key's 300 a minute: one to `/mcp`, one to the API.
+- A request carrying an `Origin` header from another site is refused, so a web page cannot drive
+  the connector with a signed-in person's cookie.
+
+| Tool | Scope | Calls |
+| --- | --- | --- |
+| `list_sites` | `rota:read` | `GET /v1/sites` |
+| `list_roles` | `rota:read` | `GET /v1/roles` |
+| `list_employees` | `employees:read` | `GET /v1/employees` |
+| `get_rota_week` | `rota:read` | `GET /v1/rota/week` |
+| `list_shifts` | `rota:read` | `GET /v1/shifts` |
+| `get_forecast` | `rota:read` | `GET /v1/forecast` |
+| `get_sales` | `rota:read` | `GET /v1/sales` |
+| `list_time_entries` | `rota:read` | `GET /v1/time-entries` |
+| `compare_rota_to_clocked` | `rota:read` | `GET /v1/time-entries/compare` |
+| `get_labour_journal` | `rota:read` | `GET /v1/journal` |
+| `list_payroll_runs` | `employees:read` | `GET /v1/payroll/runs` |
+| `build_rota` | `rota:write` | `POST /v1/rota/build` |
+| `add_shift` | `rota:write` | `POST /v1/shifts` |
+| `remove_shift` | `rota:write` | `DELETE /v1/shifts/:id` |
+| `publish_rota` | `rota:write` | `POST /v1/rota/publish` |
+| `approve_time` | `time:approve` | `POST /v1/time-entries/approve` |
+
+Connecting Claude: in claude.ai, Settings, Connectors, add a custom connector with the URL
+`https://<your Preshift address>/mcp`, and give it the key as a bearer token where the client
+asks for one. In Claude Code:
+
+```bash
+claude mcp add --transport http preshift https://<your Preshift address>/mcp \
+  --header "Authorization: Bearer psk_..."
+```
+
+Locally, `npm run dev` serves it at `http://localhost:8787/mcp` with `dev-key`. Add a tool in
+`server/mcp.ts`: name the route it calls and the scope it needs; the route does the rest.
+
 ## Users and access
 
 The model follows Signal. A user record grants nothing. Access comes from memberships: a role,

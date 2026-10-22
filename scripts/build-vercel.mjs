@@ -1,6 +1,7 @@
 // Builds the Vercel deployment with the Build Output API (.vercel/output):
 //   /         marketing site (site/)
 //   /v1, /docs, /health   Preshift API as one bundled Node function, which also serves:
+//   /mcp                  the MCP connector for Claude and other MCP clients (server/mcp.ts)
 //   /login, /auth/*       sign-in, first-run owner setup and sign-out
 //   /demo, /demo/start    the public demo's start page and a sandbox per visitor (PRESHIFT_DEMO=1)
 //   /app/                 the rota web app (Vite build), only to signed-in people
@@ -70,7 +71,7 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/(?:dispatch|webhooks|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|internal/(?:dispatch|webhooks|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },

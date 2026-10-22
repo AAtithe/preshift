@@ -333,5 +333,9 @@ describe('kill switch', () => {
     expect(res.statusCode).toBe(403);
     expect(res.json().message).toMatch(/switched off/);
     expect((await off.call('GET', '/auth/status')).json()).not.toHaveProperty('demoAvailable');
+    // The MCP connector works through the same API, so the switch holds there too.
+    const viaMcp = await off.call('POST', '/mcp', visitor, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_sites', arguments: {} } });
+    expect(viaMcp.json().result).toMatchObject({ isError: true });
+    expect(viaMcp.json().result.content[0].text).toMatch(/switched off/);
   });
 });

@@ -40,6 +40,10 @@
       .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
       .foot.intro { margin: -6px 0 16px; }
       .foot a, .linkish { color: var(--accent); }
+      .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 18px 0 10px; }
+      .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+      .button-secondary { display: block; text-align: center; text-decoration: none; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); background: transparent; }
+      .button-secondary:hover, .button-secondary:focus-visible { background: var(--good-bg); }
       [hidden] { display: none; }
     </style>
   </head>
@@ -73,6 +77,10 @@
           <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
           <button type="submit">Sign in</button>
         </form>
+        <div id="demo-link" hidden>
+          <p class="or"><span>Not a customer yet?</span></p>
+          <a class="button-secondary" href="/demo">Try the live demo</a>
+        </div>
         <p class="foot"><a href="#forgot" id="forgot-link">Forgot your password?</a></p>
         <p class="foot">Access is set up by whoever manages access in your organisation. They send you a link to set your password.</p>
       </section>
@@ -121,7 +129,6 @@
           <button type="submit">Create owner account</button>
         </form>
       </section>
-      <p class="foot" id="demo-link" hidden>Not a customer yet? <a href="/demo">Try the live demo</a>.</p>
     </main>
     <script>
       const params = new URLSearchParams(location.search);
