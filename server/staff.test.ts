@@ -1,8 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { weekStart } from '../src/engine/time';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
+import { emailSetting } from './mail';
 import { COOKIE, STAFF_COOKIE } from './session';
 import { MemoryStore, PgStore, type Query, type Store } from './store';
 
@@ -182,5 +183,85 @@ describe('staff logins', () => {
 
     const out = await t.call('POST', '/v1/staff/clock-out', { location: AT_SITE }, me);
     expect(out.body.recent[0].breaks).toHaveLength(1);
+  });
+});
+
+describe('staff app invitation emails', () => {
+  const EMAIL = { resendApiKey: 're_test_abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+  let sent: { to: string[]; subject: string; text: string; html: string }[] = [];
+  let refuse = false;
+  afterEach(() => vi.unstubAllGlobals());
+  function stubResend() {
+    sent = [];
+    refuse = false;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url !== 'https://api.resend.com/emails') throw new Error(`unexpected fetch ${url}`);
+      if (refuse) return new Response('{"message":"domain not verified"}', { status: 403 });
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ id: `mail-${sent.length}` }), { status: 200 });
+    });
+  }
+  async function withEmail(address?: string) {
+    stubResend();
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    await store.setSetting(emailSetting('demo'), JSON.stringify(EMAIL));
+    const org = await store.load('demo');
+    org.state.employees.find((e) => e.id === 'mar-1')!.email = address;
+    return { ...(await boot(store)), store };
+  }
+  const linkIn = (text: string) => text.match(/https:\/\/rota\.ws\.example\/staff\/#\S+/)![0];
+
+  it("emails the invite to the person's own address and keeps the link out of the answer", async () => {
+    const t = await withEmail('Priya@Example.com');
+    const res = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
+    expect(JSON.stringify(res.body)).not.toMatch(/invite=/);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(['priya@example.com']);
+    expect(sent[0].subject).toBe('GM invited you to the Preshift staff app');
+    expect(sent[0].text).toMatch(/Marylebone/);
+
+    // The emailed link is the one that works.
+    const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
+    expect((await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD })).status).toBe(200);
+
+    // The list says what became of the email; a bounce reported later shows against the person.
+    const listed = (await t.manager('GET', '/v1/staff-logins')).body[0];
+    expect(listed.lastEmail).toMatchObject({ kind: 'staff_invite', to: 'priya@example.com', status: 'sent', employeeId: 'mar-1' });
+    const org = await t.store.load('demo');
+    org.mail['mail-1'].events.push({ id: 'evt-1', type: 'bounced', at: new Date().toISOString(), detail: 'Mailbox does not exist' });
+    expect((await t.manager('GET', '/v1/staff-logins')).body[0].lastEmail).toMatchObject({ status: 'bounced', detail: 'Mailbox does not exist' });
+  });
+
+  it('sends a new link to the address the person signed up with, as a password reset', async () => {
+    const t = await withEmail('old@example.com');
+    const first = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(first.body.emailed).toBe(true);
+    const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
+    await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD });
+    const again = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(again.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
+    expect(sent[1].subject).toBe('Your new Preshift staff app link');
+  });
+
+  it('hands the link back when asked, with no address, or when Resend refuses', async () => {
+    const t = await withEmail('priya@example.com');
+    const handed = await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true });
+    expect(handed.body).toMatchObject({ emailed: false, reason: 'handed_over' });
+    expect(handed.body.path).toMatch(/^\/staff\/#/);
+    expect(sent).toHaveLength(0);
+
+    expect((await t.manager('POST', '/v1/staff-logins/mar-2/invite')).body).toMatchObject({ emailed: false, reason: 'no_address' });
+
+    refuse = true;
+    const failed = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(failed.body).toMatchObject({ emailed: false, reason: 'send_failed' });
+    expect(failed.body.path).toMatch(/^\/staff\/#/);
+  });
+
+  it('hands the link back where email is not set up, as before', async () => {
+    const t = await boot();
+    expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body).toMatchObject({ emailed: false, reason: 'email_not_set_up' });
   });
 });

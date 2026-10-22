@@ -4,10 +4,11 @@ import { addDays } from '../engine/time';
 import type { DaySales, Department, RotaState, TimeEntry } from '../engine/types';
 import { api } from './api';
 import { dayLabel, download, hours, money, pct, signed, slug, toCsv as csv } from './format';
+import { ForecastAccuracyReport } from './ForecastAccuracyReport';
 import { PayrollAccuracy } from './PayrollAccuracy';
 import { TakingsEntry } from './TakingsEntry';
 
-type Report = 'trend' | 'roles' | 'actual' | 'takings' | 'accuracy';
+type Report = 'trend' | 'roles' | 'actual' | 'takings' | 'forecast' | 'accuracy';
 
 const REPORTS: { id: Report; label: string; intro: string }[] = [
   {
@@ -29,6 +30,11 @@ const REPORTS: { id: Report; label: string; intro: string }[] = [
     id: 'takings',
     label: 'Takings',
     intro: 'What the till actually rang, net of VAT, by site and day. Once Square is connected in Settings they arrive every morning; otherwise key them in or import the till’s daily export. Every report uses takings where they exist and the forecast where they do not.',
+  },
+  {
+    id: 'forecast',
+    label: 'Forecast accuracy',
+    intro: 'The forecast against what each site took, day by day. Every rota is built from the forecast, so its error becomes labour: too high and the floor is heavy, too low and service suffers. Above 12% the forecast is too loose to staff from. A day of the week wrong the same way every week is a model to correct, not bad luck.',
   },
   {
     id: 'accuracy',
@@ -76,6 +82,7 @@ export function ReportsView(props: Props) {
       {report === 'roles' && <ByRole {...props} />}
       {report === 'actual' && <VsActual {...props} />}
       {report === 'takings' && <TakingsEntry state={props.state} siteIds={props.siteIds} week={props.week} today={props.today} onSave={props.onSaveSales} onSynced={props.onSalesChanged} />}
+      {report === 'forecast' && <ForecastAccuracyReport state={props.state} siteIds={props.siteIds} week={props.week} scopeName={props.scopeName} />}
       {report === 'accuracy' && <PayrollAccuracy state={props.state} entityIds={props.entityIds} scopeName={props.scopeName} />}
     </div>
   );

@@ -81,6 +81,7 @@ export interface MailRecord {
   to: string;
   kind: MailKind;
   userId?: string;
+  employeeId?: string;
   sentAt: string;
   /** Who sent it: a person's name, or the sign-in page for "Forgot your password?". */
   by: string;
@@ -181,8 +182,6 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
-  /** Organisations where this account is Williams, Stanley & Co.'s programme lead: signs off milestones and savings. Set only by a WS key. */
-  leadOrgs?: string[];
   /** SHA-256 of the one outstanding reset link; a new link replaces it. Never the token itself. */
   resetTokenHash?: string;
   /** Epoch seconds the reset link stops working. */

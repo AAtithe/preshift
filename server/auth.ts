@@ -51,8 +51,7 @@ export interface ApiKey {
   /** Set for a key made in the app, so it can be revoked by id. */
   keyId?: string;
   /** Set when the caller is a signed-in person rather than an integration key. */
-  /** `lead`: Williams, Stanley & Co.'s programme lead in the organisation signed in to. */
-  user?: { email: string; role: UserRecord['role']; lead?: boolean };
+  user?: { email: string; role: UserRecord['role'] };
   /**
    * A personal key acts as that person: their roles decide, not the key's scopes alone.
    * Keys without a user are system keys with organisation-wide authority.
@@ -214,7 +213,7 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
       orgId: claims.orgId,
       name: user.email,
       scopes: ['*'],
-      user: { email: user.email, role: user.role, lead: (user.leadOrgs ?? []).includes(claims.orgId) },
+      user: { email: user.email, role: user.role },
       email: user.email,
       sessionMfa: claims.mfa,
       accountMfaId: user.authenticator?.secret ? user.authenticator.id : undefined,

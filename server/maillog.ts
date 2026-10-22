@@ -50,11 +50,11 @@ const detailOf = (record: MailRecord, status: MailStatus) => [...record.events].
 export function view(id: string, record: MailRecord): MailView {
   const status = statusOf(record);
   const event = [...record.events].reverse().find((e) => e.type === status);
-  return { id, to: record.to, kind: record.kind, userId: record.userId, sentAt: record.sentAt, by: record.by, status, at: event?.at ?? record.sentAt, detail: detailOf(record, status) };
+  return { id, to: record.to, kind: record.kind, userId: record.userId, employeeId: record.employeeId, sentAt: record.sentAt, by: record.by, status, at: event?.at ?? record.sentAt, detail: detailOf(record, status) };
 }
 
 /** Records an email Resend accepted. Resend's id is the key every later report names. */
-export function recordSent(org: OrgData, id: string, mail: { to: string; kind: MailKind; userId?: string; by: string }, now = new Date()) {
+export function recordSent(org: OrgData, id: string, mail: { to: string; kind: MailKind; userId?: string; employeeId?: string; by: string }, now = new Date()) {
   org.mail[id] = { ...mail, sentAt: now.toISOString(), events: [{ id: 'accepted', type: 'sent', at: now.toISOString() }] };
   prune(org, now);
 }
@@ -86,6 +86,17 @@ export function latestByUser(org: OrgData): Map<string, MailView> {
     if (!r.userId) continue;
     const current = out.get(r.userId);
     if (!current || r.sentAt > current.sentAt) out.set(r.userId, view(id, r));
+  }
+  return out;
+}
+
+/** The newest staff app invitation to each employee, by employee id. */
+export function latestByEmployee(org: OrgData): Map<string, MailView> {
+  const out = new Map<string, MailView>();
+  for (const [id, r] of Object.entries(org.mail)) {
+    if (!r.employeeId) continue;
+    const current = out.get(r.employeeId);
+    if (!current || r.sentAt > current.sentAt) out.set(r.employeeId, view(id, r));
   }
   return out;
 }

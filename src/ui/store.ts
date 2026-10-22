@@ -341,7 +341,7 @@ export function useHrRecords(setError: (message: string | null) => void) {
     records,
     save: (record: HrRecord, isNew: boolean) =>
       run(async () => {
-        const { id, createdBy: _b, createdAt: _a, ...body } = record;
+        const { id, createdBy: _b, createdAt: _a, history: _h, ...body } = record;
         const saved = isNew
           ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
           : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);

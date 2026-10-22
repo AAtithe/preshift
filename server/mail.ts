@@ -115,6 +115,28 @@ export function inviteEmail(to: string, name: string, invitedBy: string, role: s
   };
 }
 
+/**
+ * A staff app invitation: the person sets up their own login on their phone, to clock in at the
+ * site and see their own shifts. A new one is also how a forgotten password is reset.
+ */
+export function staffInviteEmail(to: string, name: string, invitedBy: string, site: string, link: string, days: number, reset = false): Mail {
+  const opening = reset
+    ? `${invitedBy} has sent you a new link for the Preshift staff app at ${site}. Your old password stops working once you use it.`
+    : `${invitedBy} has invited you to the Preshift staff app at ${site}. It is where you clock in and out on your phone, and see your shifts and hours.`;
+  const setUp = 'Open this link on your phone and choose a password only you know: nobody else, not even your manager, will see it.';
+  const notes = [
+    `The link works once and expires in ${days} days.`,
+    `If you were not expecting this, ignore it: nothing happens unless the link is used.`,
+  ];
+  const text = [`Hello ${name},`, '', opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return {
+    to,
+    subject: reset ? 'Your new Preshift staff app link' : `${oneLine(invitedBy)} invited you to the Preshift staff app`,
+    text,
+    html: letter([`Hello ${name},`, opening, setUp], { label: reset ? 'Choose a new password' : 'Set up the staff app', link }, notes),
+  };
+}
+
 /** A reset made by someone who manages access, rather than asked for by the person. */
 export function accessResetEmail(to: string, resetBy: string, link: string, hours: number): Mail {
   const opening = `${resetBy} has reset your Preshift password. Your old password no longer works and every device signed in to your account has been signed out.`;

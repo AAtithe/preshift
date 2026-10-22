@@ -335,6 +335,15 @@ export interface HrRecord {
   notes?: string;
   createdBy: string;
   createdAt: string;
+  /** Every change, oldest first, with what it replaced: a record can always be shown as it stood. Kept by the server. */
+  history?: HrRecordChange[];
+}
+
+/** One change to an HR record: who made it, when, and the values it replaced. */
+export interface HrRecordChange {
+  at: string;
+  by: string;
+  before: Partial<Omit<HrRecord, 'id' | 'employeeId' | 'kind' | 'createdBy' | 'createdAt' | 'history'>>;
 }
 
 export interface Shift {
