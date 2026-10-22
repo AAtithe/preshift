@@ -202,7 +202,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
         summary: hrSummary(people, today),
         checks: people
           .filter((e) => employeeStatus(e, today) !== 'left')
-          .map((e) => ({ employeeId: e.id, checks: hrChecks(e, records, org.state.roles, today) }))
+          .map((e) => ({ employeeId: e.id, checks: hrChecks(e, records, org.state.roles, today, org.state.shifts) }))
           .filter((x) => x.checks.length > 0),
       };
     },

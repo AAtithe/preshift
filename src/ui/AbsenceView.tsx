@@ -31,7 +31,7 @@ export function AbsenceView({ state, siteIds, today, onOpen, onSaveAbsence }: Pr
     .sort((x, y) => y.a.from.localeCompare(x.a.from));
   const offToday = people.filter((e) => isAbsentOn(e, today));
   const bradford = people
-    .map((e) => ({ e, b: bradfordFactor(e, today) }))
+    .map((e) => ({ e, b: bradfordFactor(e, today, state.shifts) }))
     .filter((x) => x.b.score > 0)
     .sort((x, y) => y.b.score - x.b.score);
   const rtwOutstanding = spells.filter(({ a }) => (a.type === 'sickness' || a.type === 'unauthorised') && a.to && a.to < today && !a.returnToWorkOn).length;
@@ -127,7 +127,7 @@ export function AbsenceView({ state, siteIds, today, onOpen, onSaveAbsence }: Pr
         <div className="grid-wrap">
           <h3 className="section-title">Bradford factor</h3>
           <table className="table">
-            <thead><tr><th>Name</th><th className="num">Spells</th><th className="num">Days</th><th className="num">Score</th></tr></thead>
+            <thead><tr><th>Name</th><th className="num">Spells</th><th className="num">Working days</th><th className="num">Score</th></tr></thead>
             <tbody>
               {bradford.length === 0 && <tr><td colSpan={4} className="muted">No sickness or unauthorised absence.</td></tr>}
               {bradford.map(({ e, b }) => (
@@ -141,7 +141,9 @@ export function AbsenceView({ state, siteIds, today, onOpen, onSaveAbsence }: Pr
             </tbody>
           </table>
           <p className="muted small">
-            Spells squared times days, over 52 weeks. Six one-day absences score 216; one six-day absence scores 6, because
+            Spells squared times working days, over 52 weeks. Working days are the days of the week each person was
+            rostered on in the eight weeks before the spell, Monday to Friday if the rota has none, so a weekend off is
+            never a day lost. Six one-day absences score 216; one six-day absence scores 6, because
             short, frequent absence is what breaks a rota. A score is a prompt for a conversation, never a decision on its
             own. Disability and pregnancy related absence is kept out.
           </p>
