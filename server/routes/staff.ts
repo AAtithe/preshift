@@ -9,6 +9,7 @@ import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../con
 import { actorName, guard } from '../guard';
 import { emailSetting, linkFor, parseEmailSettings, sendMail, staffInviteEmail } from '../mail';
 import { latestByEmployee, recordSent } from '../maillog';
+import { setPin } from '../kioskPin';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
 import { geoFixBody, idParam, isoDate } from '../schemas';
@@ -95,6 +96,8 @@ function overview({ org, employee, login }: Staff) {
     sites: clockableSites(org, employee, new Date()).map(siteView),
     open: open ? entryView(open) : null,
     breakEntitlement: owed ? { minutes: owed, planned: shift!.breakMinutes, under18: ageOn(employee.dateOfBirth, today) < 18 } : null,
+    // Whether they have a kiosk PIN, and whether any site they clock at asks for one.
+    kioskPin: { set: Boolean(employee.kioskPinSetAt), required: clockableSites(org, employee, new Date()).some((s) => s.kioskPinRequired) },
     // Only published shifts: until the rota is published it is still the manager's draft.
     shifts: org.state.shifts
       .filter((s) => s.employeeId === employee.id && s.published && s.date >= today && s.date <= addDays(today, 13))
@@ -230,6 +233,19 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
   );
 
   breakRoutes(app, store);
+
+  // The person sets their own kiosk PIN, signed in as themselves, so nobody can set one for a colleague.
+  app.put<{ Body: { pin: string } }>(
+    '/v1/staff/kiosk-pin',
+    { schema: { hide: true, body: { type: 'object', required: ['pin'], additionalProperties: false, properties: { pin: { type: 'string', maxLength: 12 } } } } },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      await setPin(store, staff.org.orgId, staff.employee, req.body.pin, 'self');
+      audit(staff.org, `staff:${staff.employee.id}`, 'kiosk.pin_set', { employeeId: staff.employee.id });
+      await store.save(staff.org);
+      return overview(staff);
+    },
+  );
 }
 
 /**

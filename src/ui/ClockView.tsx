@@ -358,7 +358,7 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
         {demo ? (
           <p className="small muted">In the live product, a shared iPad can be set up here as a kiosk that only clocks people in and out. Kiosks are switched off in the demo.</p>
         ) : (
-          <Kiosks siteId={site.id} siteName={site.name} />
+          <Kiosks siteId={site.id} siteName={site.name} pinRequired={Boolean(site.kioskPinRequired)} team={team} />
         )}
         </>)}
       </details>

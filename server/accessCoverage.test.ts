@@ -33,6 +33,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
   'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
   'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",
+  'PUT /v1/staff/kiosk-pin': "Staff app: the caller setting their own kiosk PIN, under the staff session.",
 };
 
 interface Route {

@@ -77,6 +77,8 @@ export interface Site {
   eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Signing in by name on the site's kiosk needs the person's PIN. Off unless a manager turns it on. */
+  kioskPinRequired?: boolean;
   /** Which nation's school calendar applies. England when absent; only England and Wales get an estimate. */
   nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
   /** A typical trading week, used to forecast any week no sales system has sent figures for. */
@@ -240,6 +242,9 @@ export interface Employee {
   pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** When the person's kiosk PIN was last set, and by whom. The PIN itself is kept hashed, apart from the record. */
+  kioskPinSetAt?: string;
+  kioskPinSetBy?: 'self' | 'manager';
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
   rotaNotes?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */

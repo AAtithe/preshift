@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { clearPin } from '../kioskPin';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   applyRetention,
@@ -190,7 +191,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Privacy'],
         description:
-          'Erases what the law does not require us to keep for a leaver: contact details, availability, RFID card, staff login and clocking locations. ' +
+          'Erases what the law does not require us to keep for a leaver: contact details, availability, RFID card, kiosk PIN, staff login and clocking locations. ' +
           'Payroll and right to work records stay until their retention period ends (Article 17(3)).',
         params: idParam,
       },
@@ -210,6 +211,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         return stripLocation(t);
       });
       await ctx.store.deleteStaffLogin(org.orgId, e.id);
+      await clearPin(ctx.store, org.orgId, org.state.employees[i]);
       audit(org, actor(req), 'privacy.subject_erased', { employeeId: e.id, locations });
       return { employee: org.state.employees[i], locationsRemoved: locations };
     },

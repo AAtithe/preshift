@@ -114,8 +114,11 @@ describe('GDPR', () => {
     const t = await boot();
     expect((await t.call('POST', '/v1/privacy/subjects/mar-1/erase')).status).toBe(409);
     const id = await oldLeaver(t);
+    await t.store.setSetting(`kiosk_pin:demo:${id}`, '{"salt":"00","hash":"00","failed":0,"lockedUntil":0}');
     const res = await t.call('POST', `/v1/privacy/subjects/${id}/erase`);
     expect(res.status).toBe(200);
+    // The kiosk PIN goes with the card and the staff login.
+    expect(await t.store.getSetting(`kiosk_pin:demo:${id}`)).toBeNull();
     expect(res.body.locationsRemoved).toBe(1);
     expect(res.body.employee.email).toBeUndefined();
     expect(res.body.employee.name).toBe('Old Leaver');

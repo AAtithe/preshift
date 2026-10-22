@@ -98,6 +98,10 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // Kiosks in the sandbox can be listed and removed; pairing one is refused below.
   'GET /v1/kiosks': true,
   'DELETE /v1/kiosks/:id': true,
+  // Kiosk PINs live in the sandbox's own people and settings.
+  'PUT /v1/sites/:id/kiosk-pin': true,
+  'POST /v1/employees/:id/kiosk-pin': true,
+  'DELETE /v1/employees/:id/kiosk-pin': true,
   'POST /v1/time-entries/:id/clock-out': true,
   'PATCH /v1/time-entries/:id': true,
   'POST /v1/integrations/payroll/sync-employees': true,
@@ -286,6 +290,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/kiosk/board': false,
   'POST /v1/kiosk/tap': false,
   'POST /v1/kiosk/clock': false,
+  'PUT /v1/staff/kiosk-pin': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;
