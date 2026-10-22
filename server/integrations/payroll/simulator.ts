@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { employeeWeekCost } from '../../../src/engine/cost';
+import { weekOnCosts } from '../../../src/engine/cost';
 import type { Employee } from '../../../src/engine/types';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
 import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider } from './provider';
@@ -87,17 +87,25 @@ export class TeamPaySimulator implements PayrollProvider {
    * serverless instance.
    */
   runPayroll(employerId: string, periodStart: string, periodEnd: string, people: Employee[], batch: PayrollHoursBatch) {
+    // TeamPay pays each line at the rate it was sent with, so travel at its own rate is paid at that rate.
     const hoursByEmployee = new Map<string, number>();
-    for (const l of batch.lines) hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
+    const payByEmployee = new Map<string, number>();
+    for (const l of batch.lines) {
+      hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
+      payByEmployee.set(l.employeeId, (payByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
+    }
     const employees: PayRun['employees'] = [];
     for (const person of people) {
       if (!person.payrollId) continue;
       const hours = hoursByEmployee.get(person.id) ?? 0;
       if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0) continue;
-      // Price the paid hours with the same statutory model; a real payroll's rounding differs slightly.
-      const cost = employeeWeekCost(person, [
-        { id: 'x', employeeId: person.id, roleId: '', siteId: person.siteId, date: periodStart, startMinute: 0, endMinute: Math.round(hours * 60), breakMinutes: 0 },
-      ]);
+      // Salary is paid as salary; hourly pay is the lines, topped up to any guaranteed hours.
+      const gross =
+        person.payBasis === 'salaried'
+          ? person.annualSalary / 52
+          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate);
+      // Price on-costs with the same statutory model; a real payroll's rounding differs slightly.
+      const cost = weekOnCosts(person, gross);
       employees.push({
         payrollId: person.payrollId,
         employeeId: person.id,

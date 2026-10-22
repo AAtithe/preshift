@@ -243,6 +243,13 @@ describe('access to right to work copies and takings', () => {
     expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: 4200 }, { siteId: 'shd', date: '2026-10-19', netSales: 10 }] }, 'priya')).status).toBe(403);
     expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-20', netSales: 1 }] }, 'grace')).status).toBe(403);
   });
+
+  it("lets a site forecast from its takings, and only its own", async () => {
+    const call = await setup();
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-09' }, 'priya')).status).toBe(200);
+    expect((await call('POST', '/v1/forecast/from-takings', { siteIds: ['mar', 'shd'], weekStart: '2026-11-09' }, 'priya')).status).toBe(403);
+    expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-09' }, 'grace')).status).toBe(403);
+  });
 });
 
 describe('rest breach overrides', () => {
