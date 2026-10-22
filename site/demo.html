@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
     <title>Preshift Rota live demo</title>
     <meta name="description" content="Try Preshift Rota on a sample group of three London sites. No sign-up." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f4d3a%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 font-family=%22sans-serif%22 font-weight=%22700%22 fill=%22white%22 text-anchor=%22middle%22%3EP%3C/text%3E%3C/svg%3E" />
@@ -33,7 +34,8 @@
       p { margin: 0 0 14px; }
       ul { margin: 0 0 18px; padding-left: 18px; }
       li { margin-bottom: 6px; }
-      .button { display: block; text-align: center; text-decoration: none; font-weight: 600; padding: 11px; border-radius: 8px; background: var(--accent); color: var(--accent-text); }
+      .button { display: block; width: 100%; font: inherit; text-align: center; font-weight: 600; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+      form { margin: 0; }
       .msg { font-size: 13px; padding: 8px 10px; border-radius: 8px; margin-bottom: 14px; background: var(--good-bg); }
       .foot { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
       .foot a { color: inherit; }
@@ -49,22 +51,25 @@
           <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
         </div>
       </div>
-      <p class="msg" id="ended" hidden>Your demo session has ended. Start again for a fresh copy.</p>
+      <p class="msg" id="busy" hidden>The demo has had a lot of visitors today. Try again tomorrow, or book a demo with us.</p>
+      <p class="msg" id="origin" hidden>Start the demo from this page.</p>
       <h1>Try Preshift Rota</h1>
-      <p>You get your own copy of a sample group: two companies, three London sites, real teams, rates and forecasts. No sign-up, and nobody else sees what you change.</p>
+      <p>You get your own copy of a sample group: two companies, three London sites, real teams, rates and forecasts. No sign-up, and nobody else sees what you change. It is kept apart from every customer's data.</p>
       <ul>
         <li>Build a site's week from the sales forecast and watch labour % against target.</li>
         <li>Edit a shift and see what it really adds, with holiday pay, employer NI and pension.</li>
         <li>Try to roster something illegal and see the compliance engine stop it.</li>
-        <li>Clock people in, send hours to the TeamPay simulator and run payroll.</li>
+        <li>Clock people in at the site, send hours to the TeamPay simulator and run payroll.</li>
         <li>Post the labour accrual journal, intercompany recharge included.</li>
       </ul>
-      <a class="button" href="/demo">Start the demo</a>
-      <p class="foot">Your copy is deleted after a day. Want to see it on your own sites? <a href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>.</p>
+      <form method="post" action="/demo/start">
+        <button class="button" type="submit">Start the demo</button>
+      </form>
+      <p class="foot">Your copy is wiped at midnight UK time. Starting the demo signs this browser out of any Preshift account. Want to see it on your own sites? <a href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>.</p>
     </main>
     <script>
-      // Sandboxes are deleted after a day; a visitor whose copy has gone is sent here with ?signedout.
-      if (new URLSearchParams(location.search).has('signedout')) document.getElementById('ended').hidden = false;
+      const error = new URLSearchParams(location.search).get('error');
+      if (error === 'busy' || error === 'origin') document.getElementById(error).hidden = false;
     </script>
   </body>
 </html>

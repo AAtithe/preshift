@@ -24,10 +24,9 @@ locally. Set these to connect to real TeamPay:
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
 | `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
-| `PRESHIFT_DEMO` | `1` makes the deployment the public demo: a sandbox per visitor at `/demo`, no account changes, simulator payroll. See the README |
-| `PRESHIFT_DEMO_CLAUDE_KEY` | Demo only. Claude API key the sandboxes share for the rota assistant, capped per sandbox. Unset means the assistant is off in the demo |
-| `PRESHIFT_DEMO_URL` | Live system only. Where its `/demo` sends visitors, the demo deployment's `/demo` |
-| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes) and `/internal/webhooks` (every 15 minutes, webhook retries) |
+| `PRESHIFT_DEMO` | `1` switches on the public demo alongside customers: a private sandbox per visitor from `/demo`, on a route allowlist, simulator payroll, wiped at midnight UK time. Unset is the kill switch. See the README |
+| `PRESHIFT_DEMO_CLAUDE_KEY` | Claude API key the demo sandboxes share for the rota assistant, capped per sandbox and per day. Never a customer's key. Unset means the assistant is off in the demo |
+| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes), `/internal/webhooks` (every 15 minutes, webhook retries) and `/internal/demo-reset` (the demo's midnight reset) |
 
 ## Authentication and tenancy
 
@@ -443,6 +442,8 @@ is sent; if the log cannot be written, the file is not shown.
 | `/v1/*`, `/docs`, `/health` | The API, as one Node function |
 | `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
 | `/internal/webhooks` | Vercel Cron every 15 minutes: webhook retries that are due (needs `CRON_SECRET`) |
+| `/demo`, `/demo/start` | The public demo's start page, and the form post that starts a visitor's sandbox (with `PRESHIFT_DEMO=1`) |
+| `/internal/demo-reset` | The demo's midnight reset, from Vercel Cron at 23:05 and 00:05 UTC (needs `CRON_SECRET`) |
 
 Payroll changes are also delivered inside the request that makes them, so the cron is a safety
 net, not the main path.

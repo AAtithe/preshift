@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isSandbox, sandboxExpired } from './sandbox';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
 import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
@@ -83,7 +84,12 @@ declare module 'fastify' {
  * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
-  if (env.PRESHIFT_API_KEYS) return (JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[]).map(keepEmployeeAccess);
+  if (env.PRESHIFT_API_KEYS) {
+    const keys = JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[];
+    // Integration keys belong to customers. A key aimed at a demo sandbox is a mistake, so refuse to start.
+    if (keys.some((k) => isSandbox(k.orgId))) throw new Error('PRESHIFT_API_KEYS names a demo sandbox; keys are for customer organisations only');
+    return keys.map(keepEmployeeAccess);
+  }
   if (env.NODE_ENV === 'production') return [];
   // The demo acts as the seeded owner, so access rules apply locally as they would to a person.
   // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
@@ -130,6 +136,13 @@ export async function signedIn(cookieHeader: string | undefined, users: UserStor
   const user = await users.getUser(claims.email);
   // A session works in one organisation at a time, which must be one the account has joined.
   if (!user || !orgsOfAccount(user).includes(claims.orgId) || claims.issuedAt < user.sessionsValidFrom) return null;
+  // Sandboxes and customers never share an account. A sandbox is reached only by its own visitor
+  // account, which works nowhere else; a customer account never reaches a sandbox, whatever its
+  // memberships say, and keeps working in its own organisations.
+  if (isSandbox(claims.orgId) && claims.orgId !== user.orgId) return null;
+  if (isSandbox(user.orgId) && claims.orgId !== user.orgId) return null;
+  // A demo sandbox ends at midnight UK time, whether or not the reset has deleted it yet.
+  if (isSandbox(claims.orgId) && sandboxExpired(claims.orgId, Date.now())) return null;
   return { user, claims };
 }
 

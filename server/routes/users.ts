@@ -167,9 +167,11 @@ async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, 
  * works elsewhere too: suspending it here must not sign it out of another organisation, and the
  * guard already refuses a suspended person here on every request.
  */
-async function signOutEverywhere(store: Store, email: string) {
+async function signOutEverywhere(store: Store, org: OrgData, email: string) {
   const account = await store.getUser(email);
-  if (account && !sharedAccount(account)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
+  // Only an account that belongs here. A record can name any email, including one that never
+  // accepted the invitation, and suspending it must not sign out a stranger's account elsewhere.
+  if (account && account.orgId === org.orgId && !sharedAccount(account)) await store.updateUser(email, { sessionsValidFrom: Date.now() });
 }
 
 /**
@@ -492,7 +494,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       const target = findUser(org, req.params.id);
       const out = await accountAction(ctx.store, org, actorOf(req, org, today()), target, action, today(), handOverAsked(req.body));
       // A suspended person's sessions end now, not when they next try something.
-      if (action === 'suspend') await signOutEverywhere(ctx.store, target.email);
+      if (action === 'suspend') await signOutEverywhere(ctx.store, org, target.email);
       return out;
     });
   }
@@ -587,7 +589,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         try {
           const target = findUser(org, id);
           const out: { user: User } & Partial<Delivery> = await accountAction(ctx.store, org, actor, target, req.body.action, today());
-          if (req.body.action === 'suspend') await signOutEverywhere(ctx.store, target.email);
+          if (req.body.action === 'suspend') await signOutEverywhere(ctx.store, org, target.email);
           results.push({ userId: id, ok: true, emailed: out.emailed, inviteUrl: out.inviteUrl });
         } catch (e) {
           results.push({ userId: id, ok: false, error: (e as Error).message });

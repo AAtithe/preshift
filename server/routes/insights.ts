@@ -13,6 +13,7 @@ import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../con
 import { forecastBody, isoDate, rangeQuery, siteWeekQuery } from '../schemas';
 import { modelDates } from '../forecasting';
 import { guard } from '../guard';
+import { isSandbox } from '../sandbox';
 import { audit, orgsOfAccount, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -572,6 +573,8 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       // Read-only pass over every organisation: loaded, sampled and never saved.
       const samples: SiteSample[] = [];
       for (const orgId of await ctx.store.orgIds()) {
+        // Demo sandboxes are sample data, not a customer's figures.
+        if (isSandbox(orgId)) continue;
         const other = orgId === org.orgId ? org : await ctx.store.load(orgId);
         if (!other.settings?.benchmarking) continue;
         for (const site of other.state.sites) {
