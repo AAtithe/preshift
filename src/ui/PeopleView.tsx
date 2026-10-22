@@ -181,6 +181,9 @@ export function PeopleView({ state, siteId, today, onEdit, onAdd }: Props) {
                     ) : (
                       <span className="muted">Unlimited</span>
                     )}
+                    <div className={`small ${rtw?.checked && !rtw.documents?.length ? 'warn-text' : 'muted'}`}>
+                      {rtw?.documents?.length ? `${rtw.documents.length} cop${rtw.documents.length === 1 ? 'y' : 'ies'} held` : 'No copy held'}
+                    </div>
                   </td>
                   <td>
                     {checks.length === 0 ? (

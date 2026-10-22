@@ -85,7 +85,8 @@ export interface RetentionItem {
 export const RETENTION_LOOKAHEAD_DAYS = 60;
 
 const hasContact = (e: Employee) => Boolean(e.email || e.phone || e.badgeId || e.availability.length > 0);
-const hasRightToWorkDetail = (e: Employee) => Boolean(e.rightToWork?.evidence || e.rightToWork?.checkedOn || e.rightToWork?.expiry);
+const hasRightToWorkDetail = (e: Employee) =>
+  Boolean(e.rightToWork?.evidence || e.rightToWork?.checkedOn || e.rightToWork?.expiry || e.rightToWork?.documents?.length);
 
 /**
  * What personal data has reached, or is about to reach, the end of its retention period.
@@ -145,7 +146,7 @@ export function retentionSchedule(
         employeeId: e.id,
         name: e.name,
         dueOn: addMonths(e.leaveDate, policy.rightToWorkYearsAfterLeaving * 12),
-        removes: 'Right to work evidence, check date and expiry',
+        removes: 'Right to work evidence, check date, expiry and the stored document copies',
         reason: `The Home Office asks for checks to be kept ${policy.rightToWorkYearsAfterLeaving} years after employment ends, then destroyed.`,
       });
     }
@@ -357,7 +358,7 @@ export function processingRegister(
       activity: 'Right to work checks',
       purpose: 'Keeping the statutory excuse against illegal working penalties',
       lawfulBasis: 'Legal obligation (6(1)(c)), Immigration, Asylum and Nationality Act 2006',
-      categories: 'Check date, evidence type seen, permission expiry. No document copies are stored here',
+      categories: 'Check date, evidence type seen, permission expiry, and copies of the documents checked (passport, visa, share code result), encrypted with every view logged',
       recipients: 'None',
       retention: `Employment plus ${policy.rightToWorkYearsAfterLeaving} years`,
       held: live.filter(hasRightToWorkDetail).length,

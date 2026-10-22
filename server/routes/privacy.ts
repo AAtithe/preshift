@@ -22,6 +22,7 @@ import { emailSetting } from '../mail';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { claudeKeySetting } from './access';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies } from './documents';
 
 const today = () => londonParts(new Date()).date;
 const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
@@ -95,12 +96,18 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post(
     '/v1/privacy/retention/apply',
-    { ...admin, schema: { tags: ['Privacy'], description: 'Removes everything whose retention period has ended. Cannot be undone.' } },
+    {
+      ...admin,
+      schema: { tags: ['Privacy'], description: 'Removes everything whose retention period has ended, stored right to work copies included. Cannot be undone.' },
+      onResponse: deleteCopiesOnSave(ctx),
+    },
     async (req) => {
       const org = orgOf(req);
       const day = today();
       const items = retentionSchedule(org.state, org.timeEntries, day, policyOf(org));
       const result = applyRetention(org.state.employees, org.timeEntries, items, day);
+      // The encrypted files go too, once the records no longer name them.
+      deleteCopiesAfterSave(req, droppedCopies(org.state.employees, result.employees));
       org.state.employees = result.employees;
       org.timeEntries = result.timeEntries;
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.

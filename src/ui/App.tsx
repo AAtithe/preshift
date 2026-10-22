@@ -29,6 +29,7 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Account } from './SettingsView';
 import { allowFor, NOT_YOURS, type Allow } from './permissions';
@@ -41,13 +42,13 @@ import { TravelPanel } from './TravelPanel';
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 
-type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+type Tab = 'sites' | 'rota' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 type AtAll = Allow;
 type Offered = (atAll: AtAll, allow: Allow) => boolean;
 
-// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it.
+// The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
 // Site-only sections stay visible across a group so the map never changes; they ask for one site.
 // An item is shown only to someone who can use it across the scope; the screen still asks the server.
 type NavItem = { id: Tab; label: string; siteOnly?: boolean; groupOnly?: boolean; offered?: Offered };
@@ -89,6 +90,8 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'close', label: 'Close', offered: (_all, a) => a('close.export') },
     ],
   },
+  // Labour cost against takings and payroll accuracy: money throughout, for those who see cost.
+  { heading: 'Reporting', items: [{ id: 'reports', label: 'Reports', offered: (all) => all('costs.view') }] },
   {
     heading: 'Admin',
     items: [
@@ -520,6 +523,17 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
               {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {activeTab === 'reports' && (
+                <ReportsView
+                  state={state}
+                  siteIds={siteIds}
+                  entityIds={entityIds}
+                  week={week}
+                  today={today}
+                  onSaveSales={actions.saveSales}
+                  scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
+                />
+              )}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} singleSite={!!single} today={today} onOpen={setTab} />
               )}
@@ -605,6 +619,9 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
             if (await actions.saveEmployee(employee, isNew, withPay)) setEditingPerson(null);
           }}
           onLeaver={async (id, leaveDate) => { if (await actions.markLeaver(id, leaveDate)) setEditingPerson(null); }}
+          onAddDocument={actions.addRightToWorkDocument}
+          onDeleteDocument={actions.deleteRightToWorkDocument}
+          onDocumentHistory={actions.rightToWorkDocumentHistory}
           onClose={() => setEditingPerson(null)}
         />
       )}

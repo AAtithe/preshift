@@ -209,3 +209,37 @@ describe('access to site travel times', () => {
     expect((await call('PUT', '/v1/sites/mar/travel/shd', { minutes: 25 }, 'owner')).status).toBe(200);
   });
 });
+
+describe('access to right to work copies and takings', () => {
+  const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(200, 1)]);
+
+  it("files and shows a person's copies only where the reader holds their personnel file", async () => {
+    process.env.PRESHIFT_DOCUMENT_KEY = Buffer.alloc(32, 7).toString('base64');
+    try {
+      const { app } = await buildApp({ apiKeys: KEYS, store: new MemoryStore(['demo'], '2026-10-21'), provider: new TeamPaySimulator(), autoDispatch: false });
+      const upload = (id: string, key: string) =>
+        app.inject({ method: 'POST', url: `/v1/employees/${id}/right-to-work/documents?fileName=p.pdf`, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/pdf' }, payload: PDF });
+      // Priya runs Marylebone: she files her own team's copies, not Shoreditch's, and never her own.
+      const mine = await upload('mar-2', 'priya');
+      expect(mine.statusCode).toBe(201);
+      expect((await upload('shd-2', 'priya')).statusCode).toBe(403);
+      expect((await upload('mar-1', 'priya')).statusCode).toBe(403);
+      // The answer carries pay only as she may see it, and a supervisor cannot open the copy.
+      const docId = mine.json().rightToWork.documents[0].id;
+      const view = (key: string) => app.inject({ method: 'GET', url: `/v1/employees/mar-2/right-to-work/documents/${docId}`, headers: { authorization: `Bearer ${key}` } });
+      expect((await view('priya')).statusCode).toBe(200);
+      expect((await view('grace')).statusCode).toBe(403);
+      // Deleting a copy is a data protection act: not a GM's.
+      expect((await app.inject({ method: 'DELETE', url: `/v1/employees/mar-2/right-to-work/documents/${docId}`, headers: { authorization: 'Bearer priya' } })).statusCode).toBe(403);
+    } finally {
+      delete process.env.PRESHIFT_DOCUMENT_KEY;
+    }
+  });
+
+  it('lets a site key in its takings, and only its own', async () => {
+    const call = await setup();
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: 4200 }] }, 'priya')).status).toBe(200);
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-19', netSales: 4200 }, { siteId: 'shd', date: '2026-10-19', netSales: 10 }] }, 'priya')).status).toBe(403);
+    expect((await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-10-20', netSales: 1 }] }, 'grace')).status).toBe(403);
+  });
+});

@@ -116,6 +116,8 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         id: `emp_${randomUUID().slice(0, 12)}`,
         status: 'active',
       };
+      // Copies are added through their own route once the record exists.
+      if (e.rightToWork) e.rightToWork = { ...e.rightToWork, documents: [] };
       validateEmployment(org, e);
       org.state.employees.push(e);
       queueUpsert(org, e);
@@ -140,6 +142,8 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
         if (after.siteId !== before.siteId) g.allow('team.manage', after.siteId);
       }
       if (payChanged(before, req.body)) allowPay(g, before);
+      // The list of stored copies is the server's: editing the check never adds or drops a file.
+      if (req.body.rightToWork) after.rightToWork = { ...req.body.rightToWork, documents: before.rightToWork?.documents ?? [] };
       validateEmployment(org, after);
       if (before.payrollId && after.entityId !== before.entityId) {
         throw new HttpError(

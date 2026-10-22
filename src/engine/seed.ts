@@ -1,4 +1,4 @@
-import type { Absence, DemandRule, Employee, Entity, HourForecast, HrProfile, HrRecord, Role, RotaState, Site } from './types';
+import type { Absence, DaySales, DemandRule, Employee, Entity, HourForecast, HrProfile, HrRecord, Role, RotaState, Site } from './types';
 import { COURSES, requiredCourses } from './hr';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
@@ -155,6 +155,27 @@ function forecast(start: string): HourForecast[] {
   return rows;
 }
 
+/**
+ * Takings for every trading day before today in the forecast's first two weeks, off forecast by a
+ * steady few percent so the reports have real variance to show. Deterministic, so tests can rely on it.
+ */
+function takings(rows: HourForecast[], today: string): DaySales[] {
+  const byDay = new Map<string, { siteId: string; date: string; sales: number; covers: number }>();
+  for (const f of rows) {
+    if (f.date >= today) continue;
+    const key = `${f.siteId}|${f.date}`;
+    const day = byDay.get(key) ?? { siteId: f.siteId, date: f.date, sales: 0, covers: 0 };
+    day.sales += f.sales;
+    day.covers += f.covers;
+    byDay.set(key, day);
+  }
+  return [...byDay.values()].map((d) => {
+    const seed = [...`${d.siteId}${d.date}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1000, 7);
+    const factor = 0.88 + (seed % 23) / 100; // 0.88 to 1.10
+    return { siteId: d.siteId, date: d.date, netSales: Math.round(d.sales * factor), covers: Math.round(d.covers * factor), source: 'till' as const };
+  });
+}
+
 export function seedState(today = toISODate(new Date())): RotaState {
   const start = weekStart(today);
   return {
@@ -166,6 +187,7 @@ export function seedState(today = toISODate(new Date())): RotaState {
     shifts: [],
     forecast: forecast(start),
     demandRules: rules,
+    sales: takings(forecast(start), today),
   };
 }
 
