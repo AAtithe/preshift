@@ -54,6 +54,13 @@ const policyBody = {
  * erasure, retention, the request log) is privacy.manage, which needs the authenticator, and is
  * done by a person, never an integration key: a subject access export is everything held on someone.
  */
+const welfareHeld = (org: OrgData) => ({
+  pulses: org.welfare?.pulses.length ?? 0,
+  recognitions: org.welfare?.recognitions.length ?? 0,
+  chats: org.welfare?.chats.length ?? 0,
+  members: org.welfare?.rewardsEnrolled.length ?? 0,
+});
+
 export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const admin = {
@@ -74,8 +81,10 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
         email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
         payrollLive: !ctx.simulatorFor(org.orgId),
+        rewards: org.welfare?.rewards?.environment === 'production',
       },
       policyOf(org),
+      welfareHeld(org),
     );
   });
 
@@ -113,6 +122,12 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.
       const anonymised = new Set(result.applied.filter((a) => a.code === 'anonymise').map((a) => a.employeeId));
       org.hrRecords = org.hrRecords.filter((r) => !anonymised.has(r.employeeId));
+      // Recognition messages and chat requests are about the person, and go with them.
+      if (org.welfare) {
+        org.welfare.recognitions = org.welfare.recognitions.filter((r) => !anonymised.has(r.employeeId));
+        org.welfare.chats = org.welfare.chats.filter((c) => !anonymised.has(c.employeeId));
+        org.welfare.rewardsOptOut = org.welfare.rewardsOptOut.filter((id) => !anonymised.has(id));
+      }
       for (const id of result.closeLoginsFor) await ctx.store.deleteStaffLogin(org.orgId, id);
       // The audit keeps ids and counts only, never the data that was removed.
       audit(org, actor(req), 'privacy.retention_applied', { applied: result.applied });
@@ -150,8 +165,10 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
           email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
           payrollLive: !ctx.simulatorFor(org.orgId),
+          rewards: org.welfare?.rewards?.environment === 'production',
         },
         policyOf(org),
+        welfareHeld(org),
       );
       const about = (detail?: Record<string, unknown>) => detail?.id === e.id || detail?.employeeId === e.id;
       audit(org, actor(req), 'privacy.subject_exported', { employeeId: e.id });
@@ -169,6 +186,15 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           payRuns: org.payRuns.flatMap((r) =>
             r.variance.lines.filter((l) => l.employeeId === e.id).map((l) => ({ periodStart: r.periodStart, periodEnd: r.periodEnd, ...l })),
           ),
+        },
+        wellbeing: {
+          recognitions: (org.welfare?.recognitions ?? []).filter((r) => r.employeeId === e.id),
+          chatRequests: (org.welfare?.chats ?? []).filter((c) => c.employeeId === e.id),
+          hospitalityRewards: {
+            member: (org.welfare?.rewardsEnrolled ?? []).includes(e.id),
+            optedOut: (org.welfare?.rewardsOptOut ?? []).includes(e.id),
+          },
+          pulse: 'Weekly pulse answers are stored without your id, so they cannot be found or returned as yours.',
         },
         staffLogin: login
           ? { email: login.email ?? null, createdAt: login.createdAt, activatedAt: login.activatedAt ?? null, lastSignInAt: login.lastSignInAt ?? null }

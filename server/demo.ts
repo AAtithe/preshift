@@ -108,6 +108,17 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/pay-changes/:id/withdraw': true,
   // Whether a till is connected: never in a sandbox, so this only ever says not connected.
   'GET /v1/integrations/epos': true,
+  // Wellbeing on the sandbox's fictional team. Hospitality Rewards connects to the simulator only:
+  // the route refuses a real platform for a sandbox, so no visitor can send names anywhere.
+  'GET /v1/welfare': true,
+  'PUT /v1/welfare/policy': true,
+  'POST /v1/welfare/recognitions': true,
+  'POST /v1/welfare/chats/:id/done': true,
+  'GET /v1/integrations/rewards': true,
+  'PUT /v1/integrations/rewards': true,
+  'DELETE /v1/integrations/rewards': true,
+  'POST /v1/integrations/rewards/sync': true,
+  'GET /v1/integrations/rewards/eligibility.csv': true,
   'POST /v1/dev/simulate-clocking': true,
   'POST /v1/dev/teampay/run-payroll': true,
   'PUT /v1/privacy/policy': true,
@@ -269,6 +280,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/clock-out': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
+  'POST /v1/staff/pulse': false,
+  'POST /v1/staff/chat': false,
+  'POST /v1/staff/rewards': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;

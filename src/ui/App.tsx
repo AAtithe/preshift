@@ -34,6 +34,7 @@ import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
+import { WelfareView } from './WelfareView';
 import { ClientsView } from './ClientsView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
@@ -601,6 +602,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
+              {shown === 'welfare' && <WelfareView key={sectionSites.join(',')} state={state} siteIds={sectionSites} today={today} allow={allow} onOpenHr={openHr} />}
               {shown === 'holiday' && (
                 <HolidayView
                   state={state}

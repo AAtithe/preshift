@@ -1,8 +1,9 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
 import { requiredBreakMinutes } from '../../src/engine/compliance';
-import { addDays, ageOn } from '../../src/engine/time';
+import { addDays, ageOn, weekStart } from '../../src/engine/time';
+import { PULSE_RETENTION_DAYS, RECOGNITION_LABEL, welfarePolicy, type PulseResponse } from '../../src/engine/welfare';
 import type { Employee, GeoFix, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
@@ -12,7 +13,7 @@ import { latestByEmployee, recordSent } from '../maillog';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
 import { geoFixBody, idParam } from '../schemas';
-import { audit, type OrgData, type StaffLogin, type Store } from '../store';
+import { audit, welfareOf, type OrgData, type StaffLogin, type Store } from '../store';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
 
@@ -65,8 +66,40 @@ function clockableSites(org: OrgData, employee: Employee, at: Date): Site[] {
 
 const siteView = (s: Site) => ({ id: s.id, name: s.name, geofence: s.geofence ?? null });
 
+/**
+ * Marks that a person has answered a week's pulse, so nobody answers twice. A keyed hash of person and
+ * week, with the key kept apart from the organisation's data: the marker cannot be matched to an answer,
+ * which carries no id, and nobody reading the data can tell whose marker it is without the key.
+ */
+async function pulseMarker(store: Store, orgId: string, employeeId: string, week: string) {
+  const key = await store.settingOnce(`pulse_key:${orgId}`, () => randomBytes(32).toString('hex'));
+  return `${week}:${createHmac('sha256', key).update(`${employeeId}|${week}`).digest('hex')}`;
+}
+
+/** What the staff app shows about looking after them: support, the weekly pulse, rewards and thanks received. */
+async function welfareView({ org, employee }: Staff, store: Store, today: string) {
+  const w = org.welfare;
+  const week = weekStart(today);
+  const marker = await pulseMarker(store, org.orgId, employee.id, week);
+  return {
+    supportLine: welfarePolicy(w?.policy).supportLine ?? null,
+    pulse: { week, answered: (w?.pulseAnswered ?? []).includes(marker) },
+    chatOpen: (w?.chats ?? []).some((c) => c.employeeId === employee.id && c.status === 'open'),
+    rewards: {
+      connected: !!w?.rewards,
+      member: (w?.rewardsEnrolled ?? []).includes(employee.id),
+      optedOut: (w?.rewardsOptOut ?? []).includes(employee.id),
+    },
+    recognitions: (w?.recognitions ?? [])
+      .filter((r) => r.employeeId === employee.id && r.at >= addDays(today, -90))
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .map((r) => ({ id: r.id, at: r.at, label: RECOGNITION_LABEL[r.category], message: r.message, points: r.points, by: r.by })),
+  };
+}
+
 /** Everything the staff app shows: only this person's own shifts and hours. */
-function overview({ org, employee, login }: Staff) {
+async function overview(staff: Staff, store: Store) {
+  const { org, employee, login } = staff;
   const today = londonParts(new Date()).date;
   const siteName = (id: string) => org.state.sites.find((s) => s.id === id)?.name ?? id;
   const roleName = (id: string) => org.state.roles.find((r) => r.id === id)?.name ?? id;
@@ -98,6 +131,7 @@ function overview({ org, employee, login }: Staff) {
       .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn - a.clockIn)
       .slice(0, 20)
       .map(entryView),
+    welfare: await welfareView(staff, store, today),
   };
 }
 
@@ -149,7 +183,7 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     audit(org, `staff:${employee.id}`, 'staff.login_activated', { employeeId: employee.id });
     await store.save(org);
     await signedIn(req, reply, store, next, issued);
-    return overview({ login: next, org, employee });
+    return overview({ login: next, org, employee }, store);
   });
 
   app.post<{ Body: { email?: string; password?: string } }>('/v1/staff/login', hidden, async (req, reply) => {
@@ -175,12 +209,12 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     const next = { ...login, failedAttempts: 0, lockedUntil: 0, lastSignInAt: new Date().toISOString() };
     await store.putStaffLogin(next);
     await signedIn(req, reply, store, next);
-    return overview({ login: next, org, employee });
+    return overview({ login: next, org, employee }, store);
   });
 
   app.post('/v1/staff/logout', hidden, async (req, reply) => reply.header('set-cookie', staffCookie('', secure(req), 0)).send({ ok: true }));
 
-  app.get('/v1/staff/me', hidden, async (req) => overview(await requireStaff(req, store)));
+  app.get('/v1/staff/me', hidden, async (req) => overview(await requireStaff(req, store), store));
 
   app.post<{ Body: { siteId?: string; location?: GeoFix } }>(
     '/v1/staff/clock-in',
@@ -199,7 +233,7 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
       const entry = clockIn(org, employee, site.id, { method: 'phone', location: fix });
       audit(org, `staff:${employee.id}`, 'time.phone_clock_in', { id: entry.id, siteId: site.id });
       await store.save(org);
-      return overview(staff);
+      return overview(staff, store);
     },
   );
 
@@ -217,11 +251,72 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
       clockOut(org, entry, { method: 'phone', location: req.body?.location });
       audit(org, `staff:${employee.id}`, 'time.phone_clock_out', { id: entry.id });
       await store.save(org);
-      return overview(staff);
+      return overview(staff, store);
     },
   );
 
   breakRoutes(app, store);
+  welfareStaffRoutes(app, store);
+}
+
+/**
+ * Looking after themselves, from their own phone: a weekly "How was your week?", asking for a private
+ * chat, and whether they want Hospitality Rewards. Each acts on the caller alone.
+ */
+function welfareStaffRoutes(app: FastifyInstance, store: Store) {
+  const openChat = (staff: Staff) => {
+    const w = welfareOf(staff.org);
+    if (w.chats.some((c) => c.employeeId === staff.employee.id && c.status === 'open')) return;
+    w.chats.push({ id: `chat_${randomUUID()}`, employeeId: staff.employee.id, siteId: staff.employee.siteId, at: new Date().toISOString(), status: 'open' });
+    audit(staff.org, `staff:${staff.employee.id}`, 'staff.chat_requested', { employeeId: staff.employee.id });
+  };
+
+  app.post<{ Body: { score?: number; chat?: boolean } }>(
+    '/v1/staff/pulse',
+    { schema: { hide: true, body: { type: 'object', required: ['score'], additionalProperties: false, properties: { score: { type: 'integer', minimum: 1, maximum: 5 }, chat: { type: 'boolean' } } } } },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const today = londonParts(new Date()).date;
+      const week = weekStart(today);
+      const marker = await pulseMarker(store, org.orgId, employee.id, week);
+      const w = welfareOf(org);
+      if (w.pulseAnswered.includes(marker)) throw new HttpError(409, 'answered', 'You have already answered this week. Thank you.');
+      // Kept without who gave it, and placed anywhere in the list, so the order of answers says nothing either.
+      const answer: PulseResponse = { siteId: employee.siteId, week, score: req.body.score as PulseResponse['score'] };
+      w.pulses.splice(randomInt(w.pulses.length + 1), 0, answer);
+      w.pulseAnswered.push(marker);
+      const oldest = weekStart(addDays(today, -PULSE_RETENTION_DAYS));
+      w.pulses = w.pulses.filter((p) => p.week >= oldest);
+      w.pulseAnswered = w.pulseAnswered.filter((m) => m.slice(0, 10) >= oldest);
+      if (req.body.chat) openChat(staff);
+      await store.save(org);
+      return overview(staff, store);
+    },
+  );
+
+  app.post('/v1/staff/chat', { schema: { hide: true } }, async (req) => {
+    const staff = await requireStaff(req, store);
+    openChat(staff);
+    await store.save(staff.org);
+    return overview(staff, store);
+  });
+
+  app.post<{ Body: { optOut?: boolean } }>(
+    '/v1/staff/rewards',
+    { schema: { hide: true, body: { type: 'object', required: ['optOut'], additionalProperties: false, properties: { optOut: { type: 'boolean' } } } } },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const w = welfareOf(org);
+      const out = w.rewardsOptOut.filter((id) => id !== employee.id);
+      w.rewardsOptOut = req.body.optOut ? [...out, employee.id] : out;
+      // Removed from the platform at the next sync, the next morning at the latest.
+      audit(org, `staff:${employee.id}`, req.body.optOut ? 'staff.rewards_opted_out' : 'staff.rewards_opted_in', { employeeId: employee.id });
+      await store.save(org);
+      return overview(staff, store);
+    },
+  );
 }
 
 /**
@@ -240,7 +335,7 @@ function breakRoutes(app: FastifyInstance, store: Store) {
       apply(entry);
       audit(staff.org, `staff:${staff.employee.id}`, action, { id: entry.id });
       await store.save(staff.org);
-      return overview(staff);
+      return overview(staff, store);
     });
   }
 }
