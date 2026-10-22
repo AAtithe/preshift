@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkWeek } from '../src/engine/compliance';
 import { seedState } from '../src/engine/seed';
+import { addDays, londonParts, weekStart } from '../src/engine/time';
 import type { Employee } from '../src/engine/types';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -248,5 +249,55 @@ describe('access to right to work copies and takings', () => {
     expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-09' }, 'priya')).status).toBe(200);
     expect((await call('POST', '/v1/forecast/from-takings', { siteIds: ['mar', 'shd'], weekStart: '2026-11-09' }, 'priya')).status).toBe(403);
     expect((await call('POST', '/v1/forecast/from-takings', { siteId: 'mar', weekStart: '2026-11-09' }, 'grace')).status).toBe(403);
+  });
+});
+
+describe('rest breach overrides', () => {
+  // A week ahead of the real clock: shifts that have started can no longer be moved.
+  const AHEAD = weekStart(addDays(londonParts(new Date()).date, 14));
+  const late = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: AHEAD, startMinute: 15 * 60, endMinute: 24 * 60, breakMinutes: 30 };
+  const early = { ...late, date: addDays(AHEAD, 1), startMinute: 6 * 60, endMinute: 12 * 60, breakMinutes: 0 };
+
+  async function breach() {
+    const call = await setup();
+    await call('POST', '/v1/shifts', late);
+    const morning = (await call('POST', '/v1/shifts', early)).body.shift;
+    const publish = (key = 'priya') => call('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: AHEAD }, key);
+    const refused = await publish();
+    expect(refused.status).toBe(409);
+    const key = refused.body.details.find((i: { code: string }) => i.code === 'daily-rest').overrideKey as string;
+    const override = (reason: string, by = 'priya', k = key) => call('POST', '/v1/rota/overrides', { weekStart: AHEAD, key: k, reason }, by);
+    return { call, morning, publish, override };
+  }
+
+  it('lets the GM who can publish there override with a reason, for that breach only', async () => {
+    const { call, morning, publish, override } = await breach();
+    expect((await override('cover')).status).toBe(422);
+    expect((await override('Covering sickness', 'priya', 'daily-rest|made-up')).status).toBe(404);
+    const made = await override('Covering sickness, Thursday off instead');
+    expect(made.status).toBe(201);
+    expect(made.body).toMatchObject({ employeeId: 'mar-2', siteId: 'mar', code: 'daily-rest', by: 'Priya Shah' });
+    expect((await override('Covering sickness, again')).status).toBe(409);
+    expect((await call('GET', '/v1/rota/overrides', undefined, 'priya')).body).toHaveLength(1);
+
+    // Opening earlier is a new breach the reason does not cover.
+    await call('PATCH', `/v1/shifts/${morning.id}`, { startMinute: 5 * 60 });
+    expect((await publish()).status).toBe(409);
+    await call('PATCH', `/v1/shifts/${morning.id}`, { startMinute: 6 * 60 });
+    expect((await publish()).status).toBe(200);
+
+    expect((await call('DELETE', `/v1/rota/overrides/${made.body.id}`, undefined, 'priya')).status).toBe(204);
+    expect((await call('GET', '/v1/rota/overrides', undefined, 'priya')).body).toEqual([]);
+  });
+
+  it('refuses a supervisor who cannot publish, and a system key with no person behind it', async () => {
+    const { call, override } = await breach();
+    const grace = await override('Covering sickness, Thursday off instead', 'grace');
+    expect(grace.status).toBe(403);
+    expect(grace.body.message).toMatch(/Grace Mensah cannot publish the rota to the team at Marylebone/);
+    expect((await override('Covering sickness, Thursday off instead', 'system')).status).toBe(403);
+
+    const made = await override('Covering sickness, Thursday off instead');
+    expect((await call('DELETE', `/v1/rota/overrides/${made.body.id}`, undefined, 'grace')).status).toBe(403);
   });
 });

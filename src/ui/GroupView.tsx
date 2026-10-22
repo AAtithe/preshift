@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { coverDistance } from '../engine/autoschedule';
-import type { Issue } from '../engine/compliance';
+import { issueSiteId, overrideTrend, type Issue } from '../engine/compliance';
 import { shiftPaidHours } from '../engine/cost';
 import type { ScopeMetrics, SiteWeekMetrics } from '../engine/metrics';
 import type { RotaState } from '../engine/types';
-import { hours, money, pct } from './format';
+import { dayLabel, hours, money, pct } from './format';
 
 interface Props {
   state: RotaState;
@@ -25,8 +25,12 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
     .filter((g) => g.sites.length > 0);
 
   const weekShifts = state.shifts.filter((s) => dates.includes(s.date) && metrics.sites.some((m) => m.siteId === s.siteId));
-  const blocksAt = (siteId: string) =>
-    issues.filter((i) => i.severity === 'block' && (i.shiftId ? weekShifts.find((s) => s.id === i.shiftId)?.siteId === siteId : employeeSite(state, i.employeeId) === siteId)).length;
+  const at = (siteId: string, i: Issue) => issueSiteId(state, i) === siteId;
+  const blocksAt = (siteId: string) => issues.filter((i) => i.severity === 'block' && at(siteId, i)).length;
+  const personName = (id: string) => state.employees.find((e) => e.id === id)?.name ?? id;
+  const trend = useMemo(() => overrideTrend(state, dates[0], metrics.sites.map((m) => m.siteId)), [state, dates, metrics.sites]);
+  const trendOf = (sites: SiteWeekMetrics[]) =>
+    trend.weekStarts.map((_, n) => sites.reduce((sum, m) => sum + (trend.bySite.get(m.siteId)?.[n] ?? 0), 0));
 
   // Who worked away from their home site, and what crossed a company line.
   const cover = weekShifts
@@ -91,6 +95,65 @@ export function GroupView({ state, dates, metrics, issues, onOpenSite }: Props) 
             </tfoot>
           )}
         </table>
+      </div>
+
+      <div className="cover-summary">
+        <h3>Rest overrides, last four weeks</h3>
+        {trendOf(metrics.sites).every((c) => c === 0) ? (
+          <p className="muted">No rest breach has been published with an override in the last four weeks.</p>
+        ) : (
+          <>
+            <p className="muted">
+              Rest breaches published with a manager's reason, by the site where the short rest was worked. One is an exception;
+              overrides in three of four weeks mean the site is covering a shortage of people or cross-training.
+            </p>
+            <div className="grid-wrap">
+              <table className="table trend-table">
+                <thead>
+                  <tr>
+                    <th>Site</th>
+                    {trend.weekStarts.map((w, n) => (
+                      <th key={w} className="num">{n === trend.weekStarts.length - 1 ? 'This week' : `w/c ${dayLabel(w).date}`}</th>
+                    ))}
+                    <th className="num">Total</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.sites.map((m) => {
+                    const counts = trend.bySite.get(m.siteId) ?? [];
+                    return (
+                      <tr key={m.siteId}>
+                        <td>{siteOf(state, m.siteId)?.name}</td>
+                        <TrendCells counts={counts} />
+                        <td>{recurring(counts) && <span className="tag bad">Recurring</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {metrics.sites.length > 1 && (
+                  <tfoot>
+                    <tr>
+                      <th>Group</th>
+                      <TrendCells counts={trendOf(metrics.sites)} strong />
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            {issues.some((i) => i.overridden) && (
+              <ul className="cover-list">
+                {issues.filter((i) => i.overridden).map((i) => (
+                  <li key={i.overrideKey}>
+                    {siteOf(state, issueSiteId(state, i) ?? '')?.name}, {personName(i.employeeId)}
+                    {i.date ? ` ${dayLabel(i.date).short}` : ', week'}: {i.overridden!.reason} ({i.overridden!.by})
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </div>
 
       <div className="cover-summary">
@@ -184,10 +247,21 @@ function Figures({ m, strong = false }: { m: Totals; strong?: boolean }) {
   );
 }
 
-function siteOf(state: RotaState, siteId: string) {
-  return state.sites.find((s) => s.id === siteId);
+/** Overrides in three of the last four weeks are covering a shortage, not exceptions. */
+const recurring = (counts: number[]) => counts.filter((c) => c > 0).length >= 3;
+
+/** Four weekly counts, oldest first, then their total. */
+function TrendCells({ counts, strong = false }: { counts: number[]; strong?: boolean }) {
+  const cls = (c: number) => `num ${strong ? 'strong' : ''} ${c > 0 ? 'warn-text' : 'muted'}`;
+  const total = counts.reduce((a, b) => a + b, 0);
+  return (
+    <>
+      {counts.map((c, n) => <td key={n} className={cls(c)}>{c}</td>)}
+      <td className={cls(total)}>{total}</td>
+    </>
+  );
 }
 
-function employeeSite(state: RotaState, employeeId: string) {
-  return state.employees.find((e) => e.id === employeeId)?.siteId;
+function siteOf(state: RotaState, siteId: string) {
+  return state.sites.find((s) => s.id === siteId);
 }

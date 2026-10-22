@@ -31,6 +31,7 @@ import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
+import { RestBreaches } from './RestBreaches';
 import { SettingsView, type Account } from './SettingsView';
 import { SetupView } from './SetupView';
 import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
@@ -459,6 +460,16 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 </div>
                 <button className="ghost" onClick={() => setUnfilled(null)}>Dismiss</button>
               </div>
+            )}
+
+            {(activeTab === 'rota' || activeTab === 'sites') && (
+              <RestBreaches
+                state={state}
+                issues={issues}
+                canOverride={(siteId) => allow('rota.publish', siteId)}
+                onOverride={(key, reason) => actions.overrideRest(week, key, reason)}
+                onWithdraw={actions.withdrawOverride}
+              />
             )}
 
             <main>
