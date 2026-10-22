@@ -50,6 +50,8 @@ export interface ApiKey {
   scopes: Scope[];
   /** Set for a key made in the app, so it can be revoked by id. */
   keyId?: string;
+  /** For a key made in the app: who made it, by id where recorded and always by name. */
+  madeBy?: { id?: string; name: string };
   /** Set when the caller is a signed-in person rather than an integration key. */
   user?: { email: string; role: UserRecord['role'] };
   /**
@@ -184,7 +186,15 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
         return reply.code(401).send({ error: 'unauthorised', message: 'That API key is not valid. It may have been revoked.' });
       }
       if (stored) {
-        keyed = { key: `key:${stored.id}`, keyId: stored.id, orgId: stored.orgId, name: `API key ${stored.name}`, scopes: stored.scopes as Scope[] };
+        keyed = {
+          key: `key:${stored.id}`,
+          keyId: stored.id,
+          orgId: stored.orgId,
+          // Named with its maker, so the audit says who stands behind each change the key makes.
+          name: `API key ${stored.name}, made by ${stored.createdBy}`,
+          madeBy: { ...(stored.createdById ? { id: stored.createdById } : {}), name: stored.createdBy },
+          scopes: stored.scopes as Scope[],
+        };
         if (!stored.lastUsedAt || Date.now() - Date.parse(stored.lastUsedAt) > USED_EVERY_MS) {
           await users.putApiKey({ ...stored, lastUsedAt: new Date().toISOString() });
         }

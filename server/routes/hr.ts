@@ -99,9 +99,10 @@ export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
  * Disciplinary, grievance and capability cases are confidential: hr.cases, which needs the
  * authenticator. Without it nobody learns that a case exists, from the records or the checks.
  * Nobody sees or handles a case about themselves, whatever they hold: someone else runs it.
+ * Cases are for people, never a system: a key, however it was scoped, gets none, as webhooks do not.
  */
 function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
-  return hrScoped(req) && g.can('hr.cases') && (!employeeId || g.user?.employeeId !== employeeId);
+  return hrScoped(req) && Boolean(g.user) && g.can('hr.cases') && (!employeeId || g.behind?.employeeId !== employeeId);
 }
 
 /**
@@ -171,7 +172,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Changing a file is hr.manage where the person is based, and never on your own file. */
   const mayManage = (g: Guard, e: Employee) => {
     g.allow('hr.manage', e.siteId);
-    if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own personnel file.');
+    if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own personnel file.');
   };
   /** What an answer carries back: the file as the caller may read it, pay as they may see it. */
   const shown = (req: FastifyRequest, g: Guard, e: Employee) => forReader(g, employeeView(req, e, g));
@@ -231,7 +232,10 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const g = guardOf(req);
       mayManage(g, findEmployee(org, req.body.employeeId));
-      if (req.body.kind === 'case') g.allow('hr.cases');
+      if (req.body.kind === 'case') {
+        g.allow('hr.cases');
+        if (!g.user) throw new HttpError(403, 'forbidden', 'Cases are recorded by a person, not an API key.');
+      }
       if (req.body.kind === 'case' && !seesCases(req, g, req.body.employeeId)) throw new HttpError(403, 'forbidden', 'Somebody else records a case about you.');
       validateRecord(org, req.body);
       const record: HrRecord = {
