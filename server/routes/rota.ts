@@ -3,7 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
-import { addDays, weekDates, weekStart } from '../../src/engine/time';
+import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
+import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
 import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
@@ -48,6 +49,33 @@ function sitesOf(org: OrgData, body: SitesWeek, mustExist: boolean): string[] {
   return [...new Set(ids)];
 }
 
+function sameShift(a: Shift, b: Shift) {
+  return (
+    a.employeeId === b.employeeId &&
+    a.roleId === b.roleId &&
+    a.date === b.date &&
+    a.startMinute === b.startMinute &&
+    a.endMinute === b.endMinute &&
+    (a.breakMinutes ?? 0) === (b.breakMinutes ?? 0)
+  );
+}
+
+/**
+ * A shift that has started, or been clocked against, is a record of what happened: timesheets,
+ * holiday and payroll hang off it. Manual edits may still extend it or change its break while it is
+ * running, but nothing can reassign, move or remove it, and nothing changes once it has finished.
+ */
+function isWorked(org: OrgData, shift: Shift, now = londonParts(new Date())) {
+  return hasStarted(shift, now) || org.timeEntries.some((t) => t.shiftId === shift.id);
+}
+
+function hasFinished(shift: Shift, now = londonParts(new Date())) {
+  return hasStarted({ date: shift.date, startMinute: shift.endMinute }, now);
+}
+
+const workedError = (shift: Shift, detail: string) =>
+  new HttpError(409, 'worked_shift', `This shift has started or been clocked against, so ${detail}`, [shift.id]);
+
 function validateShift(org: OrgData, shift: Shift) {
   requireSite(org, shift.siteId);
   if (!org.state.employees.some((e) => e.id === shift.employeeId)) throw notFound(`Employee ${shift.employeeId}`);
@@ -61,6 +89,45 @@ function shiftIssues(org: OrgData, shift: Shift) {
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
   return [...checkEmployeeWeek(employee, ws, context), ...travelIssues(employee, context, org.state.sites)];
+}
+
+/**
+ * Checks and then applies replacement weeks for one or more sites. Nothing changes unless every
+ * site passes: the week is as the draft found it (baseline), every shift is valid and in its own
+ * site's week, and no shift that has started or been clocked is moved or removed.
+ */
+function replaceWeeks(org: OrgData, ws: string, sites: { siteId: string; shifts: Shift[]; baseline?: string }[]) {
+  const dates = weekDates(ws);
+  const now = londonParts(new Date());
+  const clocked = new Set(org.timeEntries.map((t) => t.shiftId).filter(Boolean));
+  const plans = sites.map(({ siteId, shifts, baseline }) => {
+    requireSite(org, siteId);
+    if (baseline !== undefined && baseline !== weekFingerprint(org.state.shifts, siteId, ws)) {
+      throw new HttpError(409, 'rota_changed', 'Someone changed this week while the draft was being written. Draft again from the current rota.', { siteId });
+    }
+    const current = org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date));
+    const byId = new Map(current.map((s) => [s.id, s]));
+    const incoming: Shift[] = shifts.map((s) => {
+      const id = s.id ?? `s_${randomUUID()}`;
+      const old = byId.get(id);
+      const same = old && sameShift(old, s);
+      // An unchanged shift keeps its published state, so a small change does not unpublish the week.
+      return { ...s, id, breakMinutes: s.breakMinutes ?? 0, published: same ? Boolean(old.published) : false };
+    });
+    for (const s of incoming) {
+      if (s.siteId !== siteId || !dates.includes(s.date)) throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
+      validateShift(org, s);
+    }
+    const kept = new Map(incoming.map((s) => [s.id, s]));
+    const touched = current.filter((s) => (hasStarted(s, now) || clocked.has(s.id)) && !(kept.has(s.id) && sameShift(s, kept.get(s.id)!)));
+    if (touched.length) {
+      throw new HttpError(409, 'worked_shift', 'Shifts that have started or been clocked cannot be moved or removed here.', touched.map((s) => s.id));
+    }
+    return { siteId, incoming };
+  });
+  const replaced = new Set(plans.map((p) => p.siteId));
+  org.state.shifts = [...org.state.shifts.filter((s) => !(replaced.has(s.siteId) && dates.includes(s.date))), ...plans.flatMap((p) => p.incoming)];
+  return plans;
 }
 
 export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -112,11 +179,17 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const i = org.state.shifts.findIndex((s) => s.id === req.params.id);
       if (i < 0) throw notFound(`Shift ${req.params.id}`);
+      const old = org.state.shifts[i];
       const g = guard(ctx, req, org);
-      const shift: Shift = { ...org.state.shifts[i], ...req.body, id: req.params.id, published: false };
+      g.allow('rota.edit', old.siteId);
+      if (isWorked(org, old)) {
+        const moved = (['employeeId', 'roleId', 'siteId', 'date', 'startMinute'] as const).filter((k) => req.body[k] !== undefined && req.body[k] !== old[k]);
+        if (moved.length) throw workedError(old, 'only its finish time and break can change.');
+        if (hasFinished(old)) throw workedError(old, 'and it has finished, it can no longer be changed. Correct the hours on the timesheet.');
+      }
+      const shift: Shift = { ...old, ...req.body, id: req.params.id, published: false };
       validateShift(org, shift);
       // Moving a shift needs the right at both ends.
-      g.allow('rota.edit', org.state.shifts[i].siteId);
       g.allow('rota.edit', shift.siteId);
       org.state.shifts[i] = shift;
       audit(org, actorName(g), 'shift.updated', { id: shift.id });
@@ -130,6 +203,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!shift) throw notFound(`Shift ${req.params.id}`);
     const g = guard(ctx, req, org);
     g.allow('rota.edit', shift.siteId);
+    if (isWorked(org, shift)) throw workedError(shift, 'it cannot be removed. Record an absence on the timesheet instead.');
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
     audit(org, actorName(g), 'shift.deleted', { id: req.params.id });
     return reply.code(204).send();
@@ -169,45 +243,116 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       // A group build needs the right at every site in it: all or nothing.
       for (const id of siteIds) g.allow('rota.edit', id);
       const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
-      org.state.shifts = result.shifts;
+      // The build fills the whole week; hours already gone are left as they happened.
+      const now = londonParts(new Date());
+      const late = new Set(result.added.filter((s) => hasStarted(s, now)).map((s) => s.id));
+      result.added = result.added.filter((s) => !late.has(s.id));
+      result.unfilled = result.unfilled.filter((gap) => !hasStarted({ date: gap.date, startMinute: gap.toHour * 60 - 1 }, now));
+      org.state.shifts = result.shifts.filter((s) => !late.has(s.id));
       audit(org, actorName(g), 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
       return { added: result.added, unfilled: result.unfilled };
     },
   );
 
-  // Replaces a site's week in one go: how an accepted rota assistant draft is saved.
-  app.put<{ Body: SiteWeek & { shifts: Shift[] } }>(
+  // Replaces a site's week in one go: how an accepted rota assistant draft is saved. All or nothing,
+  // refused if the week changed since the draft began, and never touches a shift that has started
+  // or been clocked against, because timesheets and payroll hang off those.
+  app.put<{ Body: SiteWeek & { shifts: Shift[]; baseline?: string; source?: 'assistant'; instruction?: string } }>(
     '/v1/rota/week',
     {
       ...write,
       schema: {
         tags: ['Rota'],
-        description: "Replaces every shift in the site's week with the shifts given, after validating each.",
+        description:
+          "Replaces every shift in the site's week with the shifts given, after validating each. Pass the week's " +
+          'fingerprint as `baseline` to have the save refused if anyone changed the week since. Shifts that have ' +
+          'started or have clock records must be included unchanged.',
         body: {
           type: 'object',
           required: ['siteId', 'weekStart', 'shifts'],
-          properties: { ...siteWeekQuery.properties, shifts: { type: 'array', maxItems: 2000, items: shiftBody } },
+          properties: {
+            ...siteWeekQuery.properties,
+            shifts: { type: 'array', maxItems: 2000, items: shiftBody },
+            baseline: { type: 'string', maxLength: 64 },
+            source: { type: 'string', enum: ['assistant'] },
+            instruction: { type: 'string', maxLength: 2000 },
+          },
         },
       },
     },
     async (req) => {
       const org = orgOf(req);
-      const { siteId, weekStart: ws } = req.body;
+      const { siteId, weekStart: ws, shifts, baseline } = req.body;
       requireSite(org, siteId);
       const g = guard(ctx, req, org);
       g.allow('rota.edit', siteId);
-      const dates = weekDates(ws);
-      const incoming: Shift[] = req.body.shifts.map((s) => ({ ...s, id: s.id ?? `s_${randomUUID()}`, published: false }));
-      for (const s of incoming) {
-        if (s.siteId !== siteId || !dates.includes(s.date)) {
-          throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
-        }
-        validateShift(org, s);
+      const [plan] = replaceWeeks(org, ws, [{ siteId, shifts, baseline }]);
+      audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
+        siteId,
+        weekStart: ws,
+        shifts: plan.incoming.length,
+        ...(req.body.instruction ? { instruction: req.body.instruction } : {}),
+      });
+      return { shifts: plan.incoming, issues: checkWeek(org.state, ws, siteId) };
+    },
+  );
+
+  // Several sites' weeks in one all-or-nothing save: how a group-wide assistant draft is applied.
+  // Every site is checked before any is changed, so a refusal at one site leaves them all as they were.
+  app.put<{ Body: { weekStart: string; sites: { siteId: string; shifts: Shift[]; baseline?: string }[]; source?: 'assistant'; instruction?: string } }>(
+    '/v1/rota/weeks',
+    {
+      ...write,
+      schema: {
+        tags: ['Rota'],
+        description:
+          'Replaces the week at several sites at once, on the same terms as PUT /v1/rota/week for each. Nothing is ' +
+          'saved unless every site passes.',
+        body: {
+          type: 'object',
+          required: ['weekStart', 'sites'],
+          properties: {
+            weekStart: siteWeekQuery.properties.weekStart,
+            sites: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 50,
+              items: {
+                type: 'object',
+                required: ['siteId', 'shifts'],
+                additionalProperties: false,
+                properties: {
+                  siteId: { type: 'string' },
+                  shifts: { type: 'array', maxItems: 2000, items: shiftBody },
+                  baseline: { type: 'string', maxLength: 64 },
+                },
+              },
+            },
+            source: { type: 'string', enum: ['assistant'] },
+            instruction: { type: 'string', maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const ws = req.body.weekStart;
+      const siteIds = req.body.sites.map((x) => x.siteId);
+      if (new Set(siteIds).size !== siteIds.length) throw new HttpError(422, 'duplicate_site', 'Each site can appear once.');
+      // Every site must be one the person may edit, checked before anything changes.
+      const g = guard(ctx, req, org);
+      for (const id of siteIds) {
+        requireSite(org, id);
+        g.allow('rota.edit', id);
       }
-      const keep = org.state.shifts.filter((s) => !(s.siteId === siteId && dates.includes(s.date)));
-      org.state.shifts = [...keep, ...incoming];
-      audit(org, actorName(g), 'rota.replaced', { siteId, weekStart: ws, shifts: incoming.length });
-      return { shifts: incoming, issues: checkWeek(org.state, ws, siteId) };
+      const plans = replaceWeeks(org, ws, req.body.sites);
+      audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
+        siteIds,
+        weekStart: ws,
+        shifts: plans.reduce((sum, p) => sum + p.incoming.length, 0),
+        ...(req.body.instruction ? { instruction: req.body.instruction } : {}),
+      });
+      return { shifts: plans.flatMap((p) => p.incoming), issues: checkWeek(org.state, ws, siteIds) };
     },
   );
 
@@ -217,11 +362,14 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const g = guard(ctx, req, org);
     for (const id of siteIds) g.allow('rota.edit', id);
     const dates = weekDates(req.body.weekStart);
-    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)));
+    const now = londonParts(new Date());
+    // Worked shifts stay: clearing a week plans it afresh, it does not rewrite what happened.
+    const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)) || isWorked(org, s, now));
     const removed = org.state.shifts.length - keep.length;
+    const kept = keep.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date)).length;
     org.state.shifts = keep;
-    audit(org, actorName(g), 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed });
-    return { removed };
+    audit(org, actorName(g), 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed, kept });
+    return { removed, kept };
   });
 
   app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
