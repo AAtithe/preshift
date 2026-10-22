@@ -11,13 +11,16 @@ interface Props {
   siteIds: string[];
   today: string;
   onEdit: (employee: Employee) => void;
-  onSetLeaveYear: (entityId: string, leaveYearStart: string) => Promise<unknown>;
+  /** Absent for someone who cannot change company settings: the leave year is then shown, not offered. */
+  onSetLeaveYear?: (entityId: string, leaveYearStart: string) => Promise<unknown>;
+  /** The provision is money worked from pay, which is withheld from those who do not see cost. */
+  showCost: boolean;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const h = (n: number) => `${n.toFixed(1)}h`;
 
-export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: Props) {
+export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, showCost }: Props) {
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [onlyFlagged, setOnlyFlagged] = useState(false);
 
@@ -54,14 +57,15 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
   const flagged = rows.filter((r) => r.b.checks.length > 0).length;
 
   function exportCsv() {
-    const header = ['Name', 'Company', 'Basis', 'Leave year', 'Entitlement h', 'Carried over h', 'Taken h', 'Booked h', 'Remaining h', 'Accrued untaken h', 'Hourly rate', 'Provision', 'Provision with employer NI'];
+    const header = ['Name', 'Company', 'Basis', 'Leave year', 'Entitlement h', 'Carried over h', 'Taken h', 'Booked h', 'Remaining h', 'Accrued untaken h',
+      ...(showCost ? ['Hourly rate', 'Provision', 'Provision with employer NI'] : [])];
     const lines = rows.map(({ e, b }) => [
       e.name,
       state.entities.find((x) => x.id === e.entityId)?.name ?? e.entityId,
       b.basis,
       `${b.year.start} to ${b.year.end}`,
       b.entitlementHours, b.carriedOverHours, b.takenHours, b.bookedHours, b.remainingHours, b.untakenHours,
-      b.hourlyRate, b.liability, b.liabilityWithNi,
+      ...(showCost ? [b.hourlyRate, b.liability, b.liabilityWithNi] : []),
     ]);
     const csv = [header, ...lines].map((l) => l.map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v)).join(',')).join('\n');
     download(`holiday-balances-${today}.csv`, csv);
@@ -70,21 +74,25 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
   return (
     <div>
       <div className="kpis people-kpis">
-        <div className="kpi">
-          <div className="kpi-label">Holiday pay provision</div>
-          <div className="kpi-value">{money(liabilityWithNi)}</div>
-          <div className="kpi-hint">{money(liability)} pay plus employer NI, earned and not taken</div>
-        </div>
+        {showCost && (
+          <div className="kpi">
+            <div className="kpi-label">Holiday pay provision</div>
+            <div className="kpi-value">{money(liabilityWithNi)}</div>
+            <div className="kpi-hint">{money(liability)} pay plus employer NI, earned and not taken</div>
+          </div>
+        )}
         <div className="kpi">
           <div className="kpi-label">Untaken hours</div>
           <div className="kpi-value">{Math.round(sum((b) => Math.max(0, b.untakenHours)))}h</div>
           <div className="kpi-hint">{Math.round(sum((b) => b.bookedHours))}h already booked ahead</div>
         </div>
-        <div className={`kpi ${owedToCompany > 0 ? 'warn' : 'good'}`}>
-          <div className="kpi-label">Taken ahead of accrual</div>
-          <div className="kpi-value">{money(owedToCompany)}</div>
-          <div className="kpi-hint">Only recoverable on leaving if the contract says so</div>
-        </div>
+        {showCost && (
+          <div className={`kpi ${owedToCompany > 0 ? 'warn' : 'good'}`}>
+            <div className="kpi-label">Taken ahead of accrual</div>
+            <div className="kpi-value">{money(owedToCompany)}</div>
+            <div className="kpi-hint">Only recoverable on leaving if the contract says so</div>
+          </div>
+        )}
         <div className={`kpi ${flagged > 0 ? 'warn' : 'good'}`}>
           <div className="kpi-label">Need attention</div>
           <div className="kpi-value">{flagged}</div>
@@ -102,7 +110,9 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
                 {ent.name} leave year starts{' '}
                 <select
                   value={`${mm}-${dd}`}
-                  onChange={(e) => void onSetLeaveYear(ent.id, e.target.value)}
+                  disabled={!onSetLeaveYear}
+                  title={onSetLeaveYear ? undefined : 'Set by whoever manages company settings'}
+                  onChange={(e) => void onSetLeaveYear?.(ent.id, e.target.value)}
                   aria-label={`${ent.name} leave year start`}
                 >
                   {MONTHS.map((m, i) => {
@@ -138,7 +148,7 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
               <th className="num">Booked</th>
               <th className="num">Remaining</th>
               <th className="num">Accrued untaken</th>
-              <th className="num">Provision</th>
+              {showCost && <th className="num">Provision</th>}
               <th>Checks</th>
             </tr>
           </thead>
@@ -157,7 +167,7 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
                 <td className="num">{b.bookedHours ? h(b.bookedHours) : '-'}</td>
                 <td className={`num strong${b.remainingHours < 0 ? ' bad-text' : ''}`}>{h(b.remainingHours)}</td>
                 <td className={`num${b.untakenHours < 0 ? ' bad-text' : ''}`}>{h(b.untakenHours)}</td>
-                <td className="num">{money(b.liabilityWithNi)}</td>
+                {showCost && <td className="num">{money(b.liabilityWithNi)}</td>}
                 <td>
                   {b.checks.length === 0 ? (
                     <span className="muted">None</span>
@@ -171,11 +181,13 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear }: P
             ))}
           </tbody>
           <tfoot>
-            <tr>
-              <th colSpan={8}>Total provision, with employer NI at 15%</th>
-              <td className="num strong">{money(liabilityWithNi)}</td>
-              <td />
-            </tr>
+            {showCost && (
+              <tr>
+                <th colSpan={8}>Total provision, with employer NI at 15%</th>
+                <td className="num strong">{money(liabilityWithNi)}</td>
+                <td />
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>

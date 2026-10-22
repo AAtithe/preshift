@@ -1,12 +1,27 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { cookieFrom, readSession } from './session';
-import type { ApiKeyStore, UserRecord, UserStore } from './store';
+import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
+import { cookieFrom, readSession, type SessionClaims } from './session';
+import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
 
-export type Scope = 'rota:read' | 'employees:read' | 'rota:write' | 'time:write' | 'time:approve' | 'payroll:write' | 'hr:read' | 'hr:write' | 'webhooks:write' | '*';
+export type Scope =
+  | 'rota:read'
+  | 'employees:read'
+  | 'rota:write'
+  | 'time:write'
+  | 'time:approve'
+  | 'payroll:write'
+  | 'hr:read'
+  | 'hr:write'
+  | 'webhooks:write'
+  | 'users:manage'
+  | '*';
 
-/** What each scope allows, as shown to an admin choosing them for a new key. */
-export const SCOPES: Record<Exclude<Scope, '*'>, string> = {
+/**
+ * What each scope allows, as shown to a person choosing them for a new key. users:manage is never
+ * offered: access is managed by people, never by a key.
+ */
+export const SCOPES: Record<Exclude<Scope, '*' | 'users:manage'>, string> = {
   'rota:read': 'Read sites, roles, shifts, forecast, labour totals, clocked hours, payroll status and journals',
   'employees:read': 'Read staff records and pay: names, dates of birth, rates, right to work, cost and pay by person, clock locations',
   'rota:write': 'Change shifts and people, build and publish rotas, load the forecast',
@@ -34,6 +49,24 @@ export interface ApiKey {
   keyId?: string;
   /** Set when the caller is a signed-in person rather than an integration key. */
   user?: { email: string; role: UserRecord['role'] };
+  /**
+   * A personal key acts as that person: their roles decide, not the key's scopes alone.
+   * Keys without a user are system keys with organisation-wide authority.
+   */
+  userId?: string;
+  /** Set for a signed-in session: the person is found by this email in their organisation's access records. */
+  email?: string;
+  /** A session's verified authenticator enrolment id, from the cookie. */
+  sessionMfa?: string;
+  /** The id of the account's own authenticator, read each request, so a reset ends the proof at once. */
+  accountMfaId?: string;
+  /** The account's home organisation. A person with no access record has legacy access only there. */
+  homeOrgId?: string;
+  /**
+   * A personal key counts as having passed the authenticator only when its issuer says so.
+   * Keys are long-lived secrets, not people at a keyboard, so the default is no.
+   */
+  mfa?: boolean;
 }
 
 declare module 'fastify' {
@@ -43,13 +76,20 @@ declare module 'fastify' {
 }
 
 /**
- * Keys come from PRESHIFT_API_KEYS as JSON: [{"key":"...","orgId":"...","name":"...","scopes":["*"]}].
+ * Keys come from PRESHIFT_API_KEYS as JSON: [{"key":"...","orgId":"...","name":"...","scopes":["*"],"userId":"optional","mfa":false}].
  * Outside production a development key is available so the demo runs with no setup.
  */
 export function loadApiKeys(env = process.env): ApiKey[] {
   if (env.PRESHIFT_API_KEYS) return (JSON.parse(env.PRESHIFT_API_KEYS) as ApiKey[]).map(keepEmployeeAccess);
   if (env.NODE_ENV === 'production') return [];
-  return [{ key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'] }];
+  // The demo acts as the seeded owner, so access rules apply locally as they would to a person.
+  // Each seeded person also has a key (dev-<userId>), so the demo can sign in as anyone and show the controls.
+  // Demo keys stand in for people who have entered their authenticator code.
+  const people = seedUsers(new Date().toISOString().slice(0, 10)).users;
+  return [
+    { key: 'dev-key', orgId: 'demo', name: 'Development', scopes: ['*'], userId: DEMO_OWNER_ID, mfa: true },
+    ...people.map((u) => ({ key: `dev-${u.id}`, orgId: 'demo', name: `${u.name} (demo)`, scopes: ['*' as const], userId: u.id, mfa: true })),
+  ];
 }
 
 /**
@@ -75,13 +115,19 @@ export function hasScope(req: FastifyRequest, scope: Scope) {
  * so removing someone or resetting their password takes effect on their next request.
  */
 export async function sessionUser(cookieHeader: string | undefined, users: UserStore): Promise<UserRecord | null> {
+  return (await signedIn(cookieHeader, users))?.user ?? null;
+}
+
+/** The account and the session's own claims, which carry the authenticator proof. */
+export async function signedIn(cookieHeader: string | undefined, users: UserStore): Promise<{ user: UserRecord; claims: SessionClaims } | null> {
   const token = cookieFrom(cookieHeader);
   if (!token) return null;
   const claims = await readSession(token, await users.sessionSecret());
   if (!claims) return null;
   const user = await users.getUser(claims.email);
-  if (!user || user.orgId !== claims.orgId || claims.issuedAt < user.sessionsValidFrom) return null;
-  return user;
+  // A session works in one organisation at a time, which must be one the account has joined.
+  if (!user || !orgsOfAccount(user).includes(claims.orgId) || claims.issuedAt < user.sessionsValidFrom) return null;
+  return { user, claims };
 }
 
 const USED_EVERY_MS = 5 * 60_000;
@@ -131,27 +177,25 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
       req.principal = keyed;
       return;
     }
-    const user = await sessionUser(req.headers.cookie, users);
-    if (!user) {
+    const session = await signedIn(req.headers.cookie, users);
+    if (!session) {
       const message = token ? 'That API key is not valid. It may have been revoked.' : 'Sign in, or send a valid API key';
       return reply.code(401).send({ error: 'unauthorised', message });
     }
-    // Everyone signed in works across their own organisation; managing access is for admins only.
+    const { user, claims } = session;
+    // The scopes let a session reach every route; the person's access record then decides (server/guard.ts).
     req.principal = {
       key: `session:${user.email}`,
-      orgId: user.orgId,
+      orgId: claims.orgId,
       name: user.email,
       scopes: ['*'],
       user: { email: user.email, role: user.role },
+      email: user.email,
+      sessionMfa: claims.mfa,
+      accountMfaId: user.authenticator?.secret ? user.authenticator.id : undefined,
+      homeOrgId: user.orgId,
     };
   };
-}
-
-/** For managing people and settings: a signed-in admin only, never an integration key. */
-export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
-  if (req.principal?.user?.role !== 'admin') {
-    return reply.code(403).send({ error: 'forbidden', message: 'Only an admin can manage access and settings' });
-  }
 }
 
 export function requireScope(scope: Scope) {

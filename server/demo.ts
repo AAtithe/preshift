@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import { sessionUser } from './auth';
 import { hashPassword } from './passwords';
+import { seedUsers } from './seedUsers';
 import { createSession, sessionCookie } from './session';
 import { audit, type Store } from './store';
 
@@ -84,6 +85,11 @@ export function demoRoutes(app: FastifyInstance, store: Store, options: { appPat
     const org = await store.load(orgId);
     org.state = seedState();
     org.hrRecords = seedHrRecords();
+    // The demo's fictional team, so the Access tab has people to show. None of them can sign in:
+    // they have no accounts. The visitor has no record, so they hold the sandbox's full access.
+    const people = seedUsers(new Date().toISOString().slice(0, 10));
+    org.users = people.users;
+    org.accessReviews = people.reviews;
     const email = `visitor@${orgId}.demo`;
     // Nobody ever types this password: the visitor is signed in by the cookie set below.
     const user = {

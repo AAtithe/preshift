@@ -19,7 +19,10 @@ interface Props {
   dates: string[];
   metrics: WeekMetrics;
   issues: Issue[];
-  onEdit: (shift: Shift) => void;
+  /** Labour cost is shown only to those who may see pay. */
+  showCost: boolean;
+  /** Absent when the person cannot edit this site's rota: the grid is then read only. */
+  onEdit?: (shift: Shift) => void;
   /** A shift being dragged, shown live across the grid and the KPIs; null when the drag ends. */
   onPreview: (shift: Shift | null) => void;
   onCommit: (shift: Shift, before: Shift) => void;
@@ -45,7 +48,7 @@ function hintSeen() {
   }
 }
 
-export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, baseLabourCost }: Props) {
+export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit, onPreview, onCommit, onBlocked, baseLabourCost }: Props) {
   const [hint, setHint] = useState(() => !hintSeen());
 
   function dismissHint() {
@@ -180,7 +183,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
           {groups.map((g) => {
             const groupCost = g.people.reduce((s, e) => s + (metrics.cost.employees.get(e.id)?.total ?? 0), 0);
             return (
-              <Group key={g.dept} dept={g.dept} meta={`${g.people.length} · ${money(groupCost)}`} span={dates.length + 2}>
+              <Group key={g.dept} dept={g.dept} meta={showCost ? `${g.people.length} · ${money(groupCost)}` : `${g.people.length}`} span={dates.length + 2}>
                 {g.people.map((e) => {
                   const personIssues = issuesFor(e.id);
                   const weekLevel = personIssues.filter((i) => !i.shiftId);
@@ -201,7 +204,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                             <div className="meta">
                               {e.siteId !== site.id && <span className="tag borrowed">Cover from {state.sites.find((x) => x.id === e.siteId)?.name}</span>}
                               {e.roleIds.map((r) => roleOf(r)?.name).join(', ')}
-                              {e.payBasis === 'salaried' ? ' · salaried' : ` · £${e.hourlyRate.toFixed(2)}`}
+                              {e.payBasis === 'salaried' ? ' · salaried' : showCost && !e.payHidden ? ` · £${e.hourlyRate.toFixed(2)}` : ''}
                             </div>
                           </div>
                         </div>
@@ -251,9 +254,9 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                                     dragging?.original.id === s.id ? 'is-dragging' : ''
                                   } ${pulse(elsewhere) ? 'hint-pulse' : ''} ${kind === 'normal' ? '' : kind === 'float' ? 'floating' : 'chip-slot'}`}
                                   onContextMenu={(ev) => ev.preventDefault()}
-                                  onClick={() => !wasDrag() && onEdit(s)}
-                                  onPointerDown={elsewhere ? undefined : (ev) => startDrag(ev, s)}
-                                  onKeyDown={elsewhere ? undefined : (ev) => keyMove(ev, s)}
+                                  onClick={() => !wasDrag() && onEdit?.(s)}
+                                  onPointerDown={elsewhere || !onEdit ? undefined : (ev) => startDrag(ev, s)}
+                                  onKeyDown={elsewhere || !onEdit ? undefined : (ev) => keyMove(ev, s)}
                                   title={flagged.map((i) => i.message).join('\n') || 'Drag to move. Drag either edge to change the hours. Alt and arrow keys also work.'}
                                 >
                                   {!elsewhere && <span className="chip-edge start" data-edge="start" aria-hidden />}
@@ -270,7 +273,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                                   </span>
                                   <span className="chip-meta">
                                     <span>{elsewhere ? state.sites.find((x) => x.id === s.siteId)?.name : role?.name}</span>
-                                    {sc && <b>{money(sc.total)}</b>}
+                                    {sc && showCost && <b>{money(sc.total)}</b>}
                                   </span>
                                   <span className="chip-track" aria-hidden>
                                     <span
@@ -284,7 +287,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                               );
                             })}
                             {onLeave && shifts.length === 0 && <span className="leave-tag">On leave</span>}
-                            {!onLeave && (
+                            {!onLeave && onEdit && (
                               <button className="add" onClick={() => onEdit(newShift(e, date))} aria-label={`Add shift for ${e.name}`}>
                                 +
                               </button>
@@ -299,7 +302,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
                             <div className={under ? 'under' : ''} style={{ width: `${Math.min(100, (paid / benchmark) * 100)}%` }} />
                           </div>
                         )}
-                        <div className="muted tnum">{ec ? money(ec.total) : '£0'}</div>
+                        {showCost && <div className="muted tnum">{ec ? money(ec.total) : '£0'}</div>}
                         {weekLevel.length > 0 && (
                           <div className={`flag ${weekLevel.some((i) => i.severity === 'block') ? 'block' : 'warn'}`} title={weekLevel.map((i) => i.message).join('\n')}>
                             {weekLevel.length} flag{weekLevel.length > 1 ? 's' : ''}
@@ -313,7 +316,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
             );
           })}
         </tbody>
-        <tfoot data-sticky-bottom>
+        {showCost && <tfoot data-sticky-bottom>
           <tr>
             <th className="who">Labour cost</th>
             {metrics.days.map((d) => <td key={d.date} className="tnum">{money(d.labourCost)}</td>)}
@@ -326,7 +329,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, onEdit, onPrevie
             ))}
             <td className={`tot tnum ${metrics.labourPct > metrics.targetPct ? 'over' : 'under'}`}>{pct(metrics.labourPct)}</td>
           </tr>
-        </tfoot>
+        </tfoot>}
       </table>
       {pointer && dragging && (
         <DragReadout

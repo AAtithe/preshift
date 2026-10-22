@@ -12,9 +12,11 @@ interface Props {
   metrics: WeekMetrics;
   issues: Issue[];
   dates: string[];
+  /** Pay and labour cost columns, for those who may see pay across the scope. */
+  showCost: boolean;
 }
 
-export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
+export function TeamView({ state, siteIds, metrics, issues, dates, showCost }: Props) {
   // Everyone based in scope and on the books this week, then anyone borrowed in from outside it.
   const people = [
     ...state.employees.filter(
@@ -29,14 +31,14 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
     <div className="panel grid-wrap">
       <div className="panel-head" style={{ paddingBottom: 12 }}>
         <div>
-          <div className="panel-title">Team cost this week</div>
-          <div className="panel-sub">Every pound payroll will charge, split by what drives it</div>
+          <div className="panel-title">{showCost ? 'Team cost this week' : 'Team this week'}</div>
+          <div className="panel-sub">{showCost ? 'Every pound payroll will charge, split by what drives it' : 'Rostered hours against contract. Pay is shown to those who see it.'}</div>
         </div>
-        <div className="legend">
+        {showCost && <div className="legend">
           {COMPONENTS.map((c) => (
             <span key={c.key}><i className="sw" style={{ background: c.color }} />{c.label}</span>
           ))}
-        </div>
+        </div>}
       </div>
       <table className="table">
         <thead>
@@ -45,14 +47,16 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
             <th>Roles</th>
             <th>Base</th>
             <th>Employer</th>
-            <th className="num">Pay</th>
+            {showCost && <th className="num">Pay</th>}
             <th>Rostered vs contract</th>
+            {showCost && (<>
             <th className="num">Gross</th>
             <th className="num">Holiday</th>
             <th className="num">Employer NI</th>
             <th className="num">Pension</th>
             <th className="num">Loaded cost</th>
             <th>Mix</th>
+            </>)}
             <th>Flags</th>
           </tr>
         </thead>
@@ -85,7 +89,7 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
                   )}
                 </td>
                 <td className="muted">{entityName(e.entityId)}</td>
-                <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>
+                {showCost && <td className="num">{e.payBasis === 'salaried' ? `${money(e.annualSalary)} pa` : `£${e.hourlyRate.toFixed(2)}`}</td>}
                 <td style={{ minWidth: 150 }}>
                   <div className="tnum small" style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span className="strong">{hours(c?.paidHours ?? 0)}</span>
@@ -98,6 +102,7 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
                     />
                   </div>
                 </td>
+                {showCost && (<>
                 <td className="num">{money(c?.gross ?? 0)}</td>
                 <td className="num">{money(c?.holiday ?? 0)}</td>
                 <td className="num">{money(c?.employerNi ?? 0)}</td>
@@ -106,6 +111,7 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
                 <td style={{ minWidth: 90 }}>
                   <CostStack thin parts={{ gross: c?.gross ?? 0, holiday: c?.holiday ?? 0, employerNi: c?.employerNi ?? 0, pension: c?.pension ?? 0 }} />
                 </td>
+                </>)}
                 <td>
                   {flags.length === 0 ? (
                     <span className="muted">None</span>
@@ -120,7 +126,7 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
             );
           })}
         </tbody>
-        <tfoot>
+        {showCost && <tfoot>
           <tr>
             <th colSpan={6}>{siteIds.length === 1 ? 'Team total' : 'Total'}, every site they work</th>
             <td className="num">{money(totals.gross)}</td>
@@ -133,7 +139,7 @@ export function TeamView({ state, siteIds, metrics, issues, dates }: Props) {
             </td>
             <td />
           </tr>
-        </tfoot>
+        </tfoot>}
       </table>
     </div>
   );

@@ -65,7 +65,8 @@ export function reviewEmployee(
     push('dates', 'block', 'Leaving date is before the start date.');
   }
 
-  if (employee.payBasis === 'hourly' && !Number.isNaN(age)) {
+  // Withheld pay reads as nought; the wage checks are for whoever may see it.
+  if (employee.payBasis === 'hourly' && !Number.isNaN(age) && !employee.payHidden) {
     const band = minimumWageFor(age, rates);
     if (band && employee.hourlyRate < band.hourly) {
       push('minimum-wage', 'block', `£${employee.hourlyRate.toFixed(2)}/h is below the ${band.label} of £${band.hourly.toFixed(2)}.`);
@@ -76,7 +77,7 @@ export function reviewEmployee(
       }
     }
   }
-  if (employee.payBasis === 'salaried' && !Number.isNaN(age) && employee.maxWeeklyHours > 0) {
+  if (employee.payBasis === 'salaried' && !Number.isNaN(age) && employee.maxWeeklyHours > 0 && !employee.payHidden) {
     // Salaried staff still have to clear minimum wage on the hours they actually work.
     const effective = employee.annualSalary / 52 / employee.maxWeeklyHours;
     const band = minimumWageFor(age, rates);

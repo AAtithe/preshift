@@ -7,7 +7,7 @@ import type { PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
-import { accessRoutes, signInRoutes } from './routes/access';
+import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
 import { demoRoutes, sweepSandboxes } from './demo';
 import { devRoutes } from './routes/dev';
@@ -20,6 +20,8 @@ import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { timeRoutes } from './routes/time';
+import { authenticatorRoutes } from './routes/authenticator';
+import { userRoutes } from './routes/users';
 import { clockingRoutes } from './routes/clocking';
 import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
@@ -138,8 +140,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         description:
           'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
           'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
-          'to reconcile against the labour accrual.\n\n' +
-          'Authenticate with `Authorization: Bearer psk_...`, a key an admin makes under Settings, API keys, limited to the scopes ' +
+          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.\n\n' +
+          'Authenticate with `Authorization: Bearer psk_...`, a key a person with the settings permission makes under Settings, API keys, limited to the scopes ' +
           'it needs. Each key reaches its own organisation only and may make 300 requests a minute. ' +
           'Webhooks tell your system when something changes: register an https endpoint, then verify the ' +
           '`preshift-signature` header (`t=<unix seconds>,v1=<hex HMAC-SHA256 of "t.body" with the endpoint secret>`) on every event. ' +
@@ -201,7 +203,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       reply.code(302).header('location', env.PRESHIFT_DEMO_URL || '/login').send(),
     );
   }
-  signInRoutes(app, store, { demo });
+  signInRoutes(app, ctx, { demo });
   staffRoutes(app, store);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -222,7 +224,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
-      if (!req.org || req.method === 'GET' || reply.statusCode >= 400) return payload;
+      if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
+        await store.save(req.org).catch(() => undefined);
+        return payload;
+      }
+      if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
       try {
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
@@ -236,17 +242,20 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
-    hrRoutes(api);
+    hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     travelRoutes(api, ctx);
     payrollRoutes(api, ctx);
+    userRoutes(api, ctx);
+    authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);
-    accessRoutes(api, store);
-    developerRoutes(api, store, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
-    staffAdminRoutes(api, store);
+    settingsRoutes(api, ctx);
+    developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
+    // People who manage are on userRoutes; staff app logins answer to the same access rules.
+    staffAdminRoutes(api, ctx);
   });
 
   return { app, ctx };

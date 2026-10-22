@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore, PgStore, type Store } from './store';
+import { codeAt, stepAt } from './totp';
 import { checkWebhookUrl, signWebhook, type Fetch } from './webhooks';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
@@ -27,6 +28,8 @@ async function boot(options: { store?: Store; answer?: number; demo?: boolean; r
     demo: options.demo,
     rateLimit: options.rateLimit,
     env: {},
+    // The Marylebone GM's personal key, having entered their code: runs one site, holds no settings.
+    apiKeys: [{ key: 'gm', orgId: 'demo', name: 'GM', scopes: ['*'], userId: 'usr_gm_mar', mfa: true }],
   });
   const res = await app.inject({
     method: 'POST',
@@ -34,7 +37,16 @@ async function boot(options: { store?: Store; answer?: number; demo?: boolean; r
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     payload: new URLSearchParams({ email: OWNER.email, password: OWNER.password, confirm: OWNER.password }).toString(),
   });
-  const cookie = String(res.headers['set-cookie'] ?? '').split(';')[0];
+  const unproved = String(res.headers['set-cookie'] ?? '').split(';')[0];
+  // Keys and webhooks need settings.manage, which needs the authenticator: the owner sets one up.
+  let cookie = unproved;
+  if (!options.demo) {
+    const enrol = (url: string, body?: unknown) =>
+      app.inject({ method: 'POST', url, headers: { cookie: unproved, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+    const secret = (await enrol('/v1/me/authenticator/start')).json().secret as string;
+    const confirmed = await enrol('/v1/me/authenticator/confirm', { code: codeAt(secret, stepAt(Date.now())) });
+    cookie = String(confirmed.headers['set-cookie']).split(';')[0];
+  }
   const call = async (method: string, url: string, auth: { cookie?: string; key?: string } = { cookie }, body?: unknown) => {
     const r = await app.inject({
       method: method as 'GET',
@@ -49,7 +61,7 @@ async function boot(options: { store?: Store; answer?: number; demo?: boolean; r
     return { status: r.statusCode, headers: r.headers, body: r.body ? r.json() : undefined };
   };
   const makeKey = async (scopes: string[], name = 'Tevalis EPOS') => (await call('POST', '/v1/api-keys', { cookie }, { name, scopes })).body;
-  return { app, ctx, cookie, call, makeKey, sent, setAnswer: (n: number) => (answer = n) };
+  return { app, ctx, cookie, unproved, call, makeKey, sent, setAnswer: (n: number) => (answer = n) };
 }
 
 describe('API keys made in the app', () => {
@@ -76,14 +88,35 @@ describe('API keys made in the app', () => {
     const t = await boot();
     const made = await t.makeKey(['rota:read']);
     expect((await t.call('POST', '/v1/shifts', { key: made.key }, SHIFT)).status).toBe(403);
-    const full = await t.makeKey(['*'], 'Everything');
-    expect((await t.call('POST', '/v1/api-keys', { key: full.key }, { name: 'Sneaky', scopes: ['*'] })).status).toBe(403);
+    const full = await t.makeKey(['rota:read', 'rota:write', 'employees:read', 'webhooks:write'], 'Broad');
+    expect((await t.call('POST', '/v1/api-keys', { key: full.key }, { name: 'Sneaky', scopes: ['rota:read'] })).status).toBe(403);
     expect((await t.call('GET', '/v1/api-keys', { key: full.key })).status).toBe(403);
 
     expect((await t.call('DELETE', `/v1/api-keys/${made.id}`)).status).toBe(204);
     const after = await t.call('GET', '/v1/sites', { key: made.key });
     expect(after.status).toBe(401);
     expect(after.body.message).toMatch(/revoked/);
+  });
+
+  it('is managed only by a person holding settings.manage with their authenticator', async () => {
+    const t = await boot();
+    expect((await t.call('POST', '/v1/api-keys', { cookie: t.unproved }, { name: 'X', scopes: ['rota:read'] })).status).toBe(403);
+    expect((await t.call('GET', '/v1/api-keys', { cookie: t.unproved })).status).toBe(403);
+    // A personal key acts as its person, but keys are made by people signed in, never by a key.
+    expect((await t.call('POST', '/v1/api-keys', { key: 'gm' }, { name: 'X', scopes: ['rota:read'] })).status).toBe(403);
+    // The GM holds no settings.manage, so cannot point the organisation's events anywhere either.
+    expect((await t.call('POST', '/v1/webhooks', { key: 'gm' }, { url: 'https://a.example/h', events: ['*'] })).status).toBe(403);
+  });
+
+  it('never gives a key more than its maker holds across the organisation', async () => {
+    const t = await boot();
+    // The owner role holds settings but not payroll sending or approval: those are paired duties.
+    for (const scopes of [['*'], ['payroll:write'], ['rota:read', 'time:approve']]) {
+      const res = await t.call('POST', '/v1/api-keys', undefined, { name: 'Too much', scopes });
+      expect(res.status, scopes.join()).toBe(403);
+      expect(res.body.error).toBe('beyond_own_access');
+    }
+    expect((await t.call('GET', '/v1/api-keys')).body.keys).toEqual([]);
   });
 
   it('refuses unknown scopes and a nameless key', async () => {
@@ -124,10 +157,12 @@ describe('staff records and pay need employees:read', () => {
     const org = await t.ctx.store.load('demo');
     org.timeEntries[0].clockInLocation = { lat: 51.52, lng: -0.15, accuracyMetres: 10 } as never;
 
-    for (const url of ['/v1/employees', '/v1/employees/mar-2', '/v1/payroll/submissions', '/v1/payroll/runs', '/v1/integrations/payroll/outbox', '/v1/privacy/retention']) {
+    for (const url of ['/v1/employees', '/v1/employees/mar-2', '/v1/payroll/submissions', '/v1/payroll/runs', '/v1/integrations/payroll/outbox']) {
       expect((await t.call('GET', url, { key: bi.key })).status, url).toBe(403);
       expect((await t.call('GET', url, { key: hr.key })).status, url).toBe(200);
     }
+    // The retention schedule names people due for erasure: a person's job, never a key's.
+    expect((await t.call('GET', '/v1/privacy/retention', { key: hr.key })).status).toBe(403);
 
     const week = (key: string) => t.call('GET', `/v1/rota/week?siteId=mar&weekStart=${WEEK}`, { key });
     const biWeek = (await week(bi.key)).body.metrics.cost;

@@ -10,6 +10,10 @@ const KEYS = [
   { key: 'records', orgId: 'demo', name: 'Payroll bureau', scopes: ['rota:read' as const, 'employees:read' as const] },
   { key: 'hr', orgId: 'demo', name: 'HR system', scopes: ['rota:read' as const, 'hr:read' as const, 'hr:write' as const] },
   { key: 'other', orgId: 'acme', name: 'Other org', scopes: ['*' as const] },
+  // People, having entered their authenticator code: their roles decide.
+  { key: 'kate', orgId: 'demo', name: 'Kate', scopes: ['*' as const], userId: 'usr_people', mfa: true },
+  { key: 'priya', orgId: 'demo', name: 'Priya', scopes: ['*' as const], userId: 'usr_gm_mar', mfa: true },
+  { key: 'grace', orgId: 'demo', name: 'Grace', scopes: ['*' as const], userId: 'usr_sup', mfa: true },
 ];
 
 async function setup() {
@@ -28,7 +32,7 @@ async function setup() {
     });
     return { status: res.statusCode, body: res.body ? res.json() : undefined, headers: res.headers };
   };
-  return { app, call };
+  return { app, call, store };
 }
 
 describe('HR access', () => {
@@ -50,23 +54,43 @@ describe('HR access', () => {
     expect((await call('GET', '/v1/hr/records', undefined, 'other')).body).toEqual([]);
   });
 
-  it('shows cases to signed-in admins but not members', async () => {
-    const { app, call } = await setup();
-    const form = (url: string, fields: Record<string, string>) =>
-      app.inject({ method: 'POST', url, headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: new URLSearchParams(fields).toString() });
-    const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie'] ?? '').split(';')[0];
-    const owner = cookieOf(await form('/auth/setup', { email: 'owner@ws.example', password: 'correct horse battery', confirm: 'correct horse battery', next: '/app/' }));
-    expect((await call('POST', '/v1/users', { email: 'gm@ws.example', password: 'another long password', role: 'member' }, '', owner)).status).toBe(201);
-    const member = cookieOf(await form('/auth/login', { email: 'gm@ws.example', password: 'another long password', next: '/app/' }));
-
-    const adminCases = (await call('GET', '/v1/hr/records?kind=case', undefined, '', owner)).body;
+  it('shows cases only with hr.cases, and personnel files only where the reader holds hr.view', async () => {
+    const { call } = await setup();
+    // Kate is the people manager; Priya the Marylebone GM; Grace a Marylebone supervisor.
+    const adminCases = (await call('GET', '/v1/hr/records?kind=case', undefined, 'kate')).body;
     expect(adminCases.length).toBe(3);
-    expect((await call('GET', '/v1/hr/records?kind=case', undefined, '', member)).body).toEqual([]);
-    expect((await call('GET', '/v1/hr/records?kind=training', undefined, '', member)).body.length).toBeGreaterThan(10);
-    const opened = await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'case', caseType: 'grievance', date: '2026-10-21', title: 'Rota' }, '', member);
+    expect((await call('GET', '/v1/hr/records?kind=case', undefined, 'priya')).body).toEqual([]);
+    const priyaTraining = (await call('GET', '/v1/hr/records?kind=training', undefined, 'priya')).body as { employeeId: string }[];
+    expect(priyaTraining.length).toBeGreaterThan(3);
+    // A GM reads the files of the people at their own site, and nobody else's.
+    expect(priyaTraining.every((r) => r.employeeId.startsWith('mar-'))).toBe(true);
+    expect((await call('GET', '/v1/employees/mar-3', undefined, 'priya')).body.hr).toBeDefined();
+    expect((await call('GET', '/v1/hr/records', undefined, 'grace')).body).toEqual([]);
+    expect((await call('GET', '/v1/employees/mar-3', undefined, 'grace')).body.hr).toBeUndefined();
+    const opened = await call('POST', '/v1/hr/records', { employeeId: 'mar-2', kind: 'case', caseType: 'grievance', date: '2026-10-21', title: 'Rota' }, 'priya');
     expect(opened.status).toBe(403);
-    expect((await call('PATCH', `/v1/hr/records/${adminCases[0].id}`, { notes: 'x' }, '', member)).status).toBe(404);
-    expect((await call('DELETE', `/v1/hr/records/${adminCases[0].id}`, undefined, '', member)).status).toBe(404);
+    expect((await call('PATCH', `/v1/hr/records/${adminCases[0].id}`, { notes: 'x' }, 'priya')).status).toBe(404);
+    expect((await call('DELETE', `/v1/hr/records/${adminCases[0].id}`, undefined, 'priya')).status).toBe(404);
+    // Recording absence at another site, or on your own file, is refused.
+    const sick = { type: 'sickness', from: '2026-10-22', to: '2026-10-22', reason: 'Cold' };
+    expect((await call('POST', '/v1/employees/shd-2/absences', sick, 'priya')).status).toBe(403);
+    expect((await call('POST', '/v1/employees/mar-1/absences', sick, 'priya')).status).toBe(403);
+    expect((await call('POST', '/v1/employees/mar-2/absences', sick, 'priya')).status).toBe(201);
+  });
+});
+
+describe('cases about the person reading them', () => {
+  it('keeps a case about someone away from them, even when they handle cases', async () => {
+    const { call, store } = await setup();
+    const cases = (await call('GET', '/v1/hr/records?kind=case', undefined, 'kate')).body as { id: string; employeeId: string }[];
+    const about = cases.find((c) => c.employeeId === 'mar-14')!;
+    // Kate is now on the rota as mar-14, the person the open disciplinary case is about.
+    (await store.load('demo')).users.find((u) => u.id === 'usr_people')!.employeeId = 'mar-14';
+    const seen = (await call('GET', '/v1/hr/records?kind=case', undefined, 'kate')).body as { id: string }[];
+    expect(seen.map((c) => c.id)).not.toContain(about.id);
+    expect(seen).toHaveLength(cases.length - 1);
+    expect((await call('PATCH', `/v1/hr/records/${about.id}`, { notes: 'closed by me' }, 'kate')).status).toBe(404);
+    expect((await call('POST', '/v1/hr/records', { employeeId: 'mar-14', kind: 'case', caseType: 'grievance', date: '2026-10-21', title: 'x' }, 'kate')).status).toBe(403);
   });
 });
 

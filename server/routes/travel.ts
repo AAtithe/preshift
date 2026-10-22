@@ -3,6 +3,7 @@ import type { Site, SiteTravel } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { geocodePostcode, refreshTravel } from '../integrations/travel/journeys';
+import { actorName, guard } from '../guard';
 import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { replaceSite } from './clocking';
@@ -48,6 +49,10 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      // Where a site is and how long it takes to reach the others decides what the rota allows:
+      // site set-up, as the clocking area is.
+      const g = guard(ctx, req, org);
+      g.allow('settings.manage');
       const { postcode, lat, lng } = req.body;
       let location: Site['location'];
       if (lat !== undefined && lng !== undefined) {
@@ -60,7 +65,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       replaceSite(org, req.params.id, (s) => ({ ...s, location }));
       forgetLookedUp(org, req.params.id);
-      audit(org, req.principal.name, 'site.location_set', { siteId: req.params.id, ...location });
+      audit(org, actorName(g), 'site.location_set', { siteId: req.params.id, ...location });
       return org.state.sites.find((s) => s.id === req.params.id);
     },
   );
@@ -77,10 +82,14 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      // Where a site is and how long it takes to reach the others decides what the rota allows:
+      // site set-up, as the clocking area is.
+      const g = guard(ctx, req, org);
+      g.allow('settings.manage');
       const today = londonParts(new Date()).date;
       const result = await refreshTravel(org.state.sites, ctx.fetch, today, ctx.tflAppKey);
       org.state.sites = result.sites;
-      audit(org, req.principal.name, 'site.travel_refreshed', { fromTfl: result.fromTfl, estimated: result.estimated });
+      audit(org, actorName(g), 'site.travel_refreshed', { fromTfl: result.fromTfl, estimated: result.estimated });
       return { sites: org.state.sites, fromTfl: result.fromTfl, estimated: result.estimated, failures: result.failures };
     },
   );
@@ -98,6 +107,10 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
+      // Where a site is and how long it takes to reach the others decides what the rota allows:
+      // site set-up, as the clocking area is.
+      const g = guard(ctx, req, org);
+      g.allow('settings.manage');
       const { id, toId } = req.params;
       if (id === toId) throw new HttpError(422, 'same_site', 'Choose two different sites.');
       if (!org.state.sites.some((s) => s.id === toId)) throw notFound(`Site ${toId}`);
@@ -105,7 +118,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
       const entry: SiteTravel = { minutes: req.body.minutes, source: 'manual', checkedAt };
       replaceSite(org, id, (s) => ({ ...s, travel: { ...(s.travel ?? {}), [toId]: entry } }));
       replaceSite(org, toId, (s) => ({ ...s, travel: { ...(s.travel ?? {}), [id]: entry } }));
-      audit(org, req.principal.name, 'site.travel_set', { siteId: id, toSiteId: toId, minutes: req.body.minutes });
+      audit(org, actorName(g), 'site.travel_set', { siteId: id, toSiteId: toId, minutes: req.body.minutes });
       return org.state.sites;
     },
   );
@@ -115,6 +128,10 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...write, schema: { tags: ['Travel'], description: 'Removes a hand-set journey time both ways, so the next refresh looks it up.', params: pairParams } },
     async (req) => {
       const org = orgOf(req);
+      // Where a site is and how long it takes to reach the others decides what the rota allows:
+      // site set-up, as the clocking area is.
+      const g = guard(ctx, req, org);
+      g.allow('settings.manage');
       const { id, toId } = req.params;
       const drop = (s: Site, other: string) => {
         const { [other]: _gone, ...rest } = s.travel ?? {};
@@ -122,7 +139,7 @@ export function travelRoutes(app: FastifyInstance, ctx: AppContext) {
       };
       replaceSite(org, id, (s) => drop(s, toId));
       if (org.state.sites.some((s) => s.id === toId)) replaceSite(org, toId, (s) => drop(s, id));
-      audit(org, req.principal.name, 'site.travel_cleared', { siteId: id, toSiteId: toId });
+      audit(org, actorName(g), 'site.travel_cleared', { siteId: id, toSiteId: toId });
       return org.state.sites;
     },
   );

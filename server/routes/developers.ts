@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { hashKey, KEY_PREFIX, requireAdmin, SCOPES, type Scope } from '../auth';
-import { HttpError, notFound, orgOf } from '../context';
-import { audit, type ApiKeyRecord, type Store } from '../store';
+import { canOrgWide, PERMISSIONS, type Permission } from '../../src/engine/access';
+import { hashKey, KEY_PREFIX, SCOPES, type Scope } from '../auth';
+import { HttpError, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard, type Guard } from '../guard';
+import { audit, type ApiKeyRecord } from '../store';
 import { checkWebhookUrl, deliverWebhooks, MAX_ENDPOINTS, newWebhookSecret, WEBHOOK_EVENTS, type Fetch, type WebhookDelivery, type WebhookEndpoint } from '../webhooks';
 
 const MAX_KEYS = 25;
@@ -13,22 +15,66 @@ const keyView = (k: ApiKeyRecord) => ({ id: k.id, name: k.name, scopes: k.scopes
 /** What anyone sees about an endpoint after it is made: never the secret. */
 const endpointView = (e: WebhookEndpoint) => ({ id: e.id, url: e.url, events: e.events, description: e.description ?? '', active: e.active, createdAt: e.createdAt, createdBy: e.createdBy });
 
-const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
+/**
+ * The permission a person must hold across the whole organisation to give a key each scope.
+ * A key made in the app is organisation-wide, so nobody can hand a system more than they hold
+ * everywhere themselves: a site GM cannot mint a key that reads every site's pay.
+ */
+const GRANTS: Record<keyof typeof SCOPES, Permission> = {
+  'rota:read': 'rota.view',
+  'employees:read': 'costs.view',
+  'rota:write': 'rota.edit',
+  'time:write': 'time.record',
+  'time:approve': 'time.approve',
+  'payroll:write': 'payroll.send',
+  'hr:read': 'hr.view',
+  'hr:write': 'hr.manage',
+  'webhooks:write': 'settings.manage',
+};
 
-/** Webhooks are managed by a signed-in admin, or by a partner's own key with the webhooks:write scope. */
-async function canManageWebhooks(req: FastifyRequest, reply: FastifyReply) {
-  const p = req.principal;
-  if (p.user) return requireAdmin(req, reply);
-  if (!p.scopes.includes('*') && !p.scopes.includes('webhooks:write')) {
-    return reply.code(403).send({ error: 'forbidden', message: 'This key lacks the webhooks:write scope' });
-  }
+/**
+ * API keys are made and revoked by a person signed in with settings.manage (which needs their
+ * authenticator), never by a key: a leaked key must not be able to mint another.
+ */
+function keyManager(ctx: AppContext, req: FastifyRequest): Guard {
+  if (!req.principal.email) throw new HttpError(403, 'forbidden', 'API keys are made by a person signed in, not by an API key.');
+  const g = guard(ctx, req, orgOf(req));
+  g.allow('settings.manage');
+  return g;
 }
 
-function checkScopes(raw: unknown): Scope[] {
+/**
+ * Webhooks are managed by a person with settings.manage, or by a system key with webhooks:write
+ * so a partner can register its own endpoint. A personal key acts as its person, so needs both.
+ */
+function webhookManager(ctx: AppContext) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const p = req.principal;
+    if (!p.email && !p.scopes.includes('*') && !p.scopes.includes('webhooks:write')) {
+      return reply.code(403).send({ error: 'forbidden', message: 'This key lacks the webhooks:write scope' });
+    }
+    guard(ctx, req, orgOf(req)).allow('settings.manage');
+  };
+}
+
+function checkScopes(raw: unknown, g: Guard, today: string): Scope[] {
   const scopes = Array.isArray(raw) ? [...new Set(raw.map(String))] : [];
   if (scopes.length === 0) throw new HttpError(400, 'invalid_scopes', 'Choose at least one thing this key may do.');
   const unknown = scopes.filter((s) => s !== '*' && !(s in SCOPES));
   if (unknown.length) throw new HttpError(400, 'invalid_scopes', `Unknown scope: ${unknown.join(', ')}`);
+  // A system acting on its own (no person behind the session) has organisation-wide authority already.
+  if (g.user) {
+    const wanted = scopes.includes('*') ? (Object.keys(GRANTS) as (keyof typeof GRANTS)[]) : (scopes as (keyof typeof GRANTS)[]);
+    const beyond = wanted.filter((s) => !canOrgWide(g.user!, GRANTS[s], today));
+    if (beyond.length) {
+      throw new HttpError(
+        403,
+        'beyond_own_access',
+        `A key cannot do more than you can across the whole organisation. You cannot ${beyond.map((s) => PERMISSIONS[GRANTS[s]].label.toLowerCase()).join('; ')}.`,
+        { scopes: beyond },
+      );
+    }
+  }
   return scopes as Scope[];
 }
 
@@ -50,20 +96,24 @@ const endpointSchema = {
   },
 } as const;
 
-export function developerRoutes(app: FastifyInstance, store: Store, options: { production: boolean; fetcher?: Fetch }) {
-  const admin = { preHandler: requireAdmin, schema: { hide: true } };
-  const hooks = (schema: Record<string, unknown>) => ({ preHandler: canManageWebhooks, schema: { tags: ['Webhooks'], ...schema } });
+export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: { production: boolean; fetcher?: Fetch }) {
+  const { store } = ctx;
+  const hidden = { schema: { hide: true } };
+  const managesHooks = webhookManager(ctx);
+  const hooks = (schema: Record<string, unknown>) => ({ preHandler: managesHooks, schema: { tags: ['Webhooks'], ...schema } });
+  const actor = (req: FastifyRequest) => actorName(guard(ctx, req, orgOf(req)));
 
-  // API keys: made, listed and revoked by an admin in the app. A key cannot make another key.
-  app.get('/v1/api-keys', admin, async (req) => ({
-    scopes: SCOPES,
-    keys: (await store.listApiKeys(req.principal.orgId)).map(keyView),
-  }));
+  // API keys: made, listed and revoked by a person with settings.manage. A key cannot make another key.
+  app.get('/v1/api-keys', hidden, async (req) => {
+    keyManager(ctx, req);
+    return { scopes: SCOPES, keys: (await store.listApiKeys(req.principal.orgId)).map(keyView) };
+  });
 
-  app.post<{ Body: { name?: string; scopes?: string[] } }>('/v1/api-keys', admin, async (req, reply) => {
+  app.post<{ Body: { name?: string; scopes?: string[] } }>('/v1/api-keys', hidden, async (req, reply) => {
+    const g = keyManager(ctx, req);
     const name = req.body?.name?.trim() ?? '';
     if (!name || name.length > 80) throw new HttpError(400, 'invalid_name', 'Name the key after the system that will use it, for example "Tevalis EPOS".');
-    const scopes = checkScopes(req.body?.scopes);
+    const scopes = checkScopes(req.body?.scopes, g, store.todayISO());
     const existing = await store.listApiKeys(req.principal.orgId);
     if (existing.length >= MAX_KEYS) throw new HttpError(409, 'too_many_keys', `An organisation can have ${MAX_KEYS} keys. Revoke one you no longer use.`);
     const key = `${KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
@@ -75,15 +125,17 @@ export function developerRoutes(app: FastifyInstance, store: Store, options: { p
       hash: hashKey(key),
       endsWith: key.slice(-4),
       createdAt: new Date().toISOString(),
-      createdBy: actor(req),
+      // An organisation-wide system key, recorded against the person who made it.
+      createdBy: actorName(g),
     };
     await store.putApiKey(record);
-    audit(orgOf(req), actor(req), 'access.api_key_created', { id: record.id, name, scopes });
+    audit(orgOf(req), actorName(g), 'access.api_key_created', { id: record.id, name, scopes });
     // The only time the key itself leaves the server.
     return reply.code(201).send({ ...keyView(record), key });
   });
 
-  app.delete<{ Params: { id: string } }>('/v1/api-keys/:id', admin, async (req, reply) => {
+  app.delete<{ Params: { id: string } }>('/v1/api-keys/:id', hidden, async (req, reply) => {
+    keyManager(ctx, req);
     if (!(await store.deleteApiKey(req.principal.orgId, req.params.id))) throw notFound(`API key ${req.params.id}`);
     audit(orgOf(req), actor(req), 'access.api_key_revoked', { id: req.params.id });
     return reply.code(204).send();

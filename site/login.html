@@ -53,13 +53,17 @@
         </div>
       </div>
       <p class="msg bad" id="invalid" role="alert" hidden>That email and password do not match. Check both and try again.</p>
-      <p class="msg bad" id="locked" role="alert" hidden>Too many attempts. Sign-in for this account is paused for 15 minutes, or ask an admin to reset your password.</p>
+      <p class="msg bad" id="locked" role="alert" hidden>Too many attempts. Sign-in for this account is paused for 15 minutes, or ask whoever manages access to reset your password.</p>
       <p class="msg bad" id="taken" role="alert" hidden>The owner account has already been created. Sign in instead.</p>
       <p class="msg bad" id="email" role="alert" hidden>Enter a valid email address.</p>
       <p class="msg bad" id="weak" role="alert" hidden>Use a password of at least 12 characters.</p>
       <p class="msg bad" id="mismatch" role="alert" hidden>The two passwords do not match.</p>
+      <p class="msg bad" id="suspended" role="alert" hidden>This account is suspended. Ask whoever manages access in your organisation.</p>
+      <p class="msg bad" id="badlink" role="alert" hidden>This link is not valid, or has been used. Ask for a new one.</p>
+      <p class="msg bad" id="expired" role="alert" hidden>This link has expired. Ask for a new one.</p>
+      <p class="msg bad" id="elsewhere" role="alert" hidden>That email already has a Preshift account. Open the link again and sign in with its password.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
-      <p class="msg ok" id="sent" role="status" hidden>If that email has an account, a reset link is on its way. It works once and expires in 30 minutes. Nothing after a few minutes? Check spam, or ask an admin in your organisation for a reset link.</p>
+      <p class="msg ok" id="sent" role="status" hidden>If that email has an account, a reset link is on its way. It works once and expires in 30 minutes. Nothing after a few minutes? Check spam, or ask whoever manages access in your organisation to reset it.</p>
 
       <section id="signin">
         <h1>Sign in</h1>
@@ -70,7 +74,18 @@
           <button type="submit">Sign in</button>
         </form>
         <p class="foot"><a href="#forgot" id="forgot-link">Forgot your password?</a></p>
-        <p class="foot">Access is set up by an admin in your organisation, under Settings in the app.</p>
+        <p class="foot">Access is set up by whoever manages access in your organisation. They send you a link to set your password.</p>
+      </section>
+
+      <section id="setpassword" hidden>
+        <h1 id="setpassword-title">Set your password</h1>
+        <p class="foot intro" id="setpassword-who">Choose a password only you know. Nobody else, not even whoever invited you, will see it.</p>
+        <form method="post" action="/auth/accept">
+          <input type="hidden" name="token" />
+          <label><span id="setpassword-label">Password, at least 12 characters</span> <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
+          <label id="setpassword-again">Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit" id="setpassword-button">Set password and sign in</button>
+        </form>
       </section>
 
       <section id="forgot" hidden>
@@ -97,7 +112,7 @@
 
       <section id="setup" hidden>
         <h1>Create the owner account</h1>
-        <p class="foot intro">This is the first sign-in on this system. The account you create here becomes the owner, and can add everyone else from Settings.</p>
+        <p class="foot intro">This is the first sign-in on this system. The account you create here becomes the owner, and invites everyone else from the Access tab.</p>
         <form method="post" action="/auth/setup">
           <input type="hidden" name="next" value="/app/" />
           <label>Your email <input type="email" name="email" autocomplete="username" required /></label>
@@ -113,11 +128,13 @@
       if (next && next.startsWith('/') && !next.startsWith('//')) {
         for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
       }
-      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'signedout', 'sent']) {
-        if (params.get('error') === id || params.has(id)) document.getElementById(id).hidden = false;
+      // A message shows when the server names it as the error; "signed out" and "sent" are bare flags.
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'suspended', 'badlink', 'expired', 'elsewhere']) {
+        if (params.get('error') === id) document.getElementById(id).hidden = false;
       }
+      for (const id of ['signedout', 'sent']) if (params.has(id)) document.getElementById(id).hidden = false;
       const show = (id) => {
-        for (const section of ['signin', 'forgot', 'reset']) document.getElementById(section).hidden = section !== id;
+        for (const section of ['signin', 'forgot', 'reset', 'setpassword']) document.getElementById(section).hidden = section !== id;
         document.querySelector(`#${id} input:not([type=hidden])`)?.focus();
       };
       document.getElementById('forgot-link').addEventListener('click', (e) => {
@@ -158,11 +175,45 @@
             .catch(() => fail('Could not save the password. Check your connection and try again.'));
         });
       }
+      // An invitation, or a reset for someone who has never had a password here: the person sets
+      // their own password, then is signed in. The token is after # for the same reason as a reset.
+      const inviteToken = location.hash.startsWith('#invite=') ? decodeURIComponent(location.hash.slice(8)) : null;
+      if (inviteToken) {
+        history.replaceState(null, '', '/login' + location.search);
+        show('setpassword');
+        document.querySelector('#setpassword input[name=token]').value = inviteToken;
+        fetch('/auth/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: inviteToken }) })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((who) => {
+            document.getElementById('setpassword-title').textContent = who.kind === 'reset' && !who.existing ? 'Choose a new password' : 'Welcome, ' + who.name;
+            if (who.existing) {
+              // Already signs in to Preshift: accepting takes the password they have, never a new one.
+              const password = document.querySelector('#setpassword input[name=password]');
+              const again = document.querySelector('#setpassword input[name=confirm]');
+              password.autocomplete = 'current-password';
+              password.removeAttribute('minlength');
+              again.required = false;
+              again.disabled = true;
+              document.getElementById('setpassword-again').hidden = true;
+              document.getElementById('setpassword-label').textContent = 'Your Preshift password';
+              document.getElementById('setpassword-button').textContent = 'Sign in and accept';
+              document.getElementById('setpassword-who').textContent =
+                'For ' + who.email + ', which already signs in to Preshift. Sign in with your usual password to accept. Your password and your other access stay as they are.';
+              return;
+            }
+            document.getElementById('setpassword-who').textContent =
+              'For ' + who.email + '. Choose a password only you know. Nobody else, not even whoever sent this link, will see it.';
+          })
+          .catch(() => {
+            show('signin');
+            if (!params.get('error')) document.getElementById('badlink').hidden = false;
+          });
+      }
       // On a fresh system there is nobody to sign in as yet, so offer the owner set-up instead.
       fetch('/auth/status')
         .then((r) => (r.ok ? r.json() : null))
         .then((status) => {
-          if (!status?.setupNeeded || resetToken) return;
+          if (!status?.setupNeeded || resetToken || inviteToken) return;
           document.getElementById('signin').hidden = true;
           document.getElementById('setup').hidden = false;
           document.querySelector('#setup input[name=email]').focus();
