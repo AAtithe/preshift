@@ -417,3 +417,24 @@ export interface WhatsAppInbound {
 export const STOP_WORDS = ['stop', 'unsubscribe', 'stop all', 'opt out'];
 
 export type { Channel };
+
+/**
+ * For each member of staff: whether they have a staff app login, the channel a notice would reach
+ * them by, and why any channel they chose cannot be used. A notice to someone with neither reaches nobody.
+ */
+export async function reachOf(store: Store, org: OrgData) {
+  const settings = await getMessagingSettings(store, org.orgId);
+  const logins = new Map((await store.listStaffLogins(org.orgId)).map((l) => [l.employeeId, l]));
+  const email = await emailConnected(store, org.orgId);
+  const connected = new Set<Exclude<PersonChannel, 'app'>>([...(settings.whatsapp ? ['whatsapp' as const] : []), ...(settings.sms ? ['sms' as const] : []), ...(email ? ['email' as const] : [])]);
+  const data = messagingOf(org);
+  return new Map(
+    org.state.employees.map((e) => {
+      const login = logins.get(e.id);
+      const prefs = data.prefs[e.id];
+      const chosen = prefs?.channels?.length ? prefs : settings.emailWhenUnset && (login?.email ?? e.email) ? { ...prefs, channels: ['email' as const], updatedAt: '' } : prefs;
+      const { order, unusable } = routeFor(chosen, { connected, email: login?.email ?? e.email });
+      return [e.id, { app: Boolean(login?.hash), channel: order[0] ?? null, problems: unusable.map((u) => u.reason) }];
+    }),
+  );
+}

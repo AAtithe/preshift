@@ -283,6 +283,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/messages/read': false,
   'GET /v1/staff/notifications': false,
   'PUT /v1/staff/notifications': false,
+  'GET /v1/staff/cover': false,
+  'POST /v1/staff/cover/:id/accept': false,
+  'POST /v1/staff/cover/:id/decline': false,
   // Refused: Meta posts replies here, signed for a real organisation, never a sandbox.
   'GET /v1/integrations/whatsapp/webhook/:orgId': false,
   'POST /v1/integrations/whatsapp/webhook/:orgId': false,
@@ -294,6 +297,12 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/messages/:id/read': true,
   'POST /v1/messages/direct': true,
   'POST /v1/messages/announcements': true,
+  // Cover requests among the sandbox's fictional staff, on its own rota. Nothing leaves the sandbox.
+  'POST /v1/cover/preview': true,
+  'POST /v1/cover': true,
+  'GET /v1/cover': true,
+  'POST /v1/cover/:id/assign': true,
+  'POST /v1/cover/:id/cancel': true,
   // Refused: these hold keys to WhatsApp, Twilio, Slack and Teams, and would send from a visitor's say.
   'GET /v1/settings/messaging': false,
   'PUT /v1/settings/messaging/whatsapp': false,

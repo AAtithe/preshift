@@ -177,6 +177,12 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           ? { email: login.email ?? null, createdAt: login.createdAt, activatedAt: login.activatedAt ?? null, lastSignInAt: login.lastSignInAt ?? null }
           : null,
         messages: messagesOf(org, e.id),
+        // Shifts they were asked to cover, and their answers. Never what others were offered or answered.
+        coverOffers: (org.coverRequests ?? []).flatMap((r) =>
+          r.offers
+            .filter((o) => o.employeeId === e.id)
+            .map((o) => ({ date: r.date, startMinute: r.startMinute, endMinute: r.endMinute, siteId: r.siteId, offeredAt: o.offeredAt, response: o.response ?? null, respondedAt: o.respondedAt ?? null, given: r.filledBy === e.id })),
+        ),
         changes: org.audit.filter((a) => about(a.detail) && (a.detail?.kind !== 'case' || g.can('hr.cases'))),
         requests: (org.privacy?.requests ?? []).filter((r) => r.employeeId === e.id).map(requestView),
         howWeUseIt: register,

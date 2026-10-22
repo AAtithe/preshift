@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(|\bopeningFor\(|\brequestOf\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -35,6 +35,9 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/staff/messages/read': 'Staff app: the caller marking their own thread read, under the staff session.',
   'GET /v1/staff/notifications': "Staff app: the caller's own choice of channels, under the staff session.",
   'PUT /v1/staff/notifications': 'Staff app: the caller giving or withdrawing their own consent, under the staff session.',
+  'GET /v1/staff/cover': 'Staff app: cover offers made to the caller, under the staff session.',
+  'POST /v1/staff/cover/:id/accept': 'Staff app: the caller saying yes to an offer made to them, re-checked under the rota rules.',
+  'POST /v1/staff/cover/:id/decline': 'Staff app: the caller saying no to an offer made to them.',
   'GET /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta once to check the address; answers only with the organisation's own verify token.",
   'POST /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta with a body signed by the organisation's app secret, never by a person.",
 };

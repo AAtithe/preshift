@@ -40,6 +40,7 @@ import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
+import { coverRoutes, staffCoverRoutes } from './routes/cover';
 import { releaseHeld } from './messaging';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
@@ -325,6 +326,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   staffRoutes(app, store);
   // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
   staffMessageRoutes(app, ctx);
+  staffCoverRoutes(app, ctx);
   whatsappWebhookRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -423,6 +425,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
     messageRoutes(api, ctx);
+    coverRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

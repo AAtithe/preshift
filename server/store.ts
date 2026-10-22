@@ -14,6 +14,7 @@ import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { MessagingData } from '../src/engine/messaging';
+import type { CoverRequest } from '../src/engine/cover';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -141,6 +142,8 @@ export interface OrgData {
   epos?: EposConnection;
   /** Messages between managers and staff, rota notices, and how each person wants to hear. Absent until first used. */
   messaging?: MessagingData;
+  /** Shifts offered to the people who could legally work them, and who took each. Absent until first used. */
+  coverRequests?: CoverRequest[];
   /**
    * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.

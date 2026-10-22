@@ -4,7 +4,7 @@ import { formatMinute } from '../engine/time';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
 import { call, Problem, say } from './http';
-import { StaffMessages, StaffReach } from './StaffMessages';
+import { StaffCover, StaffMessages, StaffReach } from './StaffMessages';
 
 interface Entry {
   id: string;
@@ -308,6 +308,8 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         </button>
         {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
       </section>
+
+      <StaffCover onSignedOut={onSignedOut} onChanged={() => void refresh()} />
 
       <StaffMessages onSignedOut={onSignedOut} />
 

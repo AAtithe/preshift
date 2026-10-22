@@ -1,19 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireScope } from '../auth';
-import { HttpError, notFound, orgOf, type AppContext } from '../context';
+import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import {
   addMessage, deliverToStaff, directThread, getMessagingSettings, inBatches, managerLink, messagingOf, messagingSetting, newVerifyToken,
-  notifyTeam, outboundFor, postTeam, settingsView, STOP_WORDS, teamUrlProblem, verifyMetaSignature, appUrlOf, emailConnected,
+  notifyTeam, outboundFor, postTeam, reachOf, settingsView, STOP_WORDS, teamUrlProblem, verifyMetaSignature, appUrlOf, emailConnected,
   type MessagingSettings, type WhatsAppInbound,
 } from '../messaging';
 import { audit, type OrgData } from '../store';
 import { requireStaff } from './staff';
+import { acceptOffer, announceTaken, coverOf, type Taken } from '../cover';
+import { isYes, openOffersFor } from '../../src/engine/cover';
 import {
-  bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS, routeFor, shortDate,
+  bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS, shortDate,
   staffReader, trimMessaging, unread, userReader, weekNotice, weekSignature,
-  type Conversation, type Delivery, type Message, type PersonChannel, type StaffMessagingPrefs,
+  type Conversation, type Delivery, type Message, type NoticeShift, type PersonChannel, type StaffMessagingPrefs,
 } from '../../src/engine/messaging';
 import { weekDates } from '../../src/engine/time';
 import type { Employee } from '../../src/engine/types';
@@ -27,7 +29,7 @@ const preview = (s: string) => (s.length > 140 ? `${s.slice(0, 139)}…` : s);
  * Messages are between people. A key with no person behind it (a till, a payroll system) has no
  * business reading what staff wrote to their managers or writing to staff as if it were one.
  */
-function messenger(ctx: AppContext, req: FastifyRequest): { g: Guard; org: OrgData; reader: string; name: string; userId?: string } {
+export function messenger(ctx: AppContext, req: FastifyRequest): { g: Guard; org: OrgData; reader: string; name: string; userId?: string } {
   const org = orgOf(req);
   const g = guard(ctx, req, org);
   if (g.actor.kind !== 'user' && !req.principal.email) throw new HttpError(403, 'forbidden', 'Messages are read and sent by people, not by a system key.');
@@ -35,8 +37,8 @@ function messenger(ctx: AppContext, req: FastifyRequest): { g: Guard; org: OrgDa
   return { g, org, reader: userReader(user?.id ?? req.principal.email!), name: actorName(g), userId: user?.id };
 }
 
-const employeeName = (org: OrgData, id?: string) => org.state.employees.find((e) => e.id === id)?.name ?? 'Former member of staff';
-const siteName = (org: OrgData, id: string) => org.state.sites.find((s) => s.id === id)?.name ?? id;
+export const employeeName = (org: OrgData, id?: string) => org.state.employees.find((e) => e.id === id)?.name ?? 'Former member of staff';
+export const siteName = (org: OrgData, id: string) => org.state.sites.find((s) => s.id === id)?.name ?? id;
 
 /** An announcement's recipients: everyone working at the site, its own team and those who cover it. */
 const teamOf = (org: OrgData, siteId: string) =>
@@ -44,6 +46,15 @@ const teamOf = (org: OrgData, siteId: string) =>
 
 function messageView(m: Message) {
   return { id: m.id, at: m.at, from: m.from, body: m.body, via: m.via, urgent: !!m.urgent, deliveries: m.deliveries, reached: deliverySummary(m) };
+}
+
+/** A person's published shifts in a week, as their rota notice lists them. */
+export function publishedWeekOf(org: OrgData, employeeId: string, weekStart: string): NoticeShift[] {
+  const dates = new Set(weekDates(weekStart));
+  const roleName = (id: string) => org.state.roles.find((r) => r.id === id)?.name ?? id;
+  return org.state.shifts
+    .filter((s) => s.employeeId === employeeId && s.published && dates.has(s.date))
+    .map((s) => ({ date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, siteName: siteName(org, s.siteId), roleName: roleName(s.roleId) }));
 }
 
 /**
@@ -61,14 +72,11 @@ export async function announceWeek(ctx: AppContext, org: OrgData, siteIds: strin
   const candidates = org.state.employees.filter(
     (e) => e.status !== 'leaver' && (inWeek.some((s) => s.employeeId === e.id && siteIds.includes(s.siteId)) || data.notified[`${e.id}|${weekStart}`] !== undefined),
   );
-  const roleName = (id: string) => org.state.roles.find((r) => r.id === id)?.name ?? id;
   let told = 0;
   let changed = 0;
   let offApp = 0;
   await inBatches(candidates, 10, async (e) => {
-    const shifts = inWeek
-      .filter((s) => s.employeeId === e.id && s.published)
-      .map((s) => ({ date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, siteName: siteName(org, s.siteId), roleName: roleName(s.roleId) }));
+    const shifts = publishedWeekOf(org, e.id, weekStart);
     const key = `${e.id}|${weekStart}`;
     const before = data.notified[key] ?? '';
     const now = weekSignature(shifts);
@@ -232,26 +240,10 @@ export function messageRoutes(app: FastifyInstance, ctx: AppContext) {
     const siteId = req.query.siteId ?? '';
     if (!org.state.sites.some((s) => s.id === siteId)) throw notFound('Site');
     if (!MESSAGE.some((perm) => g.can(perm, siteId))) g.allow('team.manage', siteId);
-    const settings = await getMessagingSettings(store, org.orgId);
-    const logins = new Map((await store.listStaffLogins(org.orgId)).map((l) => [l.employeeId, l]));
-    const email = await emailConnected(store, org.orgId);
-    const connected = new Set<Exclude<PersonChannel, 'app'>>([...(settings.whatsapp ? ['whatsapp' as const] : []), ...(settings.sms ? ['sms' as const] : []), ...(email ? ['email' as const] : [])]);
-    const data = messagingOf(org);
+    const reach = await reachOf(store, org);
     return org.state.employees
       .filter((e) => e.status !== 'leaver' && e.siteId === siteId)
-      .map((e) => {
-        const login = logins.get(e.id);
-        const prefs = data.prefs[e.id];
-        const chosen = prefs?.channels?.length ? prefs : settings.emailWhenUnset && (login?.email ?? e.email) ? { ...prefs, channels: ['email' as const], updatedAt: '' } : prefs;
-        const { order, unusable } = routeFor(chosen, { connected, email: login?.email ?? e.email });
-        return {
-          employeeId: e.id,
-          name: e.name,
-          app: Boolean(login?.hash),
-          channel: order[0] ?? null,
-          problems: unusable.map((u) => u.reason),
-        };
-      });
+      .map((e) => ({ employeeId: e.id, name: e.name, ...reach.get(e.id)! }));
   });
 
   // ---- Settings: the organisation's channels ----
@@ -522,6 +514,17 @@ export function whatsappWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
     let org = await store.load(orgId);
     const apply = (o: OrgData) => takeInbound(ctx, o, payload);
     let result = apply(org);
+    // A yes to cover is answered at once: whether it is theirs, and to everyone it affects.
+    for (const t of result.taken) await announceTaken(ctx, org, t);
+    if (result.ambiguous.length) {
+      const out = await outboundFor(ctx, org);
+      const at = ctx.now().toISOString();
+      for (const { employee, count } of result.ambiguous) {
+        const text = `You have ${count} cover offers open, so YES could mean any of them. Accept the one you want in the Preshift app.`;
+        const m = addMessage(org, directThread(org, employee, 'Cover', at), { at, from: { kind: 'system', name: 'Cover' }, body: text, via: 'app' });
+        m.deliveries = await deliverToStaff(out, employee, text, { subject: 'Cover' });
+      }
+    }
     try {
       await store.save(org);
     } catch (err) {
@@ -545,6 +548,8 @@ const digits = (s: string) => s.replace(/\D/g, '');
 export function takeInbound(ctx: Pick<AppContext, 'now'>, org: OrgData, payload: WhatsAppInbound) {
   const data = messagingOf(org);
   const received: { siteId: string; name: string; conversationId: string }[] = [];
+  const taken: Taken[] = [];
+  const ambiguous: { employee: Employee; count: number }[] = [];
   const rank: Record<string, number> = { failed: 1, sent: 2, delivered: 3, read: 4 };
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -583,12 +588,19 @@ export function takeInbound(ctx: Pick<AppContext, 'now'>, org: OrgData, payload:
         // Text only: photos, voice notes and documents stay in WhatsApp, never pulled into staff records unseen.
         const body = text ? text.slice(0, 2000) : `(${employee.name.split(' ')[0]} sent a ${m.type ?? 'message'} on WhatsApp. Preshift keeps text only; ask them to type it or show you.)`;
         addMessage(org, thread, { at, from: { kind: 'staff', id: employee.id, name: employee.name }, body, via: 'whatsapp' });
+        // YES to a cover offer accepts it, when there is only one it can mean.
+        const offers = text && isYes(text) ? openOffersFor(coverOf(org), employee.id, londonParts(ctx.now())) : [];
+        if (offers.length === 1) {
+          taken.push(acceptOffer(org, offers[0], employee, 'whatsapp', ctx.now()));
+          continue;
+        }
+        if (offers.length > 1) ambiguous.push({ employee, count: offers.length });
         received.push({ siteId: thread.siteId, name: employee.name, conversationId: thread.id });
       }
     }
   }
   if (received.length) audit(org, 'WhatsApp', 'messaging.whatsapp_received', { count: received.length });
   trimMessaging(data, ctx.now());
-  return { received };
+  return { received, taken, ambiguous };
 }
 

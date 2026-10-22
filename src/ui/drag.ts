@@ -1,5 +1,5 @@
-import { isAvailable } from '../engine/compliance';
-import { addDays, formatMinute, weekday } from '../engine/time';
+import { addDays } from '../engine/time';
+import { dropBlocker } from '../engine/candidates';
 import type { Employee, Shift } from '../engine/types';
 
 /** Shifts snap to quarter hours. */
@@ -55,23 +55,8 @@ export function sameShift(a: Shift, b: Shift): boolean {
   );
 }
 
-const DAY_NAMES = ['Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays', 'Sundays'];
-
-/**
- * Why a shift may not be dropped on this person and day, or null when it can.
- * Leave and stated availability are hard stops for a drag; a manager who has agreed
- * an exception can still set it in the shift editor, where it is flagged.
- */
-export function dropBlocker(employee: Employee, shift: Shift): string | null {
-  const first = employee.name.split(' ')[0];
-  if (employee.leave.includes(shift.date)) return `${first} is on approved leave that day.`;
-  if (isAvailable(employee, shift)) return null;
-  const day = weekday(shift.date);
-  const windows = employee.availability.filter((a) => a.weekday === day);
-  if (windows.length === 0) return `${first} is not available on ${DAY_NAMES[day]}.`;
-  const times = windows.map((a) => `${formatMinute(a.fromMinute)}-${formatMinute(a.toMinute)}`).join(', ');
-  return `${first} is only available ${times} on ${DAY_NAMES[day]}.`;
-}
+// Leave and availability stops are shared with the shift picker and cover requests.
+export { dropBlocker };
 
 export interface KeyPress {
   key: string;

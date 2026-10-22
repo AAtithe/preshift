@@ -204,3 +204,68 @@ export function StaffReach({ onSignedOut }: { onSignedOut: () => void }) {
     </section>
   );
 }
+
+interface Offer {
+  id: string;
+  label: string;
+  note: string | null;
+  firstToAccept: boolean;
+}
+
+/** Shifts the person has been asked to cover, with a yes or no each. Only shown while there are some. */
+export function StaffCover({ onSignedOut, onChanged }: { onSignedOut: () => void; onChanged: () => void }) {
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setOffers((await call<{ offers: Offer[] }>('GET', '/v1/staff/cover')).offers);
+    } catch (e) {
+      if (e instanceof Problem && e.status === 401) onSignedOut();
+    }
+  }, [onSignedOut]);
+  useEffect(() => {
+    void load();
+    const onVisible = () => document.visibilityState === 'visible' && void load();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
+
+  async function answer(offer: Offer, yes: boolean) {
+    setBusy(offer.id);
+    setMessage(null);
+    try {
+      const res = await call<{ outcome?: 'filled' | 'waiting' | 'refused'; reason?: string; offers: Offer[] }>('POST', `/v1/staff/cover/${offer.id}/${yes ? 'accept' : 'decline'}`);
+      setOffers(res.offers);
+      if (res.outcome === 'filled') setMessage({ tone: 'good', text: `It's yours: ${offer.label}. Thank you.` });
+      else if (res.outcome === 'waiting') setMessage({ tone: 'good', text: 'Thanks. Your manager will confirm who takes it.' });
+      else if (res.outcome === 'refused') setMessage({ tone: 'bad', text: `Sorry, it could not be given to you. ${res.reason ?? ''}` });
+      onChanged();
+    } catch (err) {
+      if (err instanceof Problem && err.status === 401) return onSignedOut();
+      setMessage({ tone: 'bad', text: say(err) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (offers.length === 0 && !message) return null;
+  return (
+    <section className="staff-card staff-cover">
+      <h2>Cover wanted</h2>
+      {offers.map((o) => (
+        <div key={o.id} className="staff-offer">
+          <div className="strong">{o.label}</div>
+          {o.note && <div className="muted small">{o.note}</div>}
+          <div className="muted small">{o.firstToAccept ? 'The first to say yes gets it.' : 'Your manager chooses from those who say yes.'}</div>
+          <div className="staff-row">
+            <button className="staff-big primary" disabled={busy === o.id} onClick={() => void answer(o, true)}>{busy === o.id ? 'Saving' : 'I can do it'}</button>
+            <button className="staff-big" disabled={busy === o.id} onClick={() => void answer(o, false)}>Not this time</button>
+          </div>
+        </div>
+      ))}
+      {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
+    </section>
+  );
+}

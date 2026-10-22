@@ -34,3 +34,6 @@
 .staff-check { display: flex !important; gap: 8px; align-items: flex-start; color: var(--ink, inherit) !important; }
 .staff-check input { margin-top: 3px; }
 .staff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.staff-cover { border-color: var(--warn); }
+.staff-offer { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--border); }
+.staff-offer:first-of-type { border-top: none; }

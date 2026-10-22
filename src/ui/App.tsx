@@ -121,6 +121,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
   const [week, setWeek] = useState(initial.week);
   const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : initial.tab);
+  // A shift sent from the editor to ask cover for, opened on Messages.
+  const [coverShift, setCoverShift] = useState<string | null>(null);
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
@@ -584,10 +586,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               )}
               {shown === 'messages' && (
                 <MessagesView
+                  key={coverShift ?? 'messages'}
                   state={state}
                   siteIds={sectionSites}
                   canAnnounce={(id) => allow('rota.publish', id)}
                   openThread={new URLSearchParams(window.location.search).get('thread') ?? undefined}
+                  canCover={(id) => allow('rota.edit', id)}
+                  coverShiftId={coverShift ?? undefined}
                 />
               )}
               {shown === 'holiday' && (
@@ -774,6 +779,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           }}
           onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
+          onAskCover={allow('rota.edit', editing.siteId) ? (id) => { setEditing(null); setCoverShift(id); setSiteId(editing.siteId); setTab('messages'); } : undefined}
         />
       )}
     </div>
