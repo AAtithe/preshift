@@ -398,6 +398,7 @@ assumptions until checked against the API reference:
   webhook signature (`x-teampay-signature: sha256=<hex HMAC of the raw body>`).
 - How TeamPay treats a resubmitted hours batch for the same period (replace or add).
 - Pay schedules other than weekly. Preshift periods are weekly in this build.
+- That `POST /hours` accepts `sickness` (`employee_id`, `dates`, `qualifying_days_per_week`, `ssp_estimate`) and `adjustments` (`employee_id`, `amount`, `description`, `reference`, for back pay), and that a pay run returns `ssp` per person. Without `ssp` the pay run SSP check stays empty; without `adjustments`, back pay is keyed in TeamPay by hand.
 
 Because WS runs TeamPay, these can be settled in one working session. Change that file, run
 `npm test`, and the rest of the system is unaffected.
