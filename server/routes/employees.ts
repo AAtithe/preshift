@@ -42,8 +42,11 @@ const ROTA_REACH_DAYS = 56;
  */
 export function forReader(g: Guard, e: Employee): Employee {
   const sites = sitesOfPerson(e);
+  // Pay follows the work: a site they cover for costs their shifts there, so its rate is needed there.
   const seesPay = sites.some((s) => g.can('costs.view', s) || g.can('pay.edit', s));
-  const seesPersonal = sites.some((s) => g.can('team.manage', s) || g.can('hr.view', s));
+  // Personal details stay with the home site, as the HR file does (readsHr): covering a shift for
+  // another site does not open a person's date of birth, right to work or holiday record to it.
+  const seesPersonal = g.can('team.manage', e.siteId) || g.can('hr.view', e.siteId);
   // The holiday record is what the Holiday tab works from, offered to those who see cost.
   const seesHoliday = seesPersonal || seesPay;
   const out: Employee = seesPay ? { ...e } : { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
