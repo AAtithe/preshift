@@ -414,6 +414,8 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'sites' && scopeSites.length > 1 && (
                 <TravelPanel
                   sites={scopeSites}
+                  entities={state.entities.filter((e) => scopeSites.some((x) => x.entityId === e.id))}
+                  onSetTravelPay={allow('settings.manage') ? actions.setTravelPay : undefined}
                   onSetLocation={actions.setSiteLocation}
                   onRefresh={actions.refreshTravel}
                   onSetTravel={actions.setTravel}
