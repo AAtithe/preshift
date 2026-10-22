@@ -55,6 +55,7 @@ export const WEBHOOK_EVENTS: Record<string, string> = {
   'shift.deleted': 'A shift was removed. data.id is the shift.',
   'rota.built': 'Sites were built from the forecast. data.siteIds, data.weekStart.',
   'rota.replaced': "A site's week was replaced in one go. data.siteId, data.weekStart.",
+  'rota.assistant_applied': "The rota assistant's draft was applied. data.siteId or data.siteIds, data.weekStart, data.shifts. Never the instruction typed, which can name people.",
   'rota.cleared': 'Sites were cleared for a week. data.siteIds, data.weekStart.',
   'rota.published': 'A week was published to staff. data.siteIds, data.weekStart.',
   'forecast.upserted': 'Hourly sales and covers were loaded. data.rows is the count.',

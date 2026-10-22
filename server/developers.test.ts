@@ -210,6 +210,21 @@ describe('webhooks', () => {
     expect(log.body[0]).toMatchObject({ type: 'shift.created', status: 'delivered', lastStatus: 200 });
   });
 
+  it('tells a partner when the rota assistant rewrites a week, without the instruction typed', async () => {
+    const t = await boot();
+    await t.call('POST', '/v1/webhooks', undefined, { url: 'https://epos.example/in', events: ['*'] });
+    const week = '2026-12-07';
+    const res = await t.call('PUT', '/v1/rota/week', undefined, {
+      siteId: 'mar', weekStart: week, source: 'assistant', instruction: 'Ben is off sick Saturday, cover the bar',
+      shifts: [{ ...SHIFT, date: week }],
+    });
+    expect(res.status).toBe(200);
+    const events = t.sent.map((m) => JSON.parse(m.body));
+    const applied = events.find((e) => e.type === 'rota.assistant_applied');
+    expect(applied.data).toMatchObject({ siteId: 'mar', weekStart: week, shifts: 1 });
+    expect(t.sent.map((m) => m.body).join()).not.toMatch(/Ben|sick/);
+  });
+
   it('never puts personal data or pay in an event', async () => {
     const t = await boot();
     await t.call('POST', '/v1/webhooks', undefined, { url: 'https://hr.example/in', events: ['*'] });
@@ -224,7 +239,8 @@ describe('webhooks', () => {
   it('keeps a failed event queued and retries it with the next change, in order', async () => {
     const t = await boot({ answer: 500 });
     await t.call('POST', '/v1/webhooks', undefined, { url: 'https://down.example/hook', events: ['shift.created', 'shift.deleted'] });
-    const shift = await t.call('POST', '/v1/shifts', undefined, SHIFT);
+    // A shift still to come: one that has started can no longer be removed.
+    const shift = await t.call('POST', '/v1/shifts', undefined, { ...SHIFT, date: '2026-12-07' });
     expect(t.sent).toHaveLength(1);
     let log = await t.call('GET', '/v1/webhooks/deliveries');
     expect(log.body[0]).toMatchObject({ status: 'pending', attempts: 1, lastError: 'Answered 500' });
@@ -234,7 +250,7 @@ describe('webhooks', () => {
     log = await t.call('GET', '/v1/webhooks/deliveries');
     expect(log.body[0].status).toBe('delivered');
 
-    await t.call('DELETE', `/v1/shifts/${shift.body.shift.id}`);
+    expect((await t.call('DELETE', `/v1/shifts/${shift.body.shift.id}`)).status).toBe(204);
     expect(t.sent.map((s) => JSON.parse(s.body).type)).toEqual(['shift.created', 'shift.created', 'shift.deleted']);
   });
 
