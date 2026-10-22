@@ -76,6 +76,11 @@ mandatory service charge, the Act's policy, review, deadline and tips record req
 Phase 1e, done: compliance pricing deepened. Monthly pay reference periods, the 48 hour limit
 as a 17 week average, and tips owed and NI at stake in the risk register.
 
+Phase 1f, done: the benchmark method. Nine measures per fully traded week from the same engines
+as the flash, an anonymous contribution record, peer groups with a minimum of 5 sites from 3
+businesses, quartile position and pounds to the median. Runs on an illustrative panel until real
+contributions are collected.
+
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
 - Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
@@ -92,8 +97,9 @@ Phase 3:
 - Tronc audit trail: who changed the scheme and when, troncmaster sign-off of each run, and the
   three year record the Act requires, held server-side.
 - Holiday entitlement balances, right to work document capture and Home Office online share code checks.
-- Group view across sites with cross-site cover and labour benchmarks across the WS client
-  base (anonymised), which no single-vendor tool can offer.
+- Benchmark service: collect contributions server-side under signed data sharing terms, replace
+  the illustrative panel, add trend over time and suppression checks on every published cut.
+- Group view across sites with cross-site cover.
 
 ## Metrics that prove it works
 

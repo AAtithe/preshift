@@ -24,7 +24,12 @@ export interface Site {
   location?: GeoPoint;
   /** Clock-in radius around `location`, in metres. */
   geofenceMetres?: number;
+  /** What kind of site this is, for choosing benchmark peers. */
+  concept?: Concept;
+  region?: string;
 }
+
+export type Concept = 'restaurant' | 'bar' | 'pub' | 'cafe';
 
 export interface GeoPoint {
   lat: number;

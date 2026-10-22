@@ -18,8 +18,8 @@ export type Action =
   | { type: 'markTipsPaid'; siteId: string; weekStart: string; date: string }
   | { type: 'reset' };
 
-// v5 adds pay frequency; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v5';
+// v6 adds site concept and region; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v6';
 
 function load(): RotaState {
   try {

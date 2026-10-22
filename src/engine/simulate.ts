@@ -4,7 +4,7 @@ import { addDays, toISODate, weekStart } from './time';
 import { seedState } from './seed';
 
 /** Small deterministic generator so the demo week looks the same on every load. */
-function random(seed: number) {
+export function random(seed: number) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

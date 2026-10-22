@@ -14,11 +14,11 @@ const roles: Role[] = [
 const sites: Site[] = [
   {
     id: 'mar', name: 'Marylebone', labourTargetPct: 0.28, trackingCode: 'Marylebone', openMinute: 11 * 60, closeMinute: 23 * 60,
-    location: { lat: 51.5203, lng: -0.1515 }, geofenceMetres: 150,
+    location: { lat: 51.5203, lng: -0.1515 }, geofenceMetres: 150, concept: 'restaurant', region: 'London',
   },
   {
     id: 'shd', name: 'Shoreditch', labourTargetPct: 0.27, trackingCode: 'Shoreditch', openMinute: 12 * 60, closeMinute: 24 * 60,
-    location: { lat: 51.5246, lng: -0.0794 }, geofenceMetres: 150,
+    location: { lat: 51.5246, lng: -0.0794 }, geofenceMetres: 150, concept: 'restaurant', region: 'London',
   },
 ];
 

@@ -63,6 +63,21 @@ expect, by the firm that also runs the payroll.
 | The Act | Written policy, review with staff, every penny passed on, payment by the end of the month after the tips were taken, a scheme with no gaps in its department split, and a twelve-week tips record for any worker who asks. | `src/engine/tronc.ts`, `src/ui/TroncView.tsx` |
 | Payroll | Allocation file with the NI treatment for each payment, and a mark-paid step that clears the deadline. | `src/ui/TroncView.tsx` |
 
+## Benchmark
+
+The asset no single-vendor tool can build: each site measured against peers on payroll-reconciled
+clocked data, not rostered hours.
+
+| Area | What it does | Where |
+| --- | --- | --- |
+| Metrics | Nine measures for a fully traded week, computed by the same engines that run the flash, the variance and the tronc: labour %, sales per labour hour, rota to payroll gap, overrun and early clock-in per shift, breaks missed, forecast error, tips per hour, and hours on flexible contracts as context. | `src/engine/benchmark.ts` |
+| Contribution | What leaves a site: opaque site and business keys, concept, region, sales band and the nine measures. No names, people, pay rates or sales figures. | `src/engine/benchmark.ts` |
+| Peer groups | Closest match on concept, region and size, widened one step at a time until the group has at least 5 sites from 3 separate businesses. The client's own sites are never in its peer group. | `src/engine/benchmark.ts` |
+| Comparison | Middle half, median and top quartile; the share of peers the site beats, ties counted as half; pounds a week to reach the median and the top quartile where the metric is a direct cost; every site in the group side by side. | `src/engine/benchmark.ts`, `src/ui/BenchmarkView.tsx` |
+
+The peer panel in the demo is invented (`src/engine/benchmarkDemo.ts`) and labelled as such on
+screen. The method is real; the market figures arrive when WS clients contribute.
+
 ## Running it
 
 ```bash
