@@ -193,6 +193,8 @@ export interface Employee {
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
+  /** Set by the API when the reader may not see pay: the rate and salary then read as nought. */
+  payHidden?: boolean;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
@@ -354,6 +356,8 @@ export interface TimeEntry {
 export interface RestOverride {
   id: string;
   employeeId: string;
+  /** Where the short rest is worked: who may see and withdraw it follows the rota rights there. */
+  siteId: string;
   code: 'daily-rest' | 'weekly-rest';
   /** The breach it covers, as `Issue.overrideKey`. */
   key: string;

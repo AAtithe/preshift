@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
 import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, RestOverride, RotaState, Shift, Site } from '../engine/types';
+import type { Me } from './access/model';
 import { api } from './api';
 
 /** One entry in a stored copy's access log, as the API returns it. */
@@ -20,10 +21,12 @@ export interface DocumentAccess {
  */
 export function useRotaStore() {
   const [state, setState] = useState<RotaState | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
+      setMe(await api.get<Me>('/v1/me'));
       const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides] = await Promise.all([
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
@@ -121,13 +124,17 @@ export function useRotaStore() {
         await refreshShifts();
       }),
     /** Adds a starter or saves changes; the server syncs payroll fields to TeamPay. */
-    saveEmployee: (employee: Employee, isNew: boolean) =>
+    saveEmployee: (employee: Employee, isNew: boolean, withPay = true) =>
       guard(async () => {
         // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
-        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _a, ...rest } = employee;
+        // The personnel file and absence have routes of their own and are never sent back here.
+        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _ab, payHidden, ...fields } = employee;
+        // Pay this reader never received is left out, never sent back as nought; without pay rights it is not sent at all.
+        const { hourlyRate: _r, annualSalary: _a, ...unpaid } = fields;
+        const kept = payHidden || !withPay ? unpaid : fields;
         // Right to work copies are added and removed through their own routes.
-        const { documents: _d, ...rightToWork } = rest.rightToWork ?? { checked: false };
-        const body = rest.rightToWork ? { ...rest, rightToWork } : rest;
+        const { documents: _d, ...rightToWork } = kept.rightToWork ?? { checked: false };
+        const body = kept.rightToWork ? { ...kept, rightToWork } : kept;
         const saved = isNew
           ? await api.post<Employee>('/v1/employees', body)
           : await api.patch<Employee>(`/v1/employees/${id}`, body);
@@ -255,7 +262,7 @@ export function useRotaStore() {
     guard,
   };
 
-  return { state, error, setError, actions };
+  return { state, me, error, setError, actions };
 }
 
 type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>;

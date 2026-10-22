@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import type { Issue } from '../engine/compliance';
+import { issueSiteId, type Issue } from '../engine/compliance';
 import type { RotaState } from '../engine/types';
 import { dayLabel } from './format';
 
 interface Props {
   state: RotaState;
   issues: Issue[];
+  /** Overriding is part of publishing, so it is offered where the viewer may publish. */
+  canOverride: (siteId: string | undefined) => boolean;
   onOverride: (key: string, reason: string) => Promise<unknown>;
   onWithdraw: (id: string) => Promise<unknown>;
 }
@@ -16,7 +18,7 @@ const MIN_REASON = 15;
  * Rest breaches in scope, each with the one way past it short of changing the rota: a manager's
  * recorded reason. The reason travels with the breach, so the audit trail shows who decided and why.
  */
-export function RestBreaches({ state, issues, onOverride, onWithdraw }: Props) {
+export function RestBreaches({ state, issues, canOverride, onOverride, onWithdraw }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -44,7 +46,7 @@ export function RestBreaches({ state, issues, onOverride, onWithdraw }: Props) {
           <li key={i.overrideKey} className={i.severity}>
             {name(i.employeeId)}
             {i.date ? `, ${dayLabel(i.date).short} ${dayLabel(i.date).date}` : ', this week'}: {i.message}{' '}
-            {i.overridden ? (
+            {!canOverride(issueSiteId(state, i)) ? null : i.overridden ? (
               <button className="link" disabled={busy} onClick={async () => { setBusy(true); await onWithdraw(i.overridden!.id); setBusy(false); }}>
                 Withdraw override
               </button>

@@ -60,7 +60,8 @@ export function performanceTrend(state: RotaState, entries: TimeEntry[], siteIds
   return Array.from({ length: weeks }, (_, i) => {
     const weekStart = addDays(endWeek, (i - weeks + 1) * 7);
     const dates = weekDates(weekStart);
-    const latest = { employees: state.employees, shifts: latestShifts(state, entries, weekStart, today) };
+    // Sites go with the shifts so paid travel between them is costed the same way on both sides.
+    const latest = { employees: state.employees, sites: state.sites, shifts: latestShifts(state, entries, weekStart, today) };
     const sites = siteIds.map((siteId) => {
       const site = state.sites.find((s) => s.id === siteId);
       const sales = salesEstimate(state, siteId, dates);
@@ -291,8 +292,8 @@ export function rotaVsActual(state: RotaState, entries: TimeEntry[], siteIds: st
   const clocked = clockedShifts(weekEntries);
   const rota = state.shifts.filter((s) => dates.includes(s.date));
   const estimate = latestShifts(state, entries, week, today);
-  const planned = { employees: state.employees, shifts: rota };
-  const latest = { employees: state.employees, shifts: estimate };
+  const planned = { employees: state.employees, sites: state.sites, shifts: rota };
+  const latest = { employees: state.employees, sites: state.sites, shifts: estimate };
 
   const people = new Map<string, PersonVariance & { rotaCost: number; estimateCost: number }>();
   const person = (employeeId: string) => {

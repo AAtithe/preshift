@@ -17,6 +17,12 @@ const WEEKDAY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturd
 const ROW = 30;
 const PAD = 12;
 const STRIP = 22;
+/**
+ * The least a day may be: its heading (name, date, forecast sales) and its P&L column stand
+ * taller than an empty day's plot, and would otherwise run into the day below. It needs about
+ * 118px; the rest is room for a taller fallback font.
+ */
+export const MIN_LANE = 132;
 
 interface Props {
   /** The rota as previewed mid-drag. */
@@ -34,6 +40,8 @@ interface Props {
   /** Open the picker for a new shift drawn on a day or picked from a short hour. */
   onOpen: (opening: Opening) => void;
   baseLabourCost: number;
+  /** Pay is withheld from those who do not see cost: the money columns are left out rather than shown as nought. */
+  showCost: boolean;
 }
 
 interface Draw {
@@ -72,7 +80,7 @@ interface Lane {
  * shifts stacked as bars by department and a coverage strip that reads short or over by the
  * hour. Bars drag along the day to move, by their ends to resize, and up or down to another day.
  */
-export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost }: Props) {
+export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost, showCost }: Props) {
   const layer = useRef<HTMLDivElement>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
   const drawRef = useRef<Draw | null>(null);
@@ -158,7 +166,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
       rows += ends.length;
     }
     // One spare row at the foot of every day takes shifts dragged in from other days.
-    const height = PAD + (rows + 1) * ROW + STRIP + PAD;
+    const height = Math.max(MIN_LANE, PAD + (rows + 1) * ROW + STRIP + PAD);
     const lane = { date, top, height, placed, rows, groups };
     top += height;
     return lane;
@@ -301,7 +309,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                   )}
                 </div>
               </div>
-              <aside className="tl-pnl">
+              {showCost && <aside className="tl-pnl">
                 <div className="tnum">{money(m.labourCost)}</div>
                 <div className="muted small">labour</div>
                 <div className={`tl-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</div>
@@ -311,7 +319,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                     {pts.toFixed(1)} pts
                   </div>
                 )}
-              </aside>
+              </aside>}
             </section>
           );
         })}
@@ -360,7 +368,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                   <span className="tl-meta">
                     {role?.name} · {formatMinute(shift.startMinute)}-{formatMinute(shift.endMinute)}
                   </span>
-                  <span className="tl-cost tnum">{money(cost)}</span>
+                  {showCost && <span className="tl-cost tnum">{money(cost)}</span>}
                   {level && <span className="tl-flag" aria-label={level === 'block' ? 'Blocking issue' : 'Needs review'}>!</span>}
                   <span className="tl-edge end" data-edge="end" aria-hidden />
                 </button>,

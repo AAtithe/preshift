@@ -12,6 +12,8 @@ interface Props {
   state: RotaState;
   employee: Employee;
   today: string;
+  /** May change the rate, salary and pay basis. Without it pay is shown locked, or not at all if withheld. */
+  canEditPay: boolean;
   onSave: (employee: Employee) => void;
   onLeaver: (id: string, leaveDate: string) => void;
   /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
@@ -26,7 +28,8 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
+  const payLocked = !canEditPay;
   const [draft, setDraft] = useState<Employee>(employee);
   const [uploading, setUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
@@ -49,8 +52,8 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
   const leaveYearStart = state.entities.find((x) => x.id === draft.entityId)?.leaveYearStart;
   // The editor has the rota only; the Holiday tab also counts clocked time.
   const balance = useMemo(
-    () => holidayBalance(draft, state.shifts.filter((s) => s.date <= today), today, leaveYearStart),
-    [draft, state.shifts, today, leaveYearStart],
+    () => holidayBalance(draft, state.shifts.filter((s) => s.date <= today), today, leaveYearStart, undefined, state.sites),
+    [draft, state.shifts, state.sites, today, leaveYearStart],
   );
   const numberOrUndefined = (v: string) => (v === '' ? undefined : Number(v));
 
@@ -225,10 +228,13 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
         </div>
 
         <h3 className="section">Contract and pay</h3>
+        {draft.payHidden && <p className="muted small">Pay is withheld from your view. Whoever manages pay sets the rate.</p>}
+        {!draft.payHidden && payLocked && <p className="muted small">Pay is set by whoever manages pay, never by the person managing the team.</p>}
         <div className="form">
+          {!draft.payHidden && (<>
           <label>
             Pay basis
-            <select value={draft.payBasis} onChange={(e) => set('payBasis', e.target.value as Employee['payBasis'])}>
+            <select disabled={payLocked} value={draft.payBasis} onChange={(e) => set('payBasis', e.target.value as Employee['payBasis'])}>
               <option value="hourly">Hourly</option>
               <option value="salaried">Salaried</option>
             </select>
@@ -236,14 +242,15 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
           {draft.payBasis === 'hourly' ? (
             <label>
               Hourly rate (£)
-              <input type="number" min={0} step={0.01} value={draft.hourlyRate} onChange={(e) => set('hourlyRate', Number(e.target.value))} />
+              <input type="number" min={0} step={0.01} disabled={payLocked} value={draft.hourlyRate} onChange={(e) => set('hourlyRate', Number(e.target.value))} />
             </label>
           ) : (
             <label>
               Annual salary (£)
-              <input type="number" min={0} step={500} value={draft.annualSalary} onChange={(e) => set('annualSalary', Number(e.target.value))} />
+              <input type="number" min={0} step={500} disabled={payLocked} value={draft.annualSalary} onChange={(e) => set('annualSalary', Number(e.target.value))} />
             </label>
           )}
+          </>)}
           <label>
             Contracted hours a week (0 = flexible)
             <input type="number" min={0} step={1} value={draft.contractedHours} onChange={(e) => set('contractedHours', Number(e.target.value))} />
@@ -265,6 +272,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
             Enrolled in workplace pension
           </label>
         </div>
+        {!draft.payHidden && (
         <div className="cost-box">
           <div>
             <div className="muted small">Guaranteed weekly cost</div>
@@ -276,6 +284,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
               : `${money(guaranteed.total * 52)} a year, loaded with holiday, employer NI and pension. You pay this whether or not the rota uses them.`}
           </div>
         </div>
+        )}
 
         <h3 className="section">Right to work</h3>
         <div className="form">
@@ -402,7 +411,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
             {balance.year.start} to {balance.year.end}.{' '}
             {balance.basis === 'fixed'
               ? `${balance.entitlementHours.toFixed(1)}h entitlement`
-              : `${balance.accruedHours.toFixed(1)}h accrued at 12.07% of hours worked`}
+              : `${balance.accruedHours.toFixed(1)}h accrued at 12.07% of hours worked${balance.travelHours > 0 ? `, including ${balance.travelHours.toFixed(1)}h paid travel between sites` : ''}`}
             {balance.carriedOverHours > 0 && `, ${balance.carriedOverHours.toFixed(1)}h carried over`}
             , {balance.takenHours.toFixed(1)}h taken, {balance.bookedHours.toFixed(1)}h booked. A normal day counts as {balance.dayHours.toFixed(1)}h.
           </div>

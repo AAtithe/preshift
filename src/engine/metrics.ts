@@ -94,7 +94,14 @@ export function scopeMetrics(state: RotaState, siteIds: string[], start: string)
     const paidHours = sites.reduce((s, m) => s + m.days[i].paidHours, 0);
     return { date, forecastSales, labourCost, paidHours, labourPct: pct(labourCost, forecastSales), splh: pct(forecastSales, paidHours) };
   });
-  const cost: WeekCost = { employees: new Map(), shifts: new Map(), total: 0, unallocated: 0, parts: { gross: 0, holiday: 0, employerNi: 0, pension: 0 } };
+  const cost: WeekCost = {
+    employees: new Map(),
+    shifts: new Map(),
+    total: 0,
+    unallocated: 0,
+    parts: { gross: 0, holiday: 0, employerNi: 0, pension: 0 },
+    travel: { hours: 0, cost: 0 },
+  };
   for (const m of sites) {
     m.cost.employees.forEach((v, k) => cost.employees.set(k, v));
     m.cost.shifts.forEach((v, k) => cost.shifts.set(k, v));
@@ -105,6 +112,8 @@ export function scopeMetrics(state: RotaState, siteIds: string[], start: string)
     cost.parts.holiday += m.cost.parts.holiday;
     cost.parts.employerNi += m.cost.parts.employerNi;
     cost.parts.pension += m.cost.parts.pension;
+    cost.travel.hours += m.cost.travel.hours;
+    cost.travel.cost += m.cost.travel.cost;
   }
   const forecastSales = sites.reduce((s, m) => s + m.forecastSales, 0);
   const labourCost = sites.reduce((s, m) => s + m.labourCost, 0);
