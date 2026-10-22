@@ -95,14 +95,16 @@ describe('public demo on the live system', () => {
     const customerBefore = (await t.call('GET', '/v1/employees', customer)).json();
     const sites = (await t.call('GET', '/v1/sites', a)).json();
     const week = weekStart(toISODate(new Date()));
+    const range = `?from=${week}&to=${addDays(week, 6)}`;
+    // Each sandbox starts with the sample group's worked days; what one visitor builds stays in theirs.
+    const bBefore = (await t.call('GET', `/v1/shifts${range}`, b)).json();
     expect((await t.call('POST', '/v1/rota/build', a, { siteIds: sites.map((s: { id: string }) => s.id), weekStart: week })).statusCode).toBe(200);
     const template = (await t.call('GET', '/v1/employees', a)).json()[0];
     const { id: _id, ...fields } = template;
     expect((await t.call('POST', '/v1/employees', a, { ...fields, name: 'Visitor Hire' })).statusCode).toBe(201);
 
-    const range = `?from=${week}&to=${addDays(week, 6)}`;
-    expect((await t.call('GET', `/v1/shifts${range}`, a)).json().length).toBeGreaterThan(0);
-    expect((await t.call('GET', `/v1/shifts${range}`, b)).json()).toEqual([]);
+    expect((await t.call('GET', `/v1/shifts${range}`, a)).json().length).toBeGreaterThan(bBefore.length);
+    expect((await t.call('GET', `/v1/shifts${range}`, b)).json()).toEqual(bBefore);
     expect((await t.call('GET', `/v1/shifts${range}`, customer)).json()).toEqual([]);
     expect((await t.call('GET', '/v1/employees', customer)).json()).toEqual(customerBefore);
     expect((await t.call('GET', '/v1/employees', b)).json().some((e: { name: string }) => e.name === 'Visitor Hire')).toBe(false);

@@ -2,6 +2,8 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { seedHrRecords, seedState } from '../src/engine/seed';
+import { seedHistory, seedLiveDay } from '../src/engine/seedHistory';
+import { londonParts } from '../src/engine/time';
 import { sessionUser } from './auth';
 import { HttpError } from './context';
 import { hashPassword } from './passwords';
@@ -410,7 +412,11 @@ export function demoRoutes(app: FastifyInstance, store: Store, options: { enable
     const orgId = sandboxId(now, randomBytes(6).toString('hex'));
     if (await store.has(orgId)) throw new HttpError(409, 'conflict', 'Try again.');
     const org = await store.load(orgId);
-    org.state = seedState();
+    // The sample group with its trading history, and today traded up to now so the cut call has a day to read.
+    const live = londonParts(new Date(now));
+    const history = seedHistory(seedState(live.date), live.date);
+    org.state = seedLiveDay(history.state, live.date, live.minute);
+    org.timeEntries = history.timeEntries;
     org.hrRecords = seedHrRecords();
     // The demo's fictional team, so the Access tab has people to show. None of them can sign in:
     // they have no accounts. The visitor has no record, so they hold the sandbox's full access.

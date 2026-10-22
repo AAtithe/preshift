@@ -3,6 +3,7 @@ import { COURSES, requiredCourses } from './hr';
 import { PACE_LEADS } from './bookings';
 import { daypartOf, DAYPARTS } from './forecast';
 import { estimatedHolidays, schoolYearOf } from './school';
+import { withStories } from './seedHistory';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -282,7 +283,7 @@ export function seedState(today = toISODate(new Date())): RotaState {
     entities: structuredClone(entities).map((e) => (e.id === 'wdl' ? { ...e, employmentAllowance: { remaining: 1850, asAt: addDays(start, -1) } } : e)),
     sites: structuredClone(sites),
     roles: structuredClone(roles),
-    employees: withHr(employees(today), today),
+    employees: withStories(withHr(employees(today), today), today),
     shifts: [],
     forecast: fc,
     demandRules: structuredClone(rules),
