@@ -55,7 +55,7 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (361 across 31 files)
+npm test         # engine, UI rules and API tests (362 across 31 files)
 npm run build    # typecheck and production build
 ```
 
@@ -186,6 +186,7 @@ Locally: `npm run dev:demo`, then open http://localhost:5173/demo.
 | `/app/` | Web app, served by the API function to signed-in people only (`server/routes/web.ts`) |
 | `/api/anthropic/v1/messages` | The rota assistant's route to Claude, using the key saved in Settings |
 | `/internal/dispatch` | Daily Vercel Cron retry of payroll changes TeamPay has not confirmed (needs `CRON_SECRET`) |
+| `/internal/webhooks` | Vercel Cron every 15 minutes: webhook deliveries waiting on a retry (needs `CRON_SECRET`, and a Vercel plan that allows cron jobs more often than daily) |
 
 Set `PRESHIFT_DATABASE_URL` to a Neon database that belongs to Preshift and the API keeps its data
 in Postgres across cold starts and instances. Without it, data is held in memory and resets when

@@ -13,7 +13,7 @@ const SHIFT = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: WEEK, 
 
 type Sent = { url: string; headers: Record<string, string>; body: string };
 
-async function boot(options: { store?: Store; answer?: number; demo?: boolean; rateLimit?: number } = {}) {
+async function boot(options: { store?: Store; answer?: number; demo?: boolean; rateLimit?: number; env?: NodeJS.ProcessEnv } = {}) {
   const sent: Sent[] = [];
   let answer = options.answer ?? 200;
   const webhookFetch: Fetch = async (url, init) => {
@@ -27,7 +27,7 @@ async function boot(options: { store?: Store; answer?: number; demo?: boolean; r
     webhookFetch,
     demo: options.demo,
     rateLimit: options.rateLimit,
-    env: {},
+    env: options.env ?? {},
     // The Marylebone GM's personal key, having entered their code: runs one site, holds no settings.
     apiKeys: [{ key: 'gm', orgId: 'demo', name: 'GM', scopes: ['*'], userId: 'usr_gm_mar', mfa: true }],
   });
@@ -236,6 +236,29 @@ describe('webhooks', () => {
 
     await t.call('DELETE', `/v1/shifts/${shift.body.shift.id}`);
     expect(t.sent.map((s) => JSON.parse(s.body).type)).toEqual(['shift.created', 'shift.created', 'shift.deleted']);
+  });
+
+  it('retries on the 15 minute cron when nothing else in the organisation changes', async () => {
+    const t = await boot({ answer: 503, env: { CRON_SECRET: 'cron' } });
+    await t.call('POST', '/v1/webhooks', undefined, { url: 'https://down.example/hook', events: ['shift.created'] });
+    await t.call('POST', '/v1/shifts', undefined, SHIFT);
+    expect(t.sent).toHaveLength(1);
+
+    const cron = (auth?: string) => t.app.inject({ method: 'GET', url: '/internal/webhooks', headers: auth ? { authorization: auth } : {} });
+    expect((await cron()).statusCode).toBe(401);
+    expect((await cron('Bearer wrong')).statusCode).toBe(401);
+
+    // Not due yet: the cron leaves it alone.
+    expect((await cron('Bearer cron')).statusCode).toBe(200);
+    expect(t.sent).toHaveLength(1);
+
+    // Once its backoff has passed and the partner is back, the cron delivers it.
+    t.setAnswer(200);
+    const org = await t.ctx.store.load('demo');
+    org.webhookDeliveries![0].nextAttemptAt = Date.now() - 1;
+    expect((await cron('Bearer cron')).statusCode).toBe(200);
+    expect(t.sent).toHaveLength(2);
+    expect((await t.call('GET', '/v1/webhooks/deliveries')).body[0]).toMatchObject({ status: 'delivered', attempts: 1 });
   });
 
   it('lets a partner register its own endpoint with a webhooks:write key, and send a test', async () => {

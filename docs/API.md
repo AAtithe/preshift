@@ -27,7 +27,7 @@ locally. Set these to connect to real TeamPay:
 | `PRESHIFT_DEMO` | `1` makes the deployment the public demo: a sandbox per visitor at `/demo`, no account changes, simulator payroll. See the README |
 | `PRESHIFT_DEMO_CLAUDE_KEY` | Demo only. Claude API key the sandboxes share for the rota assistant, capped per sandbox. Unset means the assistant is off in the demo |
 | `PRESHIFT_DEMO_URL` | Live system only. Where its `/demo` sends visitors, the demo deployment's `/demo` |
-| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` to retry undelivered payroll changes |
+| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes) and `/internal/webhooks` (every 15 minutes, webhook retries) |
 
 ## Authentication and tenancy
 
@@ -129,8 +129,9 @@ Polling tells a partner too late. Webhooks tell it the moment something changes.
 - Events are raised from the audit trail, in the same save as the change, so one is never sent for
   a change that failed and never lost for one that was saved. They are sent inside the request
   that raised them (three second timeout, endpoints in parallel), and anything not answered 2xx
-  is retried with backoff up to eight times, on later changes and on the daily cron. An endpoint's
-  events go in order; a failing one holds back only its own.
+  is retried with backoff up to eight times, on the organisation's next change or the 15 minute
+  cron, whichever comes first, so a partner that was down hears within a quarter of an hour of its
+  next retry falling due. An endpoint's events go in order; a failing one holds back only its own.
 - HR events (`hr.profile.updated`, `hr.absence.*`, `hr.record.*`, `employee.rtw_document.*`) say
   something about a named person's health, conduct or immigration status, even as bare ids, so:
   they are never part of `*` and an endpoint names each one; only a person with `hr.view` across the
@@ -310,6 +311,7 @@ is sent; if the log cannot be written, the file is not shown.
 | `/app` | Rota web app |
 | `/v1/*`, `/docs`, `/health` | The API, as one Node function |
 | `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
+| `/internal/webhooks` | Vercel Cron every 15 minutes: webhook retries that are due (needs `CRON_SECRET`) |
 
 Payroll changes are also delivered inside the request that makes them, so the cron is a safety
 net, not the main path.

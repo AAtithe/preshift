@@ -193,6 +193,14 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true };
   });
 
+  // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
+  // hears within the quarter hour of coming back, even from an organisation nobody is editing.
+  app.get('/internal/webhooks', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await deliverAllWebhooks(store, options.webhookFetch);
+    return { ok: true };
+  });
+
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
   const appPath = '/app/';
