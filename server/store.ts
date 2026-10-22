@@ -7,6 +7,7 @@ import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
+import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
 
 export interface PayrollSubmission {
@@ -90,6 +91,10 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
+  webhooks?: WebhookEndpoint[];
+  /** Events waiting to reach, or recently sent to, those systems. */
+  webhookDeliveries?: WebhookDelivery[];
   users: User[];
   accessReviews: AccessReview[];
   /** Invitation tokens by their SHA-256; the plain token is shown once, to whoever sent it. */
@@ -207,6 +212,32 @@ export interface StaffLogin {
   lockedUntil: number;
 }
 
+/**
+ * An API key an admin made in the app. Only its SHA-256 is kept; the key itself is shown once,
+ * when it is made. Kept outside organisation data so no data endpoint can ever return it.
+ */
+export interface ApiKeyRecord {
+  id: string;
+  orgId: string;
+  name: string;
+  scopes: string[];
+  /** SHA-256 of the key, hex. */
+  hash: string;
+  /** The last four characters, so people can tell keys apart. */
+  endsWith: string;
+  createdAt: string;
+  createdBy: string;
+  lastUsedAt?: string;
+}
+
+export interface ApiKeyStore {
+  getApiKeyByHash(hash: string): Promise<ApiKeyRecord | null>;
+  listApiKeys(orgId: string): Promise<ApiKeyRecord[]>;
+  /** Creates or replaces, by hash. */
+  putApiKey(key: ApiKeyRecord): Promise<void>;
+  deleteApiKey(orgId: string, id: string): Promise<boolean>;
+}
+
 export interface StaffStore {
   getStaffLogin(orgId: string, employeeId: string): Promise<StaffLogin | null>;
   getStaffLoginByEmail(email: string): Promise<StaffLogin | null>;
@@ -255,7 +286,7 @@ export interface DocumentStore {
  * and saves it once at the end. A save that finds the organisation changed
  * underneath it is refused rather than overwriting someone else's work.
  */
-export interface Store extends UserStore, StaffStore, DocumentStore {
+export interface Store extends UserStore, StaffStore, ApiKeyStore, DocumentStore {
   load(orgId: string): Promise<OrgData>;
   /** Whether the organisation exists, without creating it as load() would. */
   has(orgId: string): Promise<boolean>;
@@ -423,6 +454,27 @@ export class MemoryStore implements Store {
     return { ...next };
   }
 
+  private readonly apiKeys = new Map<string, ApiKeyRecord>();
+
+  async getApiKeyByHash(hash: string) {
+    const key = this.apiKeys.get(hash);
+    return key ? { ...key } : null;
+  }
+
+  async listApiKeys(orgId: string) {
+    return [...this.apiKeys.values()].filter((k) => k.orgId === orgId).map((k) => ({ ...k }));
+  }
+
+  async putApiKey(key: ApiKeyRecord) {
+    this.apiKeys.set(key.hash, { ...key });
+  }
+
+  async deleteApiKey(orgId: string, id: string) {
+    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id);
+    if (found) this.apiKeys.delete(found.hash);
+    return !!found;
+  }
+
   private readonly documents = new Map<string, StoredFile>();
 
   async putDocument(orgId: string, id: string, file: StoredFile) {
@@ -532,6 +584,17 @@ export class PgStore implements Store {
          )`,
         [],
       );
+      await this.query(
+        `create table if not exists preshift.api_keys (
+           hash text primary key,
+           org_id text not null,
+           id text not null,
+           data jsonb not null,
+           created_at timestamptz not null default now()
+         )`,
+        [],
+      );
+      await this.query('create index if not exists api_keys_org_idx on preshift.api_keys (org_id)', []);
       // Base64 text rather than bytea: Neon's HTTP driver and PGlite pass strings identically.
       await this.query(
         `create table if not exists preshift.documents (
@@ -736,6 +799,33 @@ export class PgStore implements Store {
     return rows.length ? userFrom(rows[0].data) : null;
   }
 
+  async getApiKeyByHash(hash: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.api_keys where hash = $1', [hash]);
+    return rows.length ? jsonFrom<ApiKeyRecord>(rows[0].data) : null;
+  }
+
+  async listApiKeys(orgId: string) {
+    await this.init();
+    const rows = await this.query('select data from preshift.api_keys where org_id = $1 order by created_at', [orgId]);
+    return rows.map((r) => jsonFrom<ApiKeyRecord>(r.data));
+  }
+
+  async putApiKey(key: ApiKeyRecord) {
+    await this.init();
+    await this.query(
+      `insert into preshift.api_keys (hash, org_id, id, data) values ($1, $2, $3, $4)
+       on conflict (hash) do update set data = excluded.data`,
+      [key.hash, key.orgId, key.id, JSON.stringify(key)],
+    );
+  }
+
+  async deleteApiKey(orgId: string, id: string) {
+    await this.init();
+    const rows = await this.query('delete from preshift.api_keys where org_id = $1 and id = $2 returning id', [orgId, id]);
+    return rows.length > 0;
+  }
+
   async putDocument(orgId: string, id: string, file: StoredFile) {
     await this.init();
     await this.query(
@@ -809,6 +899,10 @@ export class PgStore implements Store {
 
 }
 
+function jsonFrom<T>(data: unknown): T {
+  return (typeof data === 'string' ? JSON.parse(data) : data) as T;
+}
+
 function staffFrom(data: unknown): StaffLogin {
   return (typeof data === 'string' ? JSON.parse(data) : data) as StaffLogin;
 }
@@ -843,4 +937,7 @@ function deserialise(data: unknown, version: number): OrgData {
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {
   org.audit.push({ at: new Date().toISOString(), actor, action, detail });
   if (org.audit.length > 5000) org.audit.splice(0, org.audit.length - 5000);
+  // Every change worth telling a partner about is already audited, so webhooks are raised here,
+  // in the same save as the change.
+  queueEvent(org, action, detail);
 }
