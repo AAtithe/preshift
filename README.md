@@ -19,6 +19,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | Owners | Self sign-up and Billing. A business starts a 14 day free trial from the sign-in page with no card: it confirms its email from a link, chooses a password and lands in Set-up as owner of its own new organisation. Organisation, then Billing, takes the subscription through Stripe Checkout, priced per site, with cards, VAT invoices and cancelling in Stripe's own portal. A lapsed trial or subscription pauses changes and keeps everything readable. | New customers onboard themselves and pay by card, so growth no longer waits on a set-up call or a manual invoice, and nobody is ever cut off from their own staff and pay records. |
 | GMs | People, then Onboarding: every person starting in the next 60 days or who started in the last 90, with one checklist each. Right to work and pay before any shift; written statement, NI number, emergency contact and clocking by day one; payroll and probation date in the first week; role training in the first month. Late steps go red and each opens the form that fixes it. | A new starter is finished once, properly, instead of being chased item by item for months. |
 | WS | Organisation, then Clients, for Williams, Stanley & Co. people: every client you hold a WS role in, its onboarding progress (owner accepted, companies, sites, team, payroll, email, first rota) and what needs attention. A WS client partner adds a new client from here: a new organisation with them on it, and its owner invited by email only. | Client onboarding is run and tracked in the product, and WS never holds a client owner's link. |
+| WS | The organisation picker sits at the top of the left-hand bar for anyone who works in more than one organisation: the current organisation by name, how many you work in, a list with your home organisation marked, and a search from seven up. Choosing one is a click on its name, and a refused switch says why. | A client partner always sees whose books they are in before they change anything, and moving between clients is one deliberate click, not a dropdown that fires as you scroll. |
 | GMs | The heading is now the site and company picker: click All sites or a site's name for one list grouped by company, with a search once there are seven or more sites. The trail above a site's name steps back out to its company, then to every site. | One control instead of two dropdowns that had to agree with each other, and the name on screen is always the scope the figures cover. |
 | GMs | One week picker beside the week's status: arrows, a label saying where the week sits (This week, Next week, In 3 weeks), the week number with the month on both ends, a list of nearby weeks, a jump to any date, and Back to this week. | The manager knows which week they are planning at a glance, and a week across a month end no longer reads as the wrong dates. |
 | GMs | Left-hand management bar groups the app into Overview, Rota, People, Finance and Admin. Site-only sections stay visible at group level and ask for a site. | The map never moves, so nobody hunts for a tab when they switch from group to site. |
@@ -33,7 +34,7 @@ Past cards live in `docs/WHATS_NEW.md`.
 | GMs | Redesigned rota in WS colours: a service timeline drawn over each day's sales curve, drag to move or resize shifts, draw a shift on empty space, borrow cover from sister sites, and a rota P&L beside every screen. | Every edit shows its cost and legality as it is made, so the GM sees labour % move before they commit, not after. |
 | People | HR file per person, holiday entitlement balances per leave year, and a break check on finished shifts. | The records an employment tribunal or HMRC would ask for are kept where the rota is made. |
 | Admin | GDPR request log for staff data, an Integrations page showing every connection's health, and a public demo with a private sandbox per visitor. | Compliance and prospects are handled in the product, not in spreadsheets and screen shares. |
-| Everyone | CI typechecks and runs the full suite (789 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
+| Everyone | CI typechecks and runs the full suite (797 tests) on every pull request and on main. | A red build is caught before it reaches a site, not after. |
 
 The test for this week: take one site through a full cycle. Build the week, publish it, clock two
 people in on the tablet and one on a phone, approve the hours, send them to payroll and post the
@@ -200,14 +201,14 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 789 tests across 74 files (engine, pricing, sign-up and billing, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 797 tests across 75 files (engine, pricing, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (789 across 74 files)
+npm test         # engine, UI rules, assistant and API tests (797 across 75 files)
 npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
 ```
@@ -215,8 +216,14 @@ npm run test:e2e # browser checks of the management bar (Playwright), against a 
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
 `PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there, or set `PRESHIFT_E2E_DEMO=1`
 to go in through its public demo with no account (for example
-`PRESHIFT_E2E_URL=https://preshift-nine.vercel.app PRESHIFT_E2E_DEMO=1 npm run test:e2e`). They only navigate; they
+`PRESHIFT_E2E_URL=https://preshift.williamsstanley.co PRESHIFT_E2E_DEMO=1 npm run test:e2e`). They only navigate; they
 never build, clear, publish or save.
+
+The Live checks workflow (`.github/workflows/live.yml`) does exactly that against
+`https://preshift.williamsstanley.co` after every successful production deployment, nightly, and on
+demand from the Actions tab. A failure opens a "Live checks failing" issue, or adds to the open one,
+and the issue closes itself when the checks pass again. Set the `PRESHIFT_LIVE_URL` repository
+variable to point it somewhere else.
 
 Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only
 exists when the API runs without a database, and is never created on the live system. To try the
