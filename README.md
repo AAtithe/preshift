@@ -21,7 +21,8 @@ accrual so the P&L carries true labour before payroll has even run.
 | People | Employee records: details, employment dates, roles, contract and pay, right to work with the copies of the documents checked, availability and leave. Each record is checked before it reaches the rota: right to work missing or expired, checked with no copy held or no date recorded, pay below the legal minimum, upcoming birthdays that move the minimum wage band, salaried pay that falls below minimum wage at maximum hours, under 18 opt-outs, auto-enrolment eligibility. Starters and leavers are pro-rated in cost, kept off the auto-build outside their dates, and exported for payroll. | `src/engine/employees.ts`, `src/ui/PeopleView.tsx`, `src/ui/EmployeeEditor.tsx`, `server/routes/documents.ts` |
 | Holiday | Entitlement balances per person for each company's leave year: 5.6 weeks (or the contract) earned evenly for fixed hours staff, 12.07% of hours worked for irregular hours staff (paid travel between sites included), from approved clocked time where it exists and the rota otherwise. Taken and booked leave, carry over, opening balances at go-live, and per-day hours. Flags overbooking, unused leave near year end, and leavers' final holiday pay. The untaken balance is valued as the holiday pay provision, with employer NI, to match the balance sheet accrual. | `src/engine/holiday.ts`, `src/ui/HolidayView.tsx` |
 | HR | The personnel file behind every person, with everything a GM must act on in one list. Contract type, written statement issued and signed (a day one right), probation dates and outcome, fixed-term end, notice (contract against statutory: a week after a month, then a week a year to twelve), NI number, address, emergency contact and line manager. Sickness and other absence with fit notes after seven days, return to work conversations and the Bradford factor over 52 weeks; disability or pregnancy related absence is kept out of triggers. A shift on an absence day is blocked like leave, and the auto-build steers round it. A training matrix of the certificates an EHO, licensing officer or insurer asks for, required by role (food hygiene, allergens, Challenge 25, personal licence), with expiry warnings. Probation and appraisal tracking, and disciplinary, grievance and capability cases with outcomes and live warnings, visible to admins only. Headcount, turnover, average service and sick days per head across any scope, with directory, absence and training CSVs. Rota and payroll keys never see the file: they get absence dates only, without reasons. Subject access exports include the HR records; contact erasure removes address and emergency contact; anonymisation removes the NI number, sickness reasons and every HR record; the record of processing lists personnel files and health data. | `src/engine/hr.ts`, `server/routes/hr.ts`, `src/ui/HrOverview.tsx`, `src/ui/HrFile.tsx`, `src/ui/AbsenceView.tsx`, `src/ui/TrainingView.tsx`, `src/ui/ReviewsView.tsx` |
-| Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools. Every shift it proposes is costed by the payroll model and checked by the compliance engine; anything with a blocking issue is refused, so it cannot roster illegally. The GM sees labour % before and after, the changes, and a short note on gaps and trade-offs, then applies or discards the draft. | `src/ai/rotaTools.ts`, `src/ai/rotaAgent.ts`, `src/ui/AssistantPanel.tsx` |
+| Shifty and the command bar | Shifty, the chat in the bottom right, answers questions about the rota, labour, the team and holiday from the app's own data. The command bar along the bottom (Ctrl K) takes one-line instructions such as "please add a new starter". Both share one agent: it looks things up, and every change (a starter, record changes, a leaver, holiday, an absence, a shift, publishing) comes back as a card the manager confirms before it is carried out through the same actions and API checks as the screens. It enforces minimum wage for age and the rota rules, never sees NI numbers, addresses or absence reasons, hands whole-rota work to the rota assistant, and counts towards the same spend limits. | `src/ai/appTools.ts`, `src/ai/appAgent.ts`, `src/ui/Shifty.tsx`, `src/ui/CommandBar.tsx`, `src/ui/proposals.tsx` |
+| Rota assistant | The GM tells it what they need in plain English ("Ben is off Saturday, re-cover the bar without going over target") and Claude drafts the week by calling the engine's own tools, for one site, a company's sites or the whole group, then takes follow-up changes to the same draft. Every shift is costed by the payroll model and checked by the compliance engine, so it cannot roster illegally, roster a leaver or someone with no right to work check, or borrow anyone who has not agreed to cover a site. It uses each home team first, then sister sites, then other companies in the group (an intercompany recharge), and leaves shifts that have started alone. From the last four weeks it spreads weekends and closes fairly, respects each person's rota notes, avoids relying on people with recent late arrivals or no-shows for solo shifts, and suggests leave to people with holiday to use before the year end. The GM sees each site's labour % before and after, the changes, cover borrowed, a note and the Claude cost, then applies the draft in one all-or-nothing save that is refused if anyone changed the week meanwhile, with the instructions kept in the audit log. Spending is capped per organisation per month and per person per day in Settings. | `src/ai/`, `src/engine/insights.ts`, `src/ui/AssistantPanel.tsx`, `server/assistantLimits.ts` |
 | Close | Labour accrual journals by role nominal and site tracking category, one per entity, from approved actuals once available, otherwise the rota, exported in Xero manual journal format. | `src/engine/journal.ts`, `src/ui/CloseView.tsx` |
 | Multi-site | Group and entity views put every site side by side with entity subtotals and a sales-weighted group target. One press builds every site in scope: each site's own team first, then cover from people who have agreed to work other sites. Cross-site cover is reported each week. | `src/engine/metrics.ts`, `src/engine/autoschedule.ts`, `src/ui/GroupView.tsx` |
 | Multi-entity | Sites trade in an entity and people are employed by one, which need not be the same (a central employing company, or cover at a sister company's site). Cost lands where the work was done; the wages accrual stays with the employer; the difference posts as an intercompany recharge on both sides, checked to agree before posting. | `src/engine/types.ts`, `src/engine/journal.ts` |
@@ -54,12 +55,34 @@ The product is meant to read like management accounts, not like a rota app, in W
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules and API tests (344 across 30 files)
+npm test         # engine, UI rules, assistant and API tests (413 across 36 files)
 npm run build    # typecheck and production build
 ```
 
 Locally, sign in as `dev@preshift.local` with password `preshift-dev-password`. That account only
 exists when the API runs without a database, and is never created on the live system.
+
+## Evaluating the rota assistant
+
+`src/ai/evals/cases.ts` holds 16 realistic requests on the demo group, from "build the week" to
+"put Chloe on while she is on leave" (which must be refused) and "check, but change nothing". Each
+is graded on the rota the assistant leaves behind, with separate pass/fail checks: legal, history
+untouched, cover kept, labour at target, the instruction met, and a short plain note. Every case
+has a reference solution that must pass and a do-nothing answer that must fail unless doing nothing
+is right; `npm test` proves both, so the grader is trusted before any money is spent.
+
+To run it against Claude, on a machine with a Claude API key (`ANTHROPIC_API_KEY` or an
+`ant auth login` profile; this is a developer tool, separate from the key the app keeps in Settings):
+
+```bash
+npm run eval:assistant -- --reps 1                       # every case once, roughly $5 to $15
+npm run eval:assistant -- --cases follow-up --reps 3     # one case, three times
+```
+
+It writes `eval-results/<time>/` with `summary.md` (pass rates with 95% intervals, per case and per
+check, and the cost), `results.jsonl`, `errors.jsonl` (API errors, timeouts and wrong-model runs,
+never counted as wrong answers) and every conversation under `transcripts/`. Run it before any change
+to the assistant's prompt, tools or model, and compare the summaries.
 
 ## Sign in, people and settings
 

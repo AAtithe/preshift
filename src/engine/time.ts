@@ -68,3 +68,21 @@ export function taxYearOf(iso: string): string {
 export function taxYearStartDate(taxYear: string): string {
   return `${taxYear.slice(0, 4)}-04-06`;
 }
+
+/** Local date and minute in London for an instant: clocking and rotas are always UK wall-clock time. */
+export function londonParts(at: Date): { date: string; minute: number } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(at)
+      .map((p) => [p.type, p.value]),
+  );
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+}
