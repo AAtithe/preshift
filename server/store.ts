@@ -8,7 +8,7 @@ import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
@@ -113,6 +113,14 @@ export interface OrgData {
   lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
+  /** Holiday, time off, sickness, availability, swaps and open shift claims from the staff app. */
+  requests?: StaffRequest[];
+  /** Shifts posted for anyone eligible to claim. */
+  openShifts?: OpenShift[];
+  /** What each member of staff has been told, newest last. */
+  notifications?: StaffNotification[];
+  /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
+  toldWeeks?: Record<string, string[]>;
   /** Events waiting to reach, or recently sent to, those systems. */
   webhookDeliveries?: WebhookDelivery[];
   users: User[];
@@ -345,7 +353,7 @@ export interface DocumentAccess {
   at: string;
   /** The signed-in person's email, or the API key's name. */
   actor: string;
-  via: 'session' | 'api key';
+  via: 'session' | 'api key' | 'staff app';
   ip?: string;
 }
 

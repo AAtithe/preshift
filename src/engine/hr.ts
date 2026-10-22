@@ -192,7 +192,7 @@ export function hrChecks(employee: Employee, records: HrRecord[], roles: Role[],
     if (a.from <= today && (!a.to || a.to >= today)) {
       push(`off:${a.id}`, 'warn', `Off since ${a.from} (${ABSENCE_LABEL[a.type].toLowerCase()})${a.to ? `, due back after ${a.to}` : ', no return date'}.`);
     }
-    if (a.type === 'sickness' && days > FIT_NOTE_AFTER_DAYS && !a.fitNote) {
+    if (a.type === 'sickness' && days > FIT_NOTE_AFTER_DAYS && !a.fitNote && !a.fitNotes?.length) {
       push(`fit-note:${a.id}`, 'warn', `Off sick ${days} days from ${a.from} with no fit note. One is needed after seven days.`);
     }
     if (

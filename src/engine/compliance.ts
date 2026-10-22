@@ -107,6 +107,7 @@ function overlaps(a: Shift, b: Shift, anchor: string) {
 }
 
 export function isAvailable(employee: Employee, shift: Shift): boolean {
+  if (employee.unavailable?.some((u) => u.date === shift.date)) return false;
   if (employee.availability.length === 0) return true;
   const day = weekday(shift.date);
   return employee.availability.some(

@@ -36,6 +36,8 @@ import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { requestRoutes } from './routes/requests';
+import { emailNotifications } from './notify';
 import { webRoutes } from './routes/web';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -291,7 +293,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   signInRoutes(app, ctx, { demo });
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, auth);
-  staffRoutes(app, store);
+  staffRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
     loginPage: options.loginPage ?? path.resolve('site/login.html'),
@@ -328,6 +330,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       try {
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
+        // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
+        await emailNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -381,6 +385,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    // What staff ask for in the staff app, decided here by whoever runs their rota or team.
+    requestRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

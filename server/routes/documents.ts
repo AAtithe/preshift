@@ -27,9 +27,9 @@ export function sniffType(data: Buffer): RightToWorkDocument['contentType'] | nu
 }
 
 /** A display name only: no path, no control characters, and short. */
-function cleanFileName(name: string | undefined, contentType: RightToWorkDocument['contentType']): string {
+export function cleanFileName(name: string | undefined, contentType: RightToWorkDocument['contentType'], fallback = 'right-to-work'): string {
   const base = (name ?? '').split(/[\\/]/).pop()!.replace(/[\u0000-\u001f\u007f"]/g, '').trim().slice(0, 120);
-  return base || `right-to-work.${contentType.split('/')[1]}`;
+  return base || `${fallback}.${contentType.split('/')[1]}`;
 }
 
 function employeeIn(org: OrgData, id: string): Employee {
@@ -38,7 +38,7 @@ function employeeIn(org: OrgData, id: string): Employee {
   return e;
 }
 
-function cipherOf(ctx: AppContext): DocumentCipher {
+export function cipherOf(ctx: AppContext): DocumentCipher {
   if (!ctx.documentCipher) {
     throw new HttpError(
       503,
@@ -74,10 +74,10 @@ export interface DroppedCopy {
 
 /** Copies the records named before a change and no longer name after it, as when retention strips a leaver. */
 export function droppedCopies(before: Employee[], after: Employee[]): DroppedCopy[] {
-  const still = new Set(after.flatMap((e) => (e.rightToWork?.documents ?? []).map((d) => d.id)));
-  return before.flatMap((e) =>
-    (e.rightToWork?.documents ?? []).filter((d) => !still.has(d.id)).map((d) => ({ employeeId: e.id, documentId: d.id })),
-  );
+  // Fit notes are health data kept the same way, and go when their absence or its detail does.
+  const files = (e: Employee) => [...(e.rightToWork?.documents ?? []), ...(e.absences ?? []).flatMap((a) => a.fitNotes ?? [])];
+  const still = new Set(after.flatMap((e) => files(e).map((d) => d.id)));
+  return before.flatMap((e) => files(e).filter((d) => !still.has(d.id)).map((d) => ({ employeeId: e.id, documentId: d.id })));
 }
 
 /**
@@ -200,6 +200,37 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
       return reply
         .header('content-type', doc.contentType)
         .header('content-disposition', `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(doc.fileName)}`)
+        .header('x-content-type-options', 'nosniff')
+        .header('cache-control', 'private, no-store')
+        .send(data);
+    },
+  );
+
+  app.get<{ Params: { id: string; absenceId: string; docId: string } }>(
+    '/v1/employees/:id/absences/:absenceId/fit-notes/:docId',
+    {
+      preHandler: requireScope('hr:read'),
+      schema: {
+        tags: ['HR'],
+        description: 'A fit note the person uploaded in the staff app, to view or download. Health data: personnel file readers only, every view logged.',
+        params: { type: 'object', required: ['id', 'absenceId', 'docId'], properties: { id: { type: 'string' }, absenceId: { type: 'string' }, docId: { type: 'string' } } },
+      },
+    },
+    async (req, reply) => {
+      const org = orgOf(req);
+      const e = employeeIn(org, req.params.id);
+      mayView(req, guard(ctx, req, org), e);
+      const cipher = cipherOf(ctx);
+      const doc = e.absences?.find((a) => a.id === req.params.absenceId)?.fitNotes?.find((d) => d.id === req.params.docId);
+      if (!doc) throw notFound(`Fit note ${req.params.docId}`);
+      const file = await ctx.store.getDocument(org.orgId, doc.id);
+      if (!file) throw notFound(`Fit note ${req.params.docId}`);
+      const data = cipher.open(org.orgId, doc.id, file.data);
+      await ctx.store.logDocumentAccess(accessEntry(req, doc.id, e.id, 'viewed'));
+      const ascii = doc.fileName.replace(/[^\x20-\x7e]/g, '_');
+      return reply
+        .header('content-type', doc.contentType)
+        .header('content-disposition', `inline; filename="${ascii}"`)
         .header('x-content-type-options', 'nosniff')
         .header('cache-control', 'private, no-store')
         .send(data);

@@ -148,3 +148,16 @@ export function accessResetEmail(to: string, resetBy: string, link: string, hour
   const text = [opening, '', setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
   return { to, subject: 'Your Preshift password has been reset', text, html: letter([opening, setUp], { label: 'Choose a new password', link }, notes) };
 }
+
+/**
+ * News for a member of staff from the staff app: their rota is out, a shift moved, a request was
+ * decided. Several from one save arrive as one email. Names and times only: never pay, never a
+ * reason for absence, so a shared or forwarded inbox gives nothing away.
+ */
+export function staffNoticeEmail(to: string, name: string, notices: { title: string; body: string }[], link: string): Mail {
+  const lines = notices.flatMap((n) => [n.title, n.body]);
+  const subject = notices.length === 1 ? oneLine(notices[0].title) : `${notices.length} updates from your rota`;
+  const notes = ['Open the staff app to see your shifts, swap a shift, or ask for time off.'];
+  const text = [`Hello ${name},`, '', ...notices.flatMap((n) => [n.title, n.body, '']), link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject, text, html: letter([`Hello ${name},`, ...lines], { label: 'Open the staff app', link }, notes) };
+}
