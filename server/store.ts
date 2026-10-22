@@ -176,6 +176,8 @@ export interface UserStore {
   /** Secrets and settings kept apart from organisation data, so no data endpoint can return them. */
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string | null): Promise<void>;
+  /** Adds to a running total kept as a setting, atomically, and returns the new total. */
+  addToSetting(key: string, amount: number): Promise<number>;
   /** A setting written once and never overwritten: whoever writes first wins, and everyone reads that. */
   settingOnce(key: string, make: () => string): Promise<string>;
 }
@@ -474,6 +476,12 @@ export class MemoryStore implements Store {
   async setSetting(key: string, value: string | null) {
     if (value === null) this.settings.delete(key);
     else this.settings.set(key, value);
+  }
+
+  async addToSetting(key: string, amount: number) {
+    const total = Number(this.settings.get(key) ?? 0) + amount;
+    this.settings.set(key, String(total));
+    return total;
   }
 
   async settingOnce(key: string, make: () => string) {
@@ -806,6 +814,18 @@ export class PgStore implements Store {
       );
     }
   }
+  async addToSetting(key: string, amount: number) {
+    await this.init();
+    // One statement, so two requests finishing together both count.
+    const rows = await this.query(
+      `insert into preshift.settings (key, value) values ($1, $2::text)
+       on conflict (key) do update set value = (preshift.settings.value::numeric + $2::numeric)::text
+       returning value`,
+      [key, String(amount)],
+    );
+    return Number(rows[0].value);
+  }
+
 }
 
 function staffFrom(data: unknown): StaffLogin {

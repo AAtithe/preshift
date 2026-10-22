@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { addDays, toISODate, weekStart } from '../src/engine/time';
 import { kit } from './testkit';
 
-const WEEK = '2026-10-19';
+// A week ahead of the real clock: shifts that have started can no longer be moved.
+const WEEK = weekStart(addDays(toISODate(new Date()), 14));
 const KEYS = [
   { key: 'gm-mar', orgId: 'demo', name: 'Priya key', scopes: ['*' as const], userId: 'usr_gm_mar' },
   { key: 'area', orgId: 'demo', name: 'Daniel key', scopes: ['*' as const], userId: 'usr_area', mfa: true },
@@ -41,7 +43,7 @@ describe('rostering other sites\' people', () => {
       siteId: 'mar', weekStart: WEEK,
       shifts: [
         { ...shift('shd-2', 'chef'), id: borrowed.id },
-        { ...shift('shd-2', 'chef', { date: '2026-10-20' }), id: 'new-one' },
+        { ...shift('shd-2', 'chef', { date: addDays(WEEK, 1) }), id: 'new-one' },
       ],
     });
     // The agreed shift passes; the new pairing on another day does not.
