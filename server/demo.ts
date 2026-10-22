@@ -243,6 +243,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/integrations/epos/locations': false,
   'PUT /v1/integrations/epos/mapping': false,
   'POST /v1/integrations/epos/sync': false,
+  'POST /v1/integrations/epos/resync': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.

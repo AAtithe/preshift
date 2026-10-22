@@ -41,6 +41,28 @@ export interface EposConnection {
   /** The Square account's own name for itself, shown so nobody connects the wrong business. */
   accountName?: string;
   lastSync?: EposSyncResult;
+  /** The last re-sync of past takings, so the restatement stays on record beside the connection. */
+  lastResync?: EposResyncResult;
+}
+
+/**
+ * Past takings read again from the till after a fix to how takings are worked out. Only days the
+ * till wrote in the first place are rewritten, and only takings: tips are left as they are.
+ */
+export interface EposResyncResult {
+  at: string;
+  from: string;
+  to: string;
+  ok: boolean;
+  error?: string;
+  /** Till days read again. */
+  read: number;
+  /** Till days this till has no orders for, left as they were rather than zeroed. */
+  unmatched: number;
+  /** Of those, days whose takings changed. */
+  changed: number;
+  /** By site: the days that changed, and their takings before and after. */
+  sites: { siteId: string; changed: number; before: number; after: number }[];
 }
 
 export interface EposSyncResult {

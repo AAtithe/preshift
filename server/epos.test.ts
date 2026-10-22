@@ -225,6 +225,76 @@ describe('VAT on a taxable service charge', () => {
   });
 });
 
+describe('re-syncing past takings', () => {
+  // A dinner for £100 with VAT inside it, a 12.5% taxable service charge and a £5 card tip, all in Square's total:
+  // £83.33 of takings, read as £81.25 before the fix.
+  const taxableDinner = (id: string, closedAt: string) =>
+    order(id, 'LMAR', closedAt, 0, {
+      total_money: { amount: 11750, currency: 'GBP' },
+      total_tax_money: { amount: 1875, currency: 'GBP' },
+      total_service_charge_money: { amount: 1250, currency: 'GBP' },
+      total_tip_money: { amount: 500, currency: 'GBP' },
+      service_charges: [{ applied_money: { amount: 1250 }, total_tax_money: { amount: 208 }, total_money: { amount: 1250 } }],
+    });
+
+  async function withHistory(orders: unknown[]) {
+    const square = fakeSquare({ orders });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR' } });
+    return { call, square };
+  }
+
+  it('restates the days the till wrote, and leaves hand-keyed and imported days, and tips, alone', async () => {
+    const { call } = await withHistory([
+      taxableDinner('1', '2026-10-12T19:00:00Z'),
+      taxableDinner('2', '2026-10-13T19:00:00Z'),
+      taxableDinner('3', '2026-10-14T19:00:00Z'),
+      taxableDinner('4', '2026-10-15T19:00:00Z'),
+    ]);
+    // What the old code wrote from the till on Monday and Tuesday, a manager's Wednesday and a file's Thursday.
+    await call('PUT', '/v1/sales', {
+      rows: [
+        { siteId: 'mar', date: '2026-10-12', netSales: 81.25, source: 'till' },
+        { siteId: 'mar', date: '2026-10-13', netSales: 81.25, source: 'till' },
+        { siteId: 'mar', date: '2026-10-14', netSales: 90, source: 'manual' },
+        { siteId: 'mar', date: '2026-10-15', netSales: 95, source: 'import' },
+      ],
+    });
+
+    const res = await call('POST', '/v1/integrations/epos/resync', {});
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, from: '2026-10-12', read: 2, changed: 2, sites: [{ siteId: 'mar', changed: 2, before: 162.5, after: 166.66 }] });
+    // The sample's own takings are marked till too, but this till has no orders for them: left, not zeroed.
+    expect(res.body.unmatched).toBeGreaterThan(0);
+    const sample = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-19&to=2026-10-20')).body as { netSales: number }[];
+    expect(sample.every((s) => s.netSales > 1000)).toBe(true);
+
+    const sales = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-12&to=2026-10-15')).body as { date: string; netSales: number; source: string }[];
+    const day = (d: string) => sales.find((s) => s.date === d);
+    expect(day('2026-10-12')).toMatchObject({ netSales: 83.33, source: 'till' });
+    expect(day('2026-10-13')).toMatchObject({ netSales: 83.33, source: 'till' });
+    expect(day('2026-10-14')).toMatchObject({ netSales: 90, source: 'manual' });
+    expect(day('2026-10-15')).toMatchObject({ netSales: 95, source: 'import' });
+    // The orders carried tips and service charge, but a re-sync rewrites takings only.
+    expect((await call('GET', '/v1/tronc')).body.tips).toEqual([]);
+    expect((await call('GET', '/v1/integrations/epos')).body.connection.lastResync).toMatchObject({ read: 2, changed: 2 });
+
+    // Run again, nothing changes.
+    expect((await call('POST', '/v1/integrations/epos/resync', {})).body).toMatchObject({ read: 2, changed: 0, sites: [] });
+  });
+
+  it('reads a long history a quarter at a time, and refuses more than two years', async () => {
+    const { call, square } = await withHistory([taxableDinner('1', '2026-04-01T19:00:00Z')]);
+    await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-04-01', netSales: 81.25, source: 'till' }, { siteId: 'mar', date: '2026-10-20', netSales: 0, source: 'till' }] });
+    const res = await call('POST', '/v1/integrations/epos/resync', {});
+    expect(res.body).toMatchObject({ ok: true, from: '2026-04-01', read: 1, changed: 1 });
+    // April to October is three quarters; the one with no till days in it is not fetched.
+    expect(square.calls.filter((c) => c.url.endsWith('/v2/orders/search')).length).toBe(2);
+    expect((await call('POST', '/v1/integrations/epos/resync', { from: '2024-01-01', to: '2026-10-20' })).status).toBe(400);
+  });
+});
+
 describe('service charge from Square', () => {
   it('takes what was collected: nothing for a charge taken off the bill, net of one refunded after', () => {
     expect(squareServiceCharge({ id: 'a', location_id: 'L', total_money: { amount: 6750 }, total_service_charge_money: { amount: 750 } })).toBe(7.5);

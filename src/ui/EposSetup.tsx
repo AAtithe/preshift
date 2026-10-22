@@ -17,6 +17,27 @@ export interface EposSyncResult {
 
 type TillTips = { written: number; kept: { siteId: string; date: string }[]; paidDiffers: { siteId: string; date: string; paid: number; till: number }[]; total: number };
 
+export interface EposResyncResult {
+  at: string;
+  from: string;
+  to: string;
+  ok: boolean;
+  error?: string;
+  read: number;
+  unmatched: number;
+  changed: number;
+  sites: { siteId: string; changed: number; before: number; after: number }[];
+}
+
+/** One line on a re-sync: how many till days were read again, and what changed, site by site. */
+export function describeResync(r: EposResyncResult, siteName: (id: string) => string) {
+  if (!r.ok && r.read === 0) return r.error ?? 'The re-sync failed.';
+  const changes = r.sites.map((s) => `${siteName(s.siteId)} ${s.changed} day${s.changed === 1 ? '' : 's'}, ${money(s.before)} to ${money(s.after)}`).join('; ');
+  const left = r.unmatched ? ` ${r.unmatched} days marked till that this till has no orders for were left as they were.` : '';
+  const done = `${r.read} till days from ${r.from} to ${r.to} read again: ${r.changed ? `${r.changed} restated (${changes}).` : 'none changed.'}${left}`;
+  return r.ok ? done : `${done} Stopped part way: ${r.error}`;
+}
+
 export interface EposStatus {
   connection: null | {
     provider: 'square';
@@ -25,6 +46,7 @@ export interface EposStatus {
     connectedBy: string;
     accountName?: string;
     lastSync?: EposSyncResult;
+    lastResync?: EposResyncResult;
   };
   tokenEndsWith: string | null;
   sites: { siteId: string; name: string; locationId: string | null }[];
@@ -120,6 +142,14 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
       onSynced?.();
       if (!r.ok) throw new Error(r.error);
       return describeSync(r, siteName);
+    });
+
+  const resync = () =>
+    run('Re-sync', async () => {
+      const r = await api.post<EposResyncResult>('/v1/integrations/epos/resync', {});
+      onSynced?.();
+      if (!r.ok && r.read === 0) throw new Error(r.error);
+      return describeResync(r, siteName);
     });
 
   const disconnect = () =>
@@ -221,6 +251,18 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
               {conn.lastSync && (
                 <p className={`small ${conn.lastSync.ok ? 'muted' : 'bad-text'}`}>
                   Last sync {syncedAt(conn.lastSync.at)}: {describeSync(conn.lastSync, siteName)}
+                </p>
+              )}
+              <div className="close-actions">
+                <button disabled={busy || mappingChanged || unmatched === status.sites.length} onClick={() => void resync()}>Re-sync past takings</button>
+                <span className="small muted">
+                  Reads again every day the till already brought in, after a fix to how takings are worked out. Days keyed in by hand
+                  or loaded from a file, and tips, are left as they are.
+                </span>
+              </div>
+              {conn.lastResync && (
+                <p className={`small ${conn.lastResync.ok ? 'muted' : 'bad-text'}`}>
+                  Last re-sync {syncedAt(conn.lastResync.at)}: {describeResync(conn.lastResync, siteName)}
                 </p>
               )}
             </>
