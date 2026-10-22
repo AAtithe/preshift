@@ -188,6 +188,15 @@ export function validateSetup(draft: SetupDraft): SetupIssue[] {
     for (const code of duplicate(draft.entities, (e) => e.intercompanyCode.trim())) block(`Intercompany code ${code} is used by two companies.`);
   }
 
+  // Travel between sites is paid working time, and how it is paid is the company's call to make.
+  if (draft.sites.length > 1) {
+    for (const e of draft.entities.filter((x) => !x.travelPay)) {
+      warn(
+        `${e.name || 'A company'}: choose how travel between sites is paid (Travel pay, on the Sites overview). Until then it is paid at each person's normal rate.`,
+      );
+    }
+  }
+
   if (draft.sites.length === 0) block('Add at least one site.');
   for (const site of draft.sites) {
     const label = site.name.trim() || 'A site';

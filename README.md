@@ -208,9 +208,9 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 ```bash
 npm install
 npm run dev      # API on :8787, web app on http://localhost:5173, API docs on /docs
-npm test         # engine, UI rules, assistant and API tests (785 across 73 files)
+npm test         # engine, UI rules, assistant and API tests
 npm run build    # typecheck and production build
-npm run test:e2e # browser checks of the management bar (Playwright), against a local dev server
+npm run test:e2e # browser checks of the management bar and iPad touch (Playwright), against a local dev server
 ```
 
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
