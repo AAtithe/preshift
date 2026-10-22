@@ -193,7 +193,6 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/bookings/status': true,
   // Refused: the programme's baseline, sign-offs and gain share are the WS lead's, and nobody in a
   // sandbox is one.
-  'PUT /v1/programme-leads/:email': false,
   'PUT /v1/programmes/:siteId': false,
   'PUT /v1/programmes/:siteId/baseline': false,
   'POST /v1/programmes/:siteId/signoffs': false,

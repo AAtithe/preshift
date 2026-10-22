@@ -104,7 +104,7 @@ Two routes, agreed per client before week 1:
 | Run the forecast model, override hours, add adjustments, set expectations on reminders, load bookings | Anyone whose role can change forecasts at the site |
 | Take or turn down the weekly moves | Anyone whose role can build and edit the rota at the site (both sites, for a cover move) |
 | See the scorecard, the programme and benchmarks | Anyone whose role shows labour cost at the site |
-| Put a site on the programme, record the baseline, sign off milestones, verify the saving, set the gain share | The WS lead only: a person a WS key has named as lead in this organisation, or a WS deployment key with the `programme:lead` scope. The operator's own owner cannot, and no key made in the app can carry that scope, because these set the fee. |
+| Put a site on the programme, record the baseline, sign off milestones, verify the saving, set the gain share | The WS client partner only: a person holding that role here, with their authenticator, or a WS deployment key with the `programme:lead` scope. The partner is appointed by WS (another partner, or that key), never by the operator. The operator's owner does not hold the sign-off and no key made in the app can carry the scope, because these set the fee. |
 | Share anonymised figures for benchmarking | Anyone who can change the organisation's settings. Their data, their decision. |
 
 ## Benchmarks
