@@ -1,3 +1,4 @@
+import { EposSetup } from './EposSetup';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 
@@ -30,7 +31,7 @@ interface Settings {
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
-export function SettingsView({ me }: { me: Me }) {
+export function SettingsView({ me, onSalesChanged }: { me: Me; onSalesChanged?: () => void }) {
   if (me.demo) {
     return (
       <div className="settings">
@@ -43,12 +44,14 @@ export function SettingsView({ me }: { me: Me }) {
           </p>
           <p className="small"><a className="link" href="/demo?fresh=1">Start again with a fresh copy</a></p>
         </section>
+        <EposSetup onSynced={onSalesChanged} />
       </div>
     );
   }
   return (
     <div className="settings">
       {me.role === 'admin' && <People me={me} />}
+      {me.role === 'admin' && <EposSetup onSynced={onSalesChanged} />}
       {me.role === 'admin' && <ClaudeKey />}
       {me.role === 'admin' && <EmailSetup />}
       <OwnPassword />

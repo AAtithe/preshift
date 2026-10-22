@@ -28,7 +28,7 @@ const REPORTS: { id: Report; label: string; intro: string }[] = [
   {
     id: 'takings',
     label: 'Takings',
-    intro: 'What the till actually rang, net of VAT, by site and day. A till integration sends these through the API; until then key them in or import the till’s daily export. Every report uses takings where they exist and the forecast where they do not.',
+    intro: 'What the till actually rang, net of VAT, by site and day. Once Square is connected in Settings they arrive every morning; otherwise key them in or import the till’s daily export. Every report uses takings where they exist and the forecast where they do not.',
   },
   {
     id: 'accuracy',
@@ -49,6 +49,8 @@ interface Props {
   /** Names the scope in export file names. */
   scopeName: string;
   onSaveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) => Promise<unknown>;
+  /** Takings changed on the server (a till sync): reload them. */
+  onSalesChanged: () => void;
 }
 
 type ReportProps = Pick<Props, 'state' | 'siteIds' | 'week' | 'today' | 'scopeName'>;
@@ -71,7 +73,7 @@ export function ReportsView(props: Props) {
       {report === 'trend' && <Trend {...props} />}
       {report === 'roles' && <ByRole {...props} />}
       {report === 'actual' && <VsActual {...props} />}
-      {report === 'takings' && <TakingsEntry state={props.state} siteIds={props.siteIds} week={props.week} today={props.today} onSave={props.onSaveSales} />}
+      {report === 'takings' && <TakingsEntry state={props.state} siteIds={props.siteIds} week={props.week} today={props.today} onSave={props.onSaveSales} onSynced={props.onSalesChanged} />}
       {report === 'accuracy' && <PayrollAccuracy state={props.state} entityIds={props.entityIds} scopeName={props.scopeName} />}
     </div>
   );

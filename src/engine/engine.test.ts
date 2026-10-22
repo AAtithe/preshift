@@ -540,3 +540,18 @@ describe('cross-site cost', () => {
     expect(p.gross + p.holiday + p.employerNi + p.pension - marOwn).toBeCloseTo(whole / 2, 0);
   });
 });
+
+describe('seed', () => {
+  it('gives every organisation its own copy, so one demo sandbox cannot change another', () => {
+    const a = seedState('2026-10-21');
+    const b = seedState('2026-10-21');
+    a.sites[0].eposLocationId = 'LMAR';
+    a.roles[0].nominalCode = '9999';
+    a.entities[0].name = 'Changed';
+    a.demandRules[0].maximum = 99;
+    expect(b.sites[0].eposLocationId).toBeUndefined();
+    expect(b.roles[0].nominalCode).not.toBe('9999');
+    expect(b.entities[0].name).not.toBe('Changed');
+    expect(b.demandRules[0].maximum).not.toBe(99);
+  });
+});

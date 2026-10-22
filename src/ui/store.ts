@@ -68,6 +68,7 @@ export function useRotaStore() {
   const actions = {
     reload: load,
     refreshShifts,
+    refreshSales,
     /** Records takings for the days given and removes the ones cleared. */
     saveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) =>
       guard(async () => {

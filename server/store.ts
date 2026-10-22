@@ -4,6 +4,7 @@ import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import type { EposConnection } from './integrations/epos/provider';
 import type { OutboxItem } from './outbox';
 
 export interface PayrollSubmission {
@@ -55,6 +56,8 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  /** The till the organisation has connected, if any. Its access token lives in the settings store. */
+  epos?: EposConnection;
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }

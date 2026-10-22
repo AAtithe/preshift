@@ -14,6 +14,7 @@ import { devRoutes } from './routes/dev';
 import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
+import { eposRoutes, syncAllTills } from './routes/epos';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
@@ -47,6 +48,8 @@ export interface BuildOptions {
   fetch?: typeof fetch;
   /** Public demo: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
   demo?: boolean;
+  /** The clock (tests fix it). */
+  now?: () => Date;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv, demo: boolean): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -100,6 +103,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     documentCipher: documents.cipher,
     fetch: options.fetch ?? fetch,
     tflAppKey: env.TFL_APP_KEY || undefined,
+    now: options.now ?? (() => new Date()),
   };
 
   // The sign-in and setup forms post as ordinary HTML forms, so they work before any script loads.
@@ -167,6 +171,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     if (demo) await sweepSandboxes(store);
     return { ok: true };
   });
@@ -219,6 +224,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     travelRoutes(api, ctx);
+    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);

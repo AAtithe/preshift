@@ -490,6 +490,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                   week={week}
                   today={today}
                   onSaveSales={actions.saveSales}
+                  onSalesChanged={() => void actions.refreshSales()}
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
               )}
@@ -497,7 +498,7 @@ function Workspace({ state, error, setError, actions }: { state: NonNullable<Sto
                 <IntegrationsView state={state} me={me} singleSite={!!single} today={today} onOpen={setTab} />
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} me={me} today={today} onChanged={actions.reload} />}
-              {activeTab === 'settings' && me && <SettingsView me={me} />}
+              {activeTab === 'settings' && me && <SettingsView me={me} onSalesChanged={() => void actions.refreshSales()} />}
               {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 

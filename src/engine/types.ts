@@ -53,6 +53,8 @@ export interface Site {
   trackingCode: string;
   openMinute: number;
   closeMinute: number;
+  /** The EPOS location whose takings are this site's, once the till is connected. */
+  eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
   /** Where the site is, for journeys between sites. Set from its postcode. */
@@ -355,6 +357,16 @@ export interface DaySales {
   covers?: number;
   /** Where the figure came from: pushed by a till or EPOS system, keyed in, or a file import. */
   source: 'till' | 'manual' | 'import';
+  /** Completed orders, where the till reports them. */
+  orders?: number;
+  /** Takings by hour, from a till feed: history to forecast from. Hours past midnight run on (24 is 00:00 the next morning). */
+  hours?: HourSales[];
+}
+
+export interface HourSales {
+  hour: number;
+  netSales: number;
+  orders: number;
 }
 
 export interface RotaState {
