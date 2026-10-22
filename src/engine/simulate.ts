@@ -26,7 +26,7 @@ export interface TradeUntil {
  * running over, skipped breaks, the odd no-show and an unrostered shift.
  * Trading stops at `until`; anyone still on shift then is left clocked in.
  */
-export function simulateTrading(state: RotaState, until: TradeUntil, seed = 22, slowToday = 0.68): RotaState {
+export function simulateTrading(state: RotaState, until: TradeUntil, seed = 51, slowToday = 0.68): RotaState {
   const rnd = random(seed);
   const between = (lo: number, hi: number) => Math.round(lo + rnd() * (hi - lo));
   const traded = (date: string, minute: number) => date < until.date || (date === until.date && minute <= until.minute);
@@ -156,12 +156,13 @@ function studentToTheLimit(week: string): Shift[] {
 /** Where the demo's trading day has got to. */
 export const DEMO_MINUTE = 18 * 60;
 
-/** The demo: last week and this week built from forecast, traded up to `minute` today. */
+/** The demo: the last three weeks and this week built from forecast, traded up to `minute` today. */
 export function seedDemo(today = toISODate(new Date()), minute = DEMO_MINUTE): RotaState {
   let state = seedState(today);
   const thisWeek = weekStart(today);
   const lastWeek = addDays(thisWeek, -7);
-  for (const week of [lastWeek, thisWeek]) {
+  // Four weeks of history so trends (hours, early finishes, the 17 week average) have something to read.
+  for (const week of [addDays(thisWeek, -21), addDays(thisWeek, -14), lastWeek, thisWeek]) {
     // Last week a GM hand-rostered the student to the full 20 hours, past the buffer warning.
     const handBuilt = week === lastWeek ? studentToTheLimit(week) : [];
     state = { ...state, shifts: [...state.shifts, ...managerRota(week), ...handBuilt] };
@@ -169,5 +170,15 @@ export function seedDemo(today = toISODate(new Date()), minute = DEMO_MINUTE): R
       state = { ...state, shifts: autoSchedule(state, site.id, week).shifts.map((s) => ({ ...s, published: true })) };
     }
   }
-  return simulateTrading(state, { date: today, minute });
+  const traded = simulateTrading(state, { date: today, minute });
+  // Last week the GM took most of a regular's shifts away: one person's hours collapse. Applied after
+  // trading so the rest of the demo week plays out exactly as before.
+  const cut = new Set(
+    traded.shifts.filter((s) => s.employeeId === 'mar-17' && s.date >= lastWeek && s.date < thisWeek).slice(1).map((s) => s.id),
+  );
+  return {
+    ...traded,
+    shifts: traded.shifts.filter((s) => !cut.has(s.id)),
+    clocks: traded.clocks.filter((c) => !c.shiftId || !cut.has(c.shiftId)),
+  };
 }

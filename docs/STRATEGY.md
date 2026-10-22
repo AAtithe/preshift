@@ -81,6 +81,10 @@ as the flash, an anonymous contribution record, peer groups with a minimum of 5 
 businesses, quartile position and pounds to the median. Runs on an illustrative panel until real
 contributions are collected.
 
+Phase 1g, done: retention scoring. Nine transparent signals from clocked hours, early finishes,
+Working Time, closes, tenure and pay; replacement cost per person on stated assumptions; the
+share of risk the rota drives; no protected characteristics read.
+
 Phase 2, first live sites (8 to 10 weeks):
 - Persistence and auth (Postgres, per-organisation tenancy, roles for owner, GM, finance, staff).
 - Staff mobile app: see rota, swap shifts, set availability, request leave, clock in with the
@@ -97,6 +101,8 @@ Phase 3:
 - Tronc audit trail: who changed the scheme and when, troncmaster sign-off of each run, and the
   three year record the Act requires, held server-side.
 - Holiday entitlement balances, right to work document capture and Home Office online share code checks.
+- Retention: record leavers and reasons, then recalibrate the signal points against who actually
+  left; add the benchmark's turnover rate per 100 staff by concept.
 - Benchmark service: collect contributions server-side under signed data sharing terms, replace
   the illustrative panel, add trend over time and suppression checks on every published cut.
 - Group view across sites with cross-site cover.

@@ -18,8 +18,8 @@ export type Action =
   | { type: 'markTipsPaid'; siteId: string; weekStart: string; date: string }
   | { type: 'reset' };
 
-// v6 adds site concept and region; older saved states fall back to the demo.
-const KEY = 'preshift.rota.v6';
+// v7 adds start dates and four weeks of demo history; older saved states fall back to the demo.
+const KEY = 'preshift.rota.v7';
 
 function load(): RotaState {
   try {

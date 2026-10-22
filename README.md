@@ -78,6 +78,18 @@ clocked data, not rostered hours.
 The peer panel in the demo is invented (`src/engine/benchmarkDemo.ts`) and labelled as such on
 screen. The method is real; the market figures arrive when WS clients contribute.
 
+## Retention
+
+Staff turnover is the largest hidden labour cost in hospitality. This scores everyone at a site
+for the risk of leaving, from data the system already holds, and prices what replacing them costs.
+
+| Area | What it does | Where |
+| --- | --- | --- |
+| Signals | New starter, sent home early, hours dropped, unpredictable hours, overworked, close then open, breaks not taken, always on the close, still on the minimum. Each with stated points, the evidence behind it and the fix. Transparent rules, not a model: recalibrate the points once real leaver data exists. | `src/engine/retention.ts` |
+| Replacement cost | Recruitment, paid shadow shifts for the starter and the trainer, and lost output while the starter gets up to speed, at the person's loaded hourly cost. Planning assumptions, to be replaced with each client's own figures. | `src/engine/retention.ts` |
+| Drivers | Which signals carry the risk across the site, and how much of it the rota controls. | `src/ui/RetentionView.tsx` |
+| Fairness | Reads no age, nationality, visa status or other protected characteristic; being on the legal minimum counts the same in every age band. For support conversations only, never for discipline, dismissal or selection. | `src/engine/retention.ts` |
+
 ## Running it
 
 ```bash
@@ -93,7 +105,9 @@ the habits that open the gap on a real floor: early clock-ins, closers running o
 breaks, the odd no-show and an unrostered shift. Today is trading slowly so there is a cut call to
 make. Salaried managers work the long weeks they do in practice, one of them on a salary that does
 not cover the hours; a student was hand-rostered to the full term-time limit last week and an
-overrun took them over it; a visa at Shoreditch runs out next week. Marylebone runs an
+overrun took them over it; a visa at Shoreditch runs out next week. The demo carries
+four weeks of history; last week a GM took most of a regular bartender's shifts away, and two
+recent starters are still in their first three months. Marylebone runs an
 independent tronc with a discretionary service charge; Shoreditch has the GM deciding the
 allocation, a mandatory charge and no written policy. Data is held in the browser only; "Reset demo" regenerates it.
 

@@ -261,3 +261,11 @@ tr.muted td { color: var(--muted); }
 @media (max-width: 900px) {
   .bench-grid { grid-template-columns: minmax(0, 1fr); }
 }
+.retention .intro { max-width: 860px; margin-top: 0; }
+.score-head { min-width: 110px; }
+.score { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.score-bar { display: block; height: 100%; background: var(--muted); }
+.score-bar.bad { background: var(--bad); }
+.score-bar.warn { background: var(--warn); }
+.score-bar.good { background: var(--good); }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

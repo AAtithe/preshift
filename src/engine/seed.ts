@@ -45,6 +45,7 @@ function team(siteId: string, people: Seed[]): Employee[] {
     availability: [],
     leave: [],
     rightToWork: { basis: 'unlimited', checkedOn: '2025-03-01' },
+    startedOn: '2024-04-15',
     ...extra,
   }));
 }
@@ -57,7 +58,7 @@ function employees(today: string): Employee[] {
       ['Ivan Petrov', ['chef'], 0, '1992-05-11', 0, { payBasis: 'salaried', annualSalary: 30_000, maxWeeklyHours: 55, optedOutOf48: true, nmwReducingDeductionsWeekly: 6, payFrequency: 'monthly' }],
       ['Marco Bianchi', ['chef'], 16.5, '1990-07-02', 40],
       ['Aisha Okafor', ['chef'], 15.0, '1995-11-20', 40],
-      ['Tom Reilly', ['chef', 'kp'], 13.5, '2001-02-09', 0],
+      ['Tom Reilly', ['chef', 'kp'], 13.5, '2001-02-09', 0, { startedOn: addDays(today, -38) }],
       ['Lukas Novak', ['kp'], 12.71, '1999-05-30', 30],
       ['Daniel Ruiz', ['kp'], 12.71, '2004-09-12', 0],
       ['Grace Mensah', ['server', 'host'], 13.25, '1997-01-25', 32],
@@ -76,7 +77,7 @@ function employees(today: string): Employee[] {
       ['Zara Ahmed', ['bar'], 13.1, '1998-02-17', 0],
       ['Callum Fraser', ['bar', 'server'], 12.8, '2002-10-29', 0],
       ['Freya Jones', ['host', 'server'], 12.71, '2003-03-08', 0],
-      ['Mateo Garcia', ['server'], 12.71, '2001-09-23', 0],
+      ['Mateo Garcia', ['server'], 12.71, '2001-09-23', 0, { startedOn: addDays(today, -75) }],
     ]),
     ...team('shd', [
       ['Hannah Lee', ['gm'], 0, '1988-09-01', 0, { payBasis: 'salaried', annualSalary: 48_000, maxWeeklyHours: 55, optedOutOf48: true }],
@@ -92,7 +93,7 @@ function employees(today: string): Employee[] {
       ['Ana Costa', ['kp'], 12.71, '2002-04-14', 0],
       ['Ruby Clarke', ['bar'], 13.0, '2000-07-07', 0],
       ['Dev Kapoor', ['bar', 'server'], 12.9, '1999-03-03', 0],
-      ['Lily Evans', ['server', 'host'], 12.71, '2004-11-19', 0],
+      ['Lily Evans', ['server', 'host'], 12.71, '2004-11-19', 0, { startedOn: addDays(today, -20) }],
       ['Kai Morgan', ['server'], 12.71, '2002-08-25', 0, { rightToWork: { basis: 'time-limited', checkedOn: '2025-02-10', expires: addDays(today, 9) } }],
     ]),
   ];
@@ -143,7 +144,7 @@ const AVERAGE_SPEND = 42;
 function forecast(start: string): HourForecast[] {
   const rows: HourForecast[] = [];
   for (const site of sites) {
-    for (let w = -1; w <= 2; w++) {
+    for (let w = -4; w <= 2; w++) {
       weekDates(addDays(start, w * 7)).forEach((date, weekday) => {
         const day = DAILY[site.id as keyof typeof DAILY][weekday];
         for (const [h, share] of Object.entries(CURVE)) {

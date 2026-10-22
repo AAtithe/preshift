@@ -67,6 +67,8 @@ export interface Employee {
   /** ISO dates the person is on approved leave. */
   leave: string[];
   rightToWork?: RightToWork;
+  /** First day of employment. */
+  startedOn?: string;
   /** How often the person is paid, which sets the minimum wage pay reference period. Weekly if absent. */
   payFrequency?: 'weekly' | 'monthly';
   /**

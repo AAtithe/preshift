@@ -12,6 +12,7 @@ import { DemandView } from './DemandView';
 import { dayLabel } from './format';
 import { KpiBar } from './KpiBar';
 import { LiveView } from './LiveView';
+import { RetentionView } from './RetentionView';
 import { RiskView } from './RiskView';
 import { RotaGrid } from './RotaGrid';
 import { ShiftEditor } from './ShiftEditor';
@@ -19,7 +20,7 @@ import { useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { TroncView } from './TroncView';
 
-type Tab = 'rota' | 'demand' | 'team' | 'today' | 'actuals' | 'tronc' | 'risk' | 'benchmark' | 'close';
+type Tab = 'rota' | 'demand' | 'team' | 'today' | 'actuals' | 'tronc' | 'risk' | 'retention' | 'benchmark' | 'close';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'rota', label: 'Rota' },
@@ -29,6 +30,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'actuals', label: 'Actuals' },
   { id: 'tronc', label: 'Tronc' },
   { id: 'risk', label: 'Risk' },
+  { id: 'retention', label: 'Retention' },
   { id: 'benchmark', label: 'Benchmark' },
   { id: 'close', label: 'Close' },
 ];
@@ -135,6 +137,7 @@ export function App() {
         {tab === 'actuals' && <ActualsView state={state} siteId={siteId} week={week} asOf={today} dispatch={dispatch} />}
         {tab === 'tronc' && <TroncView state={state} siteId={siteId} week={week} asOf={today} dispatch={dispatch} />}
         {tab === 'risk' && <RiskView state={state} siteId={siteId} week={week} asOf={today} />}
+        {tab === 'retention' && <RetentionView state={state} siteId={siteId} asOf={today} />}
         {tab === 'benchmark' && <BenchmarkView state={state} siteId={siteId} week={week} asOf={today} />}
         {tab === 'close' && <CloseView state={state} week={week} asOf={today} />}
       </main>
