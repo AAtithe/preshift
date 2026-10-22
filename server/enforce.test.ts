@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkWeek } from '../src/engine/compliance';
 import { seedState } from '../src/engine/seed';
+import { addDays, londonParts, weekStart } from '../src/engine/time';
 import type { Employee } from '../src/engine/types';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
@@ -245,18 +246,20 @@ describe('access to right to work copies and takings', () => {
 });
 
 describe('rest breach overrides', () => {
-  const late = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: WEEK, startMinute: 15 * 60, endMinute: 24 * 60, breakMinutes: 30 };
-  const early = { ...late, date: '2026-10-20', startMinute: 6 * 60, endMinute: 12 * 60, breakMinutes: 0 };
+  // A week ahead of the real clock: shifts that have started can no longer be moved.
+  const AHEAD = weekStart(addDays(londonParts(new Date()).date, 14));
+  const late = { employeeId: 'mar-2', roleId: 'chef', siteId: 'mar', date: AHEAD, startMinute: 15 * 60, endMinute: 24 * 60, breakMinutes: 30 };
+  const early = { ...late, date: addDays(AHEAD, 1), startMinute: 6 * 60, endMinute: 12 * 60, breakMinutes: 0 };
 
   async function breach() {
     const call = await setup();
     await call('POST', '/v1/shifts', late);
     const morning = (await call('POST', '/v1/shifts', early)).body.shift;
-    const publish = (key = 'priya') => call('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: WEEK }, key);
+    const publish = (key = 'priya') => call('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: AHEAD }, key);
     const refused = await publish();
     expect(refused.status).toBe(409);
     const key = refused.body.details.find((i: { code: string }) => i.code === 'daily-rest').overrideKey as string;
-    const override = (reason: string, by = 'priya', k = key) => call('POST', '/v1/rota/overrides', { weekStart: WEEK, key: k, reason }, by);
+    const override = (reason: string, by = 'priya', k = key) => call('POST', '/v1/rota/overrides', { weekStart: AHEAD, key: k, reason }, by);
     return { call, morning, publish, override };
   }
 

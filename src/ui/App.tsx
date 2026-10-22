@@ -3,7 +3,7 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
-import { addDays, formatMinute, toISODate, weekDates, weekStart } from '../engine/time';
+import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
@@ -35,6 +35,8 @@ import { RestBreaches } from './RestBreaches';
 import { SettingsView, type Account } from './SettingsView';
 import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
 import { allowFor, NOT_YOURS } from './permissions';
+import type { ProposalDeps } from './proposals';
+import type { AgentView } from './useAppAgent';
 import { ShiftEditor } from './ShiftEditor';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -43,6 +45,8 @@ import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
+const Shifty = lazy(() => import('./Shifty').then((m) => ({ default: m.Shifty })));
+const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.CommandBar })));
 
 type RotaView = 'timeline' | 'people';
 const VIEW_KEY = 'preshift.rota.view';
@@ -92,6 +96,8 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // A request handed over from Shifty or the command bar, to start the rota assistant with.
+  const [assistantInstruction, setAssistantInstruction] = useState('');
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const [preview, setPreview] = useState<Shift | null>(null);
   const [lastChange, setLastChange] = useState<{ before: Shift | null; after: Shift } | null>(null);
@@ -260,6 +266,22 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
   const range = `${new Date(`${week}T00:00:00Z`).getUTCDate()} to ${new Date(`${dates[6]}T00:00:00Z`).getUTCDate()} ${MONTH(dates[6])}`;
 
+  // Shifty and the command bar read what the manager is looking at, and act only through these.
+  const agentDeps: ProposalDeps = {
+    actions,
+    goTo: (screen) => setTab(screen as Tab),
+    openAssistant: (instruction) => {
+      setAssistantInstruction(instruction);
+      setAssistantOpen(true);
+    },
+    reviewStarter: (employee) => setEditingPerson(employee),
+  };
+  const scopeLabel = single ? single.name : siteIds.length === state.sites.length ? 'all sites' : `${siteIds.length} sites`;
+  const agentView = (): AgentView => ({
+    ctx: { state, siteIds, week, now: londonParts(new Date()) },
+    where: { screen: activeTab, scope: scopeLabel, user: account?.email ?? 'The manager' },
+  });
+
   return (
     <div className="workspace">
       <aside className="sidebar">
@@ -336,7 +358,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
           <div className="sections">
             {section.plans && !needsSite && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-              {single && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
+              {siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
               <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
                 Clear week
               </button>
@@ -572,14 +594,24 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
         </div>
       )}
 
-      {assistantOpen && single && (
+      {assistantOpen && siteIds.length > 0 && (
         <Suspense fallback={null}>
           <AssistantPanel
             state={state}
-            siteId={single.id}
+            siteIds={siteIds}
+            initialInstruction={assistantInstruction}
             week={week}
-            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
-            onClose={() => setAssistantOpen(false)}
+            onApply={async (shifts, baselines, instructions) => {
+              // Close only once saved; a refused save (someone else edited the week) stays open to redraft.
+              const problem = await actions.applyDraft(week, shifts, baselines, instructions);
+              if (!problem) {
+                setUnfilled(null);
+                setAssistantOpen(false);
+                setAssistantInstruction('');
+              }
+              return problem;
+            }}
+            onClose={() => { setAssistantOpen(false); setAssistantInstruction(''); }}
           />
         </Suspense>
       )}
@@ -622,6 +654,11 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
           onClose={() => setEditingPerson(null)}
         />
       )}
+
+      <Suspense fallback={null}>
+        <CommandBar view={agentView} deps={agentDeps} />
+        <Shifty view={agentView} deps={agentDeps} />
+      </Suspense>
 
       {editing && (
         <ShiftEditor

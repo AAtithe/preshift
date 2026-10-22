@@ -14,6 +14,7 @@
     "dev:web": "vite",
     "start": "tsx server/index.ts",
     "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
+    "eval:assistant": "tsx scripts/eval-assistant.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

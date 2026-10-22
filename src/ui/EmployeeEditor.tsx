@@ -401,6 +401,15 @@ export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onL
           </>
         )}
 
+        <h3 className="section">Rota notes</h3>
+        <label className="notes">
+          <span className="muted small">
+            Preferences and commitments the rota should respect, for example "Prefers not to close on Sundays" or "College
+            on Tuesdays until June". The rota assistant reads these.
+          </span>
+          <textarea rows={2} maxLength={1000} value={draft.rotaNotes ?? ''} onChange={(e) => set('rotaNotes', e.target.value)} />
+        </label>
+
         <h3 className="section">Holiday</h3>
         <div className="cost-box holiday-box">
           <div>
