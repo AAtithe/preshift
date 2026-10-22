@@ -148,4 +148,18 @@ describe('users and access', () => {
     // A personal key acts as its person.
     expect((await call('PATCH', '/v1/me', { jobTitle: 'GM, Marylebone' }, 'gm')).body).toMatchObject({ id: 'usr_gm_mar', jobTitle: 'GM, Marylebone' });
   });
+  it('ties each audit entry to the person, so a rename keeps their history theirs', async () => {
+    const call = await setup();
+    const grace = await current.as('grace@marylebonegroup.example');
+    await current.call('PATCH', '/v1/me', grace, { jobTitle: 'Senior Supervisor' });
+    await current.call('PATCH', '/v1/me', grace, { name: 'Grace Owusu' });
+    const trail = (await call('GET', '/v1/access/audit?userId=usr_sup')).body.filter((e: { action: string }) => e.action === 'user.updated');
+    // Newest first: the rename is recorded under the new name, the earlier change under the old one.
+    expect(trail[0]).toMatchObject({ actor: 'Grace Owusu', actorId: 'usr_sup' });
+    expect(trail[1]).toMatchObject({ actor: 'Grace Mensah', actorId: 'usr_sup', actorNow: 'Grace Owusu' });
+    // A personal key is its person, so their changes are tied to them too.
+    await current.call('PATCH', '/v1/users/usr_sup', { key: 'owner' }, { jobTitle: 'Supervisor' });
+    const owner = (await call('GET', '/v1/access/audit?userId=usr_sup')).body[0];
+    expect(owner.actorId).toBe('usr_owner');
+  });
 });

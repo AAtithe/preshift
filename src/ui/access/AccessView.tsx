@@ -8,7 +8,7 @@ import { api, ApiError } from '../api';
 import { download } from '../format';
 import { GrantDialog } from './GrantDialog';
 import {
-  byArea, csvOfAccess, describeEvent, endingSoon, healthOf, lastSeen, reach, shortDate, signInState, signInText, STATUS_LABEL, today,
+  actorLabel, byArea, csvOfAccess, describeEvent, endingSoon, healthOf, lastSeen, reach, shortDate, signInState, signInText, STATUS_LABEL, today,
   deliveryText, fullLink, type AuditRow, type Delivery, type Me,
 } from './model';
 import { PersonPanel } from './PersonPanel';
@@ -514,7 +514,7 @@ export function AccessView({ state }: Props) {
                     return (
                       <tr key={i}>
                         <td className="muted">{new Date(e.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</td>
-                        <td>{e.actor}</td>
+                        <td>{actorLabel(e)}</td>
                         <td>{d.what}</td>
                         <td>{d.whom}</td>
                         <td className="muted">{d.detail}</td>

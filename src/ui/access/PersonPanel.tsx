@@ -5,7 +5,7 @@ import {
 import type { RotaState } from '../../engine/types';
 import { api, ApiError } from '../api';
 import {
-  actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today,
+  actorLabel, actorOf, byArea, describeEvent, endingSoon, lastSeen, reach, shortDate, signInState, signInText, siteName, STATUS_LABEL, today,
   deliveryText, emailState, lastEmailOf, undelivered, unsettled, type AuditRow, type Delivery, type Me,
 } from './model';
 
@@ -246,7 +246,7 @@ export function PersonPanel({ state, me, user, users, attention, canReadTrail, o
                   return (
                     <li key={i}>
                       <span className="muted small">{new Date(e.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                      <span><strong>{d.what}</strong> by {e.actor}{d.detail ? `: ${d.detail}` : ''}</span>
+                      <span><strong>{d.what}</strong> by {actorLabel(e)}{d.detail ? `: ${d.detail}` : ''}</span>
                     </li>
                   );
                 })}

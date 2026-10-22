@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import { can, PERMISSIONS, roleOf, STRONG, type Actor, type Permission, type User } from '../src/engine/access';
 import { HttpError, type AppContext } from './context';
-import { audit, type OrgData } from './store';
+import { audit, noteActing, type OrgData } from './store';
 
 // Every rota, time and payroll route asks here, after the key's scopes have passed.
 // A system key (no person) keeps organisation-wide authority. A personal key acts
@@ -31,6 +31,7 @@ export function actorOf(req: FastifyRequest, org: OrgData, today = new Date().to
     const ws = !email && req.principal.scopes.includes('programme:lead');
     return { kind: 'system', name: req.principal.name, ...(ws ? { ws } : {}) };
   }
+  noteActing(org, user.id);
   // Signing in proves the email, so it accepts a waiting invitation.
   if (user.status === 'invited' && email) {
     if (user.inviteExpiresAt && user.inviteExpiresAt < today) throw new HttpError(403, 'forbidden', 'Your invitation has expired. Ask for a new one.');

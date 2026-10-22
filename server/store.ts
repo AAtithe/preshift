@@ -47,7 +47,10 @@ export interface PayRunRecord {
 
 export interface AuditEvent {
   at: string;
+  /** The name the actor went by at the time, kept as written. */
   actor: string;
+  /** The person's access record, when the actor was one: names change, this does not. */
+  actorId?: string;
   action: string;
   detail?: Record<string, unknown>;
 }
@@ -1164,8 +1167,36 @@ function deserialise(data: unknown, version: number): OrgData {
   };
 }
 
+// The people acting on each loaded organisation in this process, set where a request's actor is
+// found (server/guard.ts). Not saved: it only lets audit() tie a name to the person behind it.
+const acting = new WeakMap<OrgData, Set<string>>();
+
+export function noteActing(org: OrgData, userId: string) {
+  const ids = acting.get(org) ?? new Set<string>();
+  ids.add(userId);
+  acting.set(org, ids);
+}
+
+/** The person an audit name belongs to, only when one of those acting goes by exactly that name or email. */
+function actorIdOf(org: OrgData, actor: string): string | undefined {
+  for (const id of acting.get(org) ?? []) {
+    const u = org.users.find((x) => x.id === id);
+    if (u && (u.name === actor || u.email === actor)) return id;
+  }
+  return undefined;
+}
+
+/** Audit entries with each person's name as it is now, where it has changed since. */
+export function withCurrentNames(org: OrgData, events: AuditEvent[]) {
+  return events.map((e) => {
+    const now = e.actorId && org.users.find((u) => u.id === e.actorId)?.name;
+    return now && now !== e.actor ? { ...e, actorNow: now } : e;
+  });
+}
+
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {
-  org.audit.push({ at: new Date().toISOString(), actor, action, detail });
+  const actorId = actorIdOf(org, actor);
+  org.audit.push({ at: new Date().toISOString(), actor, ...(actorId ? { actorId } : {}), action, detail });
   if (org.audit.length > 5000) org.audit.splice(0, org.audit.length - 5000);
   // Every change worth telling a partner about is already audited, so webhooks are raised here,
   // in the same save as the change.

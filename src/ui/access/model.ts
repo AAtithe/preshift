@@ -36,9 +36,15 @@ export function signInState(u: User): { text: string; tone: 'good' | 'bad' | 'mu
 export interface AuditRow {
   at: string;
   actor: string;
+  actorId?: string;
+  /** The actor's name now, when they have changed it since. */
+  actorNow?: string;
   action: string;
   detail?: Record<string, unknown>;
 }
+
+/** Who acted, under the name they went by then, and who that is now if they have since changed it. */
+export const actorLabel = (e: AuditRow) => (e.actorNow ? `${e.actor} (now ${e.actorNow})` : e.actor);
 
 export const today = () => toISODate(new Date());
 

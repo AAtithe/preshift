@@ -16,7 +16,7 @@ import { addEvent, askResend, latestByUser, recordSent, view } from '../maillog'
 import { sharedAccount, type MailKind, type Store, type UserRecord } from '../store';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { idParam, isoDate } from '../schemas';
-import { audit, type OrgData } from '../store';
+import { audit, withCurrentNames, type OrgData } from '../store';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESENDS_PER_HOUR = 3;
@@ -750,11 +750,14 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const org = orgOf(req);
       mustAudit(actorOf(req, org, today()), today());
-      return org.audit
-        .filter((e) => ACCESS_ACTIONS.some((p) => e.action.startsWith(p)))
-        .filter((e) => !req.query.userId || e.detail?.userId === req.query.userId)
-        .slice()
-        .reverse();
+      return withCurrentNames(
+        org,
+        org.audit
+          .filter((e) => ACCESS_ACTIONS.some((p) => e.action.startsWith(p)))
+          .filter((e) => !req.query.userId || e.detail?.userId === req.query.userId)
+          .slice()
+          .reverse(),
+      );
     },
   );
 }
