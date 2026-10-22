@@ -42,8 +42,11 @@ const ROTA_REACH_DAYS = 56;
  */
 export function forReader(g: Guard, e: Employee): Employee {
   const sites = sitesOfPerson(e);
+  // Pay follows the work: a site they cover for costs their shifts there, so its rate is needed there.
   const seesPay = sites.some((s) => g.can('costs.view', s) || g.can('pay.edit', s));
-  const seesPersonal = sites.some((s) => g.can('team.manage', s) || g.can('hr.view', s));
+  // Personal details stay with the home site, as the HR file does (readsHr): covering a shift for
+  // another site does not open a person's date of birth, right to work or holiday record to it.
+  const seesPersonal = g.can('team.manage', e.siteId) || g.can('hr.view', e.siteId);
   // The holiday record is what the Holiday tab works from, offered to those who see cost.
   const seesHoliday = seesPersonal || seesPay;
   const out: Employee = seesPay ? { ...e } : { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
@@ -70,6 +73,15 @@ function payChanged(before: Partial<Employee>, after: Partial<Employee>) {
 export function allowPay(g: Guard, e: Pick<Employee, 'id' | 'siteId'>) {
   g.allow('pay.edit', e.siteId);
   if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else changes your own pay.');
+}
+
+/**
+ * Nobody changes their own staff record, whatever their roles: holiday carried over is paid out at
+ * leaving, contracted hours set what they are owed, and a right to work check signed off by the
+ * person it is about is no check at all.
+ */
+function notOwnRecord(g: Guard, e: Pick<Employee, 'id'>) {
+  if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own staff record.');
 }
 
 export function queueUpsert(org: OrgData, e: Employee) {
@@ -185,6 +197,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (Object.keys(req.body).some((k) => !PAY_FIELDS.includes(k as keyof Employee))) {
         g.allow('team.manage', before.siteId);
         if (after.siteId !== before.siteId) g.allow('team.manage', after.siteId);
+        notOwnRecord(g, before);
       }
       if (payChanged(before, req.body)) allowPay(g, before);
       // The list of stored copies is the server's: editing the check never adds or drops a file.
@@ -230,6 +243,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!e) throw notFound(`Employee ${req.params.id}`);
       const g = guard(ctx, req, org);
       g.allow('team.manage', e.siteId);
+      notOwnRecord(g, e);
       if (e.status === 'leaver') throw new HttpError(409, 'conflict', `${e.name} is already a leaver`);
       e.status = 'leaver';
       e.leaveDate = req.body.leaveDate;

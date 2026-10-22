@@ -77,7 +77,7 @@ const absenceParams = {
   properties: { id: { type: 'string' }, absenceId: { type: 'string' } },
 } as const;
 
-type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>;
+type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt' | 'history'>;
 
 /** Whether the key's scopes reach personnel files: an HR scope, or every scope. */
 function hrScoped(req: FastifyRequest): boolean {
@@ -257,9 +257,16 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guardOf(req);
       if (!before || (before.kind === 'case' && !seesCases(req, g, before.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, before.employeeId));
-      if (req.body.employeeId && req.body.employeeId !== before.employeeId) mayManage(g, findEmployee(org, req.body.employeeId));
+      // Moving a case onto someone else would leave one person with an allegation and the other without its record.
+      if (req.body.employeeId && req.body.employeeId !== before.employeeId) {
+        throw new HttpError(422, 'person_fixed', 'A record stays with the person it is about. Add it to the right person instead.');
+      }
       if (req.body.kind && req.body.kind !== before.kind) throw new HttpError(422, 'kind_fixed', 'A record cannot change kind; add a new one');
-      const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt };
+      const changed = (Object.keys(req.body) as (keyof RecordInput)[]).filter((f) => req.body[f] !== before[f]);
+      // What each change replaced is kept with the record, so a case can be shown as it stood on any day.
+      const replaced = Object.fromEntries(changed.map((f) => [f, before[f]]));
+      const history = changed.length ? [...(before.history ?? []), { at: new Date().toISOString(), by: actorName(g), before: replaced }] : before.history;
+      const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt, ...(history ? { history } : {}) };
       validateRecord(org, after);
       org.hrRecords[i] = after;
       audit(org, actorName(g), 'hr.record.updated', { id: after.id, employeeId: after.employeeId, kind: after.kind, fields: Object.keys(req.body) });
@@ -276,6 +283,8 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guardOf(req);
       if (!record || (record.kind === 'case' && !seesCases(req, g, record.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, record.employeeId));
+      // A case is evidence of how a complaint or a warning was handled: closed, never deleted. Retention removes it with the file.
+      if (record.kind === 'case') throw new HttpError(409, 'case_kept', 'A case is closed, not deleted. It is removed with the rest of the file when its retention period ends.');
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
       audit(org, actorName(g), 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(204).send();

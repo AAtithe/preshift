@@ -42,11 +42,12 @@ import { ProfileView } from './ProfileView';
 import { RestBreaches } from './RestBreaches';
 import { SettingsView, type Account } from './SettingsView';
 import { SetupView } from './SetupView';
-import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
+import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, type AtAll, type NavItem, type Tab } from './nav';
 import { allowFor, NOT_YOURS } from './permissions';
 import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
 import { ShiftEditor } from './ShiftEditor';
+import { SideNav } from './SideNav';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
 import { Timeline } from './Timeline';
@@ -174,13 +175,18 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const showCost = atAll('costs.view');
   const canEdit = atAll('rota.edit');
   const canPublish = atAll('rota.publish');
-  const offered = (t: NavItem) => !t.offered || t.offered(atAll, allow, { ws: me?.user?.audience === 'ws' });
-  const nav = NAV.map((g) => ({ ...g, items: g.items.filter(offered) })).filter((g) => g.items.length > 0);
+  // The bar is worked out over every site the person can see, so it keeps its shape as the scope changes.
+  const allSiteIds = useMemo(() => state.sites.map((s) => s.id), [state.sites]);
+  const nav = visibleNav(allow, allSiteIds, me?.user?.audience);
   const fallback = nav[0]?.items[0]?.id ?? 'profile';
-  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t)) ? tab : fallback;
+  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
+  // Within the scope, the section reaches only the sites it is offered at.
+  const sectionSites = sitesFor(section, allow, siteIds);
+  const notHere = section.access !== 'everyone' && !offered(section, allow, siteIds, me?.user?.audience);
   // A site-only section opened across several sites shows the site chooser instead.
-  const needsSite = !!section.siteOnly && !single;
+  const needsSite = !notHere && !!section.siteOnly && !single;
+  const shown = notHere || needsSite ? null : activeTab;
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
   const metrics = useMemo(() => (preview ? scopeMetrics(view, siteIds, week) : baseMetrics), [view, preview, baseMetrics, siteIds, week]);
@@ -336,23 +342,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         <div className="wordmark">
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
-        <nav className="side-nav" aria-label="Management">
-          {nav.map((group) => (
-            <div key={group.heading} className="nav-group">
-              <div className="nav-heading">{group.heading}</div>
-              {group.items.map((t) => (
-                <button
-                  key={t.id}
-                  className={activeTab === t.id ? 'active' : ''}
-                  aria-current={activeTab === t.id ? 'page' : undefined}
-                  onClick={() => openSection(t)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
+        <SideNav groups={nav} active={activeTab} onOpen={openSection} />
         <div className="side-foot">
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
@@ -404,7 +394,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             )}
           </div>
           <div className="sections">
-            {section.plans && !needsSite && <div className="section-actions">
+            {section.plans && canEdit && !needsSite && !notHere && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
               <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
@@ -477,7 +467,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               </div>
             )}
 
-            {(activeTab === 'rota' || activeTab === 'sites') && (
+            {(shown === 'rota' || shown === 'sites') && (
               <RestBreaches
                 state={state}
                 issues={issues}
@@ -488,13 +478,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             )}
 
             <main>
-              {needsSite && (
+              {(needsSite || notHere) && (
                 <div className="panel site-chooser">
-                  <h2>{section.label} is run one site at a time</h2>
-                  <p className="muted">Choose the site to open.</p>
+                  <h2>{notHere ? `${section.label} is not yours at ${scopeName}` : `${section.label} is run one site at a time`}</h2>
+                  <p className="muted">{notHere ? 'Your roles reach it at these sites.' : 'Choose the site to open.'}</p>
                   <div className="site-choices">
-                    {scopeSites.map((s) => (
-                      <button key={s.id} onClick={() => setSiteId(s.id)}>
+                    {state.sites.filter((s) => (notHere ? sitesFor(section, allow, allSiteIds) : sectionSites).includes(s.id)).map((s) => (
+                      <button key={s.id} onClick={() => { if (notHere) setEntityId(ALL); setSiteId(s.id); }}>
                         <span className="strong">{s.name}</span>
                         <span className="muted small">{state.entities.find((e) => e.id === s.entityId)?.name}</span>
                       </button>
@@ -502,11 +492,11 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   </div>
                 </div>
               )}
-              {activeTab === 'sites' && (
+              {shown === 'sites' && (
                 <GroupView state={state} dates={dates} metrics={metrics} issues={issues} onOpenSite={(id) => { setSiteId(id); setUnfilled(null); setTab('rota'); }} />
               )}
               {/* Travel times between sites are a settings change: offered only to those who can make it. */}
-              {activeTab === 'sites' && scopeSites.length > 1 && allow('settings.manage') && (
+              {shown === 'sites' && scopeSites.length > 1 && allow('settings.manage') && (
                 <TravelPanel
                   sites={scopeSites}
                   entities={state.entities.filter((e) => scopeSites.some((x) => x.entityId === e.id))}
@@ -516,7 +506,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onSetTravel={actions.setTravel}
                 />
               )}
-              {activeTab === 'rota' && single && (
+              {shown === 'rota' && single && (
                 <div className="view-bar">
                   <div className="toggle" role="tablist" aria-label="Rota view">
                     <button role="tab" aria-selected={rotaView === 'timeline'} className={rotaView === 'timeline' ? 'active' : ''} onClick={() => chooseView('timeline')}>
@@ -533,7 +523,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   </span>
                 </div>
               )}
-              {activeTab === 'rota' && single && rotaView === 'timeline' && (
+              {shown === 'rota' && single && rotaView === 'timeline' && (
                 <Timeline
                   state={view}
                   base={state}
@@ -550,7 +540,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
-              {activeTab === 'rota' && single && rotaView === 'people' && (
+              {shown === 'rota' && single && rotaView === 'people' && (
                 <RotaGrid
                   state={view}
                   site={single}
@@ -565,7 +555,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   baseLabourCost={baseMetrics.labourCost}
                 />
               )}
-              {activeTab === 'clock' && single && (
+              {shown === 'clock' && single && (
                 <ClockView
                   state={state}
                   siteId={single.id}
@@ -577,7 +567,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   demo={account?.demo}
                 />
               )}
-              {activeTab === 'demand' && single && (
+              {shown === 'demand' && single && (
                 <DemandView
                   state={state}
                   siteId={single.id}
@@ -585,12 +575,12 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onForecast={allow('demand.manage', single.id) ? (replace) => actions.forecastFromTakings([single.id], week, replace) : undefined}
                 />
               )}
-              {activeTab === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
-              {activeTab === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
-              {activeTab === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
-              {activeTab === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={account} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
-              {activeTab === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
-              {activeTab === 'people' && single && (
+              {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
+              {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
+              {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
+              {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} me={account} canShare={allow('settings.manage')} onOpenSite={chooseSite} />}
+              {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
+              {shown === 'people' && single && (
                 <PeopleView
                   state={state}
                   siteId={single.id}
@@ -599,10 +589,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
                 />
               )}
-              {activeTab === 'onboarding' && (
+              {shown === 'onboarding' && (
                 <OnboardingView
                   state={state}
-                  siteIds={siteIds}
+                  siteIds={sectionSites}
                   today={today}
                   hr={hr}
                   allow={allow}
@@ -611,7 +601,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
-              {activeTab === 'holiday' && (
+              {shown === 'holiday' && (
                 <HolidayView
                   state={state}
                   siteIds={siteIds}
@@ -621,15 +611,15 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
-              {activeTab === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'absence' && (
+              {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {shown === 'absence' && (
                 <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
               )}
-              {activeTab === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
-              {activeTab === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
-              {activeTab === 'pay' && (
+              {shown === 'training' && <TrainingView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {shown === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
+              {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {shown === 'pay' && (
                 <PayApprovalsView
                   state={state}
                   siteIds={siteIds}
@@ -640,8 +630,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onChanged={actions.refreshEmployee}
                 />
               )}
-              {activeTab === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
-              {activeTab === 'reports' && (
+              {shown === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {shown === 'reports' && (
                 <ReportsView
                   state={state}
                   siteIds={siteIds}
@@ -654,16 +644,16 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
               )}
-              {activeTab === 'setup' && <SetupView state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} />}
-              {activeTab === 'integrations' && (
+              {shown === 'setup' && <SetupView state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} />}
+              {shown === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} today={today} onOpen={setTab} />
               )}
-              {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
-              {activeTab === 'access' && <AccessView state={state} />}
-              {activeTab === 'clients' && <ClientsView />}
-              {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
-              {activeTab === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
-              {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
+              {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
+              {shown === 'access' && <AccessView state={state} />}
+              {shown === 'clients' && <ClientsView />}
+              {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
+              {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
+              {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
 
             <footer className="foot">
