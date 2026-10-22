@@ -12,8 +12,6 @@ export interface Account {
   organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
   /** Set for a public demo visitor, who has a sandbox of their own. */
   demo?: boolean;
-  /** The Williams, Stanley & Co. lead on the labour programme, in this organisation. */
-  lead?: boolean;
 }
 
 interface EmailStatus {

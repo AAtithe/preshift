@@ -20,7 +20,8 @@ export type Permission =
   | 'payroll.view' | 'payroll.send'
   | 'close.export'
   | 'users.manage' | 'users.sites' | 'audit.view'
-  | 'settings.manage' | 'privacy.manage';
+  | 'settings.manage' | 'privacy.manage'
+  | 'programme.lead';
 
 export interface PermissionDef {
   area: 'Rota' | 'Labour cost' | 'Time' | 'Team' | 'HR' | 'Payroll' | 'Finance' | 'Access' | 'Settings';
@@ -50,12 +51,13 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
   'audit.view': { area: 'Access', label: 'Read the access audit trail and record access reviews' },
   'settings.manage': { area: 'Settings', label: 'Change sites, targets, integrations and API keys' },
   'privacy.manage': { area: 'Settings', label: "Answer staff data requests, export or erase a person's data, set retention" },
+  'programme.lead': { area: 'Finance', label: 'Sign off the labour programme: its baseline, milestones, verified saving and gain share' },
 };
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
 /** Refused to a session without an authenticator when the role requires one. */
-export const STRONG: Permission[] = ['pay.edit', 'pay.approve', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage'];
+export const STRONG: Permission[] = ['pay.edit', 'pay.approve', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage', 'programme.lead'];
 
 export interface RoleDef {
   id: string;
@@ -77,8 +79,8 @@ const SITE_RUN: Permission[] = ['rota.view', 'rota.edit', 'rota.publish', 'deman
 export const ROLES: RoleDef[] = [
   {
     id: 'owner', name: 'Owner', audience: 'operator', scope: 'org', mfa: true, appoints: ['operator', 'external'],
-    about: 'Runs the business. Everything except approving hours, approving pay changes and sending pay, which stay with the people who check them.',
-    permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve' && p !== 'pay.approve'),
+    about: 'Runs the business. Everything except approving hours, approving pay changes and sending pay, which stay with the people who check them, and signing off the labour programme, which sets the WS fee.',
+    permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve' && p !== 'pay.approve' && p !== 'programme.lead'),
   },
   {
     id: 'ops_director', name: 'Operations director', audience: 'operator', scope: 'org', mfa: true,
@@ -132,8 +134,8 @@ export const ROLES: RoleDef[] = [
   },
   {
     id: 'ws_partner', name: 'WS client partner', audience: 'ws', scope: 'org', mfa: true, appoints: ['ws', 'external'],
-    about: 'Williams, Stanley & Co. lead on the account. Reads everything, locks periods, exports the close and manages access.',
-    permissions: [...VIEW, 'payroll.view', 'time.lock', 'close.export', 'users.manage', 'audit.view'],
+    about: 'Williams, Stanley & Co. lead on the account. Reads everything, locks periods, exports the close, manages WS access and signs off the labour programme.',
+    permissions: [...VIEW, 'payroll.view', 'time.lock', 'close.export', 'users.manage', 'audit.view', 'programme.lead'],
   },
   {
     id: 'ws_accountant', name: 'WS management accountant', audience: 'ws', scope: 'org', mfa: true,
@@ -221,7 +223,12 @@ export interface AccessReview {
 }
 
 /** Whoever is acting: a person, or a system key with organisation-wide authority. */
-export type Actor = { kind: 'system'; name: string } | { kind: 'user'; user: User };
+/**
+ * A system actor has no person behind it: an integration key, or a sign-in from before roles with no
+ * access record. `ws` marks a deployment key Williams, Stanley & Co. holds (the programme:lead scope):
+ * the only system actor that may grant or change WS roles, and it never touches the operator's own.
+ */
+export type Actor = { kind: 'system'; name: string; ws?: boolean } | { kind: 'user'; user: User };
 
 export const INVITE_DAYS = 7;
 export const ENDING_SOON_DAYS = 30;
@@ -349,7 +356,12 @@ export function checkGrant(actor: Actor, target: Pick<User, 'id' | 'audience' | 
 
 /** Whether this actor may give this role: never to themselves, and never beyond their own access. */
 export function authorityErrors(actor: Actor, target: Pick<User, 'id'>, role: RoleDef, g: GrantProposal, today: string): string[] {
-  if (actor.kind === 'system') return [];
+  if (actor.kind === 'system') {
+    // WS roles carry the programme sign-off, which sets the WS fee, so the operator's own authority never grants them.
+    if (role.audience === 'ws' && !actor.ws) return ['Williams, Stanley & Co. roles are granted by the WS client partner, or by WS itself.'];
+    if (actor.ws && role.audience === 'operator') return ['Operator roles are granted by the operator. Williams, Stanley & Co. never appoints inside a client business.'];
+    return [];
+  }
   const a = actor.user;
   const missing = (sites: string[] | null) => {
     const gap = role.permissions.filter((p) => !(sites ? sites.every((s) => can(a, p, today, s)) : canOrgWide(a, p, today)));
@@ -417,6 +429,10 @@ export function strongHeld(user: Pick<User, 'memberships'>, today: string): Perm
 
 /** Can the actor change this person's account or this membership (revoke, suspend, reset)? */
 export function checkAuthority(actor: Actor, target: User, users: User[], today: string, opts: { membershipId?: string; removesAccess?: boolean } = {}): string | null {
+  if (actor.kind === 'system') {
+    if (target.audience === 'ws' && !actor.ws && !opts.removesAccess) return 'Williams, Stanley & Co. accounts are managed by the WS client partner.';
+    if (actor.ws && target.audience === 'operator') return "Williams, Stanley & Co. never changes the accounts of a client's own people. The client manages them.";
+  }
   if (actor.kind === 'user') {
     const a = actor.user;
     if (a.id === target.id) return 'Somebody else has to change your own access, so the organisation is never left without an administrator by accident.';

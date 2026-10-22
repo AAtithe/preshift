@@ -350,19 +350,36 @@ describe('the hosted app', () => {
 });
 
 describe('the WS lead', () => {
-  it('is named only by a WS key, in that organisation only, and no app-made key can carry the scope', async () => {
-    const ws = { key: 'ws', orgId: 'demo', name: 'WS', scopes: ['programme:lead'] as unknown as ['*'] };
-    const k = await kit({ store: new MemoryStore([], TODAY), accounts: false, keys: [...INTEGRATION, ws] });
+  it('is the WS client partner, appointed by WS alone, and only they sign off the programme', async () => {
+    // A deployment key Williams, Stanley & Co. holds: the only key that may appoint the partner.
+    const ws = { key: 'ws', orgId: 'demo', name: 'WS', scopes: ['programme:lead', 'users:manage', 'rota:write'] as unknown as ['*'] };
+    const k = await kit({ store: new MemoryStore(['demo'], TODAY), accounts: false, keys: [...INTEGRATION, ws] });
     const boss = await owner(k);
-    const lead = await invite(k, boss, 'lead@ws.example', 'lead password long');
-    const name = (who: Parameters<Kit['call']>[2]) => k.call('PUT', '/v1/programme-leads/lead@ws.example', who, { lead: true });
-    // Neither the owner nor the operator's own full-access key can make someone the lead.
-    expect((await name(boss)).status).toBe(403);
-    expect((await name({ key: 'integration' })).status).toBe(403);
-    expect((await name({ key: 'ws' })).status).toBe(200);
-    expect((await k.call('GET', '/auth/me', lead.cookie)).body.lead).toBe(true);
-    expect((await k.call('GET', '/auth/me', boss)).body.lead).toBe(false);
-    expect((await k.store.getUser('lead@ws.example'))?.leadOrgs).toEqual(['demo']);
+    const partner = { email: 'partner@ws.example', name: 'Partner', audience: 'ws', roleId: 'ws_partner' };
+
+    // Neither the operator's owner, a sign-in from before roles, nor the operator's own full-access key can appoint one.
+    expect((await k.call('POST', '/v1/users', boss, partner)).status).toBe(422);
+    await k.store.createUser(account('norecord@ws.example'));
+    const norecord = await k.as('norecord@ws.example');
+    const legacy = await k.call('POST', '/v1/users', norecord, partner);
+    expect(legacy.status).toBe(422);
+    expect(legacy.body.message).toMatch(/granted by the WS client partner, or by WS itself/);
+    expect((await k.call('POST', '/v1/users', { key: 'integration' }, partner)).status).toBe(403);
+    // WS's key appoints WS people only, never inside the client business.
+    expect((await k.call('POST', '/v1/users', { key: 'ws' }, { email: 'x@ws.example', name: 'X', audience: 'operator', roleId: 'viewer' })).status).toBe(422);
+    const sent = await k.call('POST', '/v1/users', { key: 'ws' }, partner);
+    expect(sent.status).toBe(201);
+    const accepted = await k.form('/auth/accept', { token: tokenOf(sent.body.inviteUrl), password: 'partner password long', confirm: 'partner password long' });
+
+    const start = (who: Parameters<Kit['call']>[2]) => k.call('PUT', '/v1/programmes/mar', who, { startWeek: '2026-10-26' });
+    // The sign-off moves money, so the partner needs their authenticator first.
+    expect((await start(accepted.cookie!)).status).toBe(403);
+    const signedIn = (await enrol(k, accepted.cookie!)).cookie;
+    expect((await start(signedIn)).status).toBe(200);
+    for (const who of [boss, norecord, { key: 'integration' }]) expect((await start(who)).status).toBe(403);
+    expect((await start({ key: 'ws' })).status).toBe(200);
+    // And the operator can never take the partner's account over.
+    expect((await k.call('POST', `/v1/users/${sent.body.user.id}/reset-password`, boss)).status).toBe(403);
     expect((await k.call('POST', '/v1/api-keys', boss, { name: 'Mine', scopes: ['programme:lead'] })).status).toBe(400);
   });
 });
