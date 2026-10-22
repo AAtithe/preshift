@@ -1,11 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { canOrgWide, PERMISSIONS, type Permission } from '../../src/engine/access';
-import { hashKey, KEY_PREFIX, SCOPES, type Scope } from '../auth';
+import { hashKey, hasScope, KEY_PREFIX, SCOPES, type Scope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { audit, type ApiKeyRecord } from '../store';
-import { checkWebhookUrl, deliverWebhooks, MAX_ENDPOINTS, newWebhookSecret, WEBHOOK_EVENTS, type Fetch, type WebhookDelivery, type WebhookEndpoint } from '../webhooks';
+import { checkWebhookUrl, deliverWebhooks, isHrEvent, MAX_ENDPOINTS, newWebhookSecret, WEBHOOK_EVENTS, type Fetch, type WebhookDelivery, type WebhookEndpoint } from '../webhooks';
 
 const MAX_KEYS = 25;
 
@@ -86,6 +86,24 @@ function checkEvents(raw: unknown): string[] {
   return events;
 }
 
+/**
+ * HR events go only where someone who reads personnel files across the organisation sends them:
+ * a person with hr.view everywhere, or a key with hr:read (a personal key needs both). The same
+ * holds for moving or re-keying an endpoint that already carries them, or it could be redirected.
+ */
+function requireHrReader(ctx: AppContext, req: FastifyRequest) {
+  const p = req.principal;
+  if (!p.email && !hasScope(req, 'hr:read')) {
+    throw new HttpError(403, 'forbidden', 'HR events need a key with the hr:read scope.');
+  }
+  const g = guard(ctx, req, orgOf(req));
+  if (g.user && !canOrgWide(g.user, 'hr.view', ctx.store.todayISO())) {
+    throw new HttpError(403, 'forbidden', `${g.user.name} cannot read personnel files across the organisation, so cannot send HR events anywhere.`);
+  }
+}
+
+const carriesHr = (events: string[]) => events.some(isHrEvent);
+
 const endpointSchema = {
   type: 'object',
   properties: {
@@ -141,8 +159,8 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
     return reply.code(204).send();
   });
 
-  app.get('/v1/webhooks/events', { schema: { tags: ['Webhooks'], description: 'Every event a webhook endpoint can subscribe to, with what its data holds.' } }, async () =>
-    Object.entries(WEBHOOK_EVENTS).map(([type, description]) => ({ type, description })),
+  app.get('/v1/webhooks/events', { schema: { tags: ['Webhooks'], description: "Every event a webhook endpoint can subscribe to, with what its data holds. HR events are never part of '*' and need hr:read to subscribe." } }, async () =>
+    Object.entries(WEBHOOK_EVENTS).map(([type, description]) => ({ type, description, hr: isHrEvent(type) })),
   );
 
   app.get('/v1/webhooks', hooks({ description: 'Webhook endpoints for this organisation. Secrets are never returned after an endpoint is made.' }), async (req) =>
@@ -156,10 +174,12 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
       const org = orgOf(req);
       org.webhooks ??= [];
       if (org.webhooks.length >= MAX_ENDPOINTS) throw new HttpError(409, 'too_many_endpoints', `An organisation can have ${MAX_ENDPOINTS} webhook endpoints.`);
+      const events = checkEvents(req.body?.events);
+      if (carriesHr(events)) requireHrReader(ctx, req);
       const endpoint: WebhookEndpoint = {
         id: `wh_${randomUUID()}`,
         url: checkWebhookUrl(req.body?.url, options.production),
-        events: checkEvents(req.body?.events),
+        events,
         description: req.body?.description?.trim() || undefined,
         secret: newWebhookSecret(),
         active: true,
@@ -179,8 +199,10 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
       const org = orgOf(req);
       const endpoint = (org.webhooks ?? []).find((e) => e.id === req.params.id);
       if (!endpoint) throw notFound(`Webhook ${req.params.id}`);
+      const events = req.body?.events !== undefined ? checkEvents(req.body.events) : endpoint.events;
+      if (carriesHr(events) || (carriesHr(endpoint.events) && req.body?.url !== undefined)) requireHrReader(ctx, req);
       if (req.body?.url !== undefined) endpoint.url = checkWebhookUrl(req.body.url, options.production);
-      if (req.body?.events !== undefined) endpoint.events = checkEvents(req.body.events);
+      endpoint.events = events;
       if (req.body?.description !== undefined) endpoint.description = req.body.description.trim() || undefined;
       if (req.body?.active !== undefined) endpoint.active = req.body.active;
       audit(org, actor(req), 'webhook.changed', { id: endpoint.id, fields: Object.keys(req.body ?? {}) });
@@ -202,6 +224,7 @@ export function developerRoutes(app: FastifyInstance, ctx: AppContext, options: 
     const org = orgOf(req);
     const endpoint = (org.webhooks ?? []).find((e) => e.id === req.params.id);
     if (!endpoint) throw notFound(`Webhook ${req.params.id}`);
+    if (carriesHr(endpoint.events)) requireHrReader(ctx, req);
     endpoint.secret = newWebhookSecret();
     audit(org, actor(req), 'webhook.secret_rotated', { id: endpoint.id });
     return { ...endpointView(endpoint), secret: endpoint.secret };

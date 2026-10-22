@@ -131,6 +131,13 @@ Polling tells a partner too late. Webhooks tell it the moment something changes.
   that raised them (three second timeout, endpoints in parallel), and anything not answered 2xx
   is retried with backoff up to eight times, on later changes and on the daily cron. An endpoint's
   events go in order; a failing one holds back only its own.
+- HR events (`hr.profile.updated`, `hr.absence.*`, `hr.record.*`, `employee.rtw_document.*`) say
+  something about a named person's health, conduct or immigration status, even as bare ids, so:
+  they are never part of `*` and an endpoint names each one; only a person with `hr.view` across the
+  whole organisation, or a key with `hr:read` (a personal key needs both), can subscribe to them, or
+  move or re-key an endpoint that carries them; they never carry an absence's type, reason or dates,
+  a file name or a document hash; and disciplinary, grievance and capability cases (`kind: case`)
+  are never sent at all, as only people with `hr.cases` see them.
 - Settings shows events not yet delivered, with the error and a Retry now button. Send test
   posts a `webhook.test` event and reports what the endpoint answered.
 - Addresses must be public https. Private, link-local and cloud metadata addresses are refused, so

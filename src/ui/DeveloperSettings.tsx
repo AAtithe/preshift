@@ -147,7 +147,7 @@ export function ApiKeys() {
 
 export function Webhooks() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
-  const [events, setEvents] = useState<{ type: string; description: string }[]>([]);
+  const [events, setEvents] = useState<{ type: string; description: string; hr: boolean }[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [form, setForm] = useState<{ url: string; events: string[]; description: string }>({ url: '', events: ['*'], description: '' });
   const [secret, setSecret] = useState<{ url: string; secret: string } | null>(null);
@@ -157,7 +157,7 @@ export function Webhooks() {
     try {
       const [e, ev, d] = await Promise.all([
         api.get<Endpoint[]>('/v1/webhooks'),
-        api.get<{ type: string; description: string }[]>('/v1/webhooks/events'),
+        api.get<{ type: string; description: string; hr: boolean }[]>('/v1/webhooks/events'),
         api.get<Delivery[]>('/v1/webhooks/deliveries'),
       ]);
       setEndpoints(e);
@@ -212,8 +212,18 @@ export function Webhooks() {
   }
 
   const all = form.events.includes('*');
+  const isHr = (type: string) => events.some((e) => e.type === type && e.hr);
+  // HR events sit beside 'Everything' rather than under it: choosing one never clears it.
   const toggle = (type: string) =>
-    setForm((f) => ({ ...f, events: f.events.includes(type) ? f.events.filter((t) => t !== type) : [...f.events.filter((t) => t !== '*'), type] }));
+    setForm((f) => ({
+      ...f,
+      events: f.events.includes(type) ? f.events.filter((t) => t !== type) : [...f.events.filter((t) => t !== '*' || isHr(type)), type],
+    }));
+  const shown = (list: string[]) => {
+    const hr = list.filter(isHr);
+    const rest = list.includes('*') ? ['All except HR'] : list.filter((t) => !isHr(t));
+    return [...rest, ...hr].join(', ');
+  };
   const failing = deliveries.filter((d) => d.status !== 'delivered');
 
   return (
@@ -224,6 +234,11 @@ export function Webhooks() {
         each event to your https address, signed with the endpoint's secret, and retries for several hours if it is down. Events
         carry ids only, never pay or personal details; the other system reads the detail back with its API key.
       </p>
+      <p className="muted small">
+        HR events (absence, personnel details, training and reviews, right to work copies) are never part of Everything: tick each one
+        wanted. Only someone who can read personnel files across the organisation can send them anywhere. They never say the type
+        or reason for an absence, and disciplinary, grievance and capability cases are never sent at all.
+      </p>
       {endpoints.length > 0 && (
         <table className="table">
           <thead>
@@ -233,7 +248,7 @@ export function Webhooks() {
             {endpoints.map((ep) => (
               <tr key={ep.id}>
                 <td className="small">{ep.url}{ep.description && <div className="muted">{ep.description}</div>}</td>
-                <td className="small">{ep.events.includes('*') ? 'All' : ep.events.join(', ')}</td>
+                <td className="small">{shown(ep.events)}</td>
                 <td className="small">{ep.active ? 'On' : 'Off'}</td>
                 <td className="num">
                   <button className="link" onClick={() => void test(ep)}>Send test</button>
@@ -282,9 +297,18 @@ export function Webhooks() {
           <fieldset className="small" style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>Events</legend>
             <label style={{ display: 'block' }}>
-              <input type="checkbox" checked={all} onChange={() => setForm({ ...form, events: all ? [] : ['*'] })} /> Everything, including events added later
+              <input type="checkbox" checked={all} onChange={() => setForm({ ...form, events: all ? form.events.filter((t) => t !== '*') : ['*', ...form.events.filter(isHr)] })} />{' '}
+              Everything except HR, including events added later
             </label>
-            {!all && events.map((ev) => (
+            {!all && events.filter((ev) => !ev.hr).map((ev) => (
+              <label key={ev.type} style={{ display: 'block' }} title={ev.description}>
+                <input type="checkbox" checked={form.events.includes(ev.type)} onChange={() => toggle(ev.type)} /> {ev.type}
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="small" style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend>HR events, only when ticked</legend>
+            {events.filter((ev) => ev.hr).map((ev) => (
               <label key={ev.type} style={{ display: 'block' }} title={ev.description}>
                 <input type="checkbox" checked={form.events.includes(ev.type)} onChange={() => toggle(ev.type)} /> {ev.type}
               </label>

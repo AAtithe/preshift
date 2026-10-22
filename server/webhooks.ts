@@ -68,7 +68,23 @@ export const WEBHOOK_EVENTS: Record<string, string> = {
   'time.phone_clock_out': 'Someone clocked out on their phone. data.id is the entry.',
   'payroll.hours_submitted': 'Approved hours were sent to payroll for a company. data.id, data.entityId.',
   'payroll.run_completed': 'A pay run came back and was reconciled. data.run, data.entityId, data.variance.',
+  'hr.profile.updated': "Someone's personnel details changed. data.id is the employee, data.fields (names only).",
+  'hr.absence.created': 'Absence was recorded. data.id is the employee, data.absenceId. Never the type or reason.',
+  'hr.absence.updated': 'An absence was changed. data.id, data.absenceId, data.fields (names only).',
+  'hr.absence.deleted': 'An absence was removed. data.id, data.absenceId.',
+  'hr.record.created': 'Training, a review, a document or a note was added. data.id, data.employeeId, data.kind.',
+  'hr.record.updated': 'One of those was changed. data.id, data.employeeId, data.kind, data.fields (names only).',
+  'hr.record.deleted': 'One of those was removed. data.id, data.employeeId, data.kind.',
+  'employee.rtw_document.added': 'A right to work copy was stored. data.id is the employee, data.documentId.',
+  'employee.rtw_document.deleted': 'A right to work copy was deleted. data.id, data.documentId.',
 };
+
+/**
+ * HR events say something about a named person's health, conduct or immigration status, even as
+ * bare ids. They are never part of '*': an endpoint names each one it wants, and only someone who
+ * can read personnel files may subscribe to them (server/routes/developers.ts).
+ */
+export const isHrEvent = (type: string) => type.startsWith('hr.') || type.startsWith('employee.rtw_document.');
 
 export const MAX_ENDPOINTS = 10;
 const MAX_ATTEMPTS = 8;
@@ -79,13 +95,20 @@ const TIMEOUT_MS = 3000;
 const backoffMs = (attempt: number) => Math.min(30_000 * 2 ** (attempt - 1), 3_600_000);
 
 /** Detail fields that may go into an event. Anything else in the audit detail stays inside Preshift. */
-const SAFE_FIELDS = ['id', 'ids', 'siteId', 'siteIds', 'weekStart', 'entityId', 'fields', 'leaveDate', 'rows', 'run', 'variance', 'count', 'added', 'unfilled', 'published', 'removed', 'shifts', 'hours'];
+// Never an absence's type (sickness is health data), its dates, a file name or a document's hash.
+const SAFE_FIELDS = [
+  'id', 'ids', 'siteId', 'siteIds', 'weekStart', 'entityId', 'fields', 'leaveDate', 'rows', 'run', 'variance', 'count', 'added', 'unfilled',
+  'published', 'removed', 'shifts', 'hours', 'employeeId', 'absenceId', 'documentId', 'kind',
+];
 
-const subscribes = (e: WebhookEndpoint, type: string) => e.active && (e.events.includes('*') || e.events.includes(type));
+const subscribes = (e: WebhookEndpoint, type: string) =>
+  e.active && (e.events.includes(type) || (e.events.includes('*') && !isHrEvent(type)));
 
 /** Called from audit(): queues the event for every endpoint that wants it. */
 export function queueEvent(org: OrgData, type: string, detail: Record<string, unknown> | undefined) {
   if (!WEBHOOK_EVENTS[type]) return;
+  // Disciplinary, grievance and capability cases are seen only by people with hr.cases: never a system.
+  if (isHrEvent(type) && detail?.kind === 'case') return;
   const targets = (org.webhooks ?? []).filter((e) => subscribes(e, type));
   if (targets.length === 0) return;
   const data = Object.fromEntries(Object.entries(detail ?? {}).filter(([k]) => SAFE_FIELDS.includes(k)));

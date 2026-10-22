@@ -267,6 +267,62 @@ describe('webhooks', () => {
   });
 });
 
+describe('HR webhook events', () => {
+  it('sends absence and personnel events only to an endpoint that names them, with ids and never the reason', async () => {
+    const t = await boot();
+    await t.call('POST', '/v1/webhooks', undefined, { url: 'https://bi.example/all', events: ['*'] });
+    const hr = await t.call('POST', '/v1/webhooks', undefined, { url: 'https://hr.example/in', events: ['hr.absence.created', 'hr.record.created'] });
+    expect(hr.status).toBe(201);
+
+    const abs = await t.call('POST', '/v1/employees/mar-2/absences', undefined, { type: 'sickness', from: '2026-10-20', reason: 'Migraine' });
+    expect(abs.status).toBe(201);
+    const toHr = t.sent.filter((m) => m.url === 'https://hr.example/in');
+    expect(t.sent.filter((m) => m.url === 'https://bi.example/all')).toEqual([]);
+    expect(toHr).toHaveLength(1);
+    const event = JSON.parse(toHr[0].body);
+    expect(event.type).toBe('hr.absence.created');
+    expect(Object.keys(event.data).sort()).toEqual(['absenceId', 'id']);
+    expect(toHr[0].body).not.toMatch(/sickness|Migraine|2026-10-20/);
+  });
+
+  it('never sends a disciplinary, grievance or capability case, even to an endpoint that asks', async () => {
+    const t = await boot();
+    await t.call('POST', '/v1/webhooks', undefined, { url: 'https://hr.example/in', events: ['hr.record.created', 'hr.record.updated', 'hr.record.deleted'] });
+    const note = await t.call('POST', '/v1/hr/records', undefined, { employeeId: 'mar-2', kind: 'training', date: '2026-10-21', title: 'Food hygiene' });
+    expect(note.status).toBe(201);
+    const opened = await t.call('POST', '/v1/hr/records', undefined, { employeeId: 'mar-2', kind: 'case', caseType: 'grievance', date: '2026-10-21', title: 'Rota' });
+    expect(opened.status).toBe(201);
+    await t.call('PATCH', `/v1/hr/records/${opened.body.id}`, undefined, { notes: 'Met' });
+    await t.call('DELETE', `/v1/hr/records/${opened.body.id}`);
+    expect(t.sent.map((m) => JSON.parse(m.body).data)).toEqual([{ id: note.body.id, employeeId: 'mar-2', kind: 'training' }]);
+  });
+
+  it('lets only a reader of personnel files send HR events anywhere, or redirect an endpoint that carries them', async () => {
+    const t = await boot();
+    const partner = await t.makeKey(['rota:read', 'webhooks:write'], 'Partner');
+    const hrSystem = await t.makeKey(['hr:read', 'webhooks:write'], 'HR system');
+    const body = { url: 'https://p.example/h', events: ['hr.absence.created'] };
+    expect((await t.call('POST', '/v1/webhooks', { key: partner.key }, body)).status).toBe(403);
+    // Adding HR events to an endpoint later is checked the same way.
+    const plain = await t.call('POST', '/v1/webhooks', { key: partner.key }, { url: 'https://p.example/h', events: ['*'] });
+    expect((await t.call('PATCH', `/v1/webhooks/${plain.body.id}`, { key: partner.key }, { events: ['*', 'hr.absence.created'] })).status).toBe(403);
+
+    const hr = await t.call('POST', '/v1/webhooks', { key: hrSystem.key }, body);
+    expect(hr.status).toBe(201);
+    expect((await t.call('PATCH', `/v1/webhooks/${hr.body.id}`, { key: partner.key }, { url: 'https://evil.example/h' })).status).toBe(403);
+    expect((await t.call('POST', `/v1/webhooks/${hr.body.id}/rotate-secret`, { key: partner.key })).status).toBe(403);
+    expect((await t.call('PATCH', `/v1/webhooks/${hr.body.id}`, { key: hrSystem.key }, { url: 'https://hr2.example/h' })).status).toBe(200);
+  });
+
+  it('marks HR events in the catalogue', async () => {
+    const t = await boot();
+    const events = (await t.call('GET', '/v1/webhooks/events')).body as { type: string; hr: boolean }[];
+    expect(events.find((e) => e.type === 'hr.absence.created')?.hr).toBe(true);
+    expect(events.find((e) => e.type === 'employee.rtw_document.added')?.hr).toBe(true);
+    expect(events.find((e) => e.type === 'shift.created')?.hr).toBe(false);
+  });
+});
+
 describe('in the public demo', () => {
   it('refuses keys and webhooks but keeps the docs open', async () => {
     const t = await boot({ demo: true });
