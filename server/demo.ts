@@ -246,6 +246,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/integrations/epos/sync': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
+  // Refused: a sandbox is never billed, and nobody pays for the demo.
+  'GET /v1/billing': false,
+  'POST /v1/billing/checkout': false,
+  'POST /v1/billing/portal': false,
+  'POST /v1/billing/sites': false,
   'GET /v1/settings': false,
   'PUT /v1/settings/claude-api-key': false,
   'PUT /v1/settings/email': false,
@@ -266,11 +271,14 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/staff-logins': false,
   'POST /v1/staff-logins/:id/invite': false,
   'DELETE /v1/staff-logins/:id': false,
+  'GET /v1/staff-logins/review': false,
+  'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
   'GET /v1/dev/people': false,
   // Not reached with a visitor's session: signature-checked, or the staff app's own sign-in.
   'POST /v1/integrations/teampay/webhook/:orgId': false,
   'POST /v1/integrations/resend/webhook/:orgId': false,
+  'POST /v1/integrations/stripe/webhook': false,
   'POST /v1/staff/invite': false,
   'POST /v1/staff/join': false,
   'POST /v1/staff/login': false,

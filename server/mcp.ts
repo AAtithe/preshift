@@ -7,6 +7,7 @@
 // all apply exactly as they do for the web app. The connector adds no authority of its own.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { hasScope, type Scope } from './auth';
+import { resourceMetadataUrl } from './oauth';
 import { isoDate, minute } from './schemas';
 
 /** Newest first. A client asking for one of these gets it; anything else gets the newest. */
@@ -343,7 +344,13 @@ export function mcpRoutes(app: FastifyInstance, auth: (req: FastifyRequest, repl
     if (!sameOrigin(req)) return reply.code(403).send({ error: 'forbidden', message: 'Cross-origin requests to the connector are refused' });
   };
 
-  app.post('/mcp', { ...hidden, onRequest: [guardOrigin, auth] }, async (req, reply) => {
+  // A 401 names the discovery document, so claude.ai can find Sign in with Preshift on its own.
+  const challenge = async (req: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+    if (reply.statusCode === 401) reply.header('www-authenticate', `Bearer resource_metadata="${resourceMetadataUrl(req)}"`);
+    return payload;
+  };
+
+  app.post('/mcp', { ...hidden, onRequest: [guardOrigin, auth], onSend: challenge }, async (req, reply) => {
     const body = req.body as RpcMessage | RpcMessage[] | undefined;
     if (!body || typeof body !== 'object') return reply.code(400).send(rpcError(null, -32700, 'Parse error'));
     const batch = Array.isArray(body);

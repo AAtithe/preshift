@@ -278,7 +278,11 @@ export type AbsenceType = 'sickness' | 'unauthorised' | 'compassionate' | 'depen
 /** A spell of absence other than holiday, which lives on `leave`. Dates are inclusive. */
 export interface Absence {
   id: string;
-  type: AbsenceType;
+  /**
+   * Always stored. Withheld by the API from readers who need only the days off: whether someone was
+   * off sick is health data, kept to those who read HR files or see pay (sick pay turns on it).
+   */
+  type?: AbsenceType;
   from: string;
   /** Last day off. Absent while the person is still off. */
   to?: string;

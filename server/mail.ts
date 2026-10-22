@@ -182,3 +182,27 @@ export function managerDigestEmail(to: string, name: string, count: number, sect
     html: letter([`Good morning ${name},`, opening, ...body], { label: 'Open Staff requests', link }, notes),
   };
 }
+
+/** The link that confirms a self sign-up: the person proves the inbox is theirs before any account exists. */
+export function signupEmail(to: string, name: string, business: string, link: string, hours: number): Mail {
+  const opening = `Thank you for starting a Preshift trial for ${business}.`;
+  const setUp = 'Use this link to confirm this is your email, choose your password and open your new organisation. Choose one only you know.';
+  const notes = [
+    `The link works once and expires in ${hours} hours.`,
+    'If you did not ask for this, ignore it: nothing is set up unless the link is used.',
+  ];
+  const text = [`Hello ${name},`, '', opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: 'Confirm your email to start Preshift', text, html: letter([`Hello ${name},`, opening, setUp], { label: 'Confirm and choose a password', link }, notes) };
+}
+
+/**
+ * Someone asked to sign up with an email that already has an account. Told to the inbox, never to
+ * the page, so the sign-up form cannot be used to find out who has one.
+ */
+export function signupExistingEmail(to: string, link: string): Mail {
+  const opening = 'Someone asked to start a Preshift trial with this email, which already signs in to Preshift.';
+  const setUp = 'If it was you, sign in with your usual password. Forgotten it? Use "Forgot your password?" on the sign-in page.';
+  const notes = ['If it was not you, ignore this email. Nothing has changed.'];
+  const text = [opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: 'You already have a Preshift account', text, html: letter([opening, setUp], { label: 'Sign in to Preshift', link }, notes) };
+}
