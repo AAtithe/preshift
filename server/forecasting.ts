@@ -1,12 +1,10 @@
 import { bookingAdjustments, clipAround, compactBookings, type BookingAdjustment } from '../src/engine/bookings';
 import { baselineForecast, mergeModelForecast, type BaselineResult } from '../src/engine/forecast';
-import { siteHistory } from '../src/engine/history';
-import { autoAdjustmentsFor, historyWeatherFactors, planAhead, unusualDays, type AutoAdjustment } from '../src/engine/plan';
+import { autoAdjustmentsFor, learnSite, planAhead, type AutoAdjustment } from '../src/engine/plan';
 import { addDays, weekDates, weekStart } from '../src/engine/time';
-import type { DailyWeather, LocalEvent } from '../src/engine/types';
-import { learnWeatherEffect } from '../src/engine/weather';
+import type { DailyWeather, LocalEvent, SchoolPeriod } from '../src/engine/types';
 import type { AppContext } from './context';
-import { fetchFeedEvents, fetchWeather, mergeFeedEvents, mergeWeather, siteLocation, type FeedConfig } from './integrations/feeds';
+import { fetchFeedEvents, fetchSchoolFeed, fetchWeather, mergeFeedEvents, mergeSchoolPeriods, mergeWeather, siteLocation, type FeedConfig } from './integrations/feeds';
 import { audit, type OrgData } from './store';
 
 /**
@@ -19,10 +17,9 @@ export function modelDates(org: OrgData, siteId: string, dates: string[], today:
   const state = org.state;
   const sorted = [...dates].sort();
   const plan = planAhead(state, siteId, sorted[0], sorted[sorted.length - 1], today);
-  const unusual = unusualDays(state, siteId);
-  const effect = learnWeatherEffect(siteHistory(state.actuals ?? [], siteId), state.weather ?? [], siteId, unusual);
+  const learnt = learnSite(state, siteId);
   const people = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId);
-  const options = { unusualDays: unusual, historyFactors: historyWeatherFactors(state, siteId, effect) };
+  const options = { unusualDays: learnt.unusual, historyFactors: learnt.factors };
   // First pass: the model's own covers with only people's adjustments, the base the bookings are set against.
   // Nothing from it is kept.
   const base = baselineForecast(state.actuals ?? [], siteId, dates, { ...options, adjustments: state.forecastAdjustments ?? [] });
@@ -59,6 +56,7 @@ function backfillFrom(org: OrgData, siteId: string, today: string): string | und
 export interface Fetched {
   weather: Map<string, DailyWeather[]>;
   events: Map<string, LocalEvent[]>;
+  school: Map<string, { periods: (SchoolPeriod & { siteId: string })[]; ignored: string[] }>;
   feedErrors: Map<string, string>;
   weatherErrors: Map<string, string>;
   siteIds: string[];
@@ -68,7 +66,7 @@ export interface Fetched {
 /** Fetches the weather for every site with a location and every event feed. Changes nothing. */
 export async function fetchOutside(ctx: AppContext, org: OrgData, today: string, siteIds?: string[]): Promise<Fetched> {
   const sites = org.state.sites.filter((s) => !siteIds || siteIds.includes(s.id));
-  const out: Fetched = { weather: new Map(), events: new Map(), feedErrors: new Map(), weatherErrors: new Map(), siteIds: sites.map((s) => s.id), at: ctx.now().toISOString() };
+  const out: Fetched = { weather: new Map(), events: new Map(), school: new Map(), feedErrors: new Map(), weatherErrors: new Map(), siteIds: sites.map((s) => s.id), at: ctx.now().toISOString() };
   for (const site of sites) {
     if (siteLocation(site)) {
       try {
@@ -79,7 +77,8 @@ export async function fetchOutside(ctx: AppContext, org: OrgData, today: string,
     }
     for (const feed of org.eventFeeds.filter((f) => f.siteId === site.id)) {
       try {
-        out.events.set(feed.id, await fetchFeedEvents(ctx.fetch, ctx.feeds, feed, site, today));
+        if (feed.kind === 'school') out.school.set(feed.id, await fetchSchoolFeed(ctx.fetch, feed, site.id));
+        else out.events.set(feed.id, await fetchFeedEvents(ctx.fetch, ctx.feeds, feed, site, today));
       } catch (e) {
         out.feedErrors.set(feed.id, (e as Error).message);
       }
@@ -112,8 +111,15 @@ export function applyOutside(org: OrgData, fetched: Fetched, today: string, acto
     let events = 0;
     for (const feed of org.eventFeeds.filter((f) => f.siteId === siteId)) {
       const incoming = fetched.events.get(feed.id);
+      const holidays = fetched.school.get(feed.id);
       const err = fetched.feedErrors.get(feed.id);
-      if (incoming) {
+      if (holidays) {
+        org.state.schoolHolidays = mergeSchoolPeriods(org.state.schoolHolidays ?? [], feed.id, holidays.periods, today);
+        feed.lastRefreshedAt = fetched.at;
+        // What was left out is said on the feed, so someone can check it against the council's page.
+        feed.lastError = holidays.ignored.length ? `Not used: ${holidays.ignored.slice(0, 3).join('; ')}` : undefined;
+        if (holidays.ignored.length) r.errors.push(`${feed.label}: ${feed.lastError}`);
+      } else if (incoming) {
         org.state.localEvents = mergeFeedEvents(org.state.localEvents ?? [], feed.id, incoming, today);
         feed.lastRefreshedAt = fetched.at;
         feed.lastError = undefined;

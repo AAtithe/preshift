@@ -48,6 +48,7 @@ confined to its key's organisation.
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=` |
 | Calendar | `GET /v1/calendar?siteId=&from=&to=` (occasions, events, weather by day, what the model applies and why, reminders), `GET /v1/reminders?siteIds=` (what is due now), `POST /v1/reminders` (`done`, `dismiss`, or `expect` with a factor, which becomes a forecast adjustment; a second answer replaces the first), `PUT /v1/sites/:id/location`, `POST /v1/outside/refresh` (weather, feeds and the forecast ahead, now), `GET /v1/weather`, `GET/POST /v1/event-feeds`, `DELETE /v1/event-feeds/:id` (past events are kept as history), `GET/POST /v1/local-events`, `DELETE /v1/local-events/:id` (hand-entered only) |
+| School holidays | `GET /v1/school-holidays?siteId=` (the council's dates where given, otherwise the estimate), `POST /v1/school-holidays` (from the council's page, by hand), `DELETE /v1/school-holidays/:id`, `PUT /v1/sites/:id/nation`; a council's term dates feed is an event feed with `kind: "school"` |
 | Bookings | `PUT /v1/bookings` (push by the booking system's reference; only date, time, covers, status, made and cancelled dates are kept, anything else is dropped), `POST /v1/bookings/import` (a CSV export; columns found by name, UK dates unless `usDates`), `GET /v1/bookings`, `GET /v1/bookings/status` |
 | Till actuals | `GET/PUT /v1/actuals` (hourly sales and covers as traded: what the model learns from and accuracy is measured against) |
 | Coach | `POST /v1/coach/moves` (works out and records this week's moves), `POST /v1/coach/apply` (takes a move exactly as offered; refuses a stale one or one that now breaks a rule), `POST /v1/coach/dismiss` (with the reason), `GET /v1/coach/history` (with the saving each taken move actually realised), `GET /v1/scorecard?siteId=&weeks=` |
@@ -141,6 +142,19 @@ connection resolves the name and refuses it unless all its addresses are public,
 resolves inwards (or changes between check and fetch) cannot reach a private network. Redirects
 are refused, bodies are capped at 2 MB as they arrive, and feed addresses are never returned in
 full, because private calendar links carry secret tokens.
+
+## School holidays and children at work
+
+There is no national feed of school term dates: each council publishes its own, and academies can
+differ. Until a site has its council's dates, the usual England and Wales pattern is used and shown as
+an estimate; Scotland and Northern Ireland get no estimate. A council's iCal feed (`kind: "school"`)
+or dates entered by hand replace the estimate holiday by holiday.
+
+The child employment rules (gov.uk, "Child employment") apply to anyone still of compulsory school
+age by the site's nation. Because a holiday relaxes them, only confirmed holidays count: on an
+estimated holiday a child is rostered as if school were open. The feed reader leaves out anything
+doubtful and says so on the feed. Local byelaws can add limits and require a permit; the checks flag
+the permit and bar work for someone to confirm, and do not replace reading the council's byelaws.
 
 ## Bookings
 

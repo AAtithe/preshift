@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { dueReminders, planAhead, type Reminder } from '../../src/engine/plan';
 import { addDays } from '../../src/engine/time';
-import type { ForecastAdjustment, LocalEvent } from '../../src/engine/types';
+import { kindOf, schoolHolidays } from '../../src/engine/school';
+import type { ForecastAdjustment, LocalEvent, Site } from '../../src/engine/types';
+
 import { requireScope } from '../auth';
 import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../context';
 import { refreshOutside } from '../forecasting';
@@ -93,7 +95,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
           additionalProperties: false,
           properties: {
             siteId: { type: 'string' },
-            kind: { type: 'string', enum: ['ics', 'ticketmaster'] },
+            kind: { type: 'string', enum: ['ics', 'ticketmaster', 'school'] },
             label: { type: 'string', minLength: 1, maxLength: 80 },
             url: { type: 'string', maxLength: 2000 },
             radiusKm: { type: 'number', minimum: 0.2, maximum: 20 },
@@ -104,7 +106,7 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       requireSite(org, req.body.siteId);
-      if (req.body.kind === 'ics') {
+      if (req.body.kind === 'ics' || req.body.kind === 'school') {
         try {
           checkFeedUrl(req.body.url ?? '');
         } catch (e) {
@@ -126,6 +128,8 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     org.eventFeeds = org.eventFeeds.filter((f) => f.id !== req.params.id);
     // Its future events go with it; past ones stay, as history the site really traded through.
     org.state.localEvents = (org.state.localEvents ?? []).filter((e) => e.feedId !== req.params.id || e.date < today());
+    // A council feed's holidays go too, past ones included: without the feed they are not confirmed any more.
+    org.state.schoolHolidays = (org.state.schoolHolidays ?? []).filter((p) => p.feedId !== req.params.id);
     audit(org, req.principal.name, 'event_feed.removed', { id: req.params.id });
     return reply.code(204).send();
   });
@@ -168,6 +172,82 @@ export function calendarRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!event || event.source !== 'manual') throw notFound(`Event ${req.params.id} entered by hand`);
     org.state.localEvents = org.state.localEvents!.filter((e) => e.id !== req.params.id);
     audit(org, req.principal.name, 'local_event.removed', { id: req.params.id });
+    return reply.code(204).send();
+  });
+
+  // ----- School holidays -----
+
+  app.put<{ Params: { id: string }; Body: { nation: NonNullable<Site['nation']> } }>(
+    '/v1/sites/:id/nation',
+    {
+      ...write,
+      schema: {
+        tags: ['Calendar'],
+        description: "Which nation's school calendar and school-leaving rules apply at the site. England when not set.",
+        body: { type: 'object', required: ['nation'], additionalProperties: false, properties: { nation: { type: 'string', enum: ['england', 'wales', 'scotland', 'northern_ireland'] } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const site = requireSite(org, req.params.id);
+      site.nation = req.body.nation;
+      audit(org, req.principal.name, 'site.nation', { siteId: site.id, nation: site.nation });
+      return site;
+    },
+  );
+
+  app.get<{ Querystring: { siteId: string; from?: string; to?: string } }>(
+    '/v1/school-holidays',
+    {
+      ...read,
+      schema: {
+        tags: ['Calendar'],
+        description: "The school holidays that apply to a site: the council's own where given, otherwise the usual England and Wales pattern, marked as an estimate.",
+        querystring: { type: 'object', required: ['siteId'], properties: { siteId: { type: 'string' }, from: isoDate, to: isoDate } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const site = requireSite(org, req.query.siteId);
+      const from = req.query.from ?? today();
+      const to = req.query.to ?? addDays(from, 400);
+      const confirmed = (org.state.schoolHolidays ?? []).filter((p) => p.siteId === site.id);
+      return schoolHolidays(confirmed, from, to, !site.nation || site.nation === 'england' || site.nation === 'wales');
+    },
+  );
+
+  app.post<{ Body: { siteId: string; start: string; end: string; name: string } }>(
+    '/v1/school-holidays',
+    {
+      ...write,
+      schema: {
+        tags: ['Calendar'],
+        description: "A school holiday from the council's published dates, entered by hand. It replaces the estimate for the same holiday; the others stay estimated.",
+        body: {
+          type: 'object',
+          required: ['siteId', 'start', 'end', 'name'],
+          additionalProperties: false,
+          properties: { siteId: { type: 'string' }, start: isoDate, end: isoDate, name: { type: 'string', minLength: 1, maxLength: 80 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const org = orgOf(req);
+      requireSite(org, req.body.siteId);
+      if (req.body.end < req.body.start) throw new HttpError(422, 'invalid_period', 'The holiday ends before it starts');
+      const period = { id: `sh_${randomUUID().slice(0, 12)}`, siteId: req.body.siteId, start: req.body.start, end: req.body.end, name: req.body.name, kind: kindOf(req.body.name), source: 'manual' as const };
+      org.state.schoolHolidays = [...(org.state.schoolHolidays ?? []), period];
+      audit(org, req.principal.name, 'school_holiday.added', { siteId: period.siteId, start: period.start, end: period.end });
+      return reply.code(201).send(period);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/v1/school-holidays/:id', { ...write, schema: { tags: ['Calendar'] } }, async (req, reply) => {
+    const org = orgOf(req);
+    const held = (org.state.schoolHolidays ?? []).find((p) => p.id === req.params.id);
+    if (!held || held.source !== 'manual') throw notFound(`School holiday ${req.params.id} entered by hand`);
+    org.state.schoolHolidays = org.state.schoolHolidays!.filter((p) => p.id !== req.params.id);
+    audit(org, req.principal.name, 'school_holiday.removed', { id: req.params.id });
     return reply.code(204).send();
   });
 

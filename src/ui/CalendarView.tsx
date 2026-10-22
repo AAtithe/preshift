@@ -4,12 +4,14 @@ import type { CalendarDay, Reminder } from '../engine/plan';
 import { addDays, daysBetween, formatMinute, weekStart } from '../engine/time';
 import type { RotaState, Site } from '../engine/types';
 import type { WeatherEffect } from '../engine/weather';
+import type { SchoolEffect } from '../engine/school';
+import type { SchoolPeriod } from '../engine/types';
 import { api, ApiError } from './api';
 import { dayLabel } from './format';
 
-interface Feed { id: string; siteId: string; kind: 'ics' | 'ticketmaster'; label: string; url?: string; lastRefreshedAt?: string; lastError?: string }
+interface Feed { id: string; siteId: string; kind: 'ics' | 'ticketmaster' | 'school'; label: string; url?: string; lastRefreshedAt?: string; lastError?: string }
 type StatefulReminder = Reminder & { siteId: string; status: 'open' | 'done' | 'dismissed'; decidedBy?: string };
-interface CalendarResponse { days: CalendarDay[]; reminders: StatefulReminder[]; weatherEffect: WeatherEffect; eventEffects: EventEffect[] }
+interface CalendarResponse { days: CalendarDay[]; reminders: StatefulReminder[]; weatherEffect: WeatherEffect; eventEffects: EventEffect[]; schoolEffects: SchoolEffect[] }
 interface BookingStatus { siteId: string; bookingsAhead: number; coversAhead: number; furthestAhead: string | null; historyDays: number; lastLoadedAt: string | null }
 interface Imported { imported: number; from?: string; to?: string; skipped: number; notRead: string[]; problems: { line: number; reason: string }[] }
 interface Refreshed { siteId: string; weatherDays?: number; events?: number; modelled?: number; errors: string[] }
@@ -43,6 +45,9 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
   const [feed, setFeed] = useState({ label: '', url: '' });
   const [manual, setManual] = useState({ date: addDays(today, 7), name: '', time: '' });
   const [bookingStatus, setBookingStatus] = useState<BookingStatus | null>(null);
+  const [holidays, setHolidays] = useState<SchoolPeriod[]>([]);
+  const [schoolFeed, setSchoolFeed] = useState('');
+  const [holiday, setHoliday] = useState({ start: '', end: '', name: '' });
   const [upload, setUpload] = useState<{ source: string; usDates: boolean; file: File | null }>({ source: 'resdiary', usDates: false, file: null });
   const [lastImport, setLastImport] = useState<Imported | null>(null);
   const [where, setWhere] = useState({ lat: String(site.location?.lat ?? site.geofence?.lat ?? ''), lng: String(site.location?.lng ?? site.geofence?.lng ?? '') });
@@ -50,11 +55,13 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const [c, f, b] = await Promise.all([
+      const [c, f, b, sh] = await Promise.all([
         api.get<CalendarResponse>(`/v1/calendar?siteId=${site.id}&from=${from}&to=${addDays(from, 83)}`),
         api.get<Feed[]>('/v1/event-feeds'),
         api.get<BookingStatus[]>('/v1/bookings/status'),
+        api.get<SchoolPeriod[]>(`/v1/school-holidays?siteId=${site.id}&from=${from}&to=${addDays(from, 400)}`),
       ]);
+      setHolidays(sh);
       setBookingStatus(b.find((x) => x.siteId === site.id) ?? null);
       setCal(c);
       setFeeds(f.filter((x) => x.siteId === site.id));
@@ -115,6 +122,24 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
         ? `Read ${r.imported} bookings from ${dayLabel(r.from!).date} to ${dayLabel(r.to!).date}${r.skipped ? `, skipped ${r.skipped}` : ''}. Build the forecast to use them.`
         : 'No bookings could be read from that file.';
     });
+  }
+
+  function addSchoolFeed(e: FormEvent) {
+    e.preventDefault();
+    void act(async () => {
+      await api.post('/v1/event-feeds', { siteId: site.id, kind: 'school', label: 'Council term dates', url: schoolFeed });
+      setSchoolFeed('');
+      return 'Council feed added. Refresh to read its dates; each holiday it gives replaces the estimate for that holiday.';
+    });
+  }
+
+  function addHoliday(e: FormEvent) {
+    e.preventDefault();
+    void act(async () => {
+      await api.post('/v1/school-holidays', { siteId: site.id, ...holiday });
+      setHoliday({ start: '', end: '', name: '' });
+      return 'Holiday added. It replaces the estimate for that holiday; the others stay estimated until you add them.';
+    }, true);
   }
 
   function addEvent(e: FormEvent) {
@@ -209,6 +234,8 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
             return (
               <div key={d.date} className={`cal-day ${past ? 'past' : ''} ${d.date === today ? 'today' : ''}`}>
                 <div className="cal-date"><span className="cal-wd">{dayLabel(d.date).short} </span>{dayLabel(d.date).date}</div>
+                {d.school && d.school.start === d.date && <div className="chip school">{d.school.name}{d.school.source === 'estimate' ? ' (est.)' : ''}</div>}
+                {d.school && d.school.start !== d.date && <div className="chip school quiet">School holiday</div>}
                 {d.occasions.map((o) => <div key={o.key} className={`chip occ-${o.kind}`}>{o.name}</div>)}
                 {d.events.map((e) => (
                   <div key={e.id} className="chip event" title={[e.venue, feedName(e.feedId)].filter(Boolean).join(', ')}>
@@ -252,6 +279,16 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
                   ? `learning: ${cal.weatherEffect.days} of 28 days needed. Until then the weather is shown but nothing is adjusted.`
                   : 'set the location below to start.'}
             </li>
+            <li>
+              School holidays:{' '}
+              {(() => {
+                const usable = cal.schoolEffects.filter((x) => x.usable && Math.abs(x.factor - 1) >= 0.05);
+                const learning = cal.schoolEffects.every((x) => !x.usable);
+                if (learning) return 'learning: needs five holiday days in the till history.';
+                if (usable.length === 0) return 'trade here hardly moves in the school holidays, so nothing is applied.';
+                return usable.map((x) => `${x.weekend ? 'weekend' : 'weekday'} ${x.daypart} ${pctText(x.factor)}`).join(', ') + '.';
+              })()}
+            </li>
             {cal.eventEffects.map((e) => (
               <li key={e.feedId}>
                 {feedName(e.feedId) ?? 'Feed'}: {e.usable ? `${pctText(e.factor)} around the start time, from ${e.events} past events.` : `learning: ${e.events} of 2 past events needed.`}
@@ -260,6 +297,52 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
           </ul>
         </section>
       )}
+
+      <section className="settings-card">
+        <h2>School holidays</h2>
+        <p className="muted small">
+          Until your council's dates are in, the usual England and Wales pattern is used and marked as an estimate. For anyone
+          on the team still of school age, estimated holidays count as term time: the longer holiday hours apply only once the
+          council's dates are in. Academies can differ from the council.
+        </p>
+        <div className="settings-form">
+          <label>
+            Nation
+            <select value={site.nation ?? 'england'} disabled={busy} onChange={(e) => void act(async () => { await api.put(`/v1/sites/${site.id}/nation`, { nation: e.target.value }); return 'Saved.'; }, true)}>
+              <option value="england">England</option>
+              <option value="wales">Wales</option>
+              <option value="scotland">Scotland</option>
+              <option value="northern_ireland">Northern Ireland</option>
+            </select>
+          </label>
+        </div>
+        {holidays.length > 0 && (
+          <ul className="adjustments">
+            {holidays.slice(0, 8).map((h) => (
+              <li key={h.id}>
+                {h.name}: {dayLabel(h.start).date} to {dayLabel(h.end).date} {h.end.slice(0, 4)}{' '}
+                <span className="muted small">{h.source === 'estimate' ? '(estimate)' : h.source === 'council' ? '(council feed)' : '(entered by hand)'}</span>{' '}
+                {h.source === 'manual' && (
+                  <button className="link danger" disabled={busy} onClick={() => void act(async () => { await api.del(`/v1/school-holidays/${h.id}`); return 'Removed.'; }, true)}>Remove</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {(site.nation === 'scotland' || site.nation === 'northern_ireland') && holidays.length === 0 && (
+          <p className="small bad-text">No estimate is made outside England and Wales: add the council's dates.</p>
+        )}
+        <form className="settings-form" onSubmit={addSchoolFeed}>
+          <label>Council term dates (iCal address)<input required value={schoolFeed} onChange={(e) => setSchoolFeed(e.target.value)} placeholder="https:// or webcal://" /></label>
+          <button disabled={busy}>Add council feed</button>
+        </form>
+        <form className="settings-form" onSubmit={addHoliday}>
+          <label>Holiday<input required maxLength={80} value={holiday.name} onChange={(e) => setHoliday({ ...holiday, name: e.target.value })} placeholder="e.g. October half term" /></label>
+          <label>From<input type="date" required value={holiday.start} onChange={(e) => setHoliday({ ...holiday, start: e.target.value })} /></label>
+          <label>To<input type="date" required value={holiday.end} onChange={(e) => setHoliday({ ...holiday, end: e.target.value })} /></label>
+          <button disabled={busy}>Add by hand</button>
+        </form>
+      </section>
 
       <section className="settings-card">
         <h2>Bookings</h2>
@@ -323,9 +406,9 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
             Paste the iCal address a stadium, arena, theatre or council publishes (often a "subscribe" or "add to calendar" link).
             Each feed is learnt on its own.
           </p>
-          {feeds.length > 0 && (
+          {feeds.some((f) => f.kind !== 'school') && (
             <ul className="adjustments">
-              {feeds.map((f) => (
+              {feeds.filter((f) => f.kind !== 'school').map((f) => (
                 <li key={f.id}>
                   {f.label}
                   <span className="muted small">{f.lastError ? ` (last refresh failed: ${f.lastError})` : f.lastRefreshedAt ? ` (refreshed ${dayLabel(f.lastRefreshedAt.slice(0, 10)).date})` : ' (not fetched yet)'}</span>{' '}

@@ -357,3 +357,6 @@ button.link.danger { color: var(--bad); }
 .chip.booked.ahead { font-weight: 650; }
 .chip.party { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
 .reminder.kind-bookings { border-left-color: var(--good); }
+.chip.school { background: var(--surface-2); color: var(--accent); border-left: 2px solid var(--accent); }
+.chip.school.quiet { color: var(--muted); }
+.reminder.kind-school { border-left-color: var(--accent); }

@@ -4,6 +4,10 @@ import { occasionEffect, occasionsBetween, type Occasion } from './calendar';
 import { eventWindow, learnEventEffect, type EventEffect } from './events';
 import { siteHistory } from './history';
 import { addDays, formatMinute, parseISODate, weekday } from './time';
+import type { SchoolPeriod } from './types';
+import { inHoliday, learnSchoolEffect, schoolDayFactor, schoolHolidays, type SchoolEffect } from './school';
+import { DAYPARTS } from './forecast';
+import { isChildOn } from './compliance';
 import { describeWeather, learnWeatherEffect, seasonalTemp, weatherFactor, type WeatherEffect } from './weather';
 
 // Planning ahead: everything known about the coming weeks at a site (the
@@ -11,7 +15,7 @@ import { describeWeather, learnWeatherEffect, seasonalTemp, weatherFactor, type 
 // adjustments to the forecast where the site's own history says what they do,
 // and into reminders where it does not, or where something needs doing first.
 
-export type AutoKind = 'occasion' | 'event' | 'weather';
+export type AutoKind = 'occasion' | 'event' | 'weather' | 'school';
 export type ReminderKind = AutoKind | 'bookings';
 
 /** An adjustment the model made itself, with the evidence behind it. Never zero: only a person can close a site. */
@@ -32,6 +36,8 @@ export interface CalendarDay {
   manual: ForecastAdjustment[];
   /** What the books say, by daypart. */
   bookings: BookingSignal[];
+  /** The school holiday the day falls in, estimated or confirmed. */
+  school?: SchoolPeriod;
 }
 
 export interface Reminder {
@@ -61,6 +67,7 @@ export interface Plan {
   eventEffects: EventEffect[];
   /** Every booking signal in the range, for the model run to set against its own covers. */
   bookingSignals: BookingSignal[];
+  schoolEffects: SchoolEffect[];
 }
 
 /** Pace well ahead of or behind usual must be at least this many covers before it is a reminder. */
@@ -102,6 +109,44 @@ export function historyWeatherFactors(state: RotaState, siteId: string, effect: 
   return out;
 }
 
+/** Everything a site has learnt from its own history that is not about one day: school holidays and weather. */
+export interface SiteLearning {
+  unusual: Set<string>;
+  /** Holidays from the start of the history to a year ahead: the council's where given, the estimate otherwise. */
+  holidays: SchoolPeriod[];
+  schoolEffects: SchoolEffect[];
+  weatherEffect: WeatherEffect;
+  /** What school holidays and the weather did to each past day, taken out of training figures. */
+  factors: Map<string, number>;
+}
+
+/**
+ * Learns, in order: what school holidays do (on raw history, unusual days
+ * left out), then what the weather does (with the holidays taken out), then
+ * the two together for each past day, so neither is counted twice.
+ */
+export function learnSite(state: RotaState, siteId: string): SiteLearning {
+  const unusual = unusualDays(state, siteId);
+  const actuals = state.actuals ?? [];
+  const dates = actuals.filter((a) => a.siteId === siteId).map((a) => a.date).sort();
+  const site = state.sites.find((s) => s.id === siteId);
+  const estimate = !site?.nation || site.nation === 'england' || site.nation === 'wales';
+  const confirmed = (state.schoolHolidays ?? []).filter((p) => p.siteId === siteId);
+  const holidays = dates.length ? schoolHolidays(confirmed, dates[0], addDays(dates[dates.length - 1], 400), estimate) : [];
+  const raw = siteHistory(actuals, siteId);
+  const schoolEffects = learnSchoolEffect(raw, holidays, unusual);
+  const schoolF = new Map<string, number>();
+  for (const d of raw.days.keys()) {
+    if (unusual.has(d) || !inHoliday(holidays, d)) continue;
+    const f = schoolDayFactor(schoolEffects, raw, d);
+    if (f !== 1) schoolF.set(d, f);
+  }
+  const weatherEffect = learnWeatherEffect(siteHistory(actuals, siteId, schoolF), (state.weather ?? []).filter((w) => w.siteId === siteId), siteId, unusual);
+  const factors = new Map(schoolF);
+  for (const [d, f] of historyWeatherFactors(state, siteId, weatherEffect)) factors.set(d, (factors.get(d) ?? 1) * f);
+  return { unusual, holidays, schoolEffects, weatherEffect, factors };
+}
+
 /** Drops automatic adjustments a person has already decided on. A closure overrides everything. */
 function manualWins(auto: AutoAdjustment[], manual: ForecastAdjustment[]): AutoAdjustment[] {
   return auto.filter((a) => {
@@ -113,17 +158,22 @@ function manualWins(auto: AutoAdjustment[], manual: ForecastAdjustment[]): AutoA
 }
 
 export function planAhead(state: RotaState, siteId: string, from: string, to: string, today: string): Plan {
-  const unusual = unusualDays(state, siteId);
+  const learnt = learnSite(state, siteId);
+  const { unusual, weatherEffect, schoolEffects } = learnt;
+  const site = state.sites.find((s) => s.id === siteId);
+  const estimate = !site?.nation || site.nation === 'england' || site.nation === 'wales';
+  // Holidays for the range itself, even with no history yet.
+  const holidaysAhead = schoolHolidays((state.schoolHolidays ?? []).filter((p) => p.siteId === siteId), from, to, estimate);
   const weather = (state.weather ?? []).filter((w) => w.siteId === siteId);
-  const weatherEffect = learnWeatherEffect(siteHistory(state.actuals ?? [], siteId), weather, siteId, unusual);
-  // Occasions and events are judged with the weather taken out, so a hot Easter last year is not learnt as Easter.
-  const h = siteHistory(state.actuals ?? [], siteId, historyWeatherFactors(state, siteId, weatherEffect));
+  // Occasions and events are judged with the weather and school holidays taken out, so a hot Easter last year is not learnt as Easter.
+  const h = siteHistory(state.actuals ?? [], siteId, learnt.factors);
   const events = (state.localEvents ?? []).filter((e) => e.siteId === siteId);
   const manual = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId);
   const occasionDays = new Set([...unusual].filter((d) => !events.some((e) => e.date === d)));
   const feedIds = [...new Set(events.map((e) => e.feedId).filter((f): f is string => !!f))];
   const eventEffects = feedIds.map((feedId) => learnEventEffect(h, events, feedId, today, unusual, occasionDays));
 
+  const reminders: Reminder[] = [];
   const weatherAt = (date: string) => {
     const w = weather.find((x) => x.date === date && !x.observed);
     return w ? weatherFactor(weatherEffect, w, seasonalTemp(weather, date)) : 1;
@@ -131,12 +181,29 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
   const signals = bookingSignals(state.bookings ?? [], state.bookingPace ?? [], state.actuals ?? [], siteId, from, to, today, {
     unusual,
     weatherFactor: weatherAt,
-    historyFactors: historyWeatherFactors(state, siteId, weatherEffect),
+    historyFactors: learnt.factors,
   });
+  // Children on the team, by date, for the holiday reminders.
+  const children = (date: string) => state.employees.filter((e) => e.siteId === siteId && e.status !== 'leaver' && isChildOn(e, date, site?.nation ?? 'england'));
+  for (const p of holidaysAhead.filter((x) => x.kind !== 'inset' && x.start >= from)) {
+    const kids = children(p.start).length;
+    reminders.push({
+      key: `school:${p.id}`,
+      kind: 'school',
+      date: p.start,
+      dueFrom: addDays(p.start, -21),
+      title: `${p.name} starts${p.source === 'estimate' ? ' (estimated)' : ''}`,
+      advice:
+        'Parents on the team will ask for time off and students will want more hours: check holiday requests and availability before you build.' +
+        (kids ? ` ${kids} on the team ${kids === 1 ? 'is' : 'are'} of school age: longer holiday hours apply only once the council's dates are in.` : '') +
+        (p.source === 'estimate' ? ' These dates are the usual pattern, not your council\'s: add the council\'s dates for the site.' : ''),
+      applied: [],
+      needsInput: false,
+    });
+  }
   const dayName = (d: string) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][weekday(d)];
 
   const occs = occasionsBetween(from, addDays(to, 0));
-  const reminders: Reminder[] = [];
   const days: CalendarDay[] = [];
 
   for (let date = from; date <= to; date = addDays(date, 1)) {
@@ -249,6 +316,29 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
       }
     }
 
+    const holiday = inHoliday(holidaysAhead, date);
+    const bankHoliday = occasionsBetween(date, date).some((o) => o.bankHoliday);
+    if (holiday && !bankHoliday && date >= today) {
+      const weekend = weekday(date) >= 5;
+      // Under five per cent is within the noise of a few weeks' history: shown in what the site has learnt, not applied.
+      for (const e of schoolEffects.filter((x) => x.usable && x.weekend === weekend && Math.abs(x.factor - 1) >= 0.05)) {
+        const dp = DAYPARTS.find((d) => d.id === e.daypart)!;
+        auto.push({
+          id: `auto:school:${date}:${e.daypart}`,
+          source: 'auto',
+          kind: 'school',
+          siteId,
+          date,
+          factor: e.factor,
+          reason: 'event',
+          note: holiday.name,
+          fromHour: dp.from,
+          toHour: dp.to,
+          evidence: `${dp.label} in the school holidays here has traded ${pctText(e.factor)} on term time (${e.days} ${weekend ? 'weekend' : 'week'} days learnt)${holiday.source === 'estimate' ? '; holiday dates estimated' : ''}.`,
+        });
+      }
+    }
+
     const daySignals = signals.filter((sg) => sg.date === date);
     for (const sg of daySignals) {
       for (const p of sg.largeParties) {
@@ -293,18 +383,18 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
     // the same match listed by two feeds are one effect, not two. The strongest stands.
     const strongest = (kind: AutoKind) =>
       auto.filter((a) => a.kind === kind).sort((a, b) => Math.abs(b.factor - 1) - Math.abs(a.factor - 1)).slice(0, 1);
-    const single = [...strongest('occasion'), ...strongest('event'), ...auto.filter((a) => a.kind === 'weather')];
+    const single = [...strongest('occasion'), ...strongest('event'), ...auto.filter((a) => a.kind === 'weather' || a.kind === 'school')];
     // Each is held to a sensible range, and the model caps them in total too. An occasion can genuinely
     // double a lunch (Mothering Sunday), so it gets more room than weather or an event.
     const kept = manualWins(single, manual).map((a) => ({ ...a, factor: a.kind === 'occasion' ? Math.min(2.5, Math.max(0.5, a.factor)) : Math.min(1.6, Math.max(0.6, a.factor)) }));
-    days.push({ date, occasions: dayOccasions, events: dayEvents, weather: w, weatherText: w ? describeWeather(w) : undefined, adjustments: kept, manual: manual.filter((m) => m.date === date), bookings: daySignals });
+    days.push({ date, occasions: dayOccasions, events: dayEvents, weather: w, weatherText: w ? describeWeather(w) : undefined, adjustments: kept, manual: manual.filter((m) => m.date === date), bookings: daySignals, school: holiday });
   }
 
   // A reminder only shows what survived a person's own decision.
   const keptIds = new Set(days.flatMap((d) => d.adjustments.map((a) => a.id)));
   for (const r of reminders) r.applied = r.applied.filter((a) => keptIds.has(a.id));
 
-  return { siteId, from, to, days, reminders: reminders.sort((a, b) => a.date.localeCompare(b.date)), weatherEffect, eventEffects, bookingSignals: signals };
+  return { siteId, from, to, days, reminders: reminders.sort((a, b) => a.date.localeCompare(b.date)), weatherEffect, eventEffects, bookingSignals: signals, schoolEffects };
 }
 
 /** Reminders that are due now: on or after their due date and not yet past. */

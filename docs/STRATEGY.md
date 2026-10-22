@@ -80,7 +80,6 @@ Phase 2, first live sites (8 to 10 weeks):
 
 Phase 3:
 - Direct booking connections once ResDiary, SevenRooms and OpenTable grant API access (bookings already flow in by export and push).
-- School holidays by local authority, which move family trade and staff availability.
 - Tronc and tips allocation under the Employment (Allocation of Tips) Act 2023, with the
   troncmaster audit trail.
 - 17 week WTR reference period tracking, holiday entitlement balances, right to work checks.

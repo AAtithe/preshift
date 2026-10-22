@@ -144,7 +144,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     orgId,
     state: seeded
       ? seedState(today)
-      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [] },
+      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [], schoolHolidays: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -188,6 +188,7 @@ export function upgradeState(state: RotaState): RotaState {
     localEvents: state.localEvents ?? [],
     bookings: state.bookings ?? [],
     bookingPace: state.bookingPace ?? [],
+    schoolHolidays: state.schoolHolidays ?? [],
   };
 }
 

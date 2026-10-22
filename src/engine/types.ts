@@ -55,6 +55,8 @@ export interface Site {
   geofence?: GeoFence;
   /** Where the site is, for its weather and nearby events. Falls back to the geofence centre. */
   location?: { lat: number; lng: number };
+  /** Which nation's school calendar applies. England when absent; only England and Wales get an estimate. */
+  nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
 }
 
 /** A circle round the site's front door. */
@@ -259,6 +261,20 @@ export interface RotaState {
   bookings?: Booking[];
   /** How past days filled up: covers on the books at set lead times, kept once the bookings themselves are gone. */
   bookingPace?: BookingPace[];
+  /** School holidays confirmed for a site: from its council's feed or entered by hand. */
+  schoolHolidays?: (SchoolPeriod & { siteId: string })[];
+}
+
+/** A school holiday. Estimates are the usual pattern; council dates replace them. */
+export interface SchoolPeriod {
+  id: string;
+  start: string;
+  /** Last day of the holiday, inclusive. */
+  end: string;
+  name: string;
+  kind: 'half_term' | 'christmas' | 'easter' | 'summer' | 'inset' | 'other';
+  source: 'estimate' | 'council' | 'manual';
+  feedId?: string;
 }
 
 export type BookingStatus = 'booked' | 'cancelled' | 'no_show' | 'completed';

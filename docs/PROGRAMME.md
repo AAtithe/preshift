@@ -59,6 +59,8 @@ Thirty minutes, same day each week, the GM and the lead.
 4. Coming up. Open the Calendar tab together: what is due (Mothering Sunday five weeks out,
    party season ten), what the forecast already allows for and why, and what needs the GM's view.
    An occasion with no history is a judgement call: ask the GM what bookings say, then set it.
+   Before each school holiday, check holiday requests from parents, extra hours for students, and that
+   the council's dates are in for anyone on the team still of school age.
    Look at the booking pace: a day well ahead of usual at this point needs the rota checked before
    it is published, and a large party needs a named server and the kitchen told.
 5. This week. Build the forecast, check it, build the rota, take the moves, publish on time.

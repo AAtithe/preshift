@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
-import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
+import { checkEmployeeWeek, checkWeek, complianceOptions } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
 import { addDays, weekDates, weekStart } from '../../src/engine/time';
 import type { HourForecast, Shift } from '../../src/engine/types';
@@ -58,7 +58,7 @@ function shiftIssues(org: OrgData, shift: Shift) {
   const employee = org.state.employees.find((e) => e.id === shift.employeeId)!;
   const ws = weekStart(shift.date);
   const context = org.state.shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-  return checkEmployeeWeek(employee, ws, context);
+  return checkEmployeeWeek(employee, ws, context, undefined, complianceOptions(org.state, employee));
 }
 
 export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {

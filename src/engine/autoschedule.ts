@@ -1,9 +1,9 @@
 import type { RotaState, Shift } from './types';
-import { checkEmployeeWeek, requiredBreakMinutes } from './compliance';
+import { breakFor, checkEmployeeWeek, complianceOptions } from './compliance';
 import { shiftPaidMinutes } from './cost';
 import { dayDemand, forecastSalesForDay } from './demand';
 import { isEmployedOn } from './employees';
-import { addDays, ageOn, weekDates, weekStart } from './time';
+import { addDays, weekDates, weekStart } from './time';
 
 export interface AutoScheduleOptions {
   minShiftHours: number;
@@ -166,7 +166,7 @@ function trimOverstaffedEdges(state: RotaState, ids: Set<string>, minShiftHours:
       else if (lastHour < 24 && demand[lastHour]?.gap < 0) next = { ...shift, endMinute: shift.endMinute - 60 };
       if (!next) break;
       const employee = state.employees.find((e) => e.id === next!.employeeId)!;
-      next.breakMinutes = requiredBreakMinutes(next.endMinute - next.startMinute, ageOn(employee.dateOfBirth, next.date));
+      next.breakMinutes = breakFor(employee, next.date, next.endMinute - next.startMinute, complianceOptions(state, employee).nation);
       shifts = shifts.map((s) => (s.id === id ? next! : s));
     }
   }
@@ -221,11 +221,11 @@ function pickEmployee(state: RotaState, shifts: Shift[], allowCover: boolean, sl
       id: newId(),
       employeeId: e.id,
       ...slot,
-      breakMinutes: requiredBreakMinutes(length, ageOn(e.dateOfBirth, slot.date)),
+      breakMinutes: breakFor(e, slot.date, length, complianceOptions(state, e).nation),
     };
     const context = shifts.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
-    const issues = checkEmployeeWeek(e, ws, [...context, shift]).filter(
-      (i) => i.shiftId === shift.id || i.code === 'young-weekly' || i.code === 'max-hours' || i.code === 'wtr-48' || i.code === 'weekly-rest',
+    const issues = checkEmployeeWeek(e, ws, [...context, shift], undefined, complianceOptions(state, e)).filter(
+      (i) => i.shiftId === shift.id || ['young-weekly', 'child-weekly', 'max-hours', 'wtr-48', 'weekly-rest'].includes(i.code),
     );
     // Auto-build never creates a breach: anything flagged on the new shift rules the person out,
     // except being under contract, which the shift itself is helping to fix.

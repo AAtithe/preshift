@@ -1,8 +1,8 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
-import { checkEmployeeWeek, requiredBreakMinutes } from '../engine/compliance';
+import { breakFor, checkEmployeeWeek, complianceOptions } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
 import { employedShare } from '../engine/employees';
-import { addDays, ageOn, formatMinute, parseClock, weekStart } from '../engine/time';
+import { addDays, formatMinute, parseClock, weekStart } from '../engine/time';
 import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
 
@@ -24,7 +24,8 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
 
   const others = state.shifts.filter((s) => s.id !== draft.id);
   const length = draft.endMinute - draft.startMinute;
-  const neededBreak = requiredBreakMinutes(length, ageOn(employee.dateOfBirth, draft.date));
+  const options = useMemo(() => complianceOptions(state, employee), [state, employee]);
+  const neededBreak = breakFor(employee, draft.date, length, options.nation);
 
   const { marginal, issues } = useMemo(() => {
     const week = shiftsInWeek(others, ws).filter((s) => s.employeeId === employee.id);
@@ -34,9 +35,9 @@ export function ShiftEditor({ state, shift, onSave, onDelete, onClose }: Props) 
     const context = others.filter((s) => s.date >= addDays(ws, -1) && s.date <= addDays(ws, 7));
     return {
       marginal: { ...withShift, total: withShift.total - without.total, ni: withShift.employerNi - without.employerNi },
-      issues: checkEmployeeWeek(employee, ws, [...context, draft]).filter((i) => i.shiftId === draft.id || !i.shiftId),
+      issues: checkEmployeeWeek(employee, ws, [...context, draft], undefined, options).filter((i) => i.shiftId === draft.id || !i.shiftId),
     };
-  }, [draft, employee, others, ws]);
+  }, [draft, employee, others, ws, options]);
 
   const setClock = (key: 'startMinute' | 'endMinute') => (e: ChangeEvent<HTMLInputElement>) => {
     let minute = parseClock(e.target.value);

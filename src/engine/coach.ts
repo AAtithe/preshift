@@ -1,11 +1,11 @@
 import type { Employee, RotaState, Shift, TimeEntry } from './types';
-import { checkEmployeeWeek, requiredBreakMinutes, type Issue } from './compliance';
+import { breakFor, checkEmployeeWeek, complianceOptions, type Issue } from './compliance';
 import { employeeWeekCost, shiftsInWeek } from './cost';
 import { dayDemand } from './demand';
 import { employedShare, isEmployedOn } from './employees';
 import { weekMetrics } from './metrics';
 import { entriesAsShifts } from './timesheet';
-import { absoluteMinute, addDays, ageOn, formatMinute, weekDates, weekday } from './time';
+import { absoluteMinute, addDays, formatMinute, weekDates, weekday } from './time';
 
 // The weekly moves: the few changes to a site's rota that save the most money
 // without breaking the law or leaving the floor short. Each move is specific,
@@ -86,9 +86,9 @@ function overstaffed(state: RotaState, shift: Shift, absHour: number, cache: Map
   return gap < 0 ? -gap : 0;
 }
 
-function withBreak(shift: Shift, employee: Employee): Shift {
+function withBreak(shift: Shift, employee: Employee, state: RotaState): Shift {
   const length = shift.endMinute - shift.startMinute;
-  const needed = requiredBreakMinutes(length, ageOn(employee.dateOfBirth, shift.date));
+  const needed = breakFor(employee, shift.date, length, complianceOptions(state, employee).nation);
   // Keep a longer break the manager set; drop it when the shorter shift no longer needs one.
   return { ...shift, breakMinutes: needed > 0 ? Math.max(needed, shift.breakMinutes) : 0 };
 }
@@ -125,7 +125,7 @@ function candidates(state: RotaState, shift: Shift, minShiftHours: number, cache
       start = next;
     }
     if (start > shift.startMinute) {
-      out.push({ kind: 'trim-start', shift, after: withBreak({ ...shift, startMinute: start }, employee), over: most, from: shift.startMinute, to: start });
+      out.push({ kind: 'trim-start', shift, after: withBreak({ ...shift, startMinute: start }, employee, state), over: most, from: shift.startMinute, to: start });
     }
     let end = shift.endMinute;
     most = 0;
@@ -136,7 +136,7 @@ function candidates(state: RotaState, shift: Shift, minShiftHours: number, cache
       end = next;
     }
     if (end < shift.endMinute) {
-      out.push({ kind: 'trim-end', shift, after: withBreak({ ...shift, endMinute: end }, employee), over: most, from: end, to: shift.endMinute });
+      out.push({ kind: 'trim-end', shift, after: withBreak({ ...shift, endMinute: end }, employee, state), over: most, from: end, to: shift.endMinute });
     }
   }
 
@@ -146,7 +146,7 @@ function candidates(state: RotaState, shift: Shift, minShiftHours: number, cache
     if (other.siteId !== shift.siteId && !other.coverSiteIds.includes(shift.siteId)) continue;
     if (!other.roleIds.includes(shift.roleId) || !isEmployedOn(other, shift.date)) continue;
     if (state.shifts.some((s) => s.employeeId === other.id && s.date === shift.date)) continue;
-    out.push({ kind: 'swap', shift, after: withBreak({ ...shift, employeeId: other.id }, other), over: 0, from: shift.startMinute, to: shift.endMinute });
+    out.push({ kind: 'swap', shift, after: withBreak({ ...shift, employeeId: other.id }, other, state), over: 0, from: shift.startMinute, to: shift.endMinute });
   }
   return out;
 }
@@ -157,13 +157,13 @@ const issueKey = (i: Issue) => `${i.code}|${i.shiftId ?? ''}|${i.date ?? ''}`;
 class WeekCheck {
   private readonly before = new Map<string, Set<string>>();
   readonly context: Shift[];
-  constructor(state: RotaState, private readonly ws: string) {
+  constructor(private readonly state: RotaState, private readonly ws: string) {
     this.context = weekContext(state.shifts, ws);
   }
   issuesBefore(e: Employee): Set<string> {
     let set = this.before.get(e.id);
     if (!set) {
-      set = new Set(checkEmployeeWeek(e, this.ws, this.context).map(issueKey));
+      set = new Set(checkEmployeeWeek(e, this.ws, this.context, undefined, complianceOptions(this.state, e)).map(issueKey));
       this.before.set(e.id, set);
     }
     return set;
@@ -172,7 +172,7 @@ class WeekCheck {
   issuesAfter(e: Employee, change: Candidate): Issue[] {
     const own = this.context.filter((s) => s.id !== change.shift.id && s.employeeId === e.id);
     if (change.after && change.after.employeeId === e.id) own.push(change.after);
-    return checkEmployeeWeek(e, this.ws, own);
+    return checkEmployeeWeek(e, this.ws, own, undefined, complianceOptions(this.state, e));
   }
 }
 

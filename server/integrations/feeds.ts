@@ -2,8 +2,9 @@ import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { request } from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
 import { parseIcs } from '../../src/engine/events';
+import { readSchoolFeed } from '../../src/engine/school';
 import { addDays } from '../../src/engine/time';
-import type { DailyWeather, LocalEvent, Site } from '../../src/engine/types';
+import type { DailyWeather, LocalEvent, SchoolPeriod, Site } from '../../src/engine/types';
 
 // Outside data the forecast uses: the weather from Open-Meteo, and local events
 // from iCal feeds (stadiums, venues and councils publish these) or Ticketmaster.
@@ -35,7 +36,8 @@ export function maskFeedUrl(raw?: string): string | undefined {
 export interface EventFeed {
   id: string;
   siteId: string;
-  kind: 'ics' | 'ticketmaster';
+  /** 'school' is a council's term dates as iCal: read as school holidays, not events. */
+  kind: 'ics' | 'ticketmaster' | 'school';
   label: string;
   /** The iCal address, for an ics feed. */
   url?: string;
@@ -246,6 +248,24 @@ export function checkFeedUrl(raw: string): URL {
 }
 
 /** Events from one feed for one site, from roughly a year back to a year ahead. */
+/** A council's term dates feed, read as school holidays for the site. */
+export async function fetchSchoolFeed(f: Fetch, feed: EventFeed, siteId: string): Promise<{ periods: (SchoolPeriod & { siteId: string })[]; ignored: string[] }> {
+  if (!feed.url) throw new FeedError('No feed address');
+  const reading = readSchoolFeed(parseIcs(await getText(f, checkFeedUrl(feed.url).toString())), feed.id);
+  if (reading.periods.length === 0) throw new FeedError(`No school holidays found in the feed${reading.ignored.length ? `: ${reading.ignored[0]}` : ''}`);
+  return { periods: reading.periods.map((p) => ({ ...p, siteId })), ignored: reading.ignored };
+}
+
+/**
+ * Replaces a school feed's holidays with what it says now, keeping its past
+ * holidays: they are what the site learnt the holiday effect from, even once
+ * the council stops listing them.
+ */
+export function mergeSchoolPeriods<T extends SchoolPeriod & { siteId: string }>(held: T[], feedId: string, incoming: T[], today: string): T[] {
+  const ids = new Set(incoming.map((p) => p.id));
+  return [...held.filter((p) => p.feedId !== feedId || (p.end < today && !ids.has(p.id))), ...incoming];
+}
+
 export async function fetchFeedEvents(f: Fetch, cfg: FeedConfig, feed: EventFeed, site: Site, today: string): Promise<LocalEvent[]> {
   const from = addDays(today, -400);
   const to = addDays(today, 365);

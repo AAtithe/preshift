@@ -1,6 +1,7 @@
 import type { Booking, BookingPace, DemandRule, Employee, Entity, HourActual, HourForecast, Role, RotaState, Site } from './types';
 import { PACE_LEADS } from './bookings';
 import { daypartOf, DAYPARTS } from './forecast';
+import { estimatedHolidays, schoolYearOf } from './school';
 import { addDays, toISODate, weekDates, weekStart } from './time';
 
 const roles: Role[] = [
@@ -165,6 +166,7 @@ function noise(key: string): number {
  */
 function actuals(start: string, today: string): HourActual[] {
   const rows: HourActual[] = [];
+  const holidays = [...estimatedHolidays(schoolYearOf(today) - 1), ...estimatedHolidays(schoolYearOf(today))];
   for (const site of sites) {
     for (let w = -12; w <= 0; w++) {
       weekDates(addDays(start, w * 7)).forEach((date, weekday) => {
@@ -175,7 +177,9 @@ function actuals(start: string, today: string): HourActual[] {
         for (const [h, share] of Object.entries(CURVE)) {
           const hour = Number(h);
           if (hour * 60 < site.openMinute || hour * 60 >= site.closeMinute) continue;
-          const sales = Math.max(0, Math.round(day * share * (1 + 0.12 * noise(`${site.id}${date}${hour}`))));
+          // Marylebone's weekday lunches pick up families in the school holidays.
+          const holidayLunch = site.id === 'mar' && weekday < 5 && hour >= 11 && hour < 15 && holidays.some((p) => p.start <= date && p.end >= date) ? 1.15 : 1;
+          const sales = Math.max(0, Math.round(day * share * holidayLunch * (1 + 0.12 * noise(`${site.id}${date}${hour}`))));
           rows.push({ siteId: site.id, date, hour, sales, covers: Math.round(sales / AVERAGE_SPEND) });
         }
       });

@@ -1,6 +1,6 @@
 import type { LocalEvent } from './types';
 import { normalSales, salesIn, type SiteHistory } from './history';
-import { londonClock } from './time';
+import { addDays, londonClock } from './time';
 
 // Local events: the match at the ground down the road, the concert at the
 // arena, the Christmas market. Each feed is learnt on its own, because a home
@@ -14,6 +14,8 @@ export interface IcsEvent {
   /** London start time in minutes; absent for all-day events. */
   startMinute?: number;
   location?: string;
+  /** The last day the event covers, inclusive, when it runs past its start day (a holiday, a festival). */
+  endDate?: string;
 }
 
 /** Undoes iCal line folding and text escaping. */
@@ -38,11 +40,15 @@ export function parseIcs(text: string): IcsEvent[] {
       if (cur?.DTSTART && cur.STATUS?.value.trim().toUpperCase() !== 'CANCELLED') {
         const start = parseIcsDate(cur.DTSTART.params, cur.DTSTART.value);
         if (start) {
+          // An all-day DTEND is the day after the last day; a timed one is the moment it ends.
+          const end = cur.DTEND ? parseIcsDate(cur.DTEND.params, cur.DTEND.value) : null;
+          const last = end ? (end.startMinute === undefined ? addDays(end.date, -1) : end.date) : undefined;
           out.push({
             uid: cur.UID?.value ?? `${start.date}-${cur.SUMMARY?.value ?? ''}`,
             summary: unescape(cur.SUMMARY?.value ?? 'Event'),
             ...start,
             location: cur.LOCATION ? unescape(cur.LOCATION.value) : undefined,
+            ...(last && last > start.date ? { endDate: last } : {}),
           });
         }
       }
