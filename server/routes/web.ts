@@ -23,7 +23,7 @@ const notFound = (reply: FastifyReply) => reply.code(404).type('text/plain').sen
  * The sign-in page and, when appDir is given (the hosted build), the web app itself. The app's
  * files are served only to signed-in people: no session, no HTML, scripts or styles.
  */
-export function webRoutes(app: FastifyInstance, store: Store, options: { loginPage: string; appDir?: string; staffDir?: string }) {
+export function webRoutes(app: FastifyInstance, store: Store, options: { loginPage: string; appDir?: string; staffDir?: string; kioskDir?: string }) {
   app.get('/login', { schema: { hide: true } }, async (_req, reply) =>
     reply.type('text/html; charset=utf-8').header('cache-control', 'no-store').send(await readFile(options.loginPage)),
   );
@@ -34,6 +34,14 @@ export function webRoutes(app: FastifyInstance, store: Store, options: { loginPa
     const serveStaff = (url: string, reply: FastifyReply) => serveFile(staffDir, '/staff', url, reply);
     app.get('/staff', { schema: { hide: true } }, (req, reply) => serveStaff(req.url, reply));
     app.get('/staff/*', { schema: { hide: true } }, (req, reply) => serveStaff(req.url, reply));
+  }
+
+  if (options.kioskDir) {
+    // The kiosk page is public too: until the iPad is paired its API answers nothing but "not paired".
+    const kioskDir = options.kioskDir;
+    const serveKiosk = (url: string, reply: FastifyReply) => serveFile(kioskDir, '/kiosk', url, reply);
+    app.get('/kiosk', { schema: { hide: true } }, (req, reply) => serveKiosk(req.url, reply));
+    app.get('/kiosk/*', { schema: { hide: true } }, (req, reply) => serveKiosk(req.url, reply));
   }
 
   if (!options.appDir) return;

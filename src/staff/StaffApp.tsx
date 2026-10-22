@@ -3,6 +3,7 @@ import { checkFence } from '../engine/clocking';
 import { formatMinute } from '../engine/time';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
+import { InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
 interface Entry {
   id: string;
@@ -18,10 +19,9 @@ interface Entry {
   onBreak: boolean;
 }
 
-interface Overview {
+interface Overview extends SelfServiceData {
   employee: { id: string; name: string };
   email?: string;
-  today: string;
   sites: { id: string; name: string; geofence: GeoFence | null }[];
   open: Entry | null;
   shifts: { id: string; date: string; startMinute: number; endMinute: number; breakMinutes: number; siteName: string; roleName: string }[];
@@ -124,8 +124,41 @@ export function StaffApp() {
           }}
         />
       )}
-      {view === 'home' && data && <Home data={data} onChange={setData} onSignedOut={() => setView('login')} />}
+      {view === 'home' && data && <Signed data={data} onChange={setData} onSignedOut={() => setView('login')} />}
     </div>
+  );
+}
+
+type Tab = 'today' | 'rota' | 'requests' | 'inbox';
+
+/** Signed in: four tabs along the bottom, where a thumb reaches. */
+function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
+  const [tab, setTab] = useState<Tab>('today');
+  const refresh = useCallback(async () => {
+    try {
+      onChange(await call<Overview>('GET', '/v1/staff/me'));
+    } catch (e) {
+      if (e instanceof Problem && e.status === 401) onSignedOut();
+    }
+  }, [onChange, onSignedOut]);
+  const reload = useCallback(() => void refresh(), [refresh]);
+  const open = data.requests.filter((r) => r.status === 'pending' || r.status === 'accepted').length;
+  const tabs: [Tab, string, number][] = [['today', 'Today', 0], ['rota', 'Rota', 0], ['requests', 'Requests', open], ['inbox', 'Inbox', data.unread]];
+  return (
+    <>
+      {tab === 'today' && <Home data={data} onChange={onChange} onSignedOut={onSignedOut} />}
+      {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} />}
+      {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
+      {tab === 'inbox' && <InboxTab call={call} refresh={reload} />}
+      <nav className="staff-tabs" aria-label="Staff app">
+        {tabs.map(([id, label, count]) => (
+          <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
+            {label}
+            {count > 0 && <span className="staff-badge" aria-label={`${count} new`}>{count}</span>}
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }
 

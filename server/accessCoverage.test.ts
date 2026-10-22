@@ -33,6 +33,23 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/staff/pulse': "Staff app: the caller's own answer to the weekly pulse, under the staff session.",
   'POST /v1/staff/chat': 'Staff app: the caller asking for a chat for themselves, under the staff session.',
   'POST /v1/staff/rewards': 'Staff app: the caller opting themselves in or out of Hospitality Rewards, under the staff session.',
+  'GET /v1/staff/notifications': "Staff app: the caller's own notifications, under the staff session.",
+  'POST /v1/staff/notifications/read': "Staff app: marks the caller's own notifications read, under the staff session.",
+  'GET /v1/staff/team': "Staff app: names and times of who shares the caller's own published shifts, under the staff session.",
+  'GET /v1/staff/board': 'Staff app: open shifts and swaps the caller is eligible for, under the staff session.',
+  'GET /v1/staff/shifts/:id/swap-options': "Staff app: colleagues who could take one of the caller's own shifts, under the staff session.",
+  'POST /v1/staff/open-shifts/:id/claim': 'Staff app: the caller asks for an open shift; a manager with rota.publish decides.',
+  'POST /v1/staff/requests/holiday': 'Staff app: the caller asks for holiday; a manager with team.manage decides.',
+  'POST /v1/staff/requests/time-off': 'Staff app: the caller asks for time off; a manager with hr.manage decides.',
+  'POST /v1/staff/requests/availability': 'Staff app: the caller proposes their availability; a manager with team.manage decides.',
+  'PUT /v1/staff/unavailable': "Staff app: the caller's own one-off unavailable days, under the staff session.",
+  'POST /v1/staff/requests/:id/cancel': 'Staff app: the caller withdraws their own request, under the staff session.',
+  'POST /v1/staff/sick': 'Staff app: the caller reports their own sickness, under the staff session.',
+  'POST /v1/staff/sick/back': 'Staff app: the caller ends their own sickness absence, under the staff session.',
+  'POST /v1/staff/fit-note': 'Staff app: the caller files their own fit note, under the staff session.',
+  'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
+  'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
+  'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",
 };
 
 interface Route {
