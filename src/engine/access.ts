@@ -383,6 +383,38 @@ function appoints(u: User, today: string): Set<Audience> {
   return out;
 }
 
+/**
+ * Whether the actor may act on this person's identity: reset their password or authenticator, or
+ * send them a fresh invitation. Each can end with whoever holds the link holding the account, so it
+ * needs the authority to give the person every role they hold, exactly as granting does. An
+ * operations director can reset a GM, never the people manager or the owner; the owner, who appoints
+ * operators without holding each duty, can reset any operator; WS never resets a client's people.
+ */
+export function identityAuthorityErrors(actor: Actor, target: User, users: User[], today: string): string[] {
+  const base = checkAuthority(actor, target, users, today);
+  if (base) return [base];
+  for (const m of target.memberships) {
+    if (!m.active || !(live(m, today) || m.starts > today)) continue;
+    const role = roleOf(m.roleId);
+    if (!role) continue;
+    const errors = authorityErrors(actor, target, role, { roleId: m.roleId, siteIds: m.siteIds, starts: m.starts, ends: m.ends }, today);
+    if (errors.length) return [`Resetting ${target.name} could hand you their account, so it needs the authority to give them every role they hold. ${errors[0]}`];
+  }
+  return [];
+}
+
+/**
+ * The rights a person holds that move money or reach confidential records: pay, payroll, locking,
+ * the journal, access management, settings, cases and staff data requests. A link that opens an
+ * account holding any of them only ever goes to the person's own email, never to whoever sent it.
+ * Giving site roles (users.sites) is left out: it is capped to the giver's own sites and access,
+ * and a GM's link handed over in person is how a client without email sets up its sites.
+ */
+export function strongHeld(user: Pick<User, 'memberships'>, today: string): Permission[] {
+  const held = heldPermissions(user, today);
+  return STRONG.filter((p) => p !== 'users.sites' && held.has(p));
+}
+
 /** Can the actor change this person's account or this membership (revoke, suspend, reset)? */
 export function checkAuthority(actor: Actor, target: User, users: User[], today: string, opts: { membershipId?: string; removesAccess?: boolean } = {}): string | null {
   if (actor.kind === 'user') {
@@ -397,6 +429,9 @@ export function checkAuthority(actor: Actor, target: User, users: User[], today:
     }
     if (target.audience === 'ws' && !(a.audience === 'ws' && canOrgWide(a, 'users.manage', today)) && !opts.removesAccess) {
       return 'Williams, Stanley & Co. accounts are managed by the WS client partner.';
+    }
+    if (a.audience === 'ws' && target.audience === 'operator') {
+      return "Williams, Stanley & Co. never changes the accounts of a client's own people. The client manages them.";
     }
   }
   if (opts.removesAccess && canOrgWide(target, 'users.manage', today) && managersOtherThan(users, target.id, today, opts.membershipId) === 0) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allowanceClaimant, employmentAllowanceIssues, employmentAllowanceWeek } from './allowance';
 import { autoSchedule, autoScheduleSites } from './autoschedule';
-import { checkEmployeeWeek, checkWeek, requiredBreakMinutes } from './compliance';
+import { checkEmployeeWeek, checkWeek, overrideTrend, requiredBreakMinutes } from './compliance';
 import { employeeWeekCost, weekCost } from './cost';
 import { holidayBalance, holidayHourlyRate, leaveYear, workedShifts } from './holiday';
 import { employedShare, employeeStatus, newEmployee, reviewEmployee } from './employees';
@@ -11,7 +11,7 @@ import { scopeMetrics, weekMetrics } from './metrics';
 import { seedState } from './seed';
 import { payrollHours } from './timesheet';
 import { addDays, ageOn, taxYearOf, weekStart } from './time';
-import type { Employee, Entity, RotaState, Shift } from './types';
+import type { Employee, Entity, RestOverride, RotaState, Shift } from './types';
 
 const WEEK = '2026-10-19'; // a Monday
 
@@ -114,6 +114,69 @@ describe('compliance', () => {
     expect(codes(person(), [shift(addDays(WEEK, -1), 15, 24, 30), shift(WEEK, 8, 12, 0)])).toContain('daily-rest');
   });
 
+  it('blocks publication on short daily rest and no weekly rest', () => {
+    const severity = (shifts: Shift[], code: string) => checkEmployeeWeek(person(), WEEK, shifts).find((i) => i.code === code)?.severity;
+    expect(severity([shift(WEEK, 15, 24, 30), shift(addDays(WEEK, 1), 9, 15, 0)], 'daily-rest')).toBe('block');
+    const allWeek = Array.from({ length: 7 }, (_, i) => shift(addDays(WEEK, i), 10, 14, 0));
+    expect(severity(allWeek, 'weekly-rest')).toBe('block');
+  });
+
+  it('lets a manager override a rest breach with a reason, for that breach only', () => {
+    const close = shift(WEEK, 15, 24, 30);
+    const open = shift(addDays(WEEK, 1), 9, 15, 0);
+    const rest = (shifts: Shift[], overrides: RestOverride[] = []) =>
+      checkEmployeeWeek(person(), WEEK, shifts, overrides).find((i) => i.code === 'daily-rest')!;
+    const breach = rest([close, open]);
+    expect(breach.severity).toBe('block');
+    const override: RestOverride = {
+      id: 'o1', employeeId: 'e1', siteId: 'mar', code: 'daily-rest', key: breach.overrideKey!, reason: 'Covering sickness, off Thursday', by: 'gm@ws.example', at: '2026-10-19T09:00:00Z',
+    };
+    const covered = rest([close, open], [override]);
+    expect(covered.severity).toBe('warn');
+    expect(covered.message).toContain('Overridden by gm@ws.example: Covering sickness, off Thursday');
+    // Opening an hour earlier is a different breach, so the reason no longer covers it.
+    expect(rest([close, { ...open, startMinute: 8 * 60 }], [override]).severity).toBe('block');
+    // Nor does it cover someone else.
+    expect(rest([close, open], [{ ...override, employeeId: 'e2' }]).severity).toBe('block');
+    // Other breaches cannot be overridden at all.
+    expect(checkEmployeeWeek(person(), WEEK, [shift(WEEK, 10, 18, 0)]).find((i) => i.code === 'break')!.overrideKey).toBeUndefined();
+  });
+
+  it('ties a weekly rest override to the days worked', () => {
+    const teen = person({ dateOfBirth: '2009-06-01', hourlyRate: 8 });
+    const six = Array.from({ length: 6 }, (_, i) => shift(addDays(WEEK, i), 10, 14, 0));
+    const weekly = (shifts: Shift[], overrides: RestOverride[] = []) =>
+      checkEmployeeWeek(teen, WEEK, shifts, overrides).find((i) => i.code === 'weekly-rest')!;
+    const key = weekly(six).overrideKey!;
+    const override: RestOverride = { id: 'o2', employeeId: 'e1', siteId: 'mar', code: 'weekly-rest', key, reason: 'Exam week swap agreed', by: 'gm', at: '' };
+    expect(weekly(six, [override]).severity).toBe('warn');
+    expect(weekly([...six, shift(addDays(WEEK, 6), 10, 14, 0)], [override]).severity).toBe('block');
+  });
+
+  it('counts rest overrides per site over the last four weeks, oldest first', () => {
+    const state = seedState(WEEK);
+    const id = state.employees.find((e) => e.siteId === 'mar')!.id;
+    const role = state.employees.find((e) => e.id === id)!.roleIds[0];
+    const at = (siteId: string, date: string, start: number, end: number): Shift => ({
+      id: `${siteId}-${date}-${start}`, employeeId: id, roleId: role, siteId, date, startMinute: start * 60, endMinute: end * 60, breakMinutes: 30,
+    });
+    // Short rest two weeks ago at Marylebone, and this week on a cover shift at Fitzrovia.
+    state.shifts = [
+      at('mar', addDays(WEEK, -14), 15, 24), at('mar', addDays(WEEK, -13), 6, 12),
+      at('mar', WEEK, 15, 24), at('fitz', addDays(WEEK, 1), 6, 12),
+    ];
+    state.restOverrides = [addDays(WEEK, -14), WEEK].map((ws, n) => {
+      const breach = checkWeek(state, ws).find((i) => i.code === 'daily-rest' && i.employeeId === id)!;
+      return { id: `o${n}`, employeeId: id, siteId: 'mar', code: 'daily-rest' as const, key: breach.overrideKey!, reason: 'Covering sickness', by: 'gm', at: '' };
+    });
+    const trend = overrideTrend(state, WEEK, ['mar', 'fitz', 'shd']);
+    expect(trend.weekStarts).toEqual([addDays(WEEK, -21), addDays(WEEK, -14), addDays(WEEK, -7), WEEK]);
+    expect(trend.bySite.get('mar')).toEqual([0, 1, 0, 0]);
+    // Counted where the short rest was worked, not at the person's home site.
+    expect(trend.bySite.get('fitz')).toEqual([0, 0, 0, 1]);
+    expect(trend.bySite.get('shd')).toEqual([0, 0, 0, 0]);
+  });
+
   it('flags double booking', () => {
     expect(codes(person(), [shift(WEEK, 10, 14), shift(WEEK, 13, 17)])).toContain('double-booked');
   });
@@ -171,6 +234,18 @@ describe('auto-schedule', () => {
     expect(result.added.length).toBeGreaterThan(20);
     const blocks = checkWeek(next, WEEK, 'mar').filter((i) => i.severity === 'block');
     expect(blocks).toEqual([]);
+  });
+
+  it('does not close someone the night before a shift they already open', () => {
+    // Everyone at the site already opens Tuesday at 06:00, so nobody can close Monday night.
+    const team = state.employees.filter((e) => e.siteId === 'mar');
+    const opens: Shift[] = team.map((e, n) => ({
+      id: `open-${n}`, employeeId: e.id, siteId: 'mar', roleId: e.roleIds[0], date: addDays(WEEK, 1),
+      startMinute: 6 * 60, endMinute: 10 * 60, breakMinutes: 0, published: false,
+    }));
+    const seeded = { ...state, shifts: [...state.shifts, ...opens] };
+    const built = { ...seeded, shifts: autoSchedule(seeded, 'mar', WEEK).shifts };
+    expect(checkWeek(built, WEEK, 'mar').filter((i) => i.code === 'daily-rest')).toEqual([]);
   });
 
   it('never rosters someone on leave', () => {
