@@ -27,6 +27,10 @@ export interface AppContext {
 declare module 'fastify' {
   interface FastifyRequest {
     org?: OrgData;
+    /** Set when a read changed the organisation (an invitation accepted on sign-in), so it is saved too. */
+    orgChanged?: boolean;
+    /** Set when a read only refreshed someone's last seen: saved if it can be, never at the read's expense. */
+    orgTouched?: boolean;
   }
 }
 

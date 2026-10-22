@@ -31,13 +31,17 @@ async function boot(store: Store = new MemoryStore(['demo'], '2026-10-21'), env:
 }
 
 describe('public demo', () => {
-  it('gives each visitor a seeded sandbox of their own, signed in as its admin', async () => {
+  it('gives each visitor a seeded sandbox of their own, with its full access', async () => {
     const t = await boot();
     const a = await t.visit();
     const b = await t.visit();
     const meA = (await t.call('GET', '/auth/me', a)).json();
     const meB = (await t.call('GET', '/auth/me', b)).json();
-    expect(meA).toMatchObject({ role: 'admin', demo: true });
+    expect(meA).toMatchObject({ demo: true });
+    // The visitor has no access record in their sandbox, so they hold its full access, as the
+    // account at home with no record always has; the Access tab lists the demo's fictional team.
+    expect((await t.call('GET', '/v1/me', a)).json()).toMatchObject({ withoutRecord: true });
+    expect((await t.call('GET', '/v1/users', a)).json().length).toBeGreaterThan(5);
     expect(meA.orgId).toMatch(/^sandbox-/);
     expect(meA.orgId).not.toBe(meB.orgId);
 

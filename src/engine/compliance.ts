@@ -108,7 +108,8 @@ export function checkEmployeeWeek(
     }
     if (employee.payBasis === 'hourly') {
       const band = minimumWageFor(ageOn(employee.dateOfBirth, shift.date), rates);
-      if (band && employee.hourlyRate < band.hourly) {
+      // Withheld pay reads as nought; the API, which holds the real rate, makes this check for that reader.
+      if (band && !employee.payHidden && employee.hourlyRate < band.hourly) {
         push({
           ...base,
           code: 'minimum-wage',

@@ -1,10 +1,13 @@
 import { randomBytes } from 'node:crypto';
+import type { AccessReview, User } from '../src/engine/access';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
+import { toISODate } from '../src/engine/time';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, RotaState, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { OutboxItem } from './outbox';
+import { demoAuthenticators, seedUsers } from './seedUsers';
 
 export interface PayrollSubmission {
   id: string;
@@ -42,6 +45,42 @@ export interface AuditEvent {
   detail?: Record<string, unknown>;
 }
 
+/**
+ * One person's authenticator. Kept apart from their access record so no response that
+ * returns people can ever carry it. The secret is sealed; recovery codes are hashes.
+ */
+export interface AuthenticatorRecord {
+  /** Changes on every enrolment: a session's proof names it, so a reset ends older proofs. */
+  id: string;
+  /** The confirmed secret, sealed. */
+  secret?: string;
+  /** A secret shown but not yet confirmed with a code, sealed. */
+  pending?: string;
+  enrolledAt?: string;
+  /** The last time step accepted, so no code works twice. */
+  lastStep: number;
+  /** SHA-256 of each unused recovery code. */
+  recovery: string[];
+  /** Recent wrong codes, for the lockout. */
+  failures: string[];
+  lockedUntil?: string;
+}
+
+export type { MailKind } from '../src/engine/mail';
+import type { MailKind, MailStatus } from '../src/engine/mail';
+export type MailEventType = MailStatus;
+
+export interface MailRecord {
+  to: string;
+  kind: MailKind;
+  userId?: string;
+  sentAt: string;
+  /** Who sent it: a person's name, or the sign-in page for "Forgot your password?". */
+  by: string;
+  /** Kept as reported, oldest first; the status is read from them (maillog.statusOf), never stored. */
+  events: { id: string; type: MailEventType; at: string; detail?: string }[];
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -51,6 +90,16 @@ export interface OrgData {
   outbox: OutboxItem[];
   processedWebhookIds: Set<string>;
   audit: AuditEvent[];
+  users: User[];
+  accessReviews: AccessReview[];
+  /** Invitation tokens by their SHA-256; the plain token is shown once, to whoever sent it. */
+  inviteTokens: Record<string, { userId: string; expiresAt: string; kind?: 'invite' | 'reset' }>;
+  /** When each person's invitation was last sent, to stop resend floods. */
+  inviteSends: Record<string, string[]>;
+  /** Authenticators by user id. */
+  authenticators: Record<string, AuthenticatorRecord>;
+  /** Emails sent through Resend, by Resend's id, with what Resend has reported since. Never their content. */
+  mail: Record<string, MailRecord>;
   /** Personnel file entries: training, reviews, cases, documents and notes. Served only to HR scopes. */
   hrRecords: HrRecord[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
@@ -59,16 +108,26 @@ export interface OrgData {
   version?: number;
 }
 
-/** Admins run the organisation; members work across every site; managers work on their own sites only. */
-export type UserRole = 'admin' | 'member' | 'manager';
+export type UserRole = 'admin' | 'member';
 
-/** A person who signs in to the web app. Passwords are held only as scrypt salt and hash. */
+/**
+ * A person who signs in to the web app. Passwords are held only as scrypt salt and hash. One
+ * account can hold access records in several organisations; it belongs to one, its home.
+ */
 export interface UserRecord {
   email: string;
+  /**
+   * The home organisation: where the account was made. Only its admins reset the password or the
+   * authenticator, so no other organisation can take the account over.
+   */
   orgId: string;
+  /** Every organisation the account has joined, home included. Missing on older rows: just the home. */
+  orgs?: string[];
+  /** Where the person last worked, so sign-in returns them there. */
+  lastOrgId?: string;
+  /** The person's authenticator: one for every organisation, as the password is. */
+  authenticator?: AuthenticatorRecord;
   role: UserRole;
-  /** The sites a manager runs. Set for managers only. */
-  siteIds?: string[];
   salt: string;
   hash: string;
   createdAt: string;
@@ -84,6 +143,12 @@ export interface UserRecord {
   /** Epoch seconds of recent reset emails, to cap how many one account can be sent. */
   resetRequests?: number[];
 }
+
+/** The organisations an account may sign in to, home first. */
+export const orgsOfAccount = (a: Pick<UserRecord, 'orgId' | 'orgs'>) => [a.orgId, ...(a.orgs ?? []).filter((o) => o !== a.orgId)];
+
+/** Whether the account holds access anywhere but here: then only its home may reset it. */
+export const sharedAccount = (a: Pick<UserRecord, 'orgId' | 'orgs'>) => orgsOfAccount(a).length > 1;
 
 /**
  * People and deployment settings, kept in the same database as the organisations so that
@@ -109,6 +174,8 @@ export interface UserStore {
   /** Secrets and settings kept apart from organisation data, so no data endpoint can return them. */
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string | null): Promise<void>;
+  /** A setting written once and never overwritten: whoever writes first wins, and everyone reads that. */
+  settingOnce(key: string, make: () => string): Promise<string>;
 }
 
 /**
@@ -188,6 +255,10 @@ export interface DocumentStore {
  */
 export interface Store extends UserStore, StaffStore, DocumentStore {
   load(orgId: string): Promise<OrgData>;
+  /** Whether the organisation exists, without creating it as load() would. */
+  has(orgId: string): Promise<boolean>;
+  /** Today in this store's world: fixed in tests, real otherwise. */
+  todayISO(): string;
   save(org: OrgData): Promise<void>;
   orgIds(): Promise<string[]>;
   /** Removes the organisation's data for good. Used only to clear away expired demo sandboxes. */
@@ -197,15 +268,26 @@ export interface Store extends UserStore, StaffStore, DocumentStore {
 const newSecret = () => randomBytes(32).toString('hex');
 
 function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
+  // The demo's fictional people never go into a deployment: there they would sit on the real Access tab
+  // and count as administrators, so the last real one could be removed. Local and test only.
+  const deployed = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const people = seeded && !deployed ? seedUsers(today ?? toISODate(new Date())) : { users: [], reviews: [] };
   return {
     orgId,
-    state: seeded ? seedState(today) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
+    // A copy each: the seed's objects are shared, and one organisation's change must not show in another's.
+    state: seeded ? structuredClone(seedState(today)) : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
     outbox: [],
     processedWebhookIds: new Set(),
     audit: [],
+    users: people.users,
+    accessReviews: people.reviews,
+    inviteTokens: {},
+    inviteSends: {},
+    mail: {},
+    authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
   };
 }
@@ -250,6 +332,14 @@ export class MemoryStore implements Store {
     // Requests work on the stored object directly.
   }
 
+  async has(orgId: string) {
+    return this.orgs.has(orgId) || this.seedOrgIds.includes(orgId);
+  }
+
+  todayISO() {
+    return this.today ?? toISODate(new Date());
+  }
+
   async orgIds() {
     return [...this.orgs.keys()];
   }
@@ -268,7 +358,7 @@ export class MemoryStore implements Store {
   }
 
   async listUsers(orgId: string) {
-    return [...this.users.values()].filter((u) => u.orgId === orgId).map((u) => ({ ...u }));
+    return [...this.users.values()].filter((u) => orgsOfAccount(u).includes(orgId)).map((u) => ({ ...u }));
   }
 
   async hasUsers() {
@@ -365,6 +455,11 @@ export class MemoryStore implements Store {
   async setSetting(key: string, value: string | null) {
     if (value === null) this.settings.delete(key);
     else this.settings.set(key, value);
+  }
+
+  async settingOnce(key: string, make: () => string) {
+    if (!this.settings.has(key)) this.settings.set(key, make());
+    return this.settings.get(key)!;
   }
 }
 
@@ -495,6 +590,16 @@ export class PgStore implements Store {
     }
   }
 
+  async has(orgId: string) {
+    await this.init();
+    if (this.seedOrgIds.includes(orgId)) return true;
+    return (await this.query('select 1 from preshift.orgs where org_id = $1', [orgId])).length > 0;
+  }
+
+  todayISO() {
+    return this.today ?? toISODate(new Date());
+  }
+
   async orgIds() {
     await this.init();
     const rows = await this.query('select org_id from preshift.orgs', []);
@@ -526,7 +631,11 @@ export class PgStore implements Store {
 
   async listUsers(orgId: string) {
     await this.init();
-    const rows = await this.query('select data from preshift.users where org_id = $1 order by created_at', [orgId]);
+    // Accounts at home here, and accounts from elsewhere that have joined.
+    const rows = await this.query(
+      `select data from preshift.users where org_id = $1 or coalesce(data->'orgs', '[]'::jsonb) @> jsonb_build_array($1::text) order by created_at`,
+      [orgId],
+    );
     return rows.map((r) => userFrom(r.data));
   }
 
@@ -660,6 +769,14 @@ export class PgStore implements Store {
     return rows.length ? String(rows[0].value) : null;
   }
 
+  async settingOnce(key: string, make: () => string) {
+    await this.init();
+    // Instances racing on first use all keep whichever value was written first.
+    await this.query('insert into preshift.settings (key, value) values ($1, $2) on conflict do nothing', [key, make()]);
+    const rows = await this.query('select value from preshift.settings where key = $1', [key]);
+    return String(rows[0].value);
+  }
+
   async setSetting(key: string, value: string | null) {
     await this.init();
     if (value === null) await this.query('delete from preshift.settings where key = $1', [key]);
@@ -687,7 +804,20 @@ function serialise(org: OrgData): string {
 
 function deserialise(data: unknown, version: number): OrgData {
   const raw = (typeof data === 'string' ? JSON.parse(data) : data) as Omit<OrgData, 'processedWebhookIds'> & { processedWebhookIds: string[] };
-  return { ...raw, hrRecords: raw.hrRecords ?? [], state: upgradeState(raw.state), processedWebhookIds: new Set(raw.processedWebhookIds), version };
+  // Organisations saved before access management load with nobody on record, not a failure.
+  return {
+    ...raw,
+    hrRecords: raw.hrRecords ?? [],
+    state: upgradeState(raw.state),
+    users: raw.users ?? [],
+    accessReviews: raw.accessReviews ?? [],
+    inviteTokens: raw.inviteTokens ?? {},
+    inviteSends: raw.inviteSends ?? {},
+    mail: raw.mail ?? {},
+    authenticators: raw.authenticators ?? {},
+    processedWebhookIds: new Set(raw.processedWebhookIds),
+    version,
+  };
 }
 
 export function audit(org: OrgData, actor: string, action: string, detail?: Record<string, unknown>) {

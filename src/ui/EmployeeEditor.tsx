@@ -12,11 +12,13 @@ interface Props {
   state: RotaState;
   employee: Employee;
   today: string;
+  /** May change the rate, salary and pay basis. Without it pay is shown locked, or not at all if withheld. */
+  canEditPay: boolean;
   onSave: (employee: Employee) => void;
   onLeaver: (id: string, leaveDate: string) => void;
   /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
   onAddDocument: (id: string, file: Blob, fileName: string) => Promise<Employee>;
-  /** Admin only, as on the server: absent hides Delete and History. */
+  /** privacy.manage, as on the server: absent hides Delete and History. */
   onDeleteDocument?: (id: string, documentId: string) => Promise<Employee>;
   onDocumentHistory?: (id: string, documentId: string) => Promise<DocumentAccess[]>;
   onClose: () => void;
@@ -27,7 +29,8 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Without these the record cannot be costed or checked, so it cannot be saved.
 const HARD_STOPS = new Set(['name', 'roles', 'dob', 'dates', 'hours']);
 
-export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
+export function EmployeeEditor({ state, employee, today, canEditPay, onSave, onLeaver, onAddDocument, onDeleteDocument, onDocumentHistory, onClose }: Props) {
+  const payLocked = !canEditPay;
   const [draft, setDraft] = useState<Employee>(employee);
   const [uploading, setUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
@@ -226,10 +229,13 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
         </div>
 
         <h3 className="section">Contract and pay</h3>
+        {draft.payHidden && <p className="muted small">Pay is withheld from your view. Whoever manages pay sets the rate.</p>}
+        {!draft.payHidden && payLocked && <p className="muted small">Pay is set by whoever manages pay, never by the person managing the team.</p>}
         <div className="form">
+          {!draft.payHidden && (<>
           <label>
             Pay basis
-            <select value={draft.payBasis} onChange={(e) => set('payBasis', e.target.value as Employee['payBasis'])}>
+            <select disabled={payLocked} value={draft.payBasis} onChange={(e) => set('payBasis', e.target.value as Employee['payBasis'])}>
               <option value="hourly">Hourly</option>
               <option value="salaried">Salaried</option>
             </select>
@@ -237,14 +243,15 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
           {draft.payBasis === 'hourly' ? (
             <label>
               Hourly rate (£)
-              <input type="number" min={0} step={0.01} value={draft.hourlyRate} onChange={(e) => set('hourlyRate', Number(e.target.value))} />
+              <input type="number" min={0} step={0.01} disabled={payLocked} value={draft.hourlyRate} onChange={(e) => set('hourlyRate', Number(e.target.value))} />
             </label>
           ) : (
             <label>
               Annual salary (£)
-              <input type="number" min={0} step={500} value={draft.annualSalary} onChange={(e) => set('annualSalary', Number(e.target.value))} />
+              <input type="number" min={0} step={500} disabled={payLocked} value={draft.annualSalary} onChange={(e) => set('annualSalary', Number(e.target.value))} />
             </label>
           )}
+          </>)}
           <label>
             Contracted hours a week (0 = flexible)
             <input type="number" min={0} step={1} value={draft.contractedHours} onChange={(e) => set('contractedHours', Number(e.target.value))} />
@@ -266,6 +273,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
             Enrolled in workplace pension
           </label>
         </div>
+        {!draft.payHidden && (
         <div className="cost-box">
           <div>
             <div className="muted small">Guaranteed weekly cost</div>
@@ -277,6 +285,7 @@ export function EmployeeEditor({ state, employee, today, onSave, onLeaver, onAdd
               : `${money(guaranteed.total * 52)} a year, loaded with holiday, employer NI and pension. You pay this whether or not the rota uses them.`}
           </div>
         </div>
+        )}
 
         <h3 className="section">Right to work</h3>
         <div className="form">

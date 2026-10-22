@@ -34,6 +34,8 @@ interface Props {
   /** Open the picker for a new shift drawn on a day or picked from a short hour. */
   onOpen: (opening: Opening) => void;
   baseLabourCost: number;
+  /** Pay is withheld from those who do not see cost: the money columns are left out rather than shown as nought. */
+  showCost: boolean;
 }
 
 interface Draw {
@@ -72,7 +74,7 @@ interface Lane {
  * shifts stacked as bars by department and a coverage strip that reads short or over by the
  * hour. Bars drag along the day to move, by their ends to resize, and up or down to another day.
  */
-export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost }: Props) {
+export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost, showCost }: Props) {
   const layer = useRef<HTMLDivElement>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
   const drawRef = useRef<Draw | null>(null);
@@ -301,7 +303,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                   )}
                 </div>
               </div>
-              <aside className="tl-pnl">
+              {showCost && <aside className="tl-pnl">
                 <div className="tnum">{money(m.labourCost)}</div>
                 <div className="muted small">labour</div>
                 <div className={`tl-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</div>
@@ -311,7 +313,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                     {pts.toFixed(1)} pts
                   </div>
                 )}
-              </aside>
+              </aside>}
             </section>
           );
         })}
@@ -360,7 +362,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                   <span className="tl-meta">
                     {role?.name} · {formatMinute(shift.startMinute)}-{formatMinute(shift.endMinute)}
                   </span>
-                  <span className="tl-cost tnum">{money(cost)}</span>
+                  {showCost && <span className="tl-cost tnum">{money(cost)}</span>}
                   {level && <span className="tl-flag" aria-label={level === 'block' ? 'Blocking issue' : 'Needs review'}>!</span>}
                   <span className="tl-edge end" data-edge="end" aria-hidden />
                 </button>,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek } from '../../src/engine/compliance';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
@@ -7,8 +7,8 @@ import { addDays, weekDates, weekStart } from '../../src/engine/time';
 import type { DaySales, HourForecast, Shift } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
-import { assertRosterable, assertSites } from '../scope';
 import { audit, type OrgData } from '../store';
 import { travelIssues } from '../../src/engine/travel';
 
@@ -48,22 +48,34 @@ function sitesOf(org: OrgData, body: SitesWeek, mustExist: boolean): string[] {
   return [...new Set(ids)];
 }
 
-/** The sites of a group call, all of which the caller must manage. */
-function scopedSitesOf(req: FastifyRequest, org: OrgData, body: SitesWeek, mustExist: boolean): string[] {
-  const ids = sitesOf(org, body, mustExist);
-  assertSites(req, ids);
-  return ids;
-}
-
-function validateShift(req: FastifyRequest, org: OrgData, shift: Shift) {
+function validateShift(org: OrgData, shift: Shift) {
   requireSite(org, shift.siteId);
-  assertSites(req, [shift.siteId]);
-  const employee = org.state.employees.find((e) => e.id === shift.employeeId);
-  if (!employee) throw notFound(`Employee ${shift.employeeId}`);
-  assertRosterable(req, employee, shift.siteId);
+  if (!org.state.employees.some((e) => e.id === shift.employeeId)) throw notFound(`Employee ${shift.employeeId}`);
   if (!org.state.roles.some((r) => r.id === shift.roleId)) throw notFound(`Role ${shift.roleId}`);
   if (shift.endMinute <= shift.startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
 }
+
+/**
+ * Whether the caller may put this person on a shift at this site: someone based there, someone who
+ * has agreed to cover it, or someone the caller also runs the rota or team for at their home site.
+ * Cover is the person's agreement, recorded by whoever manages them, so a site manager cannot borrow
+ * another site's team on their own say-so. Organisation-wide roles and system keys pass the last test.
+ */
+function allowRoster(g: Guard, org: OrgData, shift: Shift) {
+  const e = org.state.employees.find((x) => x.id === shift.employeeId);
+  if (!e || e.siteId === shift.siteId || e.coverSiteIds.includes(shift.siteId)) return;
+  if (g.can('rota.edit', e.siteId) || g.can('team.manage', e.siteId)) return;
+  const name = (id: string) => org.state.sites.find((x) => x.id === id)?.name ?? id;
+  throw new HttpError(
+    403,
+    'not_cover',
+    `${e.name} has not agreed to cover ${name(shift.siteId)}. Whoever manages ${name(e.siteId)} can add it to their record.`,
+  );
+}
+
+/** Only a new pairing of person and site needs the check, so re-saving a shift already agreed is never refused. */
+const reassigned = (before: Shift | undefined, after: Shift) =>
+  !before || before.employeeId !== after.employeeId || before.siteId !== after.siteId;
 
 /** Compliance for the person whose week this shift sits in, so callers see consequences straight away. */
 function shiftIssues(org: OrgData, shift: Shift) {
@@ -73,28 +85,46 @@ function shiftIssues(org: OrgData, shift: Shift) {
   return [...checkEmployeeWeek(employee, ws, context), ...travelIssues(employee, context, org.state.sites)];
 }
 
-export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
+export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
 
-  app.get('/v1/entities', { ...read, schema: { tags: ['Reference'], description: 'Companies in the group: each is its own PAYE scheme and ledger.' } }, async (req) =>
-    orgOf(req).state.entities,
-  );
-  app.get('/v1/sites', { ...read, schema: { tags: ['Reference'] } }, async (req) => orgOf(req).state.sites);
-  app.get('/v1/roles', { ...read, schema: { tags: ['Reference'] } }, async (req) => orgOf(req).state.roles);
-  app.get('/v1/demand-rules', { ...read, schema: { tags: ['Reference'] } }, async (req) => orgOf(req).state.demandRules);
+  app.get('/v1/entities', { ...read, schema: { tags: ['Reference'], description: 'Companies in the group: each is its own PAYE scheme and ledger.' } }, async (req) => {
+    const org = orgOf(req);
+    guard(ctx, req, org).allow('rota.view');
+    return org.state.entities;
+  });
+  // A personal key sees only the sites its person can see the rota for.
+  app.get('/v1/sites', { ...read, schema: { tags: ['Reference'] } }, async (req) => {
+    const org = orgOf(req);
+    const visible = guard(ctx, req, org).at('rota.view');
+    return org.state.sites.filter((s) => visible({ siteId: s.id }));
+  });
+  app.get('/v1/roles', { ...read, schema: { tags: ['Reference'] } }, async (req) => {
+    const org = orgOf(req);
+    guard(ctx, req, org).allow('rota.view');
+    return org.state.roles;
+  });
+  app.get('/v1/demand-rules', { ...read, schema: { tags: ['Reference'] } }, async (req) => {
+    const org = orgOf(req);
+    return org.state.demandRules.filter(guard(ctx, req, org).at('rota.view'));
+  });
 
-  app.get<{ Querystring: Range }>('/v1/shifts', { ...read, schema: { tags: ['Shifts'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).state.shifts.filter(inRange(req.query)),
-  );
+  app.get<{ Querystring: Range }>('/v1/shifts', { ...read, schema: { tags: ['Shifts'], querystring: rangeQuery } }, async (req) => {
+    const org = orgOf(req);
+    return org.state.shifts.filter(inRange(req.query)).filter(guard(ctx, req, org).at('rota.view'));
+  });
 
   app.post<{ Body: Shift }>('/v1/shifts', { ...write, schema: { tags: ['Shifts'], body: shiftBody } }, async (req, reply) => {
     const org = orgOf(req);
+    const g = guard(ctx, req, org);
     const shift: Shift = { ...req.body, id: req.body.id ?? `s_${randomUUID()}`, published: false };
     if (org.state.shifts.some((s) => s.id === shift.id)) throw new HttpError(409, 'conflict', `Shift ${shift.id} exists`);
-    validateShift(req, org, shift);
+    validateShift(org, shift);
+    g.allow('rota.edit', shift.siteId);
+    allowRoster(g, org, shift);
     org.state.shifts.push(shift);
-    audit(org, req.principal.name, 'shift.created', { id: shift.id });
+    audit(org, actorName(g), 'shift.created', { id: shift.id });
     return reply.code(201).send({ shift, issues: shiftIssues(org, shift) });
   });
 
@@ -105,22 +135,27 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const i = org.state.shifts.findIndex((s) => s.id === req.params.id);
       if (i < 0) throw notFound(`Shift ${req.params.id}`);
-      assertSites(req, [org.state.shifts[i].siteId]);
+      const g = guard(ctx, req, org);
       const shift: Shift = { ...org.state.shifts[i], ...req.body, id: req.params.id, published: false };
-      validateShift(req, org, shift);
+      validateShift(org, shift);
+      // Moving a shift needs the right at both ends.
+      g.allow('rota.edit', org.state.shifts[i].siteId);
+      g.allow('rota.edit', shift.siteId);
+      if (reassigned(org.state.shifts[i], shift)) allowRoster(g, org, shift);
       org.state.shifts[i] = shift;
-      audit(org, req.principal.name, 'shift.updated', { id: shift.id });
+      audit(org, actorName(g), 'shift.updated', { id: shift.id });
       return { shift, issues: shiftIssues(org, shift) };
     },
   );
 
   app.delete<{ Params: { id: string } }>('/v1/shifts/:id', { ...write, schema: { tags: ['Shifts'], params: idParam } }, async (req, reply) => {
     const org = orgOf(req);
-    const existing = org.state.shifts.find((s) => s.id === req.params.id);
-    if (!existing) throw notFound(`Shift ${req.params.id}`);
-    assertSites(req, [existing.siteId]);
+    const shift = org.state.shifts.find((s) => s.id === req.params.id);
+    if (!shift) throw notFound(`Shift ${req.params.id}`);
+    const g = guard(ctx, req, org);
+    g.allow('rota.edit', shift.siteId);
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
-    audit(org, req.principal.name, 'shift.deleted', { id: req.params.id });
+    audit(org, actorName(g), 'shift.deleted', { id: req.params.id });
     return reply.code(204).send();
   });
 
@@ -128,12 +163,15 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     const org = orgOf(req);
     const { siteId, weekStart: ws } = req.query;
     requireSite(org, siteId);
+    const g = guard(ctx, req, org);
+    g.allow('rota.view', siteId);
     const dates = weekDates(ws);
     return {
       siteId,
       weekStart: ws,
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
-      metrics: serialiseMetrics(weekMetrics(org.state, siteId, ws)),
+      // Labour cost is worked from pay rates, so it goes only to those who see them.
+      metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws)) : null,
       issues: checkWeek(org.state, ws, siteId),
     };
   });
@@ -150,10 +188,13 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     },
     async (req) => {
       const org = orgOf(req);
-      const siteIds = scopedSitesOf(req, org, req.body, true);
+      const siteIds = sitesOf(org, req.body, true);
+      const g = guard(ctx, req, org);
+      // A group build needs the right at every site in it: all or nothing.
+      for (const id of siteIds) g.allow('rota.edit', id);
       const result = autoScheduleSites(org.state, siteIds, req.body.weekStart);
       org.state.shifts = result.shifts;
-      audit(org, req.principal.name, 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
+      audit(org, actorName(g), 'rota.built', { siteIds, weekStart: req.body.weekStart, added: result.added.length, unfilled: result.unfilled.length });
       return { added: result.added, unfilled: result.unfilled };
     },
   );
@@ -177,36 +218,42 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
       const org = orgOf(req);
       const { siteId, weekStart: ws } = req.body;
       requireSite(org, siteId);
-      assertSites(req, [siteId]);
+      const g = guard(ctx, req, org);
+      g.allow('rota.edit', siteId);
       const dates = weekDates(ws);
       const incoming: Shift[] = req.body.shifts.map((s) => ({ ...s, id: s.id ?? `s_${randomUUID()}`, published: false }));
       for (const s of incoming) {
         if (s.siteId !== siteId || !dates.includes(s.date)) {
           throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
         }
-        validateShift(req, org, s);
+        validateShift(org, s);
+        if (reassigned(org.state.shifts.find((x) => x.id === s.id), s)) allowRoster(g, org, s);
       }
       const keep = org.state.shifts.filter((s) => !(s.siteId === siteId && dates.includes(s.date)));
       org.state.shifts = [...keep, ...incoming];
-      audit(org, req.principal.name, 'rota.replaced', { siteId, weekStart: ws, shifts: incoming.length });
+      audit(org, actorName(g), 'rota.replaced', { siteId, weekStart: ws, shifts: incoming.length });
       return { shifts: incoming, issues: checkWeek(org.state, ws, siteId) };
     },
   );
 
   app.post<{ Body: SitesWeek }>('/v1/rota/clear', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
-    const siteIds = scopedSitesOf(req, org, req.body, false);
+    const siteIds = sitesOf(org, req.body, false);
+    const g = guard(ctx, req, org);
+    for (const id of siteIds) g.allow('rota.edit', id);
     const dates = weekDates(req.body.weekStart);
     const keep = org.state.shifts.filter((s) => !(siteIds.includes(s.siteId) && dates.includes(s.date)));
     const removed = org.state.shifts.length - keep.length;
     org.state.shifts = keep;
-    audit(org, req.principal.name, 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed });
+    audit(org, actorName(g), 'rota.cleared', { siteIds, weekStart: req.body.weekStart, removed });
     return { removed };
   });
 
   app.post<{ Body: SitesWeek }>('/v1/rota/publish', { ...write, schema: { tags: ['Rota'], body: sitesWeekBody } }, async (req) => {
     const org = orgOf(req);
-    const siteIds = scopedSitesOf(req, org, req.body, false);
+    const siteIds = sitesOf(org, req.body, false);
+    const g = guard(ctx, req, org);
+    for (const id of siteIds) g.allow('rota.publish', id);
     const ws = req.body.weekStart;
     // All or nothing: a group publish is refused if any site in it has a blocking issue.
     const blocks = checkWeek(org.state, ws, siteIds).filter((i) => i.severity === 'block');
@@ -219,27 +266,30 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
         published++;
       }
     }
-    audit(org, req.principal.name, 'rota.published', { siteIds, weekStart: ws, published });
+    audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published });
     return { published };
   });
 
-  app.get<{ Querystring: Range }>('/v1/forecast', { ...read, schema: { tags: ['Forecast'], querystring: rangeQuery } }, async (req) =>
-    orgOf(req).state.forecast.filter(inRange(req.query)),
-  );
+  app.get<{ Querystring: Range }>('/v1/forecast', { ...read, schema: { tags: ['Forecast'], querystring: rangeQuery } }, async (req) => {
+    const org = orgOf(req);
+    return org.state.forecast.filter(inRange(req.query)).filter(guard(ctx, req, org).at('rota.view'));
+  });
 
   // Preshift Reports (or any forecasting source) pushes hourly sales and covers here.
   app.put<{ Body: { rows: HourForecast[] } }>('/v1/forecast', { ...write, schema: { tags: ['Forecast'], body: forecastBody } }, async (req) => {
     const org = orgOf(req);
-    assertSites(req, new Set(req.body.rows.map((r) => r.siteId)));
+    const g = guard(ctx, req, org);
+    for (const siteId of new Set(req.body.rows.map((r) => r.siteId))) g.allow('demand.manage', siteId);
     const key = (f: HourForecast) => `${f.siteId}|${f.date}|${f.hour}`;
     const incoming = new Map(req.body.rows.map((r) => [key(r), r]));
     org.state.forecast = [...org.state.forecast.filter((f) => !incoming.has(key(f))), ...incoming.values()];
-    audit(org, req.principal.name, 'forecast.upserted', { rows: incoming.size });
+    audit(org, actorName(g), 'forecast.upserted', { rows: incoming.size });
     return { upserted: incoming.size };
   });
 
   app.get<{ Querystring: Range }>('/v1/sales', { ...read, schema: { tags: ['Sales'], querystring: rangeQuery, description: 'Actual takings by site and day, net of VAT.' } }, async (req) =>
-    (orgOf(req).state.sales ?? []).filter(inRange(req.query)),
+    // Takings by site go with the rota: whoever sees a site's rota sees its takings, as they see its forecast.
+    (orgOf(req).state.sales ?? []).filter(inRange(req.query)).filter(guard(ctx, req, orgOf(req)).at('rota.view')),
   );
 
   // A till or EPOS integration pushes each day's takings here; the web app keys them in or imports a file.
@@ -248,12 +298,16 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     { ...write, schema: { tags: ['Sales'], body: salesBody, description: 'Adds or replaces takings for each site and day given. Net of VAT.' } },
     async (req) => {
       const org = orgOf(req);
-      for (const r of req.body.rows) requireSite(org, r.siteId);
-      assertSites(req, new Set(req.body.rows.map((r) => r.siteId)));
+      const g = guard(ctx, req, org);
+      // Keying or importing takings is the forecast's right, site by site, all or nothing.
+      for (const r of req.body.rows) {
+        requireSite(org, r.siteId);
+        g.allow('demand.manage', r.siteId);
+      }
       const key = (r: { siteId: string; date: string }) => `${r.siteId}|${r.date}`;
       const incoming = new Map(req.body.rows.map((r): [string, DaySales] => [key(r), { ...r, netSales: Math.round(r.netSales * 100) / 100, source: r.source ?? 'till' }]));
       org.state.sales = [...(org.state.sales ?? []).filter((s) => !incoming.has(key(s))), ...incoming.values()];
-      audit(org, req.principal.name, 'sales.upserted', { rows: incoming.size });
+      audit(org, actorName(g), 'sales.upserted', { rows: incoming.size });
       return { upserted: incoming.size };
     },
   );
@@ -264,11 +318,12 @@ export function rotaRoutes(app: FastifyInstance, _ctx: AppContext) {
     async (req, reply) => {
       const org = orgOf(req);
       const { siteId, date } = req.query;
-      assertSites(req, [siteId]);
+      const g = guard(ctx, req, org);
+      g.allow('demand.manage', siteId);
       const before = (org.state.sales ?? []).length;
       org.state.sales = (org.state.sales ?? []).filter((s) => !(s.siteId === siteId && s.date === date));
       if (org.state.sales.length === before) throw notFound(`Takings for ${siteId} on ${date}`);
-      audit(org, req.principal.name, 'sales.deleted', { siteId, date });
+      audit(org, actorName(g), 'sales.deleted', { siteId, date });
       return reply.code(204).send();
     },
   );

@@ -48,7 +48,7 @@ interface Props {
   today: string;
   /** Names the scope in export file names. */
   scopeName: string;
-  /** Pay runs are per company; site managers do not see them, so the accuracy report is left out. */
+  /** Pay runs need payroll.view; without it the accuracy report is left out rather than shown empty. */
   payrollAccess?: boolean;
   onSaveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) => Promise<unknown>;
 }

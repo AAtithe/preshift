@@ -9,6 +9,11 @@ export interface SessionClaims {
   orgId: string;
   /** Issued at, epoch milliseconds: compared with the user's sessionsValidFrom. */
   issuedAt: number;
+  /**
+   * Set once this session has entered an authenticator code: the id of the enrolment it was
+   * checked against. A reset or a new enrolment changes the id, so older sessions lose it.
+   */
+  mfa?: string;
 }
 
 const encoder = new TextEncoder();
@@ -22,9 +27,10 @@ async function hmacKey(secret: string) {
   return crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
-export async function createSession(user: { email: string; orgId: string }, secret: string, now = Date.now()): Promise<string> {
+export async function createSession(user: { email: string; orgId: string }, secret: string, now = Date.now(), mfa?: string): Promise<string> {
   // Milliseconds, so a reset refuses every session issued before it, even within the same second.
-  const payload = b64url(encoder.encode(JSON.stringify({ sub: user.email, org: user.orgId, iat: now, exp: Math.floor(now / 1000) + SESSION_SECONDS })));
+  const claims = { sub: user.email, org: user.orgId, iat: now, exp: Math.floor(now / 1000) + SESSION_SECONDS, ...(mfa ? { mfa } : {}) };
+  const payload = b64url(encoder.encode(JSON.stringify(claims)));
   const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), encoder.encode(payload));
   return `${payload}.${b64url(sig)}`;
 }
@@ -37,10 +43,10 @@ export async function readSession(token: string | null | undefined, secret: stri
   try {
     const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), fromB64url(sig), encoder.encode(payload));
     if (!ok) return null;
-    const { sub, org, iat, exp } = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
+    const { sub, org, iat, exp, mfa } = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
     if (typeof sub !== 'string' || typeof org !== 'string' || typeof iat !== 'number' || typeof exp !== 'number') return null;
     if (exp * 1000 <= now) return null;
-    return { email: sub, orgId: org, issuedAt: iat };
+    return typeof mfa === 'string' ? { email: sub, orgId: org, issuedAt: iat, mfa } : { email: sub, orgId: org, issuedAt: iat };
   } catch {
     return null;
   }

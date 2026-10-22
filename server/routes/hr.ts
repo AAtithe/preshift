@@ -4,9 +4,10 @@ import { employeeStatus } from '../../src/engine/employees';
 import { hrChecks, hrSummary } from '../../src/engine/hr';
 import type { Absence, Employee, HrProfile, HrRecord } from '../../src/engine/types';
 import { requireScope } from '../auth';
-import { HttpError, notFound, orgOf } from '../context';
+import { HttpError, notFound, orgOf, type AppContext } from '../context';
+import { actorName, guard, type Guard } from '../guard';
+import { forReader } from './employees';
 import { idParam, isoDate } from '../schemas';
-import { assertHomeSite, scopedEmployee, siteScope } from '../scope';
 import { audit, type OrgData } from '../store';
 
 const hrProfileBody = {
@@ -78,28 +79,38 @@ const absenceParams = {
 
 type RecordInput = Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>;
 
-/** Whether the caller may read personnel files: HR scopes, or anyone signed in to the app. */
-export function readsHr(req: FastifyRequest): boolean {
+/** Whether the key's scopes reach personnel files: an HR scope, or every scope. */
+function hrScoped(req: FastifyRequest): boolean {
   const scopes = req.principal?.scopes ?? [];
   return scopes.includes('*') || scopes.includes('hr:read') || scopes.includes('hr:write');
 }
 
 /**
- * Disciplinary and grievance cases are confidential. In the app only admins see them;
- * an integration needs an HR scope. A member (a GM, typically) sees that a case exists
- * only through the checks, never its notes.
+ * Whether the caller may read this person's file. A person needs hr.view at the person's home
+ * site: a manager they only cover shifts for sees the absence dates the rota needs, never the
+ * file itself, with its NI number, address and emergency contact. A system key needs an HR scope.
  */
-function seesCases(req: FastifyRequest): boolean {
-  if (req.principal.user) return req.principal.user.role === 'admin';
-  return readsHr(req);
+export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
+  if (!hrScoped(req)) return false;
+  return !g.user || g.can('hr.view', e.siteId);
 }
 
 /**
- * An employee as a rota or payroll key may see it: no personnel file, and absence reduced
- * to the dates the rota needs. Health reasons are special category data under UK GDPR.
+ * Disciplinary, grievance and capability cases are confidential: hr.cases, which needs the
+ * authenticator. Others see that a case exists only through the checks, never its notes. Nobody
+ * sees or handles a case about themselves, whatever they hold: someone else runs it.
  */
-export function employeeView(req: FastifyRequest, e: Employee): Employee {
-  if (readsHr(req)) return e;
+function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
+  return hrScoped(req) && g.can('hr.cases') && (!employeeId || g.user?.employeeId !== employeeId);
+}
+
+/**
+ * An employee as the caller may see it. Without the personnel file a reader gets no file, and
+ * absence reduced to the dates the rota needs: health reasons are special category data under
+ * UK GDPR. Pay is withheld separately (forReader).
+ */
+export function employeeView(req: FastifyRequest, e: Employee, g: Guard): Employee {
+  if (readsHr(req, g, e)) return e;
   const { hr: _hr, absences, ...rest } = e;
   return absences ? { ...rest, absences: absences.map(({ id, type, from, to }) => ({ id, type, from, to })) } : rest;
 }
@@ -132,8 +143,8 @@ function clashes(org: OrgData, e: Employee, a: Absence) {
   return org.state.shifts.filter((s) => s.employeeId === e.id && s.date >= a.from && (!a.to || s.date <= a.to)).map((s) => s.id);
 }
 
-function validateRecord(req: FastifyRequest, org: OrgData, r: RecordInput) {
-  assertHomeSite(req, findEmployee(org, r.employeeId));
+function validateRecord(org: OrgData, r: RecordInput) {
+  findEmployee(org, r.employeeId);
   if (r.kind === 'training' && r.expiresOn && r.expiresOn < r.date) {
     throw new HttpError(422, 'invalid_dates', 'The certificate expires before the course date');
   }
@@ -141,10 +152,18 @@ function validateRecord(req: FastifyRequest, org: OrgData, r: RecordInput) {
   if (r.kind === 'review' && !r.reviewType) throw new HttpError(422, 'review_type', 'Say what kind of review this is');
 }
 
-export function hrRoutes(app: FastifyInstance) {
+export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('hr:read') };
   const write = { preHandler: requireScope('hr:write') };
   const tags = ['HR'];
+  const guardOf = (req: FastifyRequest) => guard(ctx, req, orgOf(req));
+  /** Changing a file is hr.manage where the person is based, and never on your own file. */
+  const mayManage = (g: Guard, e: Employee) => {
+    g.allow('hr.manage', e.siteId);
+    if (g.user?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own personnel file.');
+  };
+  /** What an answer carries back: the file as the caller may read it, pay as they may see it. */
+  const shown = (req: FastifyRequest, g: Guard, e: Employee) => forReader(g, employeeView(req, e, g));
 
   app.get<{ Querystring: { siteId?: string } }>(
     '/v1/hr/overview',
@@ -158,10 +177,9 @@ export function hrRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const org = orgOf(req);
+      const g = guardOf(req);
       const today = new Date().toISOString().slice(0, 10);
-      // A site manager's view also holds other sites' cover staff; their files are not theirs to act on.
-      const scope = siteScope(req);
-      const people = org.state.employees.filter((e) => (!req.query.siteId || e.siteId === req.query.siteId) && (!scope || scope.has(e.siteId)));
+      const people = org.state.employees.filter((e) => (!req.query.siteId || e.siteId === req.query.siteId) && readsHr(req, g, e));
       return {
         summary: hrSummary(people, today),
         checks: people
@@ -178,7 +196,7 @@ export function hrRoutes(app: FastifyInstance) {
       ...read,
       schema: {
         tags,
-        description: 'Training, reviews, cases, documents and notes. Cases are left out for signed-in members who are not admins.',
+        description: 'Training, reviews, cases, documents and notes, for people whose file the caller reads. Cases need hr.cases.',
         querystring: {
           type: 'object',
           properties: { employeeId: { type: 'string' }, kind: recordBody.properties.kind },
@@ -186,12 +204,16 @@ export function hrRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const cases = seesCases(req);
-      return orgOf(req).hrRecords.filter(
+      const org = orgOf(req);
+      const g = guardOf(req);
+      const cases = seesCases(req, g);
+      const readable = new Set(org.state.employees.filter((e) => readsHr(req, g, e)).map((e) => e.id));
+      return org.hrRecords.filter(
         (r) =>
+          readable.has(r.employeeId) &&
           (!req.query.employeeId || r.employeeId === req.query.employeeId) &&
           (!req.query.kind || r.kind === req.query.kind) &&
-          (cases || r.kind !== 'case'),
+          (r.kind !== 'case' || (cases && r.employeeId !== g.user?.employeeId)),
       );
     },
   );
@@ -201,17 +223,20 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, body: { ...recordBody, required: ['employeeId', 'kind', 'date', 'title'] } } },
     async (req, reply) => {
       const org = orgOf(req);
-      if (req.body.kind === 'case' && !seesCases(req)) throw new HttpError(403, 'forbidden', 'Only an admin can record a case');
-      validateRecord(req, org, req.body);
+      const g = guardOf(req);
+      mayManage(g, findEmployee(org, req.body.employeeId));
+      if (req.body.kind === 'case') g.allow('hr.cases');
+      if (req.body.kind === 'case' && !seesCases(req, g, req.body.employeeId)) throw new HttpError(403, 'forbidden', 'Somebody else records a case about you.');
+      validateRecord(org, req.body);
       const record: HrRecord = {
         ...req.body,
         ...(req.body.kind === 'case' ? { caseStatus: req.body.caseStatus ?? 'open' } : {}),
         id: `hr_${randomUUID().slice(0, 12)}`,
-        createdBy: req.principal.name,
+        createdBy: actorName(g),
         createdAt: new Date().toISOString(),
       };
       org.hrRecords.push(record);
-      audit(org, req.principal.name, 'hr.record.created', { id: record.id, employeeId: record.employeeId, kind: record.kind });
+      audit(org, actorName(g), 'hr.record.created', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(201).send(record);
     },
   );
@@ -223,13 +248,15 @@ export function hrRoutes(app: FastifyInstance) {
       const org = orgOf(req);
       const i = org.hrRecords.findIndex((r) => r.id === req.params.id);
       const before = org.hrRecords[i];
-      if (!before || (before.kind === 'case' && !seesCases(req))) throw notFound(`Record ${req.params.id}`);
-      assertHomeSite(req, findEmployee(org, before.employeeId));
+      const g = guardOf(req);
+      if (!before || (before.kind === 'case' && !seesCases(req, g, before.employeeId))) throw notFound(`Record ${req.params.id}`);
+      mayManage(g, findEmployee(org, before.employeeId));
+      if (req.body.employeeId && req.body.employeeId !== before.employeeId) mayManage(g, findEmployee(org, req.body.employeeId));
       if (req.body.kind && req.body.kind !== before.kind) throw new HttpError(422, 'kind_fixed', 'A record cannot change kind; add a new one');
       const after: HrRecord = { ...before, ...req.body, id: before.id, createdBy: before.createdBy, createdAt: before.createdAt };
-      validateRecord(req, org, after);
+      validateRecord(org, after);
       org.hrRecords[i] = after;
-      audit(org, req.principal.name, 'hr.record.updated', { id: after.id, employeeId: after.employeeId, fields: Object.keys(req.body) });
+      audit(org, actorName(g), 'hr.record.updated', { id: after.id, employeeId: after.employeeId, fields: Object.keys(req.body) });
       return after;
     },
   );
@@ -240,10 +267,11 @@ export function hrRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const org = orgOf(req);
       const record = org.hrRecords.find((r) => r.id === req.params.id);
-      if (!record || (record.kind === 'case' && !seesCases(req))) throw notFound(`Record ${req.params.id}`);
-      assertHomeSite(req, findEmployee(org, record.employeeId));
+      const g = guardOf(req);
+      if (!record || (record.kind === 'case' && !seesCases(req, g, record.employeeId))) throw notFound(`Record ${req.params.id}`);
+      mayManage(g, findEmployee(org, record.employeeId));
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
-      audit(org, req.principal.name, 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
+      audit(org, actorName(g), 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(204).send();
     },
   );
@@ -253,12 +281,14 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, description: 'Replaces the personnel file details: contract, probation, NI number, emergency contact, line manager.', params: idParam, body: hrProfileBody } },
     async (req) => {
       const org = orgOf(req);
-      const e = scopedEmployee(req, req.params.id);
+      const e = findEmployee(org, req.params.id);
+      const g = guardOf(req);
+      mayManage(g, e);
       const hr = { ...req.body, ...(req.body.niNumber ? { niNumber: req.body.niNumber.replace(/\s/g, '').toUpperCase() } : {}) };
       validateProfile(org, e, hr);
       e.hr = hr;
-      audit(org, req.principal.name, 'hr.profile.updated', { id: e.id, fields: Object.keys(req.body) });
-      return e;
+      audit(org, actorName(g), 'hr.profile.updated', { id: e.id, fields: Object.keys(req.body) });
+      return shown(req, g, e);
     },
   );
 
@@ -275,12 +305,14 @@ export function hrRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      const e = scopedEmployee(req, req.params.id);
+      const e = findEmployee(org, req.params.id);
+      const g = guardOf(req);
+      mayManage(g, e);
       const absence: Absence = { ...req.body, id: `abs_${randomUUID().slice(0, 12)}` };
       validateAbsence(absence);
       e.absences = [...(e.absences ?? []), absence].sort((a, b) => a.from.localeCompare(b.from));
-      audit(org, req.principal.name, 'hr.absence.created', { id: e.id, absenceId: absence.id, type: absence.type, from: absence.from });
-      return reply.code(201).send({ employee: e, absence, clashes: clashes(org, e, absence) });
+      audit(org, actorName(g), 'hr.absence.created', { id: e.id, absenceId: absence.id, type: absence.type, from: absence.from });
+      return reply.code(201).send({ employee: shown(req, g, e), absence, clashes: clashes(org, e, absence) });
     },
   );
 
@@ -289,14 +321,16 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, params: absenceParams, body: { ...absenceBody, required: [] } } },
     async (req) => {
       const org = orgOf(req);
-      const e = scopedEmployee(req, req.params.id);
+      const e = findEmployee(org, req.params.id);
+      const g = guardOf(req);
+      mayManage(g, e);
       const before = e.absences?.find((a) => a.id === req.params.absenceId);
       if (!before) throw notFound(`Absence ${req.params.absenceId}`);
       const after: Absence = { ...before, ...req.body, id: before.id };
       validateAbsence(after);
       e.absences = e.absences!.map((a) => (a.id === before.id ? after : a)).sort((a, b) => a.from.localeCompare(b.from));
-      audit(org, req.principal.name, 'hr.absence.updated', { id: e.id, absenceId: after.id, fields: Object.keys(req.body) });
-      return { employee: e, absence: after, clashes: clashes(org, e, after) };
+      audit(org, actorName(g), 'hr.absence.updated', { id: e.id, absenceId: after.id, fields: Object.keys(req.body) });
+      return { employee: shown(req, g, e), absence: after, clashes: clashes(org, e, after) };
     },
   );
 
@@ -305,11 +339,13 @@ export function hrRoutes(app: FastifyInstance) {
     { ...write, schema: { tags, params: absenceParams } },
     async (req) => {
       const org = orgOf(req);
-      const e = scopedEmployee(req, req.params.id);
+      const e = findEmployee(org, req.params.id);
+      const g = guardOf(req);
+      mayManage(g, e);
       if (!e.absences?.some((a) => a.id === req.params.absenceId)) throw notFound(`Absence ${req.params.absenceId}`);
       e.absences = e.absences.filter((a) => a.id !== req.params.absenceId);
-      audit(org, req.principal.name, 'hr.absence.deleted', { id: e.id, absenceId: req.params.absenceId });
-      return e;
+      audit(org, actorName(g), 'hr.absence.deleted', { id: e.id, absenceId: req.params.absenceId });
+      return shown(req, g, e);
     },
   );
 }
