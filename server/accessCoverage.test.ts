@@ -44,6 +44,9 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/staff/sick': 'Staff app: the caller reports their own sickness, under the staff session.',
   'POST /v1/staff/sick/back': 'Staff app: the caller ends their own sickness absence, under the staff session.',
   'POST /v1/staff/fit-note': 'Staff app: the caller files their own fit note, under the staff session.',
+  'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
+  'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
+  'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",
 };
 
 interface Route {

@@ -139,7 +139,6 @@ select:focus, input:focus { outline: none; border-color: var(--ink); box-shadow:
 .mast-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
 .wordmark { font: 700 21px/1 var(--serif); letter-spacing: -0.03em; color: var(--ink); display: flex; align-items: baseline; gap: 12px; }
 .wordmark-with { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.mast-controls { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
 .sites { display: flex; gap: 18px; }
 .sites button { border: none; background: none; padding: 4px 0; border-radius: 0; color: var(--muted); border-bottom: 2px solid transparent; }
 .sites button.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
@@ -703,7 +702,6 @@ a.link { color: var(--muted); }
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 10px; font-size: 12px; overflow-wrap: anywhere; color: var(--ws-slate); }
 .side-foot a.link { padding: 0; color: #fff; }
 .side-foot button.link { padding: 0; color: inherit; font: inherit; text-align: left; }
-.mast-controls select { min-width: 150px; }
 .view-switch { margin-left: auto; }
 
 .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin: 0 0 16px; }
@@ -894,7 +892,17 @@ label.check.accept { margin-top: 8px; padding: 8px; background: var(--warn-bg); 
 }
 .accept { max-width: 480px; display: grid; gap: 16px; padding-top: 48px; }
 .accept h2 { margin: 0 0 8px; font-size: 18px; }
-.demo-switch { display: flex; gap: 6px; align-items: center; padding: 2px 6px; border: 1px dashed var(--border); border-radius: 6px; }
+/* Demo only: who the app is being viewed as, and the way back */
+.demopicker .op-trigger { border-style: dashed; }
+.demopicker.acting .op-trigger { border-color: var(--warn); border-style: solid; background: rgb(255 255 255 / 0.1); }
+.demopicker.acting .op-label { color: var(--warn); }
+.demopicker .op-option { flex-direction: column; align-items: flex-start; gap: 2px; }
+.op-meta { font: 500 11px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
+.demo-standalone { max-width: 260px; padding: 12px; border-radius: var(--radius); background: var(--ws-navy); color: #fff; }
+.acting-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  width: calc(100% - 56px); max-width: 1544px; margin: 12px auto 0; padding: 10px 14px; border: 1.5px solid var(--warn); border-radius: var(--radius); background: var(--card);
+}
 .chip:disabled { cursor: default; }
 .chip:disabled:not(.elsewhere) { opacity: 1; }
 

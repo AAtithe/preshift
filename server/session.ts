@@ -111,3 +111,13 @@ export async function readStaffSession(token: string | null | undefined, secret:
 export function staffCookie(token: string, secure: boolean, maxAge = STAFF_SESSION_SECONDS): string {
   return `${STAFF_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
+
+// Paired kiosks: a shared iPad fixed at one site. The cookie carries the kiosk's own random
+// credential, checked against a hash in the database on every request, so removing the kiosk
+// in Settings stops it at once. It lasts a year, so the iPad never needs a person to sign in again.
+export const KIOSK_COOKIE = 'ps_kiosk';
+export const KIOSK_SECONDS = 365 * 24 * 60 * 60;
+
+export function kioskCookie(value: string, secure: boolean, maxAge = KIOSK_SECONDS): string {
+  return `${KIOSK_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
+}
