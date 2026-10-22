@@ -625,6 +625,7 @@ a.link { color: var(--muted); }
 .side-nav button:disabled { opacity: 0.35; }
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 10px; font-size: 12px; overflow-wrap: anywhere; color: var(--ws-slate); }
 .side-foot a.link { padding: 0; color: #fff; }
+.side-foot button.link { padding: 0; color: inherit; font: inherit; text-align: left; }
 .mast-controls select { min-width: 150px; }
 .view-switch { margin-left: auto; }
 
