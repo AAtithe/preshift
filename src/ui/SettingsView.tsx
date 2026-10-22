@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
+import { ApiKeys, Webhooks } from './DeveloperSettings';
 
 /** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
 export interface Account {
@@ -22,8 +23,12 @@ interface EmailStatus {
 
 interface Settings {
   claudeApiKey: { set: boolean; endsWith?: string };
+  claudeLimits: { monthlyUsd: number; dailyPerPersonUsd: number };
+  claudeSpend: { monthUsd: number; todayUsd: number };
   email: EmailStatus;
 }
+
+const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
@@ -34,7 +39,7 @@ export function SettingsView({ account, canSettings }: { account: Account | null
         <section className="settings-card">
           <h2>Settings in the demo</h2>
           <p className="small muted">
-            In the live product this is where the Claude API key and email are set up, and where each person changes their own
+            In the live product this is where the Claude API key and email are set up, where API keys and webhooks are made for other systems to plug in, and where each person changes their own
             password. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
             your own copy of the demo group, kept apart from every customer, and it is wiped at midnight UK time.
           </p>
@@ -58,6 +63,8 @@ export function SettingsView({ account, canSettings }: { account: Account | null
       </section>
       {canSettings && <ClaudeKey />}
       {canSettings && <EmailSetup />}
+      {canSettings && <ApiKeys />}
+      {canSettings && <Webhooks />}
       {account && <OwnPassword />}
     </div>
   );
@@ -66,15 +73,38 @@ export function SettingsView({ account, canSettings }: { account: Account | null
 function ClaudeKey() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [key, setKey] = useState('');
+  const [limits, setLimitsForm] = useState({ monthlyUsd: '', dailyPerPersonUsd: '' });
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 
   useEffect(() => {
-    api.get<Settings>('/v1/settings').then(setSettings).catch((e) => setMessage({ text: problem(e), bad: true }));
+    api
+      .get<Settings>('/v1/settings')
+      .then((s) => {
+        setSettings(s);
+        setLimitsForm({ monthlyUsd: String(s.claudeLimits.monthlyUsd), dailyPerPersonUsd: String(s.claudeLimits.dailyPerPersonUsd) });
+      })
+      .catch((e) => setMessage({ text: problem(e), bad: true }));
   }, []);
+
+  async function saveLimits(e: FormEvent) {
+    e.preventDefault();
+    try {
+      const res = await api.put<Pick<Settings, 'claudeLimits'>>('/v1/settings/claude-limits', {
+        monthlyUsd: Number(limits.monthlyUsd),
+        dailyPerPersonUsd: Number(limits.dailyPerPersonUsd),
+      });
+      setSettings((s) => s && { ...s, ...res });
+      setMessage({ text: 'Limits saved.' });
+    } catch (err) {
+      setMessage({ text: problem(err), bad: true });
+    }
+  }
 
   async function save(value: string | null) {
     try {
-      setSettings(await api.put<Settings>('/v1/settings/claude-api-key', { claudeApiKey: value }));
+      // The response carries only the key, so keep the rest of what is shown.
+      const res = await api.put<Pick<Settings, 'claudeApiKey'>>('/v1/settings/claude-api-key', { claudeApiKey: value });
+      setSettings((s) => s && { ...s, ...res });
       setKey('');
       setMessage({ text: value ? 'Saved. The rota assistant is ready.' : 'Removed. The rota assistant is off.' });
     } catch (e) {
@@ -88,7 +118,8 @@ function ClaudeKey() {
       <h2>Rota assistant</h2>
       <p className="muted small">
         The assistant uses your organisation's Claude API key. It is kept on the server, used only for the assistant, and
-        never shown again after you save it. Set a monthly spend limit on it in the Claude Console.
+        never shown again after you save it. Preshift stops the assistant at the limits below; a limit on the key in the
+        Claude Console is a sensible second line.
       </p>
       <p className="small">
         {current ? (current.set ? `A key is saved, ending ${current.endsWith}.` : 'No key saved, so the assistant is off.') : '...'}
@@ -105,6 +136,26 @@ function ClaudeKey() {
           </button>
         )}
       </form>
+      {settings && (
+        <>
+          <h3 className="settings-sub">Spending</h3>
+          <p className="small">
+            {usd.format(settings.claudeSpend.monthUsd)} spent this month of {usd.format(settings.claudeLimits.monthlyUsd)}
+            {' '}({usd.format(settings.claudeSpend.todayUsd)} by you today). Each draft is typically a few tens of cents.
+          </p>
+          <form className="settings-form" onSubmit={saveLimits}>
+            <label>
+              Monthly limit for the organisation ($)
+              <input type="number" min={0} step={1} required value={limits.monthlyUsd} onChange={(e) => setLimitsForm({ ...limits, monthlyUsd: e.target.value })} />
+            </label>
+            <label>
+              Daily limit per person ($)
+              <input type="number" min={0} step={1} required value={limits.dailyPerPersonUsd} onChange={(e) => setLimitsForm({ ...limits, dailyPerPersonUsd: e.target.value })} />
+            </label>
+            <button type="submit">Save limits</button>
+          </form>
+        </>
+      )}
       {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
     </section>
   );

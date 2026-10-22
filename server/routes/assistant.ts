@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { usageCostUsd, type TokenUsage } from '../../src/ai/pricing';
+import { overLimit, recordSpend } from '../assistantLimits';
 import { sessionUser } from '../auth';
 import { takeAssistantCall } from '../demo';
 import { isSandbox } from '../sandbox';
@@ -16,7 +18,9 @@ const error = (type: string, message: string) => ({ type: 'error', error: { type
 
 /**
  * Demo sandboxes never use a customer's key. They share demoKey (PRESHIFT_DEMO_CLAUDE_KEY), capped per
- * sandbox and per day; without it the assistant says it is not switched on in the demo.
+ * sandbox and per day; without it the assistant says it is not switched on in the demo. Real
+ * organisations use their own key from Settings, within the spend limits an admin sets there. Every
+ * response is metered.
  */
 export function assistantRoutes(app: FastifyInstance, store: Store, options: { demoKey?: string } = {}) {
   app.post('/api/anthropic/v1/messages', { schema: { hide: true } }, async (req, reply) => {
@@ -37,6 +41,10 @@ export function assistantRoutes(app: FastifyInstance, store: Store, options: { d
     if (sandbox) {
       const limit = await takeAssistantCall(store, user.orgId);
       if (limit) return reply.code(403).send(error('demo', limit));
+    } else {
+      // 403 rather than 429, so the client does not retry a limit that will not lift for hours.
+      const limited = await overLimit(store, user.orgId, user.email);
+      if (limited) return reply.code(403).send(error('spend_limit', limited));
     }
 
     const headers = new Headers({ 'x-api-key': apiKey });
@@ -50,9 +58,15 @@ export function assistantRoutes(app: FastifyInstance, store: Store, options: { d
       headers,
       body: (req as unknown as { rawBody: string }).rawBody,
     });
-    return reply
-      .code(upstream.status)
-      .header('content-type', upstream.headers.get('content-type') ?? 'application/json')
-      .send(await upstream.text());
+    const text = await upstream.text();
+    if (upstream.ok) {
+      try {
+        const usage = (JSON.parse(text) as { usage?: TokenUsage }).usage;
+        if (usage) await recordSpend(store, user.orgId, user.email, usageCostUsd(usage));
+      } catch {
+        // An unreadable body still goes back to the client; it just is not metered.
+      }
+    }
+    return reply.code(upstream.status).header('content-type', upstream.headers.get('content-type') ?? 'application/json').send(text);
   });
 }

@@ -112,6 +112,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'DELETE /v1/sales': true,
   'PUT /v1/sites/:id/travel/:toId': true,
   'DELETE /v1/sites/:id/travel/:toId': true,
+  'PUT /v1/rota/weeks': true,
+  // Business set-up works on the caller's organisation only, so a prospect can set up their own.
+  'GET /v1/setup/status': true,
+  'PUT /v1/setup': true,
+  'POST /v1/setup/start-fresh': true,
   // The access controls, shown on the sandbox's fictional team. None of them has an account, and
   // anything that issues an invitation, a reset link or touches an authenticator is refused below.
   'GET /v1/me': true,
@@ -142,7 +147,22 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/me/authenticator/confirm': false,
   'POST /v1/me/authenticator/verify': false,
   'POST /v1/me/authenticator/recovery-codes': false,
+  // Refused: an API key would outlive the visitor's session, and a webhook would have the live
+  // system call any address a visitor chose.
+  'GET /v1/api-keys': false,
+  'POST /v1/api-keys': false,
+  'DELETE /v1/api-keys/:id': false,
+  'GET /v1/webhooks/events': false,
+  'GET /v1/webhooks': false,
+  'POST /v1/webhooks': false,
+  'PATCH /v1/webhooks/:id': false,
+  'DELETE /v1/webhooks/:id': false,
+  'POST /v1/webhooks/:id/rotate-secret': false,
+  'POST /v1/webhooks/:id/test': false,
+  'GET /v1/webhooks/deliveries': false,
+  'POST /v1/webhooks/deliveries/:id/retry': false,
   // Refused: keys and email are the live system's, not a visitor's.
+  'PUT /v1/settings/claude-limits': false,
   'GET /v1/settings': false,
   'PUT /v1/settings/claude-api-key': false,
   'PUT /v1/settings/email': false,
@@ -191,14 +211,13 @@ export function sandboxGuard(enabled: boolean) {
     if (!isSandbox(req.principal?.orgId)) return;
     if (!enabled) throw refused('The public demo has been switched off.');
     if (!sandboxRouteAllowed(req.method, req.routeOptions.url)) {
-      throw refused('This is the public demo, so invitations, passwords, keys, email, identity documents and staff app logins are switched off here.');
+      throw refused('This is the public demo, so invitations, passwords, keys, webhooks, email, identity documents and staff app logins are switched off here.');
     }
   };
 }
 
 interface DayCounters {
   sandboxes: number;
-  assistant: number;
   addresses: Record<string, number>;
 }
 
@@ -208,27 +227,28 @@ export const assistantCallsSetting = (orgId: string) => `demo_assistant_calls:${
 async function readDay(store: Store, date: string): Promise<DayCounters> {
   try {
     const raw = await store.getSetting(daySetting(date));
-    if (raw) return { sandboxes: 0, assistant: 0, addresses: {}, ...JSON.parse(raw) };
+    if (raw) return { sandboxes: 0, addresses: {}, ...JSON.parse(raw) };
   } catch {
     // A damaged counter starts again rather than blocking the demo.
   }
-  return { sandboxes: 0, assistant: 0, addresses: {} };
+  return { sandboxes: 0, addresses: {} };
 }
 
 const writeDay = (store: Store, date: string, day: DayCounters) => store.setSetting(daySetting(date), JSON.stringify(day));
 
+const assistantDaySetting = (date: string) => `demo_assistant_day:${date}`;
+
 /**
- * Takes one Claude call from a sandbox's allowance and the day's, or says why not. The counters are
- * approximate under concurrency, which is fine for a spend cap that sits under the key's own limit.
+ * Takes one Claude call from a sandbox's allowance and the day's, or says why not. Both are counted
+ * atomically, so calls arriving together cannot slip past either cap between them.
  */
 export async function takeAssistantCall(store: Store, orgId: string, now = Date.now()): Promise<string | null> {
-  const used = Number((await store.getSetting(assistantCallsSetting(orgId))) ?? 0);
-  if (used >= ASSISTANT_CALLS) return 'This demo has used its share of the rota assistant. Book a demo to see more of it.';
-  const date = londonDate(now);
-  const day = await readDay(store, date);
-  if (day.assistant >= ASSISTANT_CALLS_PER_DAY) return 'The rota assistant has reached its limit for the demo today. Try again tomorrow.';
-  await store.setSetting(assistantCallsSetting(orgId), String(used + 1));
-  await writeDay(store, date, { ...day, assistant: day.assistant + 1 });
+  if ((await store.addToSetting(assistantCallsSetting(orgId), 1)) > ASSISTANT_CALLS) {
+    return 'This demo has used its share of the rota assistant. Book a demo to see more of it.';
+  }
+  if ((await store.addToSetting(assistantDaySetting(londonDate(now)), 1)) > ASSISTANT_CALLS_PER_DAY) {
+    return 'The rota assistant has reached its limit for the demo today. Try again tomorrow.';
+  }
   return null;
 }
 
@@ -246,7 +266,11 @@ export async function sweepSandboxes(store: Store, now = Date.now()): Promise<nu
     removed++;
   }
   // Counters for the past week; older ones went with earlier resets.
-  for (let d = 1; d <= 7; d++) await store.setSetting(daySetting(londonDate(now - d * 86_400_000)), null);
+  for (let d = 1; d <= 7; d++) {
+    const date = londonDate(now - d * 86_400_000);
+    await store.setSetting(daySetting(date), null);
+    await store.setSetting(assistantDaySetting(date), null);
+  }
   return removed;
 }
 

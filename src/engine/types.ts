@@ -40,7 +40,16 @@ export interface Entity {
   payrollEmployerId?: string;
   /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
   leaveYearStart?: string;
+  /** What this company pays for travel between sites within a working day. Defaults to the normal rate. */
+  travelPay?: TravelPay;
 }
+
+/**
+ * The hourly rate for travel between sites: each person's normal rate, the minimum wage for their
+ * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate never pays
+ * below it.
+ */
+export type TravelPay = { basis: 'normal' } | { basis: 'minimum' } | { basis: 'fixed'; hourly: number };
 
 export interface Site {
   id: string;
@@ -55,10 +64,19 @@ export interface Site {
   closeMinute: number;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** A typical trading week, used to forecast any week no sales system has sent figures for. */
+  salesProfile?: SalesProfile;
   /** Where the site is, for journeys between sites. Set from its postcode. */
   location?: SiteLocation;
   /** Journey times from this site to others, by destination site id. */
   travel?: Record<string, SiteTravel>;
+}
+
+export interface SalesProfile {
+  /** Net sales by weekday, Monday first. */
+  dailySales: number[];
+  /** Net spend per cover, to turn sales into covers. */
+  averageSpend: number;
 }
 
 export interface SiteLocation {
@@ -197,6 +215,8 @@ export interface Employee {
   payHidden?: boolean;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
+  rotaNotes?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
   hr?: HrProfile;
   /** Sickness and other absence. A shift on an absence day is blocked like leave. */
@@ -309,6 +329,8 @@ export interface HourForecast {
   hour: number; // 0-23
   sales: number; // net of VAT
   covers: number;
+  /** 'profile' when worked from the site's typical week. Figures sent by a sales system carry none and always win. */
+  source?: 'profile';
 }
 
 /** How a role's demand is driven by the forecast. */

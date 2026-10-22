@@ -24,7 +24,7 @@ async function boot(options: { store?: Store; demo?: boolean; env?: NodeJS.Proce
   const store = options.store ?? new MemoryStore(['demo'], '2026-10-21');
   // Postcode and TfL lookups never leave the test.
   const offline = (async () => new Response('{}', { status: 503 })) as unknown as typeof fetch;
-  const { app, ctx, routes } = await buildApp({ apiKeys: [], store, provider: livePayroll(), autoDispatch: false, demo: options.demo ?? true, env: options.env ?? {}, fetch: offline });
+  const { app, ctx, routes } = await buildApp({ apiKeys: [], store, provider: livePayroll(), autoDispatch: false, demo: options.demo ?? true, env: options.env ?? {}, fetch: offline, webhookFetch: offline });
   const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.headers['set-cookie'] ?? '').split(';')[0];
   const call = (method: string, url: string, cookie?: string, body?: unknown, headers: Record<string, string> = {}) =>
     app.inject({
@@ -127,6 +127,8 @@ describe('public demo on the live system', () => {
       ['POST', `/v1/staff-logins/${person}/invite`, {}],
       ['POST', `/v1/employees/${person}/right-to-work/documents`, {}],
       ['POST', '/v1/sites/travel/refresh', {}],
+      ['POST', '/v1/api-keys', { name: 'mine' }],
+      ['POST', '/v1/webhooks', { url: 'http://169.254.169.254/latest/meta-data', events: ['shift.created'] }],
     ];
     for (const [method, url, body] of denied) {
       const res = await t.call(method, url, visitor, body);

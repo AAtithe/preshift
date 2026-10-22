@@ -62,7 +62,8 @@ function validateEmployment(org: OrgData, e: Employee) {
 }
 
 export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
-  const read = { preHandler: requireScope('rota:read') };
+  // Staff records hold dates of birth, pay and right to work: a scope of their own, not rota:read.
+  const read = { preHandler: requireScope('employees:read') };
   const write = { preHandler: requireScope('rota:write') };
 
   app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => {

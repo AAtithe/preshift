@@ -3,7 +3,7 @@ import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
-import { addDays, formatMinute, toISODate, weekDates, weekStart } from '../engine/time';
+import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import { AssignPanel } from './AssignPanel';
@@ -32,8 +32,11 @@ import { PrivacyView } from './PrivacyView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
 import { SettingsView, type Account } from './SettingsView';
+import { SetupView } from './SetupView';
 import { ALL, NAV, NAV_ITEMS, placeQuery, readPlace, type AtAll, type NavItem, type Tab } from './nav';
 import { allowFor, NOT_YOURS } from './permissions';
+import type { ProposalDeps } from './proposals';
+import type { AgentView } from './useAppAgent';
 import { ShiftEditor } from './ShiftEditor';
 import { useHrRecords, useRotaStore } from './store';
 import { TeamView } from './TeamView';
@@ -42,6 +45,8 @@ import { TravelPanel } from './TravelPanel';
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
+const Shifty = lazy(() => import('./Shifty').then((m) => ({ default: m.Shifty })));
+const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.CommandBar })));
 
 type RotaView = 'timeline' | 'people';
 const VIEW_KEY = 'preshift.rota.view';
@@ -58,11 +63,27 @@ const MONTH = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('
 
 export function App() {
   const { state, me, error, setError, actions } = useRotaStore();
+  // Set when the first save of set-up gives the organisation its first site: the workspace then
+  // opens on set-up's team step instead of dropping the person on an empty overview.
+  const [continueSetup, setContinueSetup] = useState(false);
   if (!state) {
     return (
       <div className="shell">
         <p className="muted">{error ? `Cannot reach the Preshift API: ${error}` : 'Loading'}</p>
         {error && <button onClick={() => void actions.reload()}>Try again</button>}
+      </div>
+    );
+  }
+  // No sites for someone who may change them organisation-wide means none exist yet: set-up is the
+  // only useful screen. Anyone else with no sites simply has no site role.
+  if (state.sites.length === 0 && allowFor(me)('settings.manage')) {
+    return (
+      <div className="first-run">
+        <div className="wordmark">
+          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+        </div>
+        <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
+        <p className="small muted"><a className="link" href="/auth/logout">Sign out</a></p>
       </div>
     );
   }
@@ -74,23 +95,25 @@ export function App() {
       </div>
     );
   }
-  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} />;
+  return <Workspace state={state} me={me} error={error} setError={setError} actions={actions} continueSetup={continueSetup} />;
 }
 
 type Store = ReturnType<typeof useRotaStore>;
 
-function Workspace({ state, me, error, setError, actions }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions'] }) {
+function Workspace({ state, me, error, setError, actions, continueSetup }: { state: NonNullable<Store['state']>; me: Me | null; error: string | null; setError: Store['setError']; actions: Store['actions']; continueSetup: boolean }) {
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [initial] = useState(() => readPlace(weekStart(toISODate(new Date()))));
   const [entityId, setEntityId] = useState(state.entities.some((e) => e.id === initial.entityId) ? initial.entityId : ALL);
   const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
   const [week, setWeek] = useState(initial.week);
-  const [tab, setTab] = useState<Tab>(initial.tab);
+  const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : initial.tab);
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // A request handed over from Shifty or the command bar, to start the rota assistant with.
+  const [assistantInstruction, setAssistantInstruction] = useState('');
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const [preview, setPreview] = useState<Shift | null>(null);
   const [lastChange, setLastChange] = useState<{ before: Shift | null; after: Shift } | null>(null);
@@ -128,6 +151,15 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
   const allow = useMemo(() => allowFor(me), [me]);
+  const [sample, setSample] = useState(false);
+  // Whoever may change the set-up is told when they are still looking at the sample group.
+  useEffect(() => {
+    if (!allow('settings.manage')) return;
+    fetch('/v1/setup/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { sample?: boolean } | null) => setSample(Boolean(body?.sample)))
+      .catch(() => setSample(false));
+  }, [allow, state.sites]);
   const atAll: AtAll = (p) => siteIds.every((s) => allow(p, s));
   const showCost = atAll('costs.view');
   const canEdit = atAll('rota.edit');
@@ -259,6 +291,22 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
   const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
   const range = `${new Date(`${week}T00:00:00Z`).getUTCDate()} to ${new Date(`${dates[6]}T00:00:00Z`).getUTCDate()} ${MONTH(dates[6])}`;
 
+  // Shifty and the command bar read what the manager is looking at, and act only through these.
+  const agentDeps: ProposalDeps = {
+    actions,
+    goTo: (screen) => setTab(screen as Tab),
+    openAssistant: (instruction) => {
+      setAssistantInstruction(instruction);
+      setAssistantOpen(true);
+    },
+    reviewStarter: (employee) => setEditingPerson(employee),
+  };
+  const scopeLabel = single ? single.name : siteIds.length === state.sites.length ? 'all sites' : `${siteIds.length} sites`;
+  const agentView = (): AgentView => ({
+    ctx: { state, siteIds, week, now: londonParts(new Date()) },
+    where: { screen: activeTab, scope: scopeLabel, user: account?.email ?? 'The manager' },
+  });
+
   return (
     <div className="workspace">
       <aside className="sidebar">
@@ -335,7 +383,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
           <div className="sections">
             {section.plans && !needsSite && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-              {single && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
+              {siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
               <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
                 Clear week
               </button>
@@ -350,6 +398,12 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
 
         <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
           <div className="main">
+            {sample && !account?.demo && activeTab !== 'setup' && (
+              <div className="notice">
+                You are looking at the sample group, not your business.{' '}
+                <button className="link" onClick={() => setTab('setup')}>Set up your own</button>
+              </div>
+            )}
             {account?.demo && (
               <div className="notice demo-banner">
                 <span>
@@ -417,6 +471,8 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
               {activeTab === 'sites' && scopeSites.length > 1 && (
                 <TravelPanel
                   sites={scopeSites}
+                  entities={state.entities.filter((e) => scopeSites.some((x) => x.entityId === e.id))}
+                  onSetTravelPay={allow('settings.manage') ? actions.setTravelPay : undefined}
                   onSetLocation={actions.setSiteLocation}
                   onRefresh={actions.refreshTravel}
                   onSetTravel={actions.setTravel}
@@ -524,6 +580,7 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
               )}
+              {activeTab === 'setup' && <SetupView state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} />}
               {activeTab === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} today={today} onOpen={setTab} />
               )}
@@ -565,14 +622,24 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
         </div>
       )}
 
-      {assistantOpen && single && (
+      {assistantOpen && siteIds.length > 0 && (
         <Suspense fallback={null}>
           <AssistantPanel
             state={state}
-            siteId={single.id}
+            siteIds={siteIds}
+            initialInstruction={assistantInstruction}
             week={week}
-            onApply={(shifts) => { void actions.applyDraft(state.shifts, shifts); setUnfilled(null); setAssistantOpen(false); }}
-            onClose={() => setAssistantOpen(false)}
+            onApply={async (shifts, baselines, instructions) => {
+              // Close only once saved; a refused save (someone else edited the week) stays open to redraft.
+              const problem = await actions.applyDraft(week, shifts, baselines, instructions);
+              if (!problem) {
+                setUnfilled(null);
+                setAssistantOpen(false);
+                setAssistantInstruction('');
+              }
+              return problem;
+            }}
+            onClose={() => { setAssistantOpen(false); setAssistantInstruction(''); }}
           />
         </Suspense>
       )}
@@ -615,6 +682,11 @@ function Workspace({ state, me, error, setError, actions }: { state: NonNullable
           onClose={() => setEditingPerson(null)}
         />
       )}
+
+      <Suspense fallback={null}>
+        <CommandBar view={agentView} deps={agentDeps} />
+        <Shifty view={agentView} deps={agentDeps} />
+      </Suspense>
 
       {editing && (
         <ShiftEditor

@@ -1,8 +1,8 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
-  accessHealth, ALL_PERMISSIONS, can, canOrgWide, checkAuthority, checkGrant, CONFLICTS, holders, INVITE_DAYS, live,
-  ORG_DUTIES, PERMISSIONS, roleOf, ROLES, SITE_DUTIES, sitesWith, STRONG, type Actor, type Audience, type Membership, type User,
+  accessHealth, ALL_PERMISSIONS, can, canOrgWide, checkAuthority, checkGrant, CONFLICTS, holders, identityAuthorityErrors, INVITE_DAYS, live,
+  ORG_DUTIES, PERMISSIONS, roleOf, ROLES, SITE_DUTIES, sitesWith, STRONG, strongHeld, type Actor, type Audience, type Membership, type User,
 } from '../../src/engine/access';
 import { addDays } from '../../src/engine/time';
 import { requireScope } from '../auth';
@@ -76,6 +76,35 @@ function refuse(message: string | null) {
   if (message) throw new HttpError(403, 'forbidden', message);
 }
 
+/** Refuses an action that could hand the actor this person's account, unless they could grant everything the person holds. */
+function refuseIdentity(actor: Actor, target: User, users: User[], today: string) {
+  refuse(identityAuthorityErrors(actor, target, users, today)[0] ?? null);
+}
+
+/**
+ * Why a link opening this person's account may only go to their own email, or null if it may be
+ * handed over. A shared account opens other organisations; strong rights move money or reach
+ * confidential records. Either way whoever held the link would hold that, so it is never handed over.
+ */
+function emailOnlyReason(target: User, account: UserRecord | null, today: string): string | null {
+  if (account && sharedAccount(account)) return `${target.name} signs in to other organisations with this account`;
+  const strong = strongHeld(target, today);
+  return strong.length ? `${target.name} holds rights that move money or reach confidential records (${strong.map((p) => PERMISSIONS[p].label.toLowerCase()).join('; ')})` : null;
+}
+
+/** Throws when a link that may only be emailed would be handed over, or cannot be emailed at all. */
+async function requireEmailFor(store: Store, org: OrgData, reason: string | null, what: string, handOver: boolean) {
+  if (!reason) return;
+  const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
+  if (!handOver && settings) return;
+  throw new HttpError(
+    409,
+    'email_only',
+    `${reason}, so ${what} only ever goes to their email. ` +
+      (handOver ? 'It cannot be handed over.' : 'Set up email under Settings first, or they can use "Forgot your password?" on the sign-in page.'),
+  );
+}
+
 /**
  * A single-use link for the person to set their own password: an invitation, valid seven days, or
  * for someone active with no account to reset, a day. Only its hash is kept, and a new link
@@ -110,6 +139,8 @@ export interface Delivery {
 async function deliver(store: Store, org: OrgData, path: string, mail: (link: string) => Mail, log: { kind: MailKind; userId: string; by: string }, handOver = false, emailOnly = false): Promise<Delivery> {
   const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
   const link = linkFor(settings, path);
+  // Backstop: callers check first and say why, but a link that may only be emailed is never returned.
+  if (emailOnly && (!settings || handOver)) throw new HttpError(409, 'email_only', 'This link only ever goes to the person\'s own email.');
   if (!settings || handOver) return { emailed: false, inviteUrl: link };
   const message = mail(link);
   const id = await sendMail(settings, message);
@@ -123,11 +154,11 @@ async function deliver(store: Store, org: OrgData, path: string, mail: (link: st
 }
 
 /** Sends an invitation link to the person invited, naming who invited them and the role they start with. */
-async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false) {
+async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false, emailOnly = false) {
   const role = roleOf(user.memberships.find((m) => m.active)?.roleId ?? '')?.name ?? 'a member of the team';
   // Someone who already signs in to Preshift accepts with their own password, not a new one.
   const existing = !!(await store.getUser(user.email));
-  const sent = await deliver(store, org, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS, existing), { kind: 'invite', userId: user.id, by: nameOf(actor) }, handOver);
+  const sent = await deliver(store, org, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS, existing), { kind: 'invite', userId: user.id, by: nameOf(actor) }, handOver, emailOnly);
   return { expiresAt: link.expiresAt, ...sent };
 }
 
@@ -218,10 +249,15 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
     case 'reactivate': {
       if (target.status !== 'suspended') throw new HttpError(409, 'conflict', `${target.name} is not suspended`);
       refuse(checkAuthority(actor, target, org.users, today));
-      // Someone who never accepted goes back to invited and needs a fresh link.
+      // Someone who never accepted goes back to invited and needs a fresh link, which opens their account.
+      const inviteOnly = target.activatedAt ? null : emailOnlyReason(target, null, today);
+      if (!target.activatedAt) {
+        refuseIdentity(actor, target, org.users, today);
+        await requireEmailFor(store, org, inviteOnly, 'their invitation', false);
+      }
       target.status = target.activatedAt ? 'active' : 'invited';
       audit(org, nameOf(actor), 'user.reactivated', { userId: target.id });
-      return target.status === 'invited' ? { user: target, ...(await sendInvite(store, org, actor, target, issueInvite(org, target, now))) } : { user: target };
+      return target.status === 'invited' ? { user: target, ...(await sendInvite(store, org, actor, target, issueInvite(org, target, now), false, !!inviteOnly)) } : { user: target };
     }
     case 'reset-authenticator': {
       const account = await store.getUser(target.email);
@@ -230,6 +266,7 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
       }
       refuseElsewhere(account, org, target);
       refuse(checkAuthority(actor, target, org.users, today, { removesAccess: true }));
+      refuseIdentity(actor, target, org.users, today);
       target.mfaEnrolled = false;
       // The record goes with it: its id is what verified sessions name, so every one of them ends here.
       if (account?.authenticator) await store.updateUser(account.email, { authenticator: undefined });
@@ -239,10 +276,12 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
     }
     case 'resend-invite': {
       if (target.status !== 'invited') throw new HttpError(409, 'conflict', `${target.name} has already accepted`);
-      refuse(checkAuthority(actor, target, org.users, today));
+      refuseIdentity(actor, target, org.users, today);
+      const inviteOnly = emailOnlyReason(target, await store.getUser(target.email), today);
+      await requireEmailFor(store, org, inviteOnly, 'their invitation', handOver);
       const recent = (org.inviteSends[target.id] ?? []).filter((t) => now.getTime() - Date.parse(t) < 3_600_000);
       if (recent.length >= RESENDS_PER_HOUR) throw new HttpError(429, 'too_many', `Already sent ${RESENDS_PER_HOUR} times in the last hour. Check the email address instead.`);
-      const sent = await sendInvite(store, org, actor, target, issueInvite(org, target, now), handOver);
+      const sent = await sendInvite(store, org, actor, target, issueInvite(org, target, now), handOver, !!inviteOnly);
       audit(org, nameOf(actor), 'invite.resent', { userId: target.id, expiresAt: sent.expiresAt, emailed: sent.emailed, ...(handOver ? { handedOver: true } : {}) });
       return { user: target, ...sent };
     }
@@ -468,8 +507,10 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         tags,
         description:
           'Ends the password and every session, and emails a single-use link (valid a day) for the person to choose a new one. ' +
+          'Needs the authority to give the person every role they hold, since the link opens their account. ' +
           'Until email is set up under Settings the link comes back instead: confirm who they are by phone or in person before passing it on. ' +
-          'Nobody else learns the new password.',
+          'Never for someone with rights that move money or reach confidential records, or an account other organisations use: ' +
+          'their link only ever goes to their own email. Nobody else learns the new password.',
         params: idParam,
       },
     },
@@ -478,20 +519,14 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       const actor = actorOf(req, org, today());
       const target = findUser(org, req.params.id);
       if (target.status !== 'active') throw new HttpError(409, 'conflict', `${target.name} is ${target.status}. ${target.status === 'invited' ? 'Resend their invitation instead.' : 'Reactivate them first.'}`);
-      refuse(checkAuthority(actor, target, org.users, today()));
+      refuseIdentity(actor, target, org.users, today());
       const account = await ctx.store.getUser(target.email);
       refuseElsewhere(account, org, target);
       const handOver = handOverAsked(req.body);
-      // An account that opens other organisations too is never handed over: whoever held the link
-      // would hold the person's access everywhere. Its reset goes only to the person's inbox.
-      if (account && sharedAccount(account) && (handOver || !parseEmailSettings(await ctx.store.getSetting(emailSetting(org.orgId))))) {
-        throw new HttpError(
-          409,
-          'email_only',
-          `${target.name} signs in to other organisations with this account, so a reset link only ever goes to their email. ` +
-            (handOver ? 'It cannot be handed over.' : 'Set up email under Settings first, or they can use "Forgot your password?" on the sign-in page.'),
-        );
-      }
+      // A link to an account that opens other organisations, or holds strong rights, is never handed
+      // over: whoever held it would hold that access. Its reset goes only to the person's inbox.
+      const onlyByEmail = emailOnlyReason(target, account, today());
+      await requireEmailFor(ctx.store, org, onlyByEmail, 'a reset link', handOver);
       let path: string;
       if (account) {
         // The old password stops working at once, and every session ends: either may be what was compromised.
@@ -506,7 +541,7 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
         // Active with no account to reset (made before accounts lived here): the link makes one.
         path = issueInvite(org, target, new Date(), 'reset').path;
       }
-      const sent = await deliver(ctx.store, org, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS), { kind: 'reset', userId: target.id, by: nameOf(actor) }, handOver, !!account && sharedAccount(account));
+      const sent = await deliver(ctx.store, org, path, (url) => accessResetEmail(target.email, nameOf(actor), url, ADMIN_RESET_HOURS), { kind: 'reset', userId: target.id, by: nameOf(actor) }, handOver, !!onlyByEmail);
       audit(org, nameOf(actor), 'user.password_reset', { userId: target.id, emailed: sent.emailed, ...(handOver ? { handedOver: true } : {}) });
       return { user: target, expiresInHours: ADMIN_RESET_HOURS, ...sent };
     },

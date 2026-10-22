@@ -12,6 +12,7 @@ import { assistantRoutes } from './routes/assistant';
 import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
+import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
@@ -19,6 +20,7 @@ import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
+import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
@@ -30,6 +32,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { MemoryStore, PgStore, type Store } from './store';
+import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
 export interface BuildOptions {
   apiKeys?: ApiKey[];
@@ -53,6 +56,10 @@ export interface BuildOptions {
   demo?: boolean;
   /** The demo's start page. Defaults to site/demo.html in the repository. */
   demoPage?: string;
+  /** How webhooks reach partner systems. Defaults to fetch; tests supply a recorder. */
+  webhookFetch?: Fetch;
+  /** Requests per minute per API key. */
+  rateLimit?: number;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -147,8 +154,21 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         description:
           'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
           'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
-          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.',
+          'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.\n\n' +
+          'Authenticate with `Authorization: Bearer psk_...`, a key a person with the settings permission makes under Settings, API keys, limited to the scopes ' +
+          'it needs. Each key reaches its own organisation only and may make 300 requests a minute. ' +
+          'Webhooks tell your system when something changes: register an https endpoint, then verify the ' +
+          '`preshift-signature` header (`t=<unix seconds>,v1=<hex HMAC-SHA256 of "t.body" with the endpoint secret>`) on every event. ' +
+          'Events carry ids, never personal data; fetch the detail with your key.',
       },
+      tags: [
+        { name: 'Reference' },
+        { name: 'Employees' },
+        { name: 'Shifts' },
+        { name: 'Rota' },
+        { name: 'Forecast' },
+        { name: 'Webhooks', description: 'Signed event notifications to your own https endpoint.' },
+      ],
       components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } },
       security: [{ bearer: [] }],
     },
@@ -182,6 +202,15 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
+    await deliverAllWebhooks(store, options.webhookFetch);
+    return { ok: true };
+  });
+
+  // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
+  // hears within the quarter hour of coming back, even from an organisation nobody is editing.
+  app.get('/internal/webhooks', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    await deliverAllWebhooks(store, options.webhookFetch);
     return { ok: true };
   });
 
@@ -194,7 +223,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   });
 
   const keys = options.apiKeys ?? loadApiKeys(env);
-  const auth = authenticate(keys, store);
+  const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
   demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
   signInRoutes(app, ctx, { demo });
   staffRoutes(app, store);
@@ -232,6 +261,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       }
       if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
       try {
+        // Events this request raised go out now, inside it, so they are saved as sent with it.
+        if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -242,6 +273,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
+    setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     timeRoutes(api, ctx);
@@ -253,6 +285,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);
     settingsRoutes(api, ctx);
+    developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
   });

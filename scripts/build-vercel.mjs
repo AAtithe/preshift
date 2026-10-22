@@ -7,6 +7,7 @@
 //   /staff/               the staff app for clocking on their own phones (public page, own sign-in)
 //   /api/anthropic/v1/messages   the rota assistant's route to Claude
 //   /internal/dispatch    daily cron retry of undelivered payroll changes
+//   /internal/webhooks    webhook retries every 15 minutes
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -69,15 +70,17 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/(?:dispatch|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|internal/(?:dispatch|webhooks|demo-reset)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },
       ],
-      // Safety net for payroll changes TeamPay has not yet confirmed, and the demo's midnight reset:
-      // 23:05 UTC is 00:05 in summer, 00:05 UTC is 00:05 in winter. Both need CRON_SECRET.
+      // Safety nets (need CRON_SECRET): payroll changes TeamPay has not confirmed, daily; webhook
+      // retries every 15 minutes, which needs a Vercel plan that runs cron jobs more than daily;
+      // the demo's midnight reset, 23:05 UTC in summer and 00:05 UTC in winter (00:05 UK time).
       crons: [
         { path: '/internal/dispatch', schedule: '0 6 * * *' },
+        { path: '/internal/webhooks', schedule: '*/15 * * * *' },
         { path: '/internal/demo-reset?run=summer', schedule: '5 23 * * *' },
         { path: '/internal/demo-reset?run=winter', schedule: '5 0 * * *' },
       ],
