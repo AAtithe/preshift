@@ -110,7 +110,7 @@ async function requireEmailFor(store: Store, org: OrgData, reason: string | null
  * for someone active with no account to reset, a day. Only its hash is kept, and a new link
  * replaces any earlier one. Accounts are reset with the account's own link (issueReset).
  */
-function issueInvite(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
+export function issueInvite(org: OrgData, user: User, now: Date, kind: 'invite' | 'reset' = 'invite') {
   for (const [k, v] of Object.entries(org.inviteTokens)) if (v.userId === user.id) delete org.inviteTokens[k];
   const token = `${org.orgId}.${randomBytes(24).toString('base64url')}`;
   const expiresAt = addDays(now.toISOString().slice(0, 10), kind === 'invite' ? INVITE_DAYS : 1);

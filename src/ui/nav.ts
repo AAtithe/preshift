@@ -3,11 +3,13 @@
 import { weekStart } from '../engine/time';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'howto' | 'onboarding' | 'clients';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
-export type Offered = (atAll: AtAll, allow: Allow) => boolean;
+/** Who is looking, beyond their permissions: Williams, Stanley & Co. sees its clients. */
+export type Who = { ws: boolean };
+export type Offered = (atAll: AtAll, allow: Allow, who: Who) => boolean;
 
 // The management bar groups the work the way a GM runs the week: plan it, staff it, pay it, close it, review it.
 // Every item shown is clickable, so the map never changes. A site-only item opened across several
@@ -41,6 +43,8 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
       // Personnel files go by site, as the rest of the team's records do; cases are confidential.
       { id: 'hr', label: 'HR overview', scope: 'people', offered: (all) => all('hr.view') },
       { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, offered: (all) => all('team.manage') || all('costs.view') },
+      // Each new person's first weeks as one checklist: legal steps before day one, the rest after.
+      { id: 'onboarding', label: 'Onboarding', scope: 'people', offered: (all) => all('team.manage') || all('hr.view') },
       // Balances are the team's records; the provision in pounds shows only with cost.
       { id: 'holiday', label: 'Holiday', scope: 'people', offered: (all) => all('team.manage') || all('costs.view') },
       { id: 'absence', label: 'Absence', scope: 'people', offered: (all) => all('hr.view') },
@@ -75,6 +79,8 @@ export const NAV: { heading: string; items: NavItem[] }[] = [
       { id: 'setup', label: 'Set-up', scope: 'org', offered: (_all, a) => a('settings.manage') },
       { id: 'integrations', label: 'Integrations', scope: 'org', offered: (_all, a) => a('settings.manage') || a('payroll.view') },
       { id: 'privacy', label: 'GDPR', scope: 'org', offered: (_all, a) => a('privacy.manage') },
+      // Williams, Stanley & Co. only: every client they hold a role in, and adding a new one.
+      { id: 'clients', label: 'Clients', scope: 'org', title: 'Williams, Stanley & Co.', offered: (_all, _a, who) => who.ws },
       { id: 'access', label: 'Access', scope: 'org', offered: (all, a) => a('users.manage') || all('users.sites') || a('audit.view') },
       // Everyone who signs in can change their own password there.
       { id: 'settings', label: 'Settings', scope: 'org' },

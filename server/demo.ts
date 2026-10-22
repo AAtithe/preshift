@@ -151,6 +151,10 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // Refused: each of these issues an invitation or a reset link, which could bring a real person
   // into a sandbox, or acts on an account's password or authenticator.
   'POST /v1/users': false,
+  // Clients are real organisations made by a WS partner: never from a demo.
+  'GET /v1/clients': false,
+  'POST /v1/clients': false,
+  'POST /v1/clients/:orgId/owner-invite': false,
   'POST /v1/users/bulk': false,
   'POST /v1/users/:id/reactivate': false,
   'POST /v1/users/:id/resend-invite': false,

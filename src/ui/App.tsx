@@ -33,6 +33,8 @@ import { PayrollView } from './PayrollView';
 import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
+import { OnboardingView } from './OnboardingView';
+import { ClientsView } from './ClientsView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
 import { RotaGrid } from './RotaGrid';
@@ -171,7 +173,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const showCost = atAll('costs.view');
   const canEdit = atAll('rota.edit');
   const canPublish = atAll('rota.publish');
-  const offered = (t: NavItem) => !t.offered || t.offered(atAll, allow);
+  const offered = (t: NavItem) => !t.offered || t.offered(atAll, allow, { ws: me?.user?.audience === 'ws' });
   const nav = NAV.map((g) => ({ ...g, items: g.items.filter(offered) })).filter((g) => g.items.length > 0);
   const fallback = nav[0]?.items[0]?.id ?? 'settings';
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t)) ? tab : fallback;
@@ -596,6 +598,18 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
                 />
               )}
+              {activeTab === 'onboarding' && (
+                <OnboardingView
+                  state={state}
+                  siteIds={siteIds}
+                  today={today}
+                  hr={hr}
+                  allow={allow}
+                  onEdit={setEditingPerson}
+                  onOpenHr={openHr}
+                  onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
+                />
+              )}
               {activeTab === 'holiday' && (
                 <HolidayView
                   state={state}
@@ -645,6 +659,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               )}
               {activeTab === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {activeTab === 'access' && <AccessView state={state} />}
+              {activeTab === 'clients' && <ClientsView />}
               {activeTab === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {activeTab === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
             </main>
