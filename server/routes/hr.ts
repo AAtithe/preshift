@@ -7,6 +7,7 @@ import type { Absence, Employee, HrProfile, HrRecord } from '../../src/engine/ty
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, recordCopies } from './documents';
 import { forReader } from './employees';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
@@ -102,7 +103,7 @@ export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
  * Nobody sees or handles a case about themselves, whatever they hold: someone else runs it.
  * Cases are for people, never a system: a key, however it was scoped, gets none, as webhooks do not.
  */
-function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
+export function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
   return hrScoped(req) && Boolean(g.user) && g.can('hr.cases') && (!employeeId || g.behind?.employeeId !== employeeId);
 }
 
@@ -318,7 +319,8 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete<{ Params: { id: string } }>(
     '/v1/hr/records/:id',
-    { ...write, schema: { tags, params: idParam } },
+    // Copies on the record go with it, once the record is saved without it.
+    { ...write, schema: { tags, params: idParam }, onResponse: deleteCopiesOnSave(ctx) },
     async (req, reply) => {
       const org = orgOf(req);
       const record = org.hrRecords.find((r) => r.id === req.params.id);
@@ -328,6 +330,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       // A case is evidence of how a complaint or a warning was handled: closed, never deleted. Retention removes it with the file.
       if (record.kind === 'case') throw new HttpError(409, 'case_kept', 'A case is closed, not deleted. It is removed with the rest of the file when its retention period ends.');
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
+      deleteCopiesAfterSave(req, recordCopies([record]));
       audit(org, actorName(g), 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(204).send();
     },

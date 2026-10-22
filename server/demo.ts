@@ -257,6 +257,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/employees/:id/right-to-work/documents/:docId': false,
   'GET /v1/employees/:id/right-to-work/documents/:docId/access': false,
   'DELETE /v1/employees/:id/right-to-work/documents/:docId': false,
+  'POST /v1/hr/records/:id/files': false,
+  'GET /v1/hr/records/:id/files/:fileId': false,
+  'DELETE /v1/hr/records/:id/files/:fileId': false,
   // Refused: these call postcode and TfL services on the live system's quota at a visitor's say.
   'PUT /v1/sites/:id/location': false,
   'POST /v1/sites/travel/refresh': false,

@@ -234,3 +234,31 @@ describe('right to work documents', () => {
     expect(log.at(-1)).toEqual(['deleted', 'owner@ws.example']);
   });
 });
+
+describe('copies on personnel file records', () => {
+  it('stores a copy on a record, serves it to HR readers with a log, and deletes it with the record', async () => {
+    const { app, store, call } = await setup();
+    const record = (await call('POST', '/v1/hr/records', 'admin', { employeeId: 'mar-8', kind: 'document', date: '2026-10-01', title: 'Signed contract' })).json();
+    const upload = (key = 'admin', data: Buffer = PDF) =>
+      app.inject({ method: 'POST', url: `/v1/hr/records/${record.id}/files?fileName=contract.pdf`, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/pdf' }, payload: data });
+
+    const added = await upload();
+    expect(added.statusCode).toBe(201);
+    const file = added.json().files[0];
+    expect(file).toMatchObject({ fileName: 'contract.pdf', contentType: 'application/pdf', bytes: PDF.length });
+    expect((await upload('admin', Buffer.from('not a document'))).statusCode).toBe(415);
+    // A rota key has no HR scope, so neither adds nor reads.
+    expect((await upload('rota')).statusCode).toBe(403);
+    expect((await call('GET', `/v1/hr/records/${record.id}/files/${file.id}`, 'rota')).statusCode).toBe(403);
+
+    const got = await call('GET', `/v1/hr/records/${record.id}/files/${file.id}`, 'gm');
+    expect(got.statusCode).toBe(200);
+    expect(got.rawPayload.equals(PDF)).toBe(true);
+    expect((await store.listDocumentAccess('demo', file.id)).map((a) => a.action)).toEqual(['added', 'viewed']);
+    // Stored encrypted, never as uploaded.
+    expect((await store.getDocument('demo', file.id))!.data.equals(PDF)).toBe(false);
+
+    expect((await call('DELETE', `/v1/hr/records/${record.id}`, 'admin')).statusCode).toBe(204);
+    expect(await store.getDocument('demo', file.id)).toBeNull();
+  });
+});

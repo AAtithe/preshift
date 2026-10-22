@@ -22,7 +22,7 @@ import { emailSetting } from '../mail';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { claudeKeySetting } from './access';
-import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies } from './documents';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies, recordCopies } from './documents';
 
 const today = () => londonParts(new Date()).date;
 const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
@@ -112,6 +112,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       org.timeEntries = result.timeEntries;
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.
       const anonymised = new Set(result.applied.filter((a) => a.code === 'anonymise').map((a) => a.employeeId));
+      deleteCopiesAfterSave(req, recordCopies(org.hrRecords.filter((r) => anonymised.has(r.employeeId))));
       org.hrRecords = org.hrRecords.filter((r) => !anonymised.has(r.employeeId));
       for (const id of result.closeLoginsFor) await ctx.store.deleteStaffLogin(org.orgId, id);
       // The audit keeps ids and counts only, never the data that was removed.

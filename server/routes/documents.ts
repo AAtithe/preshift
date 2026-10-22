@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { Employee, RightToWorkDocument } from '../../src/engine/types';
+import type { Employee, HrRecord, RightToWorkDocument } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
+import { idParam } from '../schemas';
 import { actorName, guard, type Guard } from '../guard';
 import { forReader } from './employees';
-import { employeeView, readsHr } from './hr';
+import { employeeView, readsHr, seesCases } from './hr';
 import type { DocumentCipher } from '../documentCrypto';
 import { audit, type DocumentAccess, type OrgData } from '../store';
 
@@ -27,9 +28,9 @@ export function sniffType(data: Buffer): RightToWorkDocument['contentType'] | nu
 }
 
 /** A display name only: no path, no control characters, and short. */
-function cleanFileName(name: string | undefined, contentType: RightToWorkDocument['contentType']): string {
+function cleanFileName(name: string | undefined, contentType: RightToWorkDocument['contentType'], fallback = 'right-to-work'): string {
   const base = (name ?? '').split(/[\\/]/).pop()!.replace(/[\u0000-\u001f\u007f"]/g, '').trim().slice(0, 120);
-  return base || `right-to-work.${contentType.split('/')[1]}`;
+  return base || `${fallback}.${contentType.split('/')[1]}`;
 }
 
 function employeeIn(org: OrgData, id: string): Employee {
@@ -71,6 +72,10 @@ export interface DroppedCopy {
   employeeId: string;
   documentId: string;
 }
+
+/** Copies on personnel file records that are going, so their files go with them. */
+export const recordCopies = (records: HrRecord[]): DroppedCopy[] =>
+  records.flatMap((r) => (r.files ?? []).map((f) => ({ employeeId: r.employeeId, documentId: f.id })));
 
 /** Copies the records named before a change and no longer name after it, as when retention strips a leaver. */
 export function droppedCopies(before: Employee[], after: Employee[]): DroppedCopy[] {
@@ -248,6 +253,122 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext) {
       deleteCopiesAfterSave(req, [{ employeeId: e.id, documentId: doc.id }]);
       audit(org, actorName(g), 'employee.rtw_document.deleted', { id: e.id, documentId: doc.id, fileName: doc.fileName, sha256: doc.sha256 });
       return shown(req, g, e);
+    },
+  );
+}
+
+/**
+ * Copies on personnel file records: a signed contract, a warning letter, a fit note, a certificate.
+ * The same encryption, size and type rules, and the same access log, as right to work copies. Adding
+ * one is keeping the file (hr.manage at the person's home site, never your own); viewing one is
+ * reading it; a copy on a case is for those who handle cases, never the person it is about.
+ */
+export function hrFileRoutes(app: FastifyInstance, ctx: AppContext) {
+  const tags = ['HR'];
+  const fileParams = { type: 'object', required: ['id', 'fileId'], properties: { id: { type: 'string' }, fileId: { type: 'string' } } } as const;
+
+  /** The record and its person, as long as the caller may see the record at all. */
+  function recordFor(req: FastifyRequest, g: Guard, org: OrgData, id: string) {
+    const record = org.hrRecords.find((r) => r.id === id);
+    if (!record || (record.kind === 'case' && !seesCases(req, g, record.employeeId))) throw notFound(`Record ${id}`);
+    return { record, employee: employeeIn(org, record.employeeId) };
+  }
+
+  app.post<{ Params: { id: string }; Querystring: { fileName?: string }; Body: Buffer }>(
+    '/v1/hr/records/:id/files',
+    {
+      preHandler: requireScope('hr:write'),
+      bodyLimit: MAX_DOCUMENT_BYTES,
+      schema: {
+        tags,
+        description: 'Stores a copy on a personnel file record: the file itself as the request body (PDF, JPEG, PNG or WebP, up to 4 MB), its name in `fileName`. Returns the record.',
+        params: idParam,
+        querystring: { type: 'object', properties: { fileName: { type: 'string', maxLength: 255 } } },
+      },
+      onResponse: async (req, reply) => {
+        const id = written.get(req);
+        if (!id) return;
+        if (reply.statusCode >= 400) await ctx.store.deleteDocument(orgOf(req).orgId, id);
+        else {
+          const record = orgOf(req).hrRecords.find((r) => r.id === req.params.id);
+          await ctx.store.logDocumentAccess(accessEntry(req, id, record?.employeeId ?? '', 'added'));
+        }
+      },
+    },
+    async (req, reply) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const { record, employee } = recordFor(req, g, org, req.params.id);
+      g.allow('hr.manage', employee.siteId);
+      if (g.behind?.employeeId === employee.id) throw new HttpError(403, 'forbidden', 'Somebody else keeps your own personnel file.');
+      const cipher = cipherOf(ctx);
+      const data = Buffer.isBuffer(req.body) ? req.body : null;
+      if (!data?.length) throw new HttpError(400, 'invalid_request', 'Send the file as the request body.');
+      const contentType = sniffType(data);
+      if (!contentType) throw new HttpError(415, 'unsupported_file', 'Upload a PDF, JPEG, PNG or WebP copy.');
+      if ((record.files?.length ?? 0) >= MAX_DOCUMENTS) throw new HttpError(409, 'too_many_documents', `This record already has ${MAX_DOCUMENTS} copies.`);
+      const doc: RightToWorkDocument = {
+        id: `hrf_${randomUUID()}`,
+        fileName: cleanFileName(req.query.fileName, contentType, record.kind),
+        contentType,
+        bytes: data.length,
+        sha256: createHash('sha256').update(data).digest('hex'),
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: actorName(g),
+      };
+      await ctx.store.putDocument(org.orgId, doc.id, { contentType, data: cipher.seal(org.orgId, doc.id, data) });
+      written.set(req, doc.id);
+      record.files = [...(record.files ?? []), doc];
+      audit(org, actorName(g), 'hr.record.file_added', { id: record.id, employeeId: employee.id, documentId: doc.id, sha256: doc.sha256 });
+      return reply.code(201).send(record);
+    },
+  );
+
+  app.get<{ Params: { id: string; fileId: string } }>(
+    '/v1/hr/records/:id/files/:fileId',
+    {
+      preHandler: requireScope('hr:read'),
+      schema: { tags, description: 'The stored copy, to view or download. Every view is logged, with who and from where.', params: fileParams },
+    },
+    async (req, reply) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const { record, employee } = recordFor(req, g, org, req.params.id);
+      mayView(req, g, employee);
+      const doc = record.files?.find((d) => d.id === req.params.fileId);
+      if (!doc) throw notFound(`File ${req.params.fileId}`);
+      const cipher = cipherOf(ctx);
+      const file = await ctx.store.getDocument(org.orgId, doc.id);
+      if (!file) throw notFound(`File ${req.params.fileId}`);
+      const data = cipher.open(org.orgId, doc.id, file.data);
+      await ctx.store.logDocumentAccess(accessEntry(req, doc.id, employee.id, 'viewed'));
+      const ascii = doc.fileName.replace(/[^\x20-\x7e]/g, '_');
+      return reply
+        .header('content-type', doc.contentType)
+        .header('content-disposition', `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(doc.fileName)}`)
+        .header('x-content-type-options', 'nosniff')
+        .header('cache-control', 'private, no-store')
+        .send(data);
+    },
+  );
+
+  app.delete<{ Params: { id: string; fileId: string } }>(
+    '/v1/hr/records/:id/files/:fileId',
+    {
+      schema: { tags, description: 'Deletes a copy added in error. Needs privacy.manage, by a person.', params: fileParams },
+      onResponse: deleteCopiesOnSave(ctx),
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      dataProtection(req, g);
+      const { record, employee } = recordFor(req, g, org, req.params.id);
+      const doc = record.files?.find((d) => d.id === req.params.fileId);
+      if (!doc) throw notFound(`File ${req.params.fileId}`);
+      record.files = record.files!.filter((d) => d.id !== doc.id);
+      deleteCopiesAfterSave(req, [{ employeeId: employee.id, documentId: doc.id }]);
+      audit(org, actorName(g), 'hr.record.file_deleted', { id: record.id, employeeId: employee.id, documentId: doc.id, sha256: doc.sha256 });
+      return record;
     },
   );
 }

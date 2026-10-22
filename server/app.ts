@@ -15,7 +15,7 @@ import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
-import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
+import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { eposRoutes, syncAllTills } from './routes/epos';
 import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
@@ -407,6 +407,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
+    hrFileRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);

@@ -327,6 +327,11 @@ export interface HrRecord {
   createdAt: string;
   /** Every change, oldest first, with what it replaced: a record can always be shown as it stood. Kept by the server. */
   history?: HrRecordChange[];
+  /**
+   * Copies on file: the signed contract or statement, a warning letter, a fit note, a certificate.
+   * Encrypted and stored apart from the record, like right to work copies. Managed by the server.
+   */
+  files?: RightToWorkDocument[];
 }
 
 /** One change to an HR record: who made it, when, and the values it replaced. */

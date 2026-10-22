@@ -6,6 +6,7 @@ import {
 } from '../engine/hr';
 import { addDays } from '../engine/time';
 import type { Absence, AbsenceType, CaseType, ContractType, Employee, HrProfile, HrRecord, HrRecordKind, ReviewType, RotaState } from '../engine/types';
+import { fileSize, MAX_UPLOAD_BYTES, shrinkPhoto } from './files';
 import type { HrRecords } from './store';
 
 export type HrSection = 'summary' | 'profile' | 'absence' | 'training' | 'reviews' | 'cases' | 'documents';
@@ -480,10 +481,40 @@ function RecordList({ records, hr }: { records: HrRecord[]; hr: HrRecords }) {
               ].filter(Boolean).join('. ')}
             </div>
             {r.notes && <p className="hr-notes">{r.notes}</p>}
+            <RecordFiles record={r} hr={hr} />
           </li>
         ),
       )}
     </ul>
+  );
+}
+
+/**
+ * Copies on a record, each opened in a new tab (every view is logged), and a way to add one. Photos
+ * are shrunk below the upload limit first; PDFs go as they are.
+ */
+function RecordFiles({ record, hr }: { record: HrRecord; hr: HrRecords }) {
+  const [busy, setBusy] = useState(false);
+  async function add(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    const body = await shrinkPhoto(file);
+    if (body.size > MAX_UPLOAD_BYTES) alert(`${file.name} is ${fileSize(body.size)}. Copies can be up to ${fileSize(MAX_UPLOAD_BYTES)}.`);
+    else await hr.attach(record.id, body, file.name);
+    setBusy(false);
+  }
+  return (
+    <div className="hr-files muted small">
+      {(record.files ?? []).map((f) => (
+        <span key={f.id}>
+          <a href={`/v1/hr/records/${record.id}/files/${f.id}`} target="_blank" rel="noopener noreferrer">{f.fileName}</a> ({fileSize(f.bytes)}){' '}
+        </span>
+      ))}
+      <label className="link">
+        {busy ? 'Uploading' : record.files?.length ? 'Add another copy' : 'Attach a copy'}
+        <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden disabled={busy} onChange={(e) => { void add(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
+    </div>
   );
 }
 
