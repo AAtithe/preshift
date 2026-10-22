@@ -32,6 +32,9 @@ import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
+import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
+import { signupRoutes } from './routes/signup';
+import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { travelRoutes } from './routes/travel';
@@ -72,6 +75,8 @@ export interface BuildOptions {
   webhookFetch?: Fetch;
   /** Requests per minute per API key. */
   rateLimit?: number;
+  /** Self sign-up from the sign-in page. Defaults to PRESHIFT_SIGNUP=1. See server/routes/signup.ts. */
+  signup?: boolean;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -287,8 +292,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
+  // Billing through Stripe for organisations that signed themselves up (server/billing.ts).
+  const stripe = stripeFromEnv(env);
+  const signup = options.signup ?? env.PRESHIFT_SIGNUP === '1';
   demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
-  signInRoutes(app, ctx, { demo });
+  signInRoutes(app, ctx, { demo, signup, stripe: !!stripe });
+  signupRoutes(app, ctx, { enabled: signup, trialDays: trialDaysFromEnv(env) });
+  stripeWebhookRoutes(app, ctx, stripe);
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, auth);
   staffRoutes(app, store);
@@ -317,6 +327,12 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       // The handler checks the signature first, so the reply does not say which organisations exist.
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
+    });
+    // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
+    // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' || !req.org || isWebhook(req.url) || isSandbox(req.org.orgId) || allowedWhileLocked(req.routeOptions.url)) return;
+      if (standingOf(await getBilling(store, req.org.orgId), ctx.now(), !!stripe).locked) throw new HttpError(402, 'billing_required', LOCKED_MESSAGE);
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
@@ -374,6 +390,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     payrollRoutes(api, ctx);
     userRoutes(api, ctx);
     clientRoutes(api, ctx);
+    billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);
