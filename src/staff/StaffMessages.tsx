@@ -205,22 +205,28 @@ export function StaffReach({ onSignedOut }: { onSignedOut: () => void }) {
   );
 }
 
-interface Offer {
+interface Going {
   id: string;
-  label: string;
+  line: string;
   note: string | null;
-  firstToAccept: boolean;
+  claimed: boolean;
+  fill: 'claim' | 'first_yes';
+  urgent: boolean;
+  canDecline: boolean;
 }
 
-/** Shifts the person has been asked to cover, with a yes or no each. Only shown while there are some. */
+/**
+ * Shifts going that the person could take, on Today so they are seen: the same list and answers as
+ * "Shifts you could pick up" on the Rota tab. Only shown while there are some to answer.
+ */
 export function StaffCover({ onSignedOut, onChanged }: { onSignedOut: () => void; onChanged: () => void }) {
-  const [offers, setOffers] = useState<Offer[]>([]);
+  const [going, setGoing] = useState<Going[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setOffers((await call<{ offers: Offer[] }>('GET', '/v1/staff/cover')).offers);
+      setGoing((await call<{ openShifts: Going[] }>('GET', '/v1/staff/board')).openShifts.filter((o) => !o.claimed));
     } catch (e) {
       if (e instanceof Problem && e.status === 401) onSignedOut();
     }
@@ -232,36 +238,36 @@ export function StaffCover({ onSignedOut, onChanged }: { onSignedOut: () => void
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [load]);
 
-  async function answer(offer: Offer, yes: boolean) {
-    setBusy(offer.id);
+  async function answer(o: Going, yes: boolean) {
+    setBusy(o.id);
     setMessage(null);
     try {
-      const res = await call<{ outcome?: 'filled' | 'waiting' | 'refused'; reason?: string; offers: Offer[] }>('POST', `/v1/staff/cover/${offer.id}/${yes ? 'accept' : 'decline'}`);
-      setOffers(res.offers);
-      if (res.outcome === 'filled') setMessage({ tone: 'good', text: `It's yours: ${offer.label}. Thank you.` });
-      else if (res.outcome === 'waiting') setMessage({ tone: 'good', text: 'Thanks. Your manager will confirm who takes it.' });
-      else if (res.outcome === 'refused') setMessage({ tone: 'bad', text: `Sorry, it could not be given to you. ${res.reason ?? ''}` });
+      const res = await call<{ outcome?: 'filled' | 'claimed' }>('POST', `/v1/staff/open-shifts/${o.id}/${yes ? 'claim' : 'decline'}`);
+      if (res.outcome === 'filled') setMessage({ tone: 'good', text: `It's yours: ${o.line}. Thank you.` });
+      else if (res.outcome === 'claimed') setMessage({ tone: 'good', text: 'Asked for. Your manager confirms who gets it.' });
+      else setMessage({ tone: 'good', text: 'No problem. Thanks for letting us know.' });
       onChanged();
     } catch (err) {
       if (err instanceof Problem && err.status === 401) return onSignedOut();
       setMessage({ tone: 'bad', text: say(err) });
     } finally {
       setBusy(null);
+      void load();
     }
   }
 
-  if (offers.length === 0 && !message) return null;
+  if (going.length === 0 && !message) return null;
   return (
     <section className="staff-card staff-cover">
-      <h2>Cover wanted</h2>
-      {offers.map((o) => (
+      <h2>Shifts going</h2>
+      {going.map((o) => (
         <div key={o.id} className="staff-offer">
-          <div className="strong">{o.label}</div>
+          <div className="strong">{o.line}{o.urgent ? ', needed soon' : ''}</div>
           {o.note && <div className="muted small">{o.note}</div>}
-          <div className="muted small">{o.firstToAccept ? 'The first to say yes gets it.' : 'Your manager chooses from those who say yes.'}</div>
+          <div className="muted small">{o.fill === 'first_yes' ? 'The first to say yes gets it.' : 'Your manager confirms who gets it.'}</div>
           <div className="staff-row">
-            <button className="staff-big primary" disabled={busy === o.id} onClick={() => void answer(o, true)}>{busy === o.id ? 'Saving' : 'I can do it'}</button>
-            <button className="staff-big" disabled={busy === o.id} onClick={() => void answer(o, false)}>Not this time</button>
+            <button className="staff-big primary" disabled={busy === o.id} onClick={() => void answer(o, true)}>{busy === o.id ? 'Saving' : o.fill === 'first_yes' ? 'Take it' : 'I can do it'}</button>
+            {o.canDecline && <button className="staff-big" disabled={busy === o.id} onClick={() => void answer(o, false)}>Not this time</button>}
           </div>
         </div>
       ))}

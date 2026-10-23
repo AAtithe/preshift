@@ -103,7 +103,7 @@ interface TeamShift {
 }
 
 interface Board {
-  openShifts: { id: string; line: string; note: string | null; claimed: boolean }[];
+  openShifts: { id: string; line: string; note: string | null; claimed: boolean; fill: 'claim' | 'first_yes'; urgent: boolean; canDecline: boolean }[];
   offers: { id: string; from: string; line: string; returnLine: string | null; directed: boolean; note: string | null }[];
 }
 
@@ -146,7 +146,7 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
             ))}
             {board.openShifts.map((o) => (
               <li key={o.id}>
-                <span className="staff-day">Open shift</span>
+                <span className="staff-day">{o.urgent ? 'Needed soon' : o.fill === 'first_yes' ? 'First yes' : 'Open shift'}</span>
                 <span>
                   <span className="strong">{o.line}</span>
                   {o.note && <span className="muted small"> {o.note}</span>}
@@ -154,7 +154,14 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
                     {o.claimed ? (
                       <span className="muted small">You asked for this. Waiting for your manager.</span>
                     ) : (
-                      <button className="primary" disabled={busy} onClick={() => void run(() => call('POST', `/v1/staff/open-shifts/${o.id}/claim`), 'Asked for. Your manager confirms who gets it.')}>I can do it</button>
+                      <>
+                        {o.fill === 'first_yes' ? (
+                          <button className="primary" disabled={busy} onClick={() => void run(() => call('POST', `/v1/staff/open-shifts/${o.id}/claim`), "It's yours. It is on your rota now.")}>Take it</button>
+                        ) : (
+                          <button className="primary" disabled={busy} onClick={() => void run(() => call('POST', `/v1/staff/open-shifts/${o.id}/claim`), 'Asked for. Your manager confirms who gets it.')}>I can do it</button>
+                        )}
+                        {o.canDecline && <button disabled={busy} onClick={() => void run(() => call('POST', `/v1/staff/open-shifts/${o.id}/decline`), 'No problem. Thanks for letting us know.')}>Not this time</button>}
+                      </>
                     )}
                   </span>
                 </span>

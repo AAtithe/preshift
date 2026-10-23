@@ -460,7 +460,7 @@ export async function carryNotifications(ctx: Pick<AppContext, 'store' | 'fetch'
     if (!employee || (channel !== 'whatsapp' && channel !== 'sms')) continue;
     const text = notes.map((n) => `${n.title}. ${n.body}`).join('\n');
     const message = addMessage(org, directThread(org, employee, 'Preshift', at), { at, from: { kind: 'system', name: 'Rota' }, body: text, via: 'app' });
-    message.deliveries = await deliverToStaff(out, employee, text, { subject: notes[0].title });
+    message.deliveries = await deliverToStaff(out, employee, text, { subject: notes[0].title, urgent: notes.some((n) => n.urgent) });
     const carried = message.deliveries.find((d) => (d.channel === 'whatsapp' || d.channel === 'sms') && (d.status === 'sent' || d.status === 'held'));
     // Not carried (the provider refused it): left pending, so the email still goes.
     if (carried) for (const n of notes) Object.assign(n, { email: 'none', via: carried.channel });

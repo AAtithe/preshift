@@ -1,136 +1,118 @@
-// Cover requests: a shift someone cannot work, or a gap nobody is on, offered to the people who
-// could legally work it, cheapest first. Pure logic, shared by the API and the screens.
+// Shifts going: a shift someone cannot work, or a gap nobody is on, put out to the people who could
+// legally take it. One record, the open shift, whichever way it is put out. Pure logic, shared by
+// the API and the screens.
 //
-// The difference from "anyone free Saturday?" in a WhatsApp group is who is asked. Only people
-// trained for the role, free that day, inside their availability, clear of rest and hours limits,
-// and set up to work at the site are offered it, so whoever says yes can be given it at once.
+// A manager chooses three things. Who hears: everyone eligible at once, or the cheapest first in
+// rounds. How it is decided: staff ask and a manager approves, or the first legal yes gets it.
+// And, for someone's shift, whether it is taken off them now or stays theirs until someone takes it.
+//
+// Eligible means one rule everywhere, the one a claim is checked against: trained for the role,
+// set up for the site, employed that day, and nothing in the rota rules blocking it.
 
-import { candidates, type Candidate, type Opening } from './candidates';
+import { candidates, type Candidate } from './candidates';
+import { blocking, claimCheck } from './requests';
 import { formatMinute } from './time';
-import type { RotaState } from './types';
+import type { OpenShift, RotaState, Shift } from './types';
 
-export type CoverStatus = 'open' | 'filled' | 'cancelled' | 'expired';
-
-export interface CoverOffer {
+/** One person a targeted shift is put to. */
+export interface ShiftOffer {
   employeeId: string;
-  /** What the shift would add to the group's labour for this person's week, when offered. */
+  /** What the shift would add to the group's labour for this person's week, when asked. */
   marginal: number;
   borrowed: boolean;
-  /** Which round they are asked in, cheapest first. Absent on requests from before rounds: round 1. */
-  round?: number;
+  /** Which round they are asked in, cheapest first. */
+  round: number;
   /** When they were asked. Absent while their round has not come: they have not been told anything. */
   offeredAt?: string;
-  /** Their round came but they could no longer work it under the rota rules, so they were not asked, and why. */
+  /** Their round came but they could no longer take it under the rota rules, so they were not asked, and why. */
   skipped?: string;
-  response?: 'accepted' | 'declined';
-  respondedAt?: string;
-  /** Where they answered: the staff app or a WhatsApp reply. */
-  via?: 'app' | 'whatsapp';
-  /** Set when they said yes but it could no longer be given to them, and why. */
+  declinedAt?: string;
+  /** They said yes but it could not be given to them, and why. */
   refused?: string;
 }
 
-export interface CoverRequest {
-  id: string;
-  siteId: string;
-  roleId: string;
-  date: string;
-  startMinute: number;
-  endMinute: number;
-  /** The shift being covered, when someone cannot work it. Absent for a gap. */
-  shiftId?: string;
-  /** Whoever held that shift. They are never asked, and are told when it is covered. */
-  originalEmployeeId?: string;
-  /** What the manager wants the team to know. Never why the original person is off. */
-  note?: string;
-  /** The first to accept gets it, re-checked at that moment. Otherwise the manager chooses among those who accepted. */
-  firstToAccept: boolean;
-  /** The filled shift goes out to the team at once: only when the requester may publish the site's rota. */
-  publish: boolean;
-  /** London time after which nobody can accept: the shift's start unless the manager closed it earlier. */
-  closes: { date: string; minute: number };
-  offers: CoverOffer[];
-  /**
-   * Asking in rounds: `size` people at a time, cheapest first, the next round every `everyMinutes`
-   * until someone says yes. Absent: everyone is asked at once.
-   */
-  rounds?: { size: number; everyMinutes: number };
-  /** When the next round goes, while there is one to come. */
-  nextRoundAt?: string;
-  /** Offers go through quiet hours, every round. */
-  urgent?: boolean;
-  status: 'open' | 'filled' | 'cancelled';
-  createdAt: string;
-  createdBy: string;
-  filledBy?: string;
-  filledAt?: string;
-  /** The shift that now carries the cover. */
-  filledShiftId?: string;
-  closedBy?: string;
-  closedAt?: string;
-}
+export type GoingStatus = OpenShift['status'] | 'expired';
 
-export const MAX_NOTE = 280;
+/** The note everyone told reads, as the API takes it. */
+export const MAX_NOTE = 300;
 
 const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** Sat 24 Oct: short enough for a text, unambiguous within the weeks a cover request spans. */
+/** Sat 24 Oct: short enough for a text, unambiguous within the weeks a shift is put out. */
 export const shortDate = (iso: string) => {
   const d = new Date(`${iso}T12:00:00Z`);
   return `${DAY[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH[d.getUTCMonth()]}`;
 };
 
-export const openingOf = (r: Pick<CoverRequest, 'siteId' | 'roleId' | 'date' | 'startMinute' | 'endMinute'>): Opening => ({
-  siteId: r.siteId,
-  roleId: r.roleId,
-  date: r.date,
-  startMinute: r.startMinute,
-  endMinute: r.endMinute,
-});
+/** The open shift as a shift with nobody on it, for the rota rules. */
+export function slotOf(o: Pick<OpenShift, 'id' | 'siteId' | 'roleId' | 'date' | 'startMinute' | 'endMinute' | 'breakMinutes'>): Shift {
+  return { id: `open:${o.id}`, employeeId: '', siteId: o.siteId, roleId: o.roleId, date: o.date, startMinute: o.startMinute, endMinute: o.endMinute, breakMinutes: o.breakMinutes };
+}
 
-/** The request's status at a London moment: an open request past its close has expired. */
-export function coverStatus(r: CoverRequest, now: { date: string; minute: number }): CoverStatus {
-  if (r.status !== 'open') return r.status;
-  const past = now.date > r.closes.date || (now.date === r.closes.date && now.minute >= r.closes.minute);
-  return past ? 'expired' : 'open';
+/** An open shift still open once it has started has nobody to take it: it has expired. */
+export function goingStatus(o: OpenShift, now: { date: string; minute: number }): GoingStatus {
+  if (o.status !== 'open') return o.status;
+  return o.date < now.date || (o.date === now.date && o.startMinute <= now.minute) ? 'expired' : 'open';
+}
+
+/** Whether the person may take it, and if not why: the one rule for asking, claiming and filling. */
+export function mayTake(state: RotaState, employeeId: string, slot: Shift): string | null {
+  const e = state.employees.find((x) => x.id === employeeId);
+  if (!e) return 'No longer on the team.';
+  const check = claimCheck(state, e, slot);
+  if (check.problem) return check.problem;
+  const blocks = blocking(check.issues);
+  return blocks.length ? blocks.map((i) => i.message).join(' ') : null;
+}
+
+export interface GoingCandidate {
+  candidate: Candidate;
+  /** May be asked: the claim rule passes. */
+  eligible: boolean;
+  /** Why not, for the manager. */
+  reason: string | null;
 }
 
 /**
- * Everyone who could work the opening, ranked as the shift picker ranks them, with the shift being
- * covered taken out first so it does not clash with itself. Whoever held it is left out.
+ * Everyone who might take the slot, eligible first and cheapest first within that, with why anyone
+ * is not. Cost is what the shift adds to the person's whole loaded week, from the shift picker.
  */
-export function coverCandidates(state: RotaState, opening: Opening, options: { shiftId?: string; exclude?: string } = {}): Candidate[] {
-  const without = options.shiftId ? { ...state, shifts: state.shifts.filter((s) => s.id !== options.shiftId) } : state;
-  return candidates(without, opening, options.shiftId ?? 'cover').filter((c) => c.employee.id !== options.exclude && c.employee.status !== 'leaver');
+export function goingCandidates(state: RotaState, slot: Shift, exclude: string[] = []): GoingCandidate[] {
+  return candidates(state, slot, slot.id)
+    .filter((c) => !exclude.includes(c.employee.id) && c.employee.status !== 'leaver')
+    .map((candidate) => {
+      const reason = mayTake(state, candidate.employee.id, slot);
+      return { candidate, eligible: !reason, reason };
+    })
+    .sort((a, b) => Number(b.eligible) - Number(a.eligible) || a.candidate.marginal - b.candidate.marginal || a.candidate.employee.name.localeCompare(b.candidate.employee.name));
 }
 
-/** Who may be asked: trained for the role and nothing blocking. Warnings are shown to the manager, not hidden. */
-export const askable = (c: Candidate) => c.trained && !c.blocker;
-
-/** Why a candidate is not asked, for the manager. */
-export const notAskedBecause = (c: Candidate) => c.blocker ?? (c.trained ? null : `Not trained for this role`);
-
-export function shiftLabel(r: Pick<CoverRequest, 'date' | 'startMinute' | 'endMinute'>, roleName: string, siteName: string): string {
-  return `${shortDate(r.date)}, ${formatMinute(r.startMinute)} to ${formatMinute(r.endMinute)}, ${roleName} at ${siteName}`;
+export function shiftLabel(o: Pick<OpenShift, 'date' | 'startMinute' | 'endMinute'>, roleName: string, siteName: string): string {
+  return `${shortDate(o.date)}, ${formatMinute(o.startMinute)} to ${formatMinute(o.endMinute)}, ${roleName} at ${siteName}`;
 }
 
-/** The offer as each person receives it, in the app and on their phone. */
-export function offerText(r: CoverRequest, roleName: string, siteName: string): string {
-  return [
-    `Cover wanted: ${shiftLabel(r, roleName, siteName)}.`,
-    ...(r.note ? [r.note] : []),
-    r.firstToAccept
-      ? 'The first person to say yes gets it. Accept it in the Preshift app, or reply YES on WhatsApp.'
-      : 'Your manager chooses from everyone who says yes. Accept it in the Preshift app, or reply YES on WhatsApp.',
-  ].join('\n');
+/** What each person asked is told, in the app and on their phone. */
+export function offerText(o: OpenShift, roleName: string, siteName: string): { title: string; body: string } {
+  return {
+    title: o.fill === 'first_yes' ? 'Cover wanted' : 'An open shift you could take',
+    body: [
+      `${shiftLabel(o, roleName, siteName)}.`,
+      ...(o.note ? [o.note] : []),
+      o.fill === 'first_yes'
+        ? 'The first to say yes gets it. Take it in the Preshift app, or reply YES on WhatsApp.'
+        : 'Ask for it in the Preshift app, or reply YES on WhatsApp; your manager confirms.',
+    ].join(' '),
+  };
 }
 
 /** Replies taken as yes on WhatsApp. Anything else is an ordinary message to the manager. */
 export const isYes = (text: string) => /^\s*(yes|y|yep|yeah|yes please|i can|i'll do it|ill do it)\s*[.!]*\s*$/i.test(text);
 
-/** Open requests a person has been asked and not yet answered. Someone whose round has not come sees nothing. */
-export function openOffersFor(requests: CoverRequest[], employeeId: string, now: { date: string; minute: number }) {
-  return requests.filter((r) => coverStatus(r, now) === 'open' && r.offers.some((o) => o.employeeId === employeeId && o.offeredAt && !o.response));
+/** Whether the person was asked: everyone eligible for an untargeted shift, only those asked for a targeted one. */
+export function wasAsked(o: OpenShift, employeeId: string): boolean {
+  if (!o.offers) return true;
+  const offer = o.offers.find((x) => x.employeeId === employeeId);
+  return !!offer?.offeredAt && !offer.declinedAt;
 }
 
 // ---- Rounds ----
@@ -143,12 +125,12 @@ export const MAX_ROUND_SIZE = 20;
  * The sensible default: three at a time every half hour when there are more than three to ask and
  * at least six hours to go, else everyone at once. Short notice is not the time to save pennies.
  */
-export function defaultRounds(askable: number, minutesToStart: number): CoverRequest['rounds'] {
-  return askable > 3 && minutesToStart >= 6 * 60 ? { size: 3, everyMinutes: 30 } : undefined;
+export function defaultRounds(eligible: number, minutesToStart: number): OpenShift['rounds'] {
+  return eligible > 3 && minutesToStart >= 6 * 60 ? { size: 3, everyMinutes: 30 } : undefined;
 }
 
 /** Splits the people to ask, already cheapest first, into rounds. */
-export const roundOf = (index: number, rounds: CoverRequest['rounds']) => (rounds ? Math.floor(index / rounds.size) + 1 : 1);
+export const roundOf = (index: number, rounds: OpenShift['rounds']) => (rounds ? Math.floor(index / rounds.size) + 1 : 1);
 
 /** Minutes from one London moment to another. */
 export function minutesUntil(from: { date: string; minute: number }, to: { date: string; minute: number }): number {
@@ -156,28 +138,33 @@ export function minutesUntil(from: { date: string; minute: number }, to: { date:
   return days * 1440 + to.minute - from.minute;
 }
 
-export const waiting = (r: CoverRequest) => r.offers.filter((o) => !o.offeredAt && !o.skipped);
-const roundNo = (o: CoverOffer) => o.round ?? 1;
+const startOf = (o: OpenShift) => ({ date: o.date, minute: o.startMinute });
+export const waiting = (o: OpenShift) => (o.offers ?? []).filter((x) => !x.offeredAt && !x.skipped);
 
 /** The round asked most recently, or 0 before any. */
-export const currentRound = (r: CoverRequest) => Math.max(0, ...r.offers.filter((o) => o.offeredAt).map(roundNo));
+export const currentRound = (o: OpenShift) => Math.max(0, ...(o.offers ?? []).filter((x) => x.offeredAt).map((x) => x.round));
 
 /**
  * Whether the next round should go now, and why: its time has come, everyone asked so far has said
- * no, or there is not time for another round before the request closes, so everyone left goes now.
+ * no, or there is not time for another round before the shift, so everyone left goes now. `claimed`
+ * is who has asked for it and is waiting for a manager: they have not said no.
  */
-export function roundDue(r: CoverRequest, nowIso: string, london: { date: string; minute: number }): 'time' | 'all_declined' | 'closing' | null {
-  if (coverStatus(r, london) !== 'open' || !r.rounds || waiting(r).length === 0) return null;
-  if (minutesUntil(london, r.closes) <= r.rounds.everyMinutes) return 'closing';
-  const asked = r.offers.filter((o) => o.offeredAt);
-  if (asked.length > 0 && asked.every((o) => o.response === 'declined' || o.refused)) return 'all_declined';
-  return r.nextRoundAt && r.nextRoundAt <= nowIso ? 'time' : null;
+export function roundDue(o: OpenShift, nowIso: string, london: { date: string; minute: number }, claimed: Set<string> = new Set()): 'time' | 'all_declined' | 'closing' | null {
+  if (goingStatus(o, london) !== 'open' || !o.rounds || waiting(o).length === 0) return null;
+  if (minutesUntil(london, startOf(o)) <= o.rounds.everyMinutes) return 'closing';
+  const asked = (o.offers ?? []).filter((x) => x.offeredAt);
+  if (asked.length > 0 && asked.every((x) => (x.declinedAt || x.refused) && !claimed.has(x.employeeId))) return 'all_declined';
+  return o.nextRoundAt && o.nextRoundAt <= nowIso ? 'time' : null;
 }
 
 /** Who the next round asks: the next round's people, or everyone left when it is closing or asked for. */
-export function nextRoundOffers(r: CoverRequest, everyone = false): CoverOffer[] {
-  const left = waiting(r);
+export function nextRoundOffers(o: OpenShift, everyone = false): ShiftOffer[] {
+  const left = waiting(o);
   if (everyone || left.length === 0) return left;
-  const next = Math.min(...left.map(roundNo));
-  return left.filter((o) => roundNo(o) === next);
+  const next = Math.min(...left.map((x) => x.round));
+  return left.filter((x) => x.round === next);
 }
+
+/** Whether there is time for a second round before the shift. */
+export const roomForRounds = (o: Pick<OpenShift, 'date' | 'startMinute'>, rounds: NonNullable<OpenShift['rounds']>, now: { date: string; minute: number }) =>
+  minutesUntil(now, { date: o.date, minute: o.startMinute }) > rounds.everyMinutes;

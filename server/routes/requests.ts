@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { breakFor, complianceOptions, type Issue } from '../../src/engine/compliance';
+import type { Issue } from '../../src/engine/compliance';
 import { holidayBalance, workedShifts } from '../../src/engine/holiday';
 import { ABSENCE_LABEL } from '../../src/engine/hr';
 import {
@@ -18,6 +18,10 @@ import { actorName, guard, type Guard } from '../guard';
 import { managerDigests } from '../digest';
 import { emailNotifications, notify, syncTold } from '../notify';
 import { carryNotifications } from '../messaging';
+import { askDueRounds, askNextRound, afterYes, fillOpenShift, heldProblem, labelOf, shiftsGoingFor, takeOpenShift, withdraw } from '../cover';
+import {
+  currentRound, defaultRounds, goingCandidates, goingStatus, wasAsked, MAX_ROUND_SIZE, minutesUntil, offerText, roomForRounds, ROUND_MINUTES, roundOf, slotOf, waiting,
+} from '../../src/engine/cover';
 import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { readsHr } from './hr';
@@ -37,6 +41,16 @@ function employeeOf(org: OrgData, id: string): Employee {
   const e = org.state.employees.find((x) => x.id === id);
   if (!e) throw notFound(`Employee ${id}`);
   return e;
+}
+
+/** Adds a request, dropping decided ones past keeping. Open ones are kept however old. */
+export function addRequest(org: OrgData, r: Omit<StaffRequest, 'id' | 'createdAt' | 'status'>, today: string, status: StaffRequest['status'] = 'pending') {
+  const request: StaffRequest = { ...r, id: newId('req'), status, createdAt: new Date().toISOString() };
+  const cutoff = addDays(today, -DECIDED_KEPT_DAYS);
+  org.requests = [...requestsOf(org).filter((x) => open(x) || (x.decidedAt ?? x.createdAt).slice(0, 10) >= cutoff), request];
+  const e = org.state.employees.find((x) => x.id === r.employeeId);
+  audit(org, `staff:${e?.id ?? r.employeeId}`, 'request.created', { id: request.id, kind: request.kind, employeeId: request.employeeId });
+  return request;
 }
 
 /** A published shift that has not started and has not been clocked: the only kind people may trade. */
@@ -74,15 +88,7 @@ const issueView = (org: OrgData) => (i: Issue) => ({
   employee: org.state.employees.find((e) => e.id === i.employeeId)?.name ?? i.employeeId,
 });
 
-function slotOf(o: OpenShift): Shift {
-  return { id: `open:${o.id}`, employeeId: '', siteId: o.siteId, roleId: o.roleId, date: o.date, startMinute: o.startMinute, endMinute: o.endMinute, breakMinutes: o.breakMinutes };
-}
 
-/** The shift an approved claim becomes: the posted times, with at least the break this person is owed. */
-function claimedShift(org: OrgData, o: OpenShift, e: Employee): Shift {
-  const owed = breakFor(e, o.date, o.endMinute - o.startMinute, complianceOptions(org.state, e).nation);
-  return { id: `s_${randomUUID()}`, employeeId: e.id, siteId: o.siteId, roleId: o.roleId, date: o.date, startMinute: o.startMinute, endMinute: o.endMinute, breakMinutes: Math.max(o.breakMinutes, owed), published: true };
-}
 
 /** What the request would do now, checked again: anything that has changed since it was made shows here. */
 function currentCheck(org: OrgData, r: StaffRequest): { problem: string | null; issues: Issue[] } {
@@ -209,16 +215,9 @@ function apply(org: OrgData, r: StaffRequest, by: string, now: Date) {
     }
     case 'open_shift': {
       const o = openShiftsOf(org).find((x) => x.id === r.openShiftId)!;
-      const shift = claimedShift(org, o, e);
-      org.state.shifts.push(shift);
-      Object.assign(o, { status: 'filled', filledBy: e.id, shiftId: shift.id });
-      audit(org, by, 'shift.created', { id: shift.id });
-      syncTold(org, [e.id], [shift]);
-      // Everyone else who asked for it hears it has gone.
-      for (const other of requestsOf(org).filter((x) => x.openShiftId === o.id && x.id !== r.id && open(x))) {
-        Object.assign(other, { status: 'cancelled', decidedBy: by, decidedAt: now.toISOString(), decisionNote: 'Filled by someone else.' });
-        notify(org, other.employeeId, 'request_decided', 'Open shift filled', `${shiftLine(o, namesOf(org.state))} has gone to someone else. Thanks for offering.`, now);
-      }
+      const held = heldProblem(org, o, by, now);
+      if (held) throw new HttpError(409, 'request_stale', held);
+      fillOpenShift(org, o, e, by, now);
       break;
     }
   }
@@ -331,21 +330,48 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
   const openShiftView = (req: FastifyRequest, org: OrgData, o: OpenShift) => {
     const names = namesOf(org.state);
     const g = guard(ctx, req, org);
+    // Pay shows only to those who see cost: what a shift adds to someone's week gives their rate away.
+    const showCost = g.can('costs.view', o.siteId);
+    const person = (id: string) => org.state.employees.find((e) => e.id === id)?.name ?? id;
+    const now = londonParts(ctx.now());
     return {
       ...o,
+      offers: undefined,
+      status: goingStatus(o, now),
+      fill: o.fill ?? 'claim',
       line: shiftLine(o, names),
-      filledByName: o.filledBy ? org.state.employees.find((e) => e.id === o.filledBy)?.name ?? null : null,
+      label: labelOf(org, o),
+      filledByName: o.filledBy ? person(o.filledBy) : null,
+      heldByName: o.heldBy ? person(o.heldBy.employeeId) : null,
       claims: requestsOf(org)
         .filter((r) => r.openShiftId === o.id)
         .map((r) => managerView(req, g, org, r, today())),
-      // Whoever it was released from is not offered it back.
-      eligible: o.status === 'open' ? eligibleFor(org.state, slotOf(o), o.releasedFrom ? [o.releasedFrom.employeeId] : []).map((e) => e.name) : [],
+      // Untargeted: everyone eligible was told. Whoever it was released from or held by is not offered it.
+      eligible: o.status === 'open' && !o.offers ? eligibleFor(org.state, slotOf(o), [o.releasedFrom?.employeeId, o.heldBy?.employeeId].filter((x): x is string => !!x)).map((e) => e.name) : [],
+      // Targeted: who is asked, in what round, and how each answered.
+      asked: o.offers
+        ? o.offers.map((x) => ({
+            employeeId: x.employeeId,
+            name: person(x.employeeId),
+            round: x.round,
+            asked: !!x.offeredAt,
+            skipped: x.skipped ?? null,
+            declined: !!x.declinedAt,
+            refused: x.refused ?? null,
+            borrowed: x.borrowed,
+            ...(showCost ? { marginal: x.marginal } : {}),
+          }))
+        : null,
+      rounds: o.rounds ?? null,
+      round: currentRound(o),
+      nextRoundAt: goingStatus(o, now) === 'open' ? o.nextRoundAt ?? null : null,
+      waiting: waiting(o).length,
     };
   };
 
   app.get<{ Querystring: { siteId?: string } }>(
     '/v1/open-shifts',
-    { ...read, schema: { tags, description: 'Open shifts posted for staff to claim, at the sites where the caller publishes the rota, with claims and who is eligible.', querystring: { type: 'object', properties: { siteId: { type: 'string' } } } } },
+    { ...read, schema: { tags, description: 'Open shifts put out for staff, at the sites where the caller publishes the rota, with claims, who is eligible or asked, and rounds.', querystring: { type: 'object', properties: { siteId: { type: 'string' } } } } },
     async (req) => {
       const org = orgOf(req);
       const g = guard(ctx, req, org);
@@ -357,21 +383,94 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.post<{ Body: Partial<OpenShift> & { fromShiftId?: string } }>(
+  type Put = Partial<OpenShift> & {
+    fromShiftId?: string;
+    keepUntilTaken?: boolean;
+    employeeIds?: string[];
+    rounds?: { size?: number; everyMinutes?: number } | null;
+    fill?: 'claim' | 'first_yes';
+    urgent?: boolean;
+  };
+
+  /**
+   * The slot being put out, from someone's shift or given directly, checked for the caller's right to
+   * publish at its site. Nothing is changed.
+   */
+  function slotFor(org: OrgData, g: Guard, body: Put) {
+    const now = ctx.now();
+    if (body.fromShiftId) {
+      const s = org.state.shifts.find((x) => x.id === body.fromShiftId);
+      if (!s) throw notFound(`Shift ${body.fromShiftId}`);
+      g.allow('rota.publish', s.siteId);
+      if (hasStarted(s, londonParts(now)) || org.timeEntries.some((t) => t.shiftId === s.id)) throw new HttpError(409, 'worked_shift', 'This shift has started or been clocked against, so it cannot be put out for cover.');
+      if (openShiftsOf(org).some((o) => o.status === 'open' && o.heldBy?.shiftId === s.id)) throw new HttpError(409, 'already_out', 'This shift is already out for cover. Withdraw that first to put it out again.');
+      return { shift: s, slot: { siteId: s.siteId, roleId: s.roleId, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes } };
+    }
+    const { siteId, roleId, date, startMinute, endMinute } = body;
+    if (!siteId || !roleId || !date || startMinute === undefined || endMinute === undefined) throw new HttpError(400, 'invalid_request', 'Give siteId, roleId, date, startMinute and endMinute, or fromShiftId.');
+    if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
+    if (!org.state.roles.some((r) => r.id === roleId)) throw notFound(`Role ${roleId}`);
+    g.allow('rota.publish', siteId);
+    if (endMinute <= startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
+    if (hasStarted({ date, startMinute }, londonParts(now))) throw new HttpError(422, 'in_the_past', 'That shift has started.');
+    return { shift: undefined, slot: { siteId, roleId, date, startMinute, endMinute, breakMinutes: body.breakMinutes ?? 0 } };
+  }
+
+  const candidateRows = (org: OrgData, g: Guard, slot: Shift, exclude: string[]) =>
+    goingCandidates(org.state, slot, exclude).map(({ candidate: c, eligible, reason }) => ({
+      employeeId: c.employee.id,
+      name: c.employee.name,
+      homeSite: c.homeSite,
+      borrowed: c.borrowed,
+      eligible,
+      reason,
+      warnings: c.warnings.map((w) => w.message),
+      ...(g.can('costs.view', slot.siteId) ? { marginal: Math.round(c.marginal * 100) / 100 } : {}),
+    }));
+
+  app.post<{ Body: Put }>(
+    '/v1/open-shifts/preview',
+    { ...read, schema: { tags, description: 'Who could take a shift before it is put out: everyone eligible, cheapest first, with what each adds to labour (with cost access) and why anyone is not eligible. Changes nothing.' } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const { shift, slot } = slotFor(org, g, req.body ?? {});
+      const names = namesOf(org.state);
+      const now = londonParts(ctx.now());
+      const rows = candidateRows(org, g, { ...slot, id: 'preview', employeeId: '' }, shift ? [shift.employeeId] : []);
+      return {
+        line: shiftLine(slot, names),
+        label: labelOf(org, slot),
+        holder: shift ? { employeeId: shift.employeeId, name: org.state.employees.find((e) => e.id === shift.employeeId)?.name ?? '', published: !!shift.published } : null,
+        suggestedRounds: defaultRounds(rows.filter((r) => r.eligible).length, minutesUntil(now, { date: slot.date, minute: slot.startMinute })) ?? null,
+        candidates: rows,
+      };
+    },
+  );
+
+  app.post<{ Body: Put }>(
     '/v1/open-shifts',
     {
       ...write,
       schema: {
         tags,
         description:
-          'Posts a shift for anyone eligible to claim: trained for the role, set up for the site, free and legal. Each of them is told. ' +
-          'With `fromShiftId`, the shift is taken off whoever has it (they are told) and posted as it was: how a sick person\'s shift is put out for cover.',
+          'Puts a shift out for staff to take. By default everyone eligible (trained for the role, set up for the site, free and legal) is told, ' +
+          'and each who asks for it waits for a manager to approve. `fill: "first_yes"` gives it to the first legal yes instead. ' +
+          '`employeeIds` puts it to those people only, cheapest first; `rounds: {size, everyMinutes}` asks them a few at a time, every 15, 30, 60 or 120 minutes, ' +
+          'until someone takes it. With `fromShiftId`, the shift is taken off whoever has it (they are told) and put out as it was: how a sick person\'s shift is put out for cover; ' +
+          'add `keepUntilTaken: true` to leave it with them until someone takes it. `urgent` reaches people through their quiet hours.',
         body: {
           type: 'object',
           properties: {
             siteId: { type: 'string' }, roleId: { type: 'string' }, date: { type: 'string', format: 'date' },
             startMinute: { type: 'integer', minimum: 0, maximum: 2880 }, endMinute: { type: 'integer', minimum: 1, maximum: 2880 },
             breakMinutes: { type: 'integer', minimum: 0, maximum: 240 }, note: { type: 'string', maxLength: 300 }, fromShiftId: { type: 'string' },
+            keepUntilTaken: { type: 'boolean' },
+            employeeIds: { type: 'array', items: { type: 'string' }, maxItems: 200 },
+            rounds: { type: ['object', 'null'], properties: { size: { type: 'integer' }, everyMinutes: { type: 'integer' } }, additionalProperties: false },
+            fill: { type: 'string', enum: ['claim', 'first_yes'] },
+            urgent: { type: 'boolean' },
           },
           additionalProperties: false,
         },
@@ -382,41 +481,93 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       const now = ctx.now();
       const names = namesOf(org.state);
-      let slot: Omit<OpenShift, 'id' | 'status' | 'postedBy' | 'postedAt'>;
-      if (req.body.fromShiftId) {
-        const s = org.state.shifts.find((x) => x.id === req.body.fromShiftId);
-        if (!s) throw notFound(`Shift ${req.body.fromShiftId}`);
-        g.allow('rota.publish', s.siteId);
-        if (hasStarted(s, londonParts(now)) || org.timeEntries.some((t) => t.shiftId === s.id)) throw new HttpError(409, 'worked_shift', 'This shift has started or been clocked against, so it cannot be put out for cover.');
+      const body = req.body;
+      const { shift: s, slot } = slotFor(org, g, body);
+      if (slot.date < today()) throw new HttpError(422, 'in_the_past', 'That day has gone.');
+      const keep = !!s && body.keepUntilTaken === true;
+      const exclude = s ? [s.employeeId] : [];
+      const targeted = body.employeeIds !== undefined || !!body.rounds;
+      // Who is put to, cheapest first: the eligible people named, or everyone eligible when rounds are asked for.
+      let offers: OpenShift['offers'];
+      let rounds: OpenShift['rounds'];
+      if (targeted) {
+        const rows = goingCandidates(org.state, { ...slot, id: 'new', employeeId: '' }, exclude);
+        const named = body.employeeIds;
+        const bad = (named ?? []).filter((id) => !rows.some((r) => r.eligible && r.candidate.employee.id === id));
+        if (bad.length) {
+          const who = bad.map((id) => org.state.employees.find((e) => e.id === id)?.name ?? id).join(', ');
+          throw new HttpError(409, 'not_eligible', `${who} cannot take this shift under the rota rules, so cannot be asked.`);
+        }
+        const chosen = rows.filter((r) => r.eligible && (!named || named.includes(r.candidate.employee.id)));
+        if (chosen.length === 0) throw new HttpError(409, 'nobody_eligible', 'Nobody trained for this role can legally take this shift. It is a gap to fill by hiring or cross-training.');
+        const asked = body.rounds;
+        if (asked && (!Number.isInteger(asked.size) || asked.size! < 1 || asked.size! > MAX_ROUND_SIZE || !(ROUND_MINUTES as readonly number[]).includes(asked.everyMinutes!))) {
+          throw new HttpError(400, 'invalid_rounds', `Ask between 1 and ${MAX_ROUND_SIZE} people a round, every ${ROUND_MINUTES.join(', ')} minutes.`);
+        }
+        rounds = asked && asked.size! < chosen.length ? { size: asked.size!, everyMinutes: asked.everyMinutes! } : undefined;
+        if (rounds && !roomForRounds(slot, rounds, londonParts(now))) {
+          throw new HttpError(409, 'no_time_for_rounds', `There is not time for a second round before the shift. Ask everyone now, or make the rounds shorter than ${rounds.everyMinutes} minutes.`);
+        }
+        offers = chosen.map((r, i) => ({ employeeId: r.candidate.employee.id, marginal: Math.round(r.candidate.marginal * 100) / 100, borrowed: r.candidate.borrowed, round: roundOf(i, rounds) }));
+      }
+      if (s && !keep) {
         org.state.shifts = org.state.shifts.filter((x) => x.id !== s.id);
         audit(org, actorName(g), 'shift.deleted', { id: s.id });
         if (s.published) {
           notify(org, s.employeeId, 'shift_cancelled', 'A shift has been taken off you', `${shiftLine(s, names)} has been put out for cover. You are not needed for it.`, now);
           syncTold(org, [s.employeeId], [s]);
         }
-        slot = { siteId: s.siteId, roleId: s.roleId, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes, releasedFrom: { shiftId: s.id, employeeId: s.employeeId }, ...(req.body.note ? { note: req.body.note } : {}) };
-      } else {
-        const { siteId, roleId, date, startMinute, endMinute } = req.body;
-        if (!siteId || !roleId || !date || startMinute === undefined || endMinute === undefined) throw new HttpError(400, 'invalid_request', 'Give siteId, roleId, date, startMinute and endMinute, or fromShiftId.');
-        if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
-        if (!org.state.roles.some((r) => r.id === roleId)) throw notFound(`Role ${roleId}`);
-        g.allow('rota.publish', siteId);
-        if (endMinute <= startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
-        slot = { siteId, roleId, date, startMinute, endMinute, breakMinutes: req.body.breakMinutes ?? 0, ...(req.body.note ? { note: req.body.note } : {}) };
       }
-      if (slot.date < today()) throw new HttpError(422, 'in_the_past', 'That day has gone.');
-      const o: OpenShift = { ...slot, id: newId('open'), status: 'open', postedBy: actorName(g), postedAt: now.toISOString() };
+      const o: OpenShift = {
+        ...slot,
+        id: newId('open'),
+        status: 'open',
+        postedBy: actorName(g),
+        postedAt: now.toISOString(),
+        ...(body.note ? { note: body.note } : {}),
+        ...(s ? (keep ? { heldBy: { shiftId: s.id, employeeId: s.employeeId } } : { releasedFrom: { shiftId: s.id, employeeId: s.employeeId } }) : {}),
+        ...(body.fill === 'first_yes' ? { fill: 'first_yes' as const } : {}),
+        ...(offers ? { offers } : {}),
+        ...(rounds ? { rounds } : {}),
+        ...(body.urgent ? { urgent: true } : {}),
+      };
       openShiftsOf(org).push(o);
-      audit(org, actorName(g), 'open_shift.posted', { id: o.id, siteId: o.siteId });
-      const eligible = eligibleFor(org.state, slotOf(o), o.releasedFrom ? [o.releasedFrom.employeeId] : []);
-      for (const e of eligible) notify(org, e.id, 'open_shift', 'An open shift you could take', `${shiftLine(o, names)}.${o.note ? ` ${o.note}` : ''} Claim it in the app; your manager confirms.`, now);
-      return reply.code(201).send({ ...openShiftView(req, org, o), told: eligible.length });
+      audit(org, actorName(g), 'open_shift.posted', { id: o.id, siteId: o.siteId, fill: o.fill ?? 'claim', asked: offers?.length, rounds });
+      let told: number;
+      if (offers) told = askNextRound(org, o, actorName(g), now);
+      else {
+        const eligible = eligibleFor(org.state, slotOf(o), exclude);
+        const { title, body: text } = offerText(o, names.role(o.roleId), names.site(o.siteId));
+        for (const e of eligible) {
+          const note = notify(org, e.id, 'open_shift', title, text, now);
+          if (o.urgent) note.urgent = true;
+        }
+        told = eligible.length;
+      }
+      return reply.code(201).send({ ...openShiftView(req, org, o), told });
+    },
+  );
+
+  // The manager does not want to wait for the next round: ask the next one now, or everyone left.
+  app.post<{ Params: { id: string }; Body: { everyone?: boolean } | null }>(
+    '/v1/open-shifts/:id/next',
+    { ...write, schema: { tags, description: 'Asks the next round now, or with `everyone: true` everyone not yet asked.', params: idParam } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const o = openShiftsOf(org).find((x) => x.id === req.params.id);
+      if (!o) throw notFound(`Open shift ${req.params.id}`);
+      g.allow('rota.publish', o.siteId);
+      if (goingStatus(o, londonParts(ctx.now())) !== 'open') throw new HttpError(409, 'not_open', 'This open shift is no longer open.');
+      if (waiting(o).length === 0) throw new HttpError(409, 'nobody_left', 'Everyone who could take it has been asked.');
+      askNextRound(org, o, actorName(g), ctx.now(), req.body?.everyone === true);
+      return openShiftView(req, org, o);
     },
   );
 
   app.delete<{ Params: { id: string } }>(
     '/v1/open-shifts/:id',
-    { ...write, schema: { tags, description: 'Withdraws an open shift. Anyone who claimed it is told.', params: idParam } },
+    { ...write, schema: { tags, description: 'Withdraws an open shift. Anyone who asked for it, or was asked, is told. A shift kept by its holder stays theirs.', params: idParam } },
     async (req, reply) => {
       const org = orgOf(req);
       const g = guard(ctx, req, org);
@@ -424,13 +575,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!o) throw notFound(`Open shift ${req.params.id}`);
       g.allow('rota.publish', o.siteId);
       if (o.status !== 'open') throw new HttpError(409, 'not_open', `This open shift was ${o.status} already.`);
-      o.status = 'withdrawn';
-      const now = ctx.now();
-      for (const r of requestsOf(org).filter((x) => x.openShiftId === o.id && open(x))) {
-        Object.assign(r, { status: 'cancelled', decidedBy: actorName(g), decidedAt: now.toISOString(), decisionNote: 'The shift was withdrawn.' });
-        notify(org, r.employeeId, 'request_decided', 'Open shift withdrawn', `${shiftLine(o, namesOf(org.state))} is no longer needed.`, now);
-      }
-      audit(org, actorName(g), 'open_shift.withdrawn', { id: o.id });
+      withdraw(org, o, actorName(g), ctx.now());
       return reply.code(204).send();
     },
   );
@@ -496,14 +641,6 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
     return body;
   }
 
-  function addRequest(org: OrgData, r: Omit<StaffRequest, 'id' | 'createdAt' | 'status'>, status: StaffRequest['status'] = 'pending') {
-    const request: StaffRequest = { ...r, id: newId('req'), status, createdAt: new Date().toISOString() };
-    const cutoff = addDays(today(), -DECIDED_KEPT_DAYS);
-    org.requests = [...requestsOf(org).filter((x) => open(x) || (x.decidedAt ?? x.createdAt).slice(0, 10) >= cutoff), request];
-    audit(org, actor(employeeOf(org, r.employeeId)), 'request.created', { id: request.id, kind: request.kind, employeeId: request.employeeId });
-    return request;
-  }
-
   app.get('/v1/staff/notifications', { schema: hidden }, async (req) => {
     const { org, employee } = await signedIn(req);
     return newestFirst((org.notifications ?? []).filter((n) => n.employeeId === employee.id))
@@ -548,16 +685,17 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
     const { org, employee } = await signedIn(req);
     const names = namesOf(org.state);
     const now = londonParts(new Date());
-    const mine = new Set(requestsOf(org).filter((r) => r.employeeId === employee.id && open(r) && r.openShiftId).map((r) => r.openShiftId));
-    const openShifts = openShiftsOf(org)
-      .filter((o) => o.status === 'open' && !hasStarted(o, now))
-      .filter((o) => {
-        if (mine.has(o.id)) return true;
-        const check = claimCheck(org.state, employee, slotOf(o));
-        return !check.problem && blocking(check.issues).length === 0;
-      })
-      .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
-      .map((o) => ({ id: o.id, line: shiftLine(o, names), note: o.note ?? null, claimed: mine.has(o.id) }));
+    // One list of shifts going: those put to them, and any untargeted one they could take.
+    const openShifts = shiftsGoingFor(org, employee, ctx.now()).map(({ open: o, claimed }) => ({
+      id: o.id,
+      line: shiftLine(o, names),
+      note: o.note ?? null,
+      claimed,
+      fill: o.fill ?? 'claim',
+      urgent: !!o.urgent,
+      // Put to them by name: a no moves it on to the next round.
+      canDecline: !!o.offers && !claimed,
+    }));
     const offers = requestsOf(org)
       .filter((r) => r.kind === 'swap' && r.status === 'pending' && r.employeeId !== employee.id)
       .filter((r) => (r.toEmployeeId ? r.toEmployeeId === employee.id : true))
@@ -642,7 +780,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
         const blocks = blocking(check.issues);
         if (blocks.length) throw new HttpError(409, 'compliance_block', `This swap would break a rule: ${blocks.map((i) => i.message).join(' ')}`, blocks.map(issueView(org)));
       }
-      const r = addRequest(org, { kind: 'swap', employeeId: employee.id, siteId: shift.siteId, shiftId, ...(toEmployeeId ? { toEmployeeId } : {}), ...(returnShiftId ? { returnShiftId } : {}), ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) });
+      const r = addRequest(org, { kind: 'swap', employeeId: employee.id, siteId: shift.siteId, shiftId, ...(toEmployeeId ? { toEmployeeId } : {}), ...(returnShiftId ? { returnShiftId } : {}), ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) }, today());
       const now = new Date();
       const line = shiftLine(shift, names);
       if (toEmployeeId) {
@@ -688,15 +826,38 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
   app.post<{ Params: { id: string } }>('/v1/staff/open-shifts/:id/claim', { schema: { ...hidden, params: idParam } }, async (req, reply) => {
     const { org, employee } = await signedIn(req);
     const o = openShiftsOf(org).find((x) => x.id === req.params.id);
-    if (!o || o.status !== 'open' || hasStarted(o, londonParts(new Date()))) throw new HttpError(409, 'not_open', 'This shift has been filled or withdrawn.');
+    if (!o || goingStatus(o, londonParts(ctx.now())) !== 'open') throw new HttpError(409, 'not_open', 'This shift has been filled or withdrawn.');
     if (requestsOf(org).some((r) => r.openShiftId === o.id && r.employeeId === employee.id && open(r))) throw new HttpError(409, 'already_claimed', 'You have already asked for this shift.');
+    if (!wasAsked(o, employee.id)) throw new HttpError(409, 'not_offered', 'This shift was not offered to you.');
     const check = claimCheck(org.state, employee, slotOf(o));
     if (check.problem) throw new HttpError(409, 'not_eligible', check.problem);
     const blocks = blocking(check.issues);
     if (blocks.length) throw new HttpError(409, 'compliance_block', `You cannot take this shift: ${blocks.map((i) => i.message).join(' ')}`, blocks.map(issueView(org)));
-    const r = addRequest(org, { kind: 'open_shift', employeeId: employee.id, siteId: o.siteId, openShiftId: o.id });
+    const taken = takeOpenShift(org, o, employee, 'app', ctx.now());
+    await afterYes(ctx, org, taken);
+    if (taken.kind === 'refused') {
+      // A yes that could not be given may leave everyone asked out of the running: the next round goes now.
+      askDueRounds(org, ctx.now());
+      await done(org, null);
+      throw new HttpError(409, 'not_given', taken.reason);
+    }
+    if (taken.kind === 'filled') return done(org, { outcome: 'filled', line: shiftLine(o, namesOf(org.state)) });
     reply.code(201);
-    return done(org, ownRequestView(org, r));
+    return done(org, { ...ownRequestView(org, taken.request), outcome: 'claimed' });
+  });
+
+  // No thanks, to a shift put to them by name: when everyone asked has said no, the next round goes now.
+  app.post<{ Params: { id: string } }>('/v1/staff/open-shifts/:id/decline', { schema: { ...hidden, params: idParam } }, async (req) => {
+    const { org, employee } = await signedIn(req);
+    const o = openShiftsOf(org).find((x) => x.id === req.params.id);
+    const offer = o?.offers?.find((x) => x.employeeId === employee.id && x.offeredAt);
+    if (!o || !offer) throw notFound('Open shift');
+    if (!offer.declinedAt) {
+      offer.declinedAt = ctx.now().toISOString();
+      audit(org, actor(employee), 'open_shift.declined', { id: o.id, employeeId: employee.id });
+      askDueRounds(org, ctx.now());
+    }
+    return done(org, { ok: true });
   });
 
   app.post<{ Body: { from: string; to: string; note?: string } }>(
@@ -711,7 +872,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
       if (dates.every((d) => employee.leave.includes(d))) throw new HttpError(409, 'already_booked', 'These days are already booked as holiday.');
       const balance = balanceOf(org, employee, today());
       const hours = holidayHours(employee, dates, balance.dayHours);
-      const r = addRequest(org, { kind: 'holiday', employeeId: employee.id, siteId: employee.siteId, from, to, hours, ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) });
+      const r = addRequest(org, { kind: 'holiday', employeeId: employee.id, siteId: employee.siteId, from, to, hours, ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) }, today());
       reply.code(201);
       return done(org, ownRequestView(org, r));
     },
@@ -736,7 +897,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
       // Emergencies for dependants and bereavement are often asked for after the first day.
       checkRange(from, to, addDays(today(), -7));
       if (overlapping(org, employee, 'time_off', from, to)) throw new HttpError(409, 'overlaps', 'You have already asked for some of these days.');
-      const r = addRequest(org, { kind: 'time_off', employeeId: employee.id, siteId: employee.siteId, absenceType, from, to, ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) });
+      const r = addRequest(org, { kind: 'time_off', employeeId: employee.id, siteId: employee.siteId, absenceType, from, to, ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) }, today());
       reply.code(201);
       return done(org, ownRequestView(org, r));
     },
@@ -773,7 +934,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
       if (availability.some((a) => a.toMinute <= a.fromMinute)) throw new HttpError(422, 'invalid_times', 'Each time must end after it starts.');
       // A new pattern replaces any still waiting.
       for (const r of requestsOf(org).filter((x) => x.employeeId === employee.id && x.kind === 'availability' && open(x))) Object.assign(r, { status: 'cancelled' });
-      const r = addRequest(org, { kind: 'availability', employeeId: employee.id, siteId: employee.siteId, availability: [...availability].sort((a, b) => a.weekday - b.weekday || a.fromMinute - b.fromMinute), ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) });
+      const r = addRequest(org, { kind: 'availability', employeeId: employee.id, siteId: employee.siteId, availability: [...availability].sort((a, b) => a.weekday - b.weekday || a.fromMinute - b.fromMinute), ...(req.body.note?.trim() ? { note: req.body.note.trim() } : {}) }, today());
       reply.code(201);
       return done(org, ownRequestView(org, r));
     },
@@ -836,7 +997,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
       const absence: Absence = { id: newId('abs'), type: 'sickness', from, reportedBy: 'staff', ...(note ? { reason: note } : {}) };
       employee.absences = [...(employee.absences ?? []), absence].sort((a, b) => a.from.localeCompare(b.from));
       audit(org, actor(employee), 'hr.absence.created', { id: employee.id, absenceId: absence.id, type: absence.type, from: absence.from });
-      const r = addRequest(org, { kind: 'sickness', employeeId: employee.id, siteId: employee.siteId, from, absenceId: absence.id, ...(note ? { note } : {}) });
+      const r = addRequest(org, { kind: 'sickness', employeeId: employee.id, siteId: employee.siteId, from, absenceId: absence.id, ...(note ? { note } : {}) }, today());
       reply.code(201);
       return done(org, ownRequestView(org, r));
     },

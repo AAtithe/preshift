@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(|\bopeningFor\(|\brequestOf\(|\bsupportPerson\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(|\bsupportPerson\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -36,9 +36,6 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/staff/messages/read': 'Staff app: the caller marking their own thread read, under the staff session.',
   'GET /v1/staff/channels': "Staff app: the caller's own choice of channels, under the staff session.",
   'PUT /v1/staff/channels': 'Staff app: the caller giving or withdrawing their own consent, under the staff session.',
-  'GET /v1/staff/cover': 'Staff app: cover offers made to the caller, under the staff session.',
-  'POST /v1/staff/cover/:id/accept': 'Staff app: the caller saying yes to an offer made to them, re-checked under the rota rules.',
-  'POST /v1/staff/cover/:id/decline': 'Staff app: the caller saying no to an offer made to them.',
   'GET /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta once to check the address; answers only with the organisation's own verify token.",
   'POST /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta with a body signed by the organisation's app secret, never by a person.",
   'POST /v1/staff/pulse': "Staff app: the caller's own answer to the weekly pulse, under the staff session.",
@@ -50,6 +47,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/board': 'Staff app: open shifts and swaps the caller is eligible for, under the staff session.',
   'GET /v1/staff/shifts/:id/swap-options': "Staff app: colleagues who could take one of the caller's own shifts, under the staff session.",
   'POST /v1/staff/open-shifts/:id/claim': 'Staff app: the caller asks for an open shift; a manager with rota.publish decides.',
+  'POST /v1/staff/open-shifts/:id/decline': 'Staff app: the caller saying no to a shift put to them by name, under the staff session.',
   'POST /v1/staff/requests/holiday': 'Staff app: the caller asks for holiday; a manager with team.manage decides.',
   'POST /v1/staff/requests/time-off': 'Staff app: the caller asks for time off; a manager with hr.manage decides.',
   'POST /v1/staff/requests/availability': 'Staff app: the caller proposes their availability; a manager with team.manage decides.',

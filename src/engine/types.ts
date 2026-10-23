@@ -1,3 +1,5 @@
+import type { ShiftOffer } from './cover';
+
 // Core domain model. Times are minutes from midnight on the shift's date;
 // an end time past 1440 means the shift runs over midnight.
 
@@ -391,6 +393,21 @@ export interface OpenShift {
   shiftId?: string;
   /** The shift released to make this one, when a manager posted someone's shift for cover. */
   releasedFrom?: { shiftId: string; employeeId: string };
+  /**
+   * Someone's shift put out while it stays theirs: it moves to whoever takes it, and stays with them
+   * if nobody does. Instead of releasedFrom, which takes it off them when it is posted.
+   */
+  heldBy?: { shiftId: string; employeeId: string };
+  /** How it is decided. claim, the default: staff ask and a manager approves. first_yes: the first legal yes gets it at once. */
+  fill?: 'claim' | 'first_yes';
+  /** Put to these people only, cheapest first, perhaps in rounds. Absent: everyone eligible is told when it is posted. */
+  offers?: ShiftOffer[];
+  /** Asking in rounds: `size` at a time, the next round every `everyMinutes` until someone takes it. */
+  rounds?: { size: number; everyMinutes: number };
+  /** When the next round goes, while there is one to come. */
+  nextRoundAt?: string;
+  /** Told through quiet hours. */
+  urgent?: boolean;
 }
 
 export type StaffNotificationKind =
@@ -410,6 +427,8 @@ export interface StaffNotification {
   email?: 'pending' | 'sent' | 'none' | 'failed';
   /** Carried by WhatsApp or text instead of email, for someone who chose that in the staff app. */
   via?: 'whatsapp' | 'sms';
+  /** Goes through quiet hours: a shift put out as urgent. */
+  urgent?: boolean;
 }
 
 export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';

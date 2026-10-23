@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { CHANNEL_NAMES, MAX_BODY, type Channel, type Delivery } from '../engine/messaging';
 import type { RotaState } from '../engine/types';
 import { api, ApiError } from './api';
-import { CoverPanel } from './CoverPanel';
-import { londonParts } from '../engine/time';
 
 interface Row {
   id: string;
@@ -47,10 +45,6 @@ interface Props {
   canAnnounce: (siteId: string) => boolean;
   /** A thread to open first, from a link in a notice. */
   openThread?: string;
-  /** May ask for cover at the site: those who edit its rota. */
-  canCover: (siteId: string) => boolean;
-  /** A shift to ask cover for, from the shift editor on the rota. */
-  coverShiftId?: string;
 }
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
@@ -62,12 +56,12 @@ const when = (iso: string) =>
  * site with who has read them. Everything here is the record of what each person was told and
  * when; WhatsApp, text and email only carry it to their phone.
  */
-export function MessagesView({ state, siteIds, canAnnounce, openThread, canCover, coverShiftId }: Props) {
+export function MessagesView({ state, siteIds, canAnnounce, openThread }: Props) {
   const single = siteIds.length === 1 ? siteIds[0] : '';
   const [rows, setRows] = useState<Row[]>([]);
   const [selected, setSelected] = useState<string | null>(openThread ?? null);
   const [thread, setThread] = useState<Thread | null>(null);
-  const [mode, setMode] = useState<'thread' | 'new' | 'announce' | 'reach' | 'cover'>(coverShiftId ? 'cover' : 'thread');
+  const [mode, setMode] = useState<'thread' | 'new' | 'announce' | 'reach'>('thread');
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 
   const load = useCallback(async () => {
@@ -105,7 +99,6 @@ export function MessagesView({ state, siteIds, canAnnounce, openThread, canCover
           <span className="panel-actions">
             <button className="primary" onClick={() => setMode('new')}>Message someone</button>
             {single && canAnnounce(single) && <button onClick={() => setMode('announce')}>Announce</button>}
-            {single && canCover(single) && <button onClick={() => setMode('cover')}>Cover</button>}
             {single && <button className="ghost" onClick={() => setMode('reach')}>Who we can reach</button>}
           </span>
         </div>
@@ -156,11 +149,6 @@ export function MessagesView({ state, siteIds, canAnnounce, openThread, canCover
           />
         )}
         {mode === 'reach' && single && <ReachPane siteId={single} />}
-        {mode === 'cover' && single && (() => {
-          const now = londonParts(new Date());
-          return <CoverPanel state={state} siteId={single} today={now.date} nowMinute={now.minute} shiftId={coverShiftId} />;
-        })()}
-        {mode === 'cover' && !single && <div className="empty panel"><b>Choose a site</b>Cover is asked for one site's shift at a time.</div>}
       </div>
     </div>
   );

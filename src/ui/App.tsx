@@ -589,13 +589,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               )}
               {shown === 'messages' && (
                 <MessagesView
-                  key={coverShift ?? 'messages'}
                   state={state}
                   siteIds={sectionSites}
                   canAnnounce={(id) => allow('rota.publish', id)}
                   openThread={new URLSearchParams(window.location.search).get('thread') ?? undefined}
-                  canCover={(id) => allow('rota.edit', id)}
-                  coverShiftId={coverShift ?? undefined}
                 />
               )}
               {shown === 'welfare' && <WelfareView key={sectionSites.join(',')} state={state} siteIds={sectionSites} today={today} allow={allow} onOpenHr={openHr} />}
@@ -609,7 +606,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
-              {shown === 'requests' && <RequestsView state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} />}
+              {shown === 'requests' && <RequestsView key={coverShift ?? 'requests'} state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} coverShiftId={coverShift ?? undefined} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
                 <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
@@ -785,7 +782,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           }}
           onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
-          onAskCover={allow('rota.edit', editing.siteId) ? (id) => { setEditing(null); setCoverShift(id); setSiteId(editing.siteId); setTab('messages'); } : undefined}
+          onAskCover={allow('rota.publish', editing.siteId) ? (id) => { setEditing(null); setCoverShift(id); setSiteId(editing.siteId); setTab('requests'); } : undefined}
         />
       )}
     </div>

@@ -17,7 +17,6 @@ import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { MessagingData } from '../src/engine/messaging';
-import type { CoverRequest } from '../src/engine/cover';
 import type { RewardsConnection } from './integrations/rewards/provider';
 import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
 import type { OutboxItem } from './outbox';
@@ -177,8 +176,6 @@ export interface OrgData {
   epos?: EposConnection;
   /** Messages between managers and staff, rota notices, and how each person wants to hear. Absent until first used. */
   messaging?: MessagingData;
-  /** Shifts offered to the people who could legally work them, and who took each. Absent until first used. */
-  coverRequests?: CoverRequest[];
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
   welfare?: WelfareData;
   /**

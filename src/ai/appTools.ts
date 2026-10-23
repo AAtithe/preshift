@@ -10,7 +10,7 @@ import { addDays, ageOn, formatMinute, parseClock, weekDates, weekStart } from '
 import type { Absence, AbsenceType, Employee, RotaState, Shift, TimeEntry } from '../engine/types';
 import { minimumWageFor } from '../engine/ukRates';
 import type { ToolDefinition } from './rotaTools';
-import { askable, coverCandidates, defaultRounds, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, notAskedBecause, openingOf, ROUND_MINUTES, roundOf } from '../engine/cover';
+import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, ROUND_MINUTES, roundOf } from '../engine/cover';
 
 /**
  * Tools for Shifty (the chat) and the command bar. Lookups read the app's own data. Anything that
@@ -56,7 +56,7 @@ export type Proposal = { id: string; summary: string; details: Detail[]; warning
   | { kind: 'add_shift'; shift: Shift }
   | { kind: 'remove_shift'; shiftId: string }
   | { kind: 'publish_week'; siteIds: string[]; weekStart: string }
-  | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean; rounds: { size: number; everyMinutes: number } | null }
+  | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean; rounds: { size: number; everyMinutes: number } | null; keepUntilTaken: boolean }
   | { kind: 'draft_rota'; instruction: string }
   | { kind: 'go_to'; screen: Screen }
 );
@@ -214,6 +214,10 @@ export const APP_TOOLS: ToolDefinition[] = [
           'more than 3 to ask and at least 6 hours to go, otherwise everyone at once. 0 asks everyone at once.',
       },
       round_minutes: { type: ['number', 'null'], enum: [15, 30, 60, 120, null], description: 'Minutes between rounds; null for 30.' },
+      keep_with_them: {
+        type: ['boolean', 'null'],
+        description: 'True leaves the shift with its person until someone takes it, for someone who would rather not work it. False or null takes it off them now, for someone off sick or who cannot work it at all.',
+      },
     }),
   },
   {
@@ -631,12 +635,13 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         if (note && ((first && note.toLowerCase().includes(first)) || /\b(sick\w*|ill|illness|unwell|hospital\w*|covid|injur\w*|bereave\w*|funeral|pregnan\w*|doctor|gp)\b/i.test(note))) {
           throw new InputError('Keep who is off and why out of the note: everyone asked reads it. Say what helps them decide, such as a busy night.');
         }
-        const all = coverCandidates(ctx.state, openingOf(s), { shiftId: s.id, exclude: s.employeeId });
-        const asked = all.filter(askable);
+        const all = goingCandidates(ctx.state, { ...s, id: 'cover' }, [s.employeeId]);
+        const asked = all.filter((c) => c.eligible).map((c) => c.candidate);
         if (asked.length === 0) {
           throw new InputError('Nobody trained for this role can legally work that shift. It is a gap to fill by hiring or cross-training, or by changing the shift.');
         }
-        const notAsked = all.filter((c) => !askable(c));
+        const notAsked = all.filter((c) => !c.eligible);
+        const keep = input.keep_with_them === true;
         const firstToAccept = input.first_to_accept !== false;
         const toStart = minutesUntil(ctx.now, { date: s.date, minute: s.startMinute });
         const size = input.round_size === null || input.round_size === undefined ? undefined : Number(input.round_size);
@@ -656,6 +661,7 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
           firstToAccept,
           urgent: input.urgent === true,
           rounds,
+          keepUntilTaken: keep,
           summary: `Ask for cover for ${original?.name ?? 'this'}'s shift, ${label}`,
           details: [
             rounds
@@ -664,10 +670,12 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
             { label: 'Who gets it', value: firstToAccept ? 'The first to say yes, re-checked at that moment' : 'You choose among those who say yes' },
             ...(note ? [{ label: 'Note', value: note }] : []),
             ...(notAsked.length ? [{ label: 'Not asked', value: `${notAsked.length}, who cannot legally work it or are not trained` }] : []),
+            { label: `${original?.name.split(' ')[0] ?? 'Their'} shift`, value: keep ? 'Stays theirs until someone takes it' : 'Taken off them now, and they are told' },
           ],
           warnings: [
             ...(s.published ? [] : ['The shift is not published yet, so whoever takes it sees it once the week is published.']),
             ...(input.urgent === true ? ['Urgent: it reaches people through their quiet hours.'] : []),
+          ...(!keep && s.published ? [`${original?.name.split(' ')[0] ?? 'They'} will be told the shift is taken off them.`] : []),
           ],
         };
         return {
@@ -676,7 +684,7 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
             awaiting_confirmation: true,
             would_ask: asked.map((c, i) => ({ name: c.employee.name, from_another_site: c.borrowed, round: roundOf(i, rounds ?? undefined) })),
             rounds,
-            not_asked: notAsked.slice(0, 10).map((c) => ({ name: c.employee.name, why: notAskedBecause(c) })),
+            not_asked: notAsked.slice(0, 10).map((c) => ({ name: c.candidate.employee.name, why: c.reason })),
           },
           label: proposal.summary,
           proposal,

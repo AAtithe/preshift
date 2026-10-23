@@ -1,17 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireScope } from '../auth';
-import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
+import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import {
   addMessage, deliverToStaff, directThread, getMessagingSettings, inBatches, managerLink, messagingOf, messagingSetting, newVerifyToken,
-  notifyTeam, outboundFor, postTeam, reachOf, settingsView, STOP_WORDS, teamUrlProblem, verifyMetaSignature, appUrlOf, emailConnected,
+  notifyTeam, outboundFor, postTeam, reachOf, carryNotifications, settingsView, STOP_WORDS, teamUrlProblem, verifyMetaSignature, appUrlOf, emailConnected,
   type MessagingSettings, type WhatsAppInbound,
 } from '../messaging';
 import { audit, type OrgData } from '../store';
 import { requireStaff } from './staff';
-import { acceptOffer, announceTaken, askDueRounds, coverOf, type Taken } from '../cover';
-import { isYes, openOffersFor } from '../../src/engine/cover';
+import { afterYes, askDueRounds, shiftsGoingFor, takeOpenShift, type Taken } from '../cover';
+import { emailNotifications, notify } from '../notify';
+import { isYes } from '../../src/engine/cover';
 import {
   bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS,
   staffReader, trimMessaging, unread, userReader,
@@ -460,18 +461,14 @@ export function whatsappWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
     let org = await store.load(orgId);
     const apply = (o: OrgData) => takeInbound(ctx, o, payload);
     let result = apply(org);
-    // A yes to cover is answered at once: whether it is theirs, and to everyone it affects.
-    for (const t of result.taken) await announceTaken(ctx, org, t);
-    if (result.taken.some((t) => t.kind === 'refused')) await askDueRounds(ctx, org);
-    if (result.ambiguous.length) {
-      const out = await outboundFor(ctx, org);
-      const at = ctx.now().toISOString();
-      for (const { employee, count } of result.ambiguous) {
-        const text = `You have ${count} cover offers open, so YES could mean any of them. Accept the one you want in the Preshift app.`;
-        const m = addMessage(org, directThread(org, employee, 'Cover', at), { at, from: { kind: 'system', name: 'Cover' }, body: text, via: 'app' });
-        m.deliveries = await deliverToStaff(out, employee, text, { subject: 'Cover' });
-      }
+    // A yes to a shift going is answered at once: whether it is theirs, and to everyone it affects.
+    for (const t of result.taken) await afterYes(ctx, org, t);
+    if (result.taken.some((t) => t.kind === 'refused')) askDueRounds(org, ctx.now());
+    for (const { employee, count } of result.ambiguous) {
+      notify(org, employee.id, 'open_shift', 'Which shift?', `You have ${count} shifts going that you could take, so YES could mean any of them. Take the one you want in the Preshift app.`, ctx.now());
     }
+    await carryNotifications(ctx, org);
+    await emailNotifications(store, org);
     try {
       await store.save(org);
     } catch (err) {
@@ -535,13 +532,13 @@ export function takeInbound(ctx: Pick<AppContext, 'now'>, org: OrgData, payload:
         // Text only: photos, voice notes and documents stay in WhatsApp, never pulled into staff records unseen.
         const body = text ? text.slice(0, 2000) : `(${employee.name.split(' ')[0]} sent a ${m.type ?? 'message'} on WhatsApp. Preshift keeps text only; ask them to type it or show you.)`;
         addMessage(org, thread, { at, from: { kind: 'staff', id: employee.id, name: employee.name }, body, via: 'whatsapp' });
-        // YES to a cover offer accepts it, when there is only one it can mean.
-        const offers = text && isYes(text) ? openOffersFor(coverOf(org), employee.id, londonParts(ctx.now())) : [];
-        if (offers.length === 1) {
-          taken.push(acceptOffer(org, offers[0], employee, 'whatsapp', ctx.now()));
+        // YES to a shift going takes it, when there is only one it can mean.
+        const going = text && isYes(text) ? shiftsGoingFor(org, employee, ctx.now()).filter((x) => !x.claimed) : [];
+        if (going.length === 1) {
+          taken.push(takeOpenShift(org, going[0].open, employee, 'whatsapp', ctx.now()));
           continue;
         }
-        if (offers.length > 1) ambiguous.push({ employee, count: offers.length });
+        if (going.length > 1) ambiguous.push({ employee, count: going.length });
         received.push({ siteId: thread.siteId, name: employee.name, conversationId: thread.id });
       }
     }

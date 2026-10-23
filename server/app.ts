@@ -43,7 +43,6 @@ import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
-import { coverRoutes, staffCoverRoutes } from './routes/cover';
 import { askDueRounds } from './cover';
 import { carryNotifications, releaseHeld } from './messaging';
 import { requestRoutes } from './routes/requests';
@@ -326,8 +325,12 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       try {
         const org = await store.load(orgId);
         const released = await releaseHeld(ctx, org);
-        // Cover asked for in rounds: the next round goes when its time comes.
-        const asked = await askDueRounds(ctx, org);
+        // Shifts put out in rounds: the next round goes when its time comes, told as any notice is.
+        const asked = askDueRounds(org, ctx.now());
+        if (asked) {
+          await carryNotifications(ctx, org);
+          await emailNotifications(store, org);
+        }
         if (released || asked) await store.save(org);
       } catch (err) {
         app.log.error({ orgId, err: (err as Error).message }, 'held messages not released');
@@ -375,7 +378,6 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   staffRoutes(app, ctx);
   // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
   staffMessageRoutes(app, ctx);
-  staffCoverRoutes(app, ctx);
   whatsappWebhookRoutes(app, ctx);
   kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
@@ -483,7 +485,6 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
     messageRoutes(api, ctx);
-    coverRoutes(api, ctx);
     // What staff ask for in the staff app, decided here by whoever runs their rota or team.
     requestRoutes(api, ctx);
     kioskAdminRoutes(api, ctx);
