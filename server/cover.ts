@@ -6,7 +6,10 @@
 // refused with the reason, and the next person can still say yes.
 
 import { randomUUID } from 'node:crypto';
-import { askable, coverCandidates, coverStatus, offerText, openingOf, shiftLabel, type CoverRequest } from '../src/engine/cover';
+import {
+  askable, coverCandidates, coverStatus, currentRound, minutesUntil, nextRoundOffers, offerText, openingOf, roundDue, shiftLabel, waiting,
+  type CoverOffer, type CoverRequest,
+} from '../src/engine/cover';
 import { hasStarted } from '../src/engine/rotaWeek';
 import type { Employee, Shift } from '../src/engine/types';
 import { londonParts, type AppContext } from './context';
@@ -88,7 +91,7 @@ export function giveCover(org: OrgData, r: CoverRequest, employee: Employee, by:
  */
 export function acceptOffer(org: OrgData, r: CoverRequest, employee: Employee, via: 'app' | 'whatsapp', now: Date): Taken {
   const offer = r.offers.find((o) => o.employeeId === employee.id);
-  if (!offer) return { kind: 'refused', request: r, employee, reason: 'This was not offered to you.' };
+  if (!offer?.offeredAt) return { kind: 'refused', request: r, employee, reason: 'This was not offered to you.' };
   const status = coverStatus(r, londonParts(now));
   if (status !== 'open') return { kind: 'refused', request: r, employee, reason: status === 'filled' ? 'Someone else has already taken it.' : 'It is no longer on offer.' };
   offer.response = 'accepted';
@@ -104,18 +107,60 @@ export function acceptOffer(org: OrgData, r: CoverRequest, employee: Employee, v
   return taken;
 }
 
-/** Sends the offer to each person, in their own thread and by the channel they chose. */
-export async function sendOffers(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>, org: OrgData, r: CoverRequest, urgent: boolean, by: string) {
+/** Sends the offer to each person given, in their own thread and by the channel they chose, and marks them asked. */
+export async function sendOffers(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>, org: OrgData, r: CoverRequest, offers: CoverOffer[], by: string) {
   const out = await outboundFor(ctx, org);
   const text = offerText(r, roleName(org, r.roleId), siteName(org, r.siteId));
   const at = ctx.now().toISOString();
-  await inBatches(r.offers, 10, async (o) => {
+  await inBatches(offers, 10, async (o) => {
     const employee = org.state.employees.find((e) => e.id === o.employeeId);
     if (!employee) return;
+    o.offeredAt = at;
     const thread = directThread(org, employee, by, at);
-    const message = addMessage(org, thread, { at, from: { kind: 'system', name: 'Cover' }, body: text, via: 'app', urgent });
-    message.deliveries = await deliverToStaff(out, employee, text, { urgent, subject: `Cover wanted: ${labelOf(org, r)}` });
+    const message = addMessage(org, thread, { at, from: { kind: 'system', name: 'Cover' }, body: text, via: 'app', urgent: r.urgent });
+    message.deliveries = await deliverToStaff(out, employee, text, { urgent: r.urgent, subject: `Cover wanted: ${labelOf(org, r)}` });
   });
+}
+
+/**
+ * Asks the next round: the next people in line, or everyone left. Each is checked again first:
+ * the rota may have changed since the request was made, and someone who can no longer work it is
+ * passed over with the reason rather than asked. Sets when the round after this one goes.
+ */
+export async function askNextRound(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>, org: OrgData, r: CoverRequest, by: string, everyone = false): Promise<number> {
+  const now = ctx.now();
+  const london = londonParts(now);
+  if (coverStatus(r, london) !== 'open') return 0;
+  const queue = nextRoundOffers(r, everyone || (!!r.rounds && minutesUntil(london, r.closes) <= r.rounds.everyMinutes));
+  if (queue.length === 0) return 0;
+  const still = new Map(coverCandidates(org.state, openingOf(r), { shiftId: r.shiftId, exclude: r.originalEmployeeId }).map((c) => [c.employee.id, c]));
+  const ask: CoverOffer[] = [];
+  for (const o of queue) {
+    const c = still.get(o.employeeId);
+    if (c && askable(c)) {
+      o.marginal = Math.round(c.marginal * 100) / 100;
+      ask.push(o);
+    } else o.skipped = c?.blocker ?? 'No longer able to work it under the rota rules.';
+  }
+  if (ask.length) await sendOffers(ctx, org, r, ask, by);
+  const more = waiting(r).length > 0;
+  r.nextRoundAt = more && r.rounds ? new Date(now.getTime() + r.rounds.everyMinutes * 60_000).toISOString() : undefined;
+  audit(org, by, 'cover.round_asked', { id: r.id, round: currentRound(r), asked: ask.length, passedOver: queue.length - ask.length });
+  // Everyone in this round was passed over: go straight on to the next, rather than leave a round asking nobody.
+  if (ask.length === 0 && more) return askNextRound(ctx, org, r, by, everyone);
+  return ask.length;
+}
+
+/** Asks every round that is due across the organisation. Run by the quarter-hourly schedule and after a no. */
+export async function askDueRounds(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>, org: OrgData): Promise<number> {
+  const nowIso = ctx.now().toISOString();
+  const london = londonParts(ctx.now());
+  let asked = 0;
+  for (const r of org.coverRequests ?? []) {
+    const why = roundDue(r, nowIso, london);
+    if (why) asked += await askNextRound(ctx, org, r, 'Preshift (next round)', why === 'closing');
+  }
+  return asked;
 }
 
 /** Tells one person something about a request, in their thread and on their phone. */
@@ -156,8 +201,9 @@ export async function announceTaken(ctx: Pick<AppContext, 'store' | 'fetch' | 'n
   const original = org.state.employees.find((e) => e.id === r.originalEmployeeId);
   if (original) await tell(out, org, original, `${original.name.split(' ')[0]}, your shift ${label} is covered. You are off it.`, 'Your shift is covered');
   // Those who had not answered hear it has gone, so nobody sets aside an evening for nothing.
+  // Only those asked: someone whose round never came was never told there was anything to take.
   for (const o of r.offers) {
-    if (o.employeeId === taken.employee.id) continue;
+    if (o.employeeId === taken.employee.id || !o.offeredAt) continue;
     const e = org.state.employees.find((x) => x.id === o.employeeId);
     if (e) await tell(out, org, e, `The cover for ${label} has been taken. Thank you for looking.`, 'Cover taken', !o.response);
   }

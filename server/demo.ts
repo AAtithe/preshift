@@ -343,6 +343,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/cover': true,
   'GET /v1/cover': true,
   'POST /v1/cover/:id/assign': true,
+  'POST /v1/cover/:id/next': true,
   'POST /v1/cover/:id/cancel': true,
   // Refused: these hold keys to WhatsApp, Twilio, Slack and Teams, and would send from a visitor's say.
   'GET /v1/settings/messaging': false,

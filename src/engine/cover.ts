@@ -16,7 +16,12 @@ export interface CoverOffer {
   /** What the shift would add to the group's labour for this person's week, when offered. */
   marginal: number;
   borrowed: boolean;
-  offeredAt: string;
+  /** Which round they are asked in, cheapest first. Absent on requests from before rounds: round 1. */
+  round?: number;
+  /** When they were asked. Absent while their round has not come: they have not been told anything. */
+  offeredAt?: string;
+  /** Their round came but they could no longer work it under the rota rules, so they were not asked, and why. */
+  skipped?: string;
   response?: 'accepted' | 'declined';
   respondedAt?: string;
   /** Where they answered: the staff app or a WhatsApp reply. */
@@ -45,6 +50,15 @@ export interface CoverRequest {
   /** London time after which nobody can accept: the shift's start unless the manager closed it earlier. */
   closes: { date: string; minute: number };
   offers: CoverOffer[];
+  /**
+   * Asking in rounds: `size` people at a time, cheapest first, the next round every `everyMinutes`
+   * until someone says yes. Absent: everyone is asked at once.
+   */
+  rounds?: { size: number; everyMinutes: number };
+  /** When the next round goes, while there is one to come. */
+  nextRoundAt?: string;
+  /** Offers go through quiet hours, every round. */
+  urgent?: boolean;
   status: 'open' | 'filled' | 'cancelled';
   createdAt: string;
   createdBy: string;
@@ -114,7 +128,56 @@ export function offerText(r: CoverRequest, roleName: string, siteName: string): 
 /** Replies taken as yes on WhatsApp. Anything else is an ordinary message to the manager. */
 export const isYes = (text: string) => /^\s*(yes|y|yep|yeah|yes please|i can|i'll do it|ill do it)\s*[.!]*\s*$/i.test(text);
 
-/** Open requests a person has been offered and not yet answered. */
+/** Open requests a person has been asked and not yet answered. Someone whose round has not come sees nothing. */
 export function openOffersFor(requests: CoverRequest[], employeeId: string, now: { date: string; minute: number }) {
-  return requests.filter((r) => coverStatus(r, now) === 'open' && r.offers.some((o) => o.employeeId === employeeId && !o.response));
+  return requests.filter((r) => coverStatus(r, now) === 'open' && r.offers.some((o) => o.employeeId === employeeId && o.offeredAt && !o.response));
+}
+
+// ---- Rounds ----
+
+/** How often a round may go: the scheduled run checks every quarter hour, so nothing shorter. */
+export const ROUND_MINUTES = [15, 30, 60, 120] as const;
+export const MAX_ROUND_SIZE = 20;
+
+/**
+ * The sensible default: three at a time every half hour when there are more than three to ask and
+ * at least six hours to go, else everyone at once. Short notice is not the time to save pennies.
+ */
+export function defaultRounds(askable: number, minutesToStart: number): CoverRequest['rounds'] {
+  return askable > 3 && minutesToStart >= 6 * 60 ? { size: 3, everyMinutes: 30 } : undefined;
+}
+
+/** Splits the people to ask, already cheapest first, into rounds. */
+export const roundOf = (index: number, rounds: CoverRequest['rounds']) => (rounds ? Math.floor(index / rounds.size) + 1 : 1);
+
+/** Minutes from one London moment to another. */
+export function minutesUntil(from: { date: string; minute: number }, to: { date: string; minute: number }): number {
+  const days = (Date.parse(`${to.date}T00:00:00Z`) - Date.parse(`${from.date}T00:00:00Z`)) / 86_400_000;
+  return days * 1440 + to.minute - from.minute;
+}
+
+export const waiting = (r: CoverRequest) => r.offers.filter((o) => !o.offeredAt && !o.skipped);
+const roundNo = (o: CoverOffer) => o.round ?? 1;
+
+/** The round asked most recently, or 0 before any. */
+export const currentRound = (r: CoverRequest) => Math.max(0, ...r.offers.filter((o) => o.offeredAt).map(roundNo));
+
+/**
+ * Whether the next round should go now, and why: its time has come, everyone asked so far has said
+ * no, or there is not time for another round before the request closes, so everyone left goes now.
+ */
+export function roundDue(r: CoverRequest, nowIso: string, london: { date: string; minute: number }): 'time' | 'all_declined' | 'closing' | null {
+  if (coverStatus(r, london) !== 'open' || !r.rounds || waiting(r).length === 0) return null;
+  if (minutesUntil(london, r.closes) <= r.rounds.everyMinutes) return 'closing';
+  const asked = r.offers.filter((o) => o.offeredAt);
+  if (asked.length > 0 && asked.every((o) => o.response === 'declined' || o.refused)) return 'all_declined';
+  return r.nextRoundAt && r.nextRoundAt <= nowIso ? 'time' : null;
+}
+
+/** Who the next round asks: the next round's people, or everyone left when it is closing or asked for. */
+export function nextRoundOffers(r: CoverRequest, everyone = false): CoverOffer[] {
+  const left = waiting(r);
+  if (everyone || left.length === 0) return left;
+  const next = Math.min(...left.map(roundNo));
+  return left.filter((o) => roundNo(o) === next);
 }

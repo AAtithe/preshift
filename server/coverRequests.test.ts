@@ -15,11 +15,12 @@ async function boot() {
     sent.push({ url: String(input), body: JSON.parse(String(init?.body ?? 'null')) });
     return new Response(JSON.stringify({ messages: [{ id: `wamid.${sent.length}` }] }), { status: 200 });
   }) as typeof globalThis.fetch;
-  const now = new Date(`${TODAY}T11:00:00Z`);
+  const clock = { now: new Date(`${TODAY}T11:00:00Z`) };
   const k = await kit({
     store: new MemoryStore(['demo'], TODAY),
     fetch,
-    now: () => now,
+    now: () => clock.now,
+    env: { CRON_SECRET: 'tick' },
     keys: [
       { key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*'] },
       { key: 'priya', orgId: 'demo', name: 'Priya (key)', scopes: ['*'], userId: 'usr_gm_mar' },
@@ -38,21 +39,28 @@ async function boot() {
     return { cookie: joined.cookie! };
   }
 
-  /** A published Saturday shift at Marylebone with at least two people who could cover it. */
-  async function coverable() {
+  /** A published Saturday shift at Marylebone with at least `least` people who could cover it. */
+  async function coverable(least = 2) {
     const shifts = (await k.call('GET', `/v1/shifts?siteId=mar&from=${SATURDAY}&to=${SATURDAY}`, priya)).body as { id: string; employeeId: string; published: boolean }[];
     for (const s of shifts) {
       const preview = await k.call('POST', '/v1/cover/preview', priya, { shiftId: s.id });
       const askable = preview.body.candidates.filter((c: { askable: boolean }) => c.askable);
-      if (askable.length >= 2) return { shift: s, preview: preview.body, askable: askable as { employeeId: string; name: string }[] };
+      if (askable.length >= least) return { shift: s, preview: preview.body, askable: askable as { employeeId: string; name: string }[] };
     }
-    throw new Error('No Saturday shift with two people free to cover it');
+    throw new Error(`No Saturday shift with ${least} people free to cover it`);
   }
 
   const shiftById = async (id: string) => ((await k.call('GET', `/v1/shifts?siteId=mar&from=${SATURDAY}&to=${SATURDAY}`, priya)).body as { id: string; employeeId: string; published: boolean }[]).find((s) => s.id === id);
-  const thread = async (employeeId: string) => (await k.call('GET', `/v1/messages/dm_${employeeId}`, priya)).body.messages as { body: string; from: { name: string } }[];
+  const thread = async (employeeId: string) => ((await k.call('GET', `/v1/messages/dm_${employeeId}`, priya)).body.messages ?? []) as { body: string; from: { name: string } }[];
 
-  return { ...k, sent, priya, staff, coverable, shiftById, thread };
+  /** Moves the clock on and runs the quarter-hourly schedule. */
+  const later = async (minutes: number) => {
+    clock.now = new Date(clock.now.getTime() + minutes * 60_000);
+    expect((await k.app.inject({ method: 'GET', url: '/internal/webhooks', headers: { authorization: 'Bearer tick' } })).statusCode).toBe(200);
+  };
+  const request = async (id: string) => (await k.call('GET', '/v1/cover?siteId=mar', priya)).body.find((r: { id: string }) => r.id === id);
+
+  return { ...k, sent, priya, staff, coverable, shiftById, thread, later, request, clock };
 }
 
 describe('cover requests', () => {
@@ -182,3 +190,88 @@ describe('cover requests', () => {
     expect((await t.call('POST', '/v1/cover/preview', t.priya, { siteId: 'mar', roleId: 'bar', date: '2026-10-20', startMinute: 600, endMinute: 900 })).body.error).toBe('started');
   });
 });
+
+describe('cover in rounds', () => {
+  const asked = (r: { offers: { employeeId: string; asked: boolean }[] }) => r.offers.filter((o) => o.asked).map((o) => o.employeeId);
+
+  it('asks the cheapest first, then the next round when its time comes', async () => {
+    const t = await t0();
+    const { shift, askable } = await t.coverable(4);
+    const made = await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, rounds: { size: 2, everyMinutes: 30 } });
+    expect(made.status).toBe(201);
+    expect(made.body).toMatchObject({ rounds: { size: 2, everyMinutes: 30 }, round: 1, waiting: askable.length - 2 });
+    // The two cheapest, in the order the preview ranked them; nobody else has been told anything.
+    expect(asked(made.body)).toEqual(askable.slice(0, 2).map((a) => a.employeeId));
+    const third = await t.staff(askable[2].employeeId);
+    expect((await t.call('GET', '/v1/staff/cover', third)).body.offers).toEqual([]);
+    expect(await t.thread(askable[2].employeeId)).toEqual([]);
+
+    // Not yet: 29 minutes on, still round one.
+    await t.later(29);
+    expect((await t.request(made.body.id)).round).toBe(1);
+    await t.later(1);
+    const r = await t.request(made.body.id);
+    expect(r.round).toBe(2);
+    expect(asked(r)).toEqual(askable.slice(0, 4).map((a) => a.employeeId));
+    expect((await t.call('GET', '/v1/staff/cover', third)).body.offers).toHaveLength(1);
+
+    // Once it is taken, those never asked hear nothing; those asked hear it has gone.
+    expect((await t.call('POST', `/v1/staff/cover/${made.body.id}/accept`, third)).body.outcome).toBe('filled');
+    const unasked = askable.slice(4);
+    for (const u of unasked) expect(await t.thread(u.employeeId)).toEqual([]);
+    expect((await t.thread(askable[0].employeeId)).at(-1)!.body).toMatch(/has been taken/);
+    // Nothing more goes out later.
+    const before = (await t.request(made.body.id)).round;
+    await t.later(60);
+    expect((await t.request(made.body.id)).round).toBe(before);
+  });
+
+  it('moves on at once when everyone asked says no, and passes over anyone no longer free', async () => {
+    const t = await t0();
+    const { shift, askable } = await t.coverable(4);
+    const a = await t.staff(askable[0].employeeId);
+    const made = await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, rounds: { size: 1, everyMinutes: 60 } });
+    // The second in line books leave meanwhile, so when their round comes they are passed over.
+    const second = (await t.call('GET', `/v1/employees/${askable[1].employeeId}`, { key: 'admin' })).body;
+    expect((await t.call('PATCH', `/v1/employees/${askable[1].employeeId}`, { key: 'admin' }, { leave: [...second.leave, SATURDAY] })).status).toBe(200);
+    expect((await t.call('POST', `/v1/staff/cover/${made.body.id}/decline`, a)).status).toBe(200);
+    const r = await t.request(made.body.id);
+    const passed = r.offers.find((o: { employeeId: string }) => o.employeeId === askable[1].employeeId);
+    expect(passed).toMatchObject({ asked: false, skipped: expect.stringMatching(/leave/) });
+    expect(asked(r)).toEqual([askable[0].employeeId, askable[2].employeeId]);
+  });
+
+  it('asks everyone left when there is not time for another round, and on the manager\'s say', async () => {
+    const t = await t0();
+    const { shift, askable } = await t.coverable(4);
+    const made = await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, rounds: { size: 1, everyMinutes: 120 } });
+    expect(asked(await t.request(made.body.id))).toHaveLength(1);
+    // The manager asks the next round now.
+    const next = await t.call('POST', `/v1/cover/${made.body.id}/next`, t.priya, {});
+    expect(asked(next.body)).toHaveLength(2);
+    // Two hours before it closes there is no time for another round: everyone left goes.
+    const r = await t.request(made.body.id);
+    const closes = new Date(`${r.closes.date}T00:00:00Z`).getTime() + r.closes.minute * 60_000;
+    // London is an hour ahead of UTC in October: the close is an hour earlier in UTC.
+    t.clock.now = new Date(closes - 60 * 60_000 - 119 * 60_000);
+    await t.later(0);
+    expect(asked(await t.request(made.body.id))).toEqual(askable.map((x) => x.employeeId));
+    expect((await t.call('POST', `/v1/cover/${made.body.id}/next`, t.priya, {})).body.error).toBe('nobody_left');
+  });
+
+  it('refuses rounds with no time for a second one, and nonsense sizes', async () => {
+    const t = await t0();
+    const { shift } = await t.coverable(4);
+    expect((await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, rounds: { size: 0, everyMinutes: 30 } })).body.error).toBe('invalid_rounds');
+    expect((await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, rounds: { size: 2, everyMinutes: 45 } })).body.error).toBe('invalid_rounds');
+    // 90 minutes before the shift starts (London is an hour ahead of UTC in October): no time for a two hour round.
+    const start = (shift as unknown as { startMinute: number }).startMinute;
+    t.clock.now = new Date(Date.parse(`${SATURDAY}T00:00:00Z`) + (start - 60 - 90) * 60_000);
+    const tooLate = await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, rounds: { size: 1, everyMinutes: 120 } });
+    expect(tooLate.body.error).toBe('no_time_for_rounds');
+    // Everyone at once is still fine.
+    expect((await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id })).status).toBe(201);
+  });
+});
+
+const t0 = boot;

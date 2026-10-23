@@ -10,7 +10,7 @@ import { addDays, ageOn, formatMinute, parseClock, weekDates, weekStart } from '
 import type { Absence, AbsenceType, Employee, RotaState, Shift, TimeEntry } from '../engine/types';
 import { minimumWageFor } from '../engine/ukRates';
 import type { ToolDefinition } from './rotaTools';
-import { askable, coverCandidates, MAX_NOTE, notAskedBecause, openingOf } from '../engine/cover';
+import { askable, coverCandidates, defaultRounds, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, notAskedBecause, openingOf, ROUND_MINUTES, roundOf } from '../engine/cover';
 
 /**
  * Tools for Shifty (the chat) and the command bar. Lookups read the app's own data. Anything that
@@ -56,7 +56,7 @@ export type Proposal = { id: string; summary: string; details: Detail[]; warning
   | { kind: 'add_shift'; shift: Shift }
   | { kind: 'remove_shift'; shiftId: string }
   | { kind: 'publish_week'; siteIds: string[]; weekStart: string }
-  | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean }
+  | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean; rounds: { size: number; everyMinutes: number } | null }
   | { kind: 'draft_rota'; instruction: string }
   | { kind: 'go_to'; screen: Screen }
 );
@@ -207,6 +207,13 @@ export const APP_TOOLS: ToolDefinition[] = [
       note: { ...NULLABLE_STRING, description: 'Up to 280 characters for the people asked; null for none.' },
       first_to_accept: { type: ['boolean', 'null'], description: 'True or null: the first to say yes gets it. False: the manager chooses among those who say yes.' },
       urgent: { type: ['boolean', 'null'], description: 'True sends through quiet hours; for a shift tonight or early tomorrow.' },
+      round_size: {
+        ...NULLABLE_NUMBER,
+        description:
+          'Ask this many at a time, cheapest first, widening until someone says yes. Null for the default: 3 at a time when there are ' +
+          'more than 3 to ask and at least 6 hours to go, otherwise everyone at once. 0 asks everyone at once.',
+      },
+      round_minutes: { type: ['number', 'null'], enum: [15, 30, 60, 120, null], description: 'Minutes between rounds; null for 30.' },
     }),
   },
   {
@@ -631,6 +638,13 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         }
         const notAsked = all.filter((c) => !askable(c));
         const firstToAccept = input.first_to_accept !== false;
+        const toStart = minutesUntil(ctx.now, { date: s.date, minute: s.startMinute });
+        const size = input.round_size === null || input.round_size === undefined ? undefined : Number(input.round_size);
+        if (size !== undefined && (!Number.isInteger(size) || size < 0 || size > MAX_ROUND_SIZE)) throw new InputError(`Ask between 1 and ${MAX_ROUND_SIZE} a round, or 0 for everyone at once.`);
+        const every = input.round_minutes === null || input.round_minutes === undefined ? 30 : Number(input.round_minutes);
+        if (!(ROUND_MINUTES as readonly number[]).includes(every)) throw new InputError(`Rounds go every ${ROUND_MINUTES.join(', ')} minutes.`);
+        const rounds = size === undefined ? defaultRounds(asked.length, toStart) ?? null : size > 0 && size < asked.length ? { size, everyMinutes: every } : null;
+        if (rounds && toStart <= rounds.everyMinutes) throw new InputError('There is not time for a second round before the shift. Ask everyone at once.');
         const label = `${s.date} ${formatMinute(s.startMinute)} to ${formatMinute(s.endMinute)}, ${roleName(ctx, s.roleId)} at ${siteName(ctx, s.siteId)}`;
         const names = asked.map((c) => c.employee.name);
         const proposal: Proposal = {
@@ -641,9 +655,12 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
           note,
           firstToAccept,
           urgent: input.urgent === true,
+          rounds,
           summary: `Ask for cover for ${original?.name ?? 'this'}'s shift, ${label}`,
           details: [
-            { label: 'Asks', value: `${asked.length}: ${names.slice(0, 6).join(', ')}${names.length > 6 ? ` and ${names.length - 6} more` : ''}, cheapest first` },
+            rounds
+              ? { label: 'Asks', value: `${names.slice(0, rounds.size).join(', ')} first, the cheapest; then ${rounds.size} more every ${rounds.everyMinutes} minutes until someone says yes (${asked.length} in all)` }
+              : { label: 'Asks', value: `${asked.length}: ${names.slice(0, 6).join(', ')}${names.length > 6 ? ` and ${names.length - 6} more` : ''}, cheapest first` },
             { label: 'Who gets it', value: firstToAccept ? 'The first to say yes, re-checked at that moment' : 'You choose among those who say yes' },
             ...(note ? [{ label: 'Note', value: note }] : []),
             ...(notAsked.length ? [{ label: 'Not asked', value: `${notAsked.length}, who cannot legally work it or are not trained` }] : []),
@@ -657,7 +674,8 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
           result: {
             proposed: true,
             awaiting_confirmation: true,
-            would_ask: asked.map((c) => ({ name: c.employee.name, from_another_site: c.borrowed })),
+            would_ask: asked.map((c, i) => ({ name: c.employee.name, from_another_site: c.borrowed, round: roundOf(i, rounds ?? undefined) })),
+            rounds,
             not_asked: notAsked.slice(0, 10).map((c) => ({ name: c.employee.name, why: notAskedBecause(c) })),
           },
           label: proposal.summary,

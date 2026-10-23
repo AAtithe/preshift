@@ -48,8 +48,10 @@ export async function carryOut(p: Proposal, deps: ProposalDeps): Promise<string>
     case 'ask_cover': {
       // Checked again on the server: anyone no longer free is refused there with the reason.
       try {
-        const res = await api.post<{ offers: unknown[] }>('/v1/cover', { shiftId: p.shiftId, employeeIds: p.employeeIds, note: p.note ?? undefined, firstToAccept: p.firstToAccept, urgent: p.urgent });
-        return `Asked ${res.offers.length} ${res.offers.length === 1 ? 'person' : 'people'}. Their answers show in Messages, then Cover.`;
+        const res = await api.post<{ offers: unknown[] }>('/v1/cover', { shiftId: p.shiftId, employeeIds: p.employeeIds, note: p.note ?? undefined, firstToAccept: p.firstToAccept, urgent: p.urgent, ...(p.rounds ? { rounds: p.rounds } : {}) });
+        return p.rounds
+          ? `Asked the ${p.rounds.size} cheapest; ${p.rounds.size} more every ${p.rounds.everyMinutes} minutes until someone says yes. Answers show in Messages, then Cover.`
+          : `Asked ${res.offers.length} ${res.offers.length === 1 ? 'person' : 'people'}. Their answers show in Messages, then Cover.`;
       } catch (e) {
         throw new Error(`Not sent: ${e instanceof ApiError ? e.message : 'the app did not accept it.'}`);
       }

@@ -44,6 +44,7 @@ import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
 import { coverRoutes, staffCoverRoutes } from './routes/cover';
+import { askDueRounds } from './cover';
 import { carryNotifications, releaseHeld } from './messaging';
 import { requestRoutes } from './routes/requests';
 import { emailNotifications } from './notify';
@@ -292,14 +293,18 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys };
   });
 
-  // Messages held for someone's quiet hours go once those hours are over. Run every quarter hour
-  // with the webhook retries, and daily with the dispatch for a plan without frequent cron jobs.
+  // Messages held for someone's quiet hours go once those hours are over, and cover asked for in
+  // rounds widens to the next round. Run every quarter hour with the webhook retries, and daily with
+  // the dispatch for a plan without frequent cron jobs.
   async function releaseAllHeld() {
     for (const orgId of await store.orgIds()) {
       if (isSandbox(orgId)) continue;
       try {
         const org = await store.load(orgId);
-        if (await releaseHeld(ctx, org)) await store.save(org);
+        const released = await releaseHeld(ctx, org);
+        // Cover asked for in rounds: the next round goes when its time comes.
+        const asked = await askDueRounds(ctx, org);
+        if (released || asked) await store.save(org);
       } catch (err) {
         app.log.error({ orgId, err: (err as Error).message }, 'held messages not released');
       }

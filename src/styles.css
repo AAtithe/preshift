@@ -1341,5 +1341,5 @@ details.help-article summary { cursor: pointer; font-weight: 600; }
 .compose textarea { width: 100%; font: inherit; padding: 8px; box-sizing: border-box; }
 .compose-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 ul.plain { list-style: none; padding: 0; margin: 6px 0; }
-.cover-list > li { padding: 10px 0; border-top: 1px solid var(--rule); display: grid; gap: 4px; }
-.cover-list > li:first-child { border-top: none; }
+.cover-requests > li { padding: 10px 0; border-top: 1px solid var(--rule); display: grid; gap: 4px; }
+.cover-requests > li:first-child { border-top: none; }

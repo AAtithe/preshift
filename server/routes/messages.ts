@@ -10,7 +10,7 @@ import {
 } from '../messaging';
 import { audit, type OrgData } from '../store';
 import { requireStaff } from './staff';
-import { acceptOffer, announceTaken, coverOf, type Taken } from '../cover';
+import { acceptOffer, announceTaken, askDueRounds, coverOf, type Taken } from '../cover';
 import { isYes, openOffersFor } from '../../src/engine/cover';
 import {
   bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS,
@@ -462,6 +462,7 @@ export function whatsappWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
     let result = apply(org);
     // A yes to cover is answered at once: whether it is theirs, and to everyone it affects.
     for (const t of result.taken) await announceTaken(ctx, org, t);
+    if (result.taken.some((t) => t.kind === 'refused')) await askDueRounds(ctx, org);
     if (result.ambiguous.length) {
       const out = await outboundFor(ctx, org);
       const at = ctx.now().toISOString();

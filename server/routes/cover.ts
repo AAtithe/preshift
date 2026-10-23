@@ -2,12 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, type AppContext } from '../context';
-import { acceptOffer, announceTaken, coverOf, giveCover, labelOf, sendOffers } from '../cover';
+import { acceptOffer, announceTaken, askDueRounds, askNextRound, coverOf, giveCover, labelOf } from '../cover';
 import { reachOf } from '../messaging';
 import { audit, type OrgData } from '../store';
 import { employeeName, messenger, siteName } from './messages';
 import { requireStaff } from './staff';
-import { askable, coverCandidates, coverStatus, MAX_NOTE, notAskedBecause, openOffersFor, type CoverRequest } from '../../src/engine/cover';
+import {
+  askable, coverCandidates, coverStatus, currentRound, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, notAskedBecause, openOffersFor, ROUND_MINUTES, roundOf, waiting,
+  type CoverRequest,
+} from '../../src/engine/cover';
 import { hasStarted } from '../../src/engine/rotaWeek';
 import { weekStart } from '../../src/engine/time';
 import type { Opening } from '../../src/engine/candidates';
@@ -83,6 +86,10 @@ function requestView(org: OrgData, r: CoverRequest, now: { date: string; minute:
     firstToAccept: r.firstToAccept,
     publish: r.publish,
     closes: r.closes,
+    rounds: r.rounds ?? null,
+    round: currentRound(r),
+    nextRoundAt: coverStatus(r, now) === 'open' ? r.nextRoundAt ?? null : null,
+    waiting: waiting(r).length,
     createdAt: r.createdAt,
     createdBy: r.createdBy,
     filledBy: r.filledBy ? employeeName(org, r.filledBy) : null,
@@ -92,6 +99,9 @@ function requestView(org: OrgData, r: CoverRequest, now: { date: string; minute:
       employeeId: o.employeeId,
       name: employeeName(org, o.employeeId),
       borrowed: o.borrowed,
+      round: o.round ?? 1,
+      asked: !!o.offeredAt,
+      skipped: o.skipped ?? null,
       response: o.response ?? null,
       respondedAt: o.respondedAt ?? null,
       via: o.via ?? null,
@@ -119,7 +129,7 @@ export function coverRoutes(app: FastifyInstance, ctx: AppContext) {
     };
   });
 
-  app.post<{ Body: Ask & { employeeIds?: string[]; note?: string; firstToAccept?: boolean; urgent?: boolean; closes?: { date: string; minute: number } } }>(
+  app.post<{ Body: Ask & { employeeIds?: string[]; note?: string; firstToAccept?: boolean; urgent?: boolean; closes?: { date: string; minute: number }; rounds?: { size?: number; everyMinutes?: number } | null } }>(
     '/v1/cover',
     { ...write, ...hidden },
     async (req, reply) => {
@@ -146,6 +156,15 @@ export function coverRoutes(app: FastifyInstance, ctx: AppContext) {
       if (closes.date < now.date || (closes.date === now.date && closes.minute <= now.minute)) throw new HttpError(400, 'invalid_close', 'The close is already past.');
       // The filled shift goes straight to the team only if it would be published anyway, and the requester may publish.
       const weekOut = original ? original.published : org.publications.some((p) => p.siteId === opening.siteId && p.weekStart === weekStart(opening.date));
+      // Rounds: the cheapest few first, more as time passes. Pointless when one round would ask everyone.
+      const asked = req.body?.rounds;
+      if (asked && (!Number.isInteger(asked.size) || asked.size! < 1 || asked.size! > MAX_ROUND_SIZE || !(ROUND_MINUTES as readonly number[]).includes(asked.everyMinutes!))) {
+        throw new HttpError(400, 'invalid_rounds', `Ask between 1 and ${MAX_ROUND_SIZE} people a round, every ${ROUND_MINUTES.join(', ')} minutes.`);
+      }
+      const rounds = asked && asked.size! < offered.length ? { size: asked.size!, everyMinutes: asked.everyMinutes! } : undefined;
+      if (rounds && minutesUntil(now, closes) <= rounds.everyMinutes) {
+        throw new HttpError(409, 'no_time_for_rounds', `There is not time for a second round before it closes. Ask everyone now, or make the rounds shorter than ${rounds.everyMinutes} minutes.`);
+      }
       const at = ctx.now().toISOString();
       const request: CoverRequest = {
         id: `cov_${randomUUID()}`,
@@ -155,14 +174,16 @@ export function coverRoutes(app: FastifyInstance, ctx: AppContext) {
         firstToAccept: req.body?.firstToAccept !== false,
         publish: weekOut && g.can('rota.publish', opening.siteId),
         closes,
-        offers: offered.map((c) => ({ employeeId: c.employee.id, marginal: Math.round(c.marginal * 100) / 100, borrowed: c.borrowed, offeredAt: at })),
+        offers: offered.map((c, i) => ({ employeeId: c.employee.id, marginal: Math.round(c.marginal * 100) / 100, borrowed: c.borrowed, round: roundOf(i, rounds) })),
+        ...(rounds ? { rounds } : {}),
+        ...(req.body?.urgent === true ? { urgent: true } : {}),
         status: 'open',
         createdAt: at,
         createdBy: name,
       };
       requests.push(request);
-      audit(org, name, 'cover.requested', { id: request.id, siteId: request.siteId, shiftId: request.shiftId, offered: request.offers.length });
-      await sendOffers(ctx, org, request, req.body?.urgent === true, name);
+      audit(org, name, 'cover.requested', { id: request.id, siteId: request.siteId, shiftId: request.shiftId, offered: request.offers.length, rounds });
+      await askNextRound(ctx, org, request, name);
       return reply.code(201).send(requestView(org, request, now, g.can('costs.view', request.siteId)));
     },
   );
@@ -202,6 +223,15 @@ export function coverRoutes(app: FastifyInstance, ctx: AppContext) {
     return requestView(org, r, london(), g.can('costs.view', r.siteId));
   });
 
+  // The manager does not want to wait for the next round: ask the next one now, or everyone left.
+  app.post<{ Params: { id: string }; Body: { everyone?: boolean } }>('/v1/cover/:id/next', { ...write, ...hidden }, async (req) => {
+    const { g, org, r, name } = requestOf(req);
+    if (coverStatus(r, london()) !== 'open') throw new HttpError(409, 'not_open', 'This request is no longer open.');
+    if (waiting(r).length === 0) throw new HttpError(409, 'nobody_left', 'Everyone who could work it has been asked.');
+    await askNextRound(ctx, org, r, name, req.body?.everyone === true);
+    return requestView(org, r, london(), g.can('costs.view', r.siteId));
+  });
+
   app.post<{ Params: { id: string } }>('/v1/cover/:id/cancel', { ...write, ...hidden }, async (req) => {
     const { g, org, r, name } = requestOf(req);
     if (coverStatus(r, london()) !== 'open') throw new HttpError(409, 'not_open', 'This request is no longer open.');
@@ -234,6 +264,8 @@ export function staffCoverRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!r) throw notFound('Cover offer');
     const taken = acceptOffer(org, r, employee, 'app', ctx.now());
     await announceTaken(ctx, org, taken);
+    // A yes that could not be given may leave everyone asked out of the running: the next round goes now.
+    if (taken.kind === 'refused') await askDueRounds(ctx, org);
     await store.save(org);
     return {
       outcome: taken.kind,
@@ -252,6 +284,8 @@ export function staffCoverRoutes(app: FastifyInstance, ctx: AppContext) {
       offer.respondedAt = ctx.now().toISOString();
       offer.via = 'app';
       audit(org, `staff:${employee.id}`, 'cover.declined', { id: r.id, employeeId: employee.id });
+      // When everyone asked so far has said no, the next round need not wait for its time.
+      await askDueRounds(ctx, org);
       await store.save(org);
     }
     return { offers: offersView(org, employee.id) };

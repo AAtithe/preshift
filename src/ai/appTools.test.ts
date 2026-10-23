@@ -128,6 +128,22 @@ describe('asking for cover from Shifty', () => {
     expect(ok.proposal).toMatchObject({ note: 'Busy night: Illuminations party of 30 at 7', firstToAccept: false, urgent: true });
   });
 
+  it('asks the cheapest few first when there is time, and everyone at once when told to', async () => {
+    const c = ctx();
+    const { s } = await coverable(c);
+    const base = { shift_id: s.id, note: null, first_to_accept: null, urgent: null };
+    const def = (await executeAppTool(c, 'propose_ask_cover', base)).proposal as Extract<Proposal, { kind: 'ask_cover' }>;
+    // Days ahead with more than three to ask: three at a time, every half hour.
+    expect(def.employeeIds.length).toBeGreaterThan(3);
+    expect(def.rounds).toEqual({ size: 3, everyMinutes: 30 });
+    const all = (await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 0 })).proposal as Extract<Proposal, { kind: 'ask_cover' }>;
+    expect(all.rounds).toBeNull();
+    const two = await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 1, round_minutes: 60 });
+    expect((two.proposal as Extract<Proposal, { kind: 'ask_cover' }>).rounds).toEqual({ size: 1, everyMinutes: 60 });
+    expect(two.proposal!.details[0].value).toMatch(/first, the cheapest; then 1 more every 60 minutes/);
+    expect((await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 2, round_minutes: 45 })).isError).toBe(true);
+  });
+
   it('refuses a shift that has started or does not exist', async () => {
     const c = ctx();
     const started = c.state.shifts.find((x) => x.date < WEEK || (x.date === WEEK && x.startMinute <= 9 * 60));

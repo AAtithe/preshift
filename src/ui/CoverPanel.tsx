@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { CHANNEL_NAMES, type Channel } from '../engine/messaging';
 import { formatMinute } from '../engine/time';
+import { defaultRounds, minutesUntil, ROUND_MINUTES } from '../engine/cover';
 import type { RotaState } from '../engine/types';
 import { api, ApiError } from './api';
 import { dayLabel, money2 } from './format';
@@ -37,9 +38,14 @@ interface RequestRow {
   createdBy: string;
   filledBy: string | null;
   closedBy: string | null;
-  offers: { employeeId: string; name: string; borrowed: boolean; response: 'accepted' | 'declined' | null; via: string | null; refused: string | null; marginal?: number }[];
+  rounds: { size: number; everyMinutes: number } | null;
+  round: number;
+  nextRoundAt: string | null;
+  waiting: number;
+  offers: { employeeId: string; name: string; borrowed: boolean; round: number; asked: boolean; skipped: string | null; response: 'accepted' | 'declined' | null; via: string | null; refused: string | null; marginal?: number }[];
 }
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 const STATUS: Record<RequestRow['status'], string> = { open: 'Open', filled: 'Covered', cancelled: 'Called off', expired: 'Closed, not covered' };
 const TONE: Record<RequestRow['status'], string> = { open: 'tone-warn', filled: 'tone-good', cancelled: '', expired: 'tone-bad' };
@@ -55,6 +61,8 @@ export function CoverPanel({ state, siteId, today, nowMinute, shiftId }: { state
   const [preview, setPreview] = useState<Preview | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({ note: '', firstToAccept: true, urgent: false });
+  // Rounds: the cheapest few first, more as time passes, until someone says yes.
+  const [rounds, setRounds] = useState({ on: false, size: 3, everyMinutes: 30 });
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 
   const load = useCallback(async () => {
@@ -84,7 +92,11 @@ export function CoverPanel({ state, siteId, today, nowMinute, shiftId }: { state
       .post<Preview>('/v1/cover/preview', { shiftId: chosenShift })
       .then((p) => {
         setPreview(p);
-        setTicked(new Set(p.candidates.filter((c) => c.askable).map((c) => c.employeeId)));
+        const able = p.candidates.filter((c) => c.askable);
+        setTicked(new Set(able.map((c) => c.employeeId)));
+        const shift = state.shifts.find((x) => x.id === chosenShift);
+        const suggested = shift ? defaultRounds(able.length, minutesUntil({ date: today, minute: nowMinute }, { date: shift.date, minute: shift.startMinute })) : undefined;
+        setRounds(suggested ? { on: true, ...suggested } : { on: false, size: 3, everyMinutes: 30 });
         setMessage(null);
       })
       .catch((e) => {
@@ -96,8 +108,13 @@ export function CoverPanel({ state, siteId, today, nowMinute, shiftId }: { state
   async function ask(e: FormEvent) {
     e.preventDefault();
     try {
-      await api.post('/v1/cover', { shiftId: chosenShift, employeeIds: [...ticked], ...form });
-      setMessage({ text: `Asked ${ticked.size} ${ticked.size === 1 ? 'person' : 'people'}. You will see each answer here.` });
+      const inRounds = rounds.on && rounds.size < ticked.size;
+      await api.post('/v1/cover', { shiftId: chosenShift, employeeIds: [...ticked], ...form, ...(inRounds ? { rounds: { size: rounds.size, everyMinutes: rounds.everyMinutes } } : {}) });
+      setMessage({
+        text: inRounds
+          ? `Asked the ${rounds.size} cheapest. ${rounds.size} more every ${rounds.everyMinutes} minutes until someone says yes. You will see each answer here.`
+          : `Asked ${ticked.size} ${ticked.size === 1 ? 'person' : 'people'}. You will see each answer here.`,
+      });
       setChosenShift('');
       setForm({ note: '', firstToAccept: true, urgent: false });
       await load();
@@ -207,8 +224,30 @@ export function CoverPanel({ state, siteId, today, nowMinute, shiftId }: { state
                       <label className="small"><input type="checkbox" checked={form.firstToAccept} onChange={(e) => setForm({ ...form, firstToAccept: e.target.checked })} /> First to say yes gets it</label>{' '}
                       <label className="small"><input type="checkbox" checked={form.urgent} onChange={(e) => setForm({ ...form, urgent: e.target.checked })} /> Urgent: through quiet hours</label>
                     </span>
-                    <button className="primary" type="submit" disabled={ticked.size === 0}>Ask {ticked.size} {ticked.size === 1 ? 'person' : 'people'}</button>
+                    <button className="primary" type="submit" disabled={ticked.size === 0}>
+                      {rounds.on && rounds.size < ticked.size ? `Ask the ${rounds.size} cheapest first` : `Ask ${ticked.size} ${ticked.size === 1 ? 'person' : 'people'}`}
+                    </button>
                   </div>
+                  {ticked.size > 1 && (
+                    <div className="compose-actions small">
+                      <label><input type="checkbox" checked={rounds.on} onChange={(e) => setRounds({ ...rounds, on: e.target.checked })} /> Ask in rounds, cheapest first:</label>
+                      {rounds.on && (
+                        <span>
+                          <select aria-label="People a round" value={rounds.size} onChange={(e) => setRounds({ ...rounds, size: Number(e.target.value) })}>
+                            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} at a time</option>)}
+                          </select>{' '}
+                          <select aria-label="Time between rounds" value={rounds.everyMinutes} onChange={(e) => setRounds({ ...rounds, everyMinutes: Number(e.target.value) })}>
+                            {ROUND_MINUTES.map((m) => <option key={m} value={m}>every {m < 60 ? `${m} minutes` : m === 60 ? 'hour' : `${m / 60} hours`}</option>)}
+                          </select>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {rounds.on && rounds.size < ticked.size && (
+                    <p className="muted small">
+                      Nobody further down the list hears anything unless their round comes. A round goes early if everyone asked says no, and everyone left is asked once there is not time for another round.
+                    </p>
+                  )}
                 </>
               )}
             </>
@@ -221,17 +260,19 @@ export function CoverPanel({ state, siteId, today, nowMinute, shiftId }: { state
         <section className="panel">
           <div className="panel-head"><span className="panel-title">Cover asked for</span></div>
           <div className="panel-body">
-            <ul className="plain cover-list">
+            <ul className="plain cover-requests">
               {requests.map((r) => {
                 const yes = r.offers.filter((o) => o.response === 'accepted' && !o.refused);
-                const waiting = r.offers.filter((o) => !o.response).length;
+                const waiting = r.offers.filter((o) => o.asked && !o.response).length;
                 return (
                   <li key={r.id} className="cover-row">
                     <div>
                       <span className="strong">{r.label}</span> <span className={`pill ${TONE[r.status]}`}>{STATUS[r.status]}</span>
                     </div>
                     <div className="muted small">
-                      {r.originalName ? `For ${r.originalName}. ` : ''}Asked by {r.createdBy}. {r.offers.length} asked, {yes.length} yes, {r.offers.filter((o) => o.response === 'declined').length} no, {waiting} not answered.
+                      {r.originalName ? `For ${r.originalName}. ` : ''}Asked by {r.createdBy}. {r.offers.filter((o) => o.asked).length} asked, {yes.length} yes, {r.offers.filter((o) => o.response === 'declined').length} no, {waiting} not answered.
+                      {r.rounds ? ` In rounds of ${r.rounds.size}: round ${r.round}${r.waiting ? `, ${r.waiting} still to ask${r.nextRoundAt ? `, next at ${clock(r.nextRoundAt)}` : ''}` : ', everyone asked'}.` : ''}
+                      {r.offers.some((o) => o.skipped) ? ` Passed over: ${r.offers.filter((o) => o.skipped).map((o) => `${o.name} (${o.skipped})`).join('; ')}.` : ''}
                       {r.filledBy ? ` Covered by ${r.filledBy}.` : ''}
                       {r.closedBy && r.status === 'cancelled' ? ` Called off by ${r.closedBy}.` : ''}
                       {r.status === 'filled' && !r.publish ? ' Publish the rota to send it to the team.' : ''}
@@ -244,6 +285,12 @@ export function CoverPanel({ state, siteId, today, nowMinute, shiftId }: { state
                               Give it to {o.name}
                             </button>
                           ))}
+                        {r.waiting > 0 && (
+                          <>
+                            <button onClick={() => void act(() => api.post(`/v1/cover/${r.id}/next`, {}), 'Asked the next round.')}>Next round now</button>
+                            <button onClick={() => void act(() => api.post(`/v1/cover/${r.id}/next`, { everyone: true }), 'Asked everyone left.')}>Ask everyone now</button>
+                          </>
+                        )}
                         <button className="ghost" onClick={() => void act(() => api.post(`/v1/cover/${r.id}/cancel`), 'Called off. Nobody else can accept it.')}>Call off</button>
                       </div>
                     )}
