@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { employeeStatus } from '../../src/engine/employees';
 import { hrChecks, hrSummary } from '../../src/engine/hr';
+import { sspEstimate, sspInPeriod } from '../../src/engine/ssp';
 import type { Absence, Employee, HrProfile, HrRecord } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, recordCopies } from './documents';
 import { forReader } from './employees';
-import { deleteCopiesAfterSave, deleteCopiesOnSave } from './documents';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 
@@ -102,7 +103,7 @@ export function readsHr(req: FastifyRequest, g: Guard, e: Employee): boolean {
  * Nobody sees or handles a case about themselves, whatever they hold: someone else runs it.
  * Cases are for people, never a system: a key, however it was scoped, gets none, as webhooks do not.
  */
-function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
+export function seesCases(req: FastifyRequest, g: Guard, employeeId?: string): boolean {
   return hrScoped(req) && Boolean(g.user) && g.can('hr.cases') && (!employeeId || g.behind?.employeeId !== employeeId);
 }
 
@@ -127,10 +128,15 @@ export function employeeView(req: FastifyRequest, e: Employee, g: Guard): Employ
   const { hr: _hr, absences, ...rest } = e;
   // Whether someone was off sick is health data too. Those who run pay keep the type, as sick pay
   // turns on it; the rota needs only the days.
-  const runsPay = [e.siteId, ...(e.coverSiteIds ?? [])].some((s) => g.can('payroll.view', s) || g.can('pay.edit', s) || g.can('pay.approve', s));
+  const runsPay = runsPayFor(g, e);
   return absences
     ? { ...rest, absences: absences.map(({ id, type, from, to }) => ({ id, ...(runsPay ? { type } : {}), from, to })) }
     : rest;
+}
+
+/** Whether the caller runs pay where the person works: they see whether absence was sickness, as sick pay turns on it. */
+function runsPayFor(g: Guard, e: Employee): boolean {
+  return [e.siteId, ...(e.coverSiteIds ?? [])].some((s) => g.can('payroll.view', s) || g.can('pay.edit', s) || g.can('pay.approve', s));
 }
 
 function findEmployee(org: OrgData, id: string) {
@@ -203,9 +209,36 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
         summary: hrSummary(people, today),
         checks: people
           .filter((e) => employeeStatus(e, today) !== 'left')
-          .map((e) => ({ employeeId: e.id, checks: hrChecks(e, records, org.state.roles, today) }))
+          .map((e) => ({ employeeId: e.id, checks: hrChecks(e, records, org.state.roles, today, org.state.shifts) }))
           .filter((x) => x.checks.length > 0),
       };
+    },
+  );
+
+  app.get<{ Querystring: { siteId?: string; from?: string; to?: string } }>(
+    '/v1/hr/sick-pay',
+    {
+      ...read,
+      schema: {
+        tags,
+        description:
+          'Statutory Sick Pay due on the absence record, person by person: each spell with its qualifying days, average weekly ' +
+          'earnings and weekly rate, under the rules from 6 April 2026. With from and to, also the SSP due in that pay period. ' +
+          'An estimate to check payroll against, not a payslip. For those who read the person\'s HR file or run their pay.',
+        querystring: { type: 'object', properties: { siteId: { type: 'string' }, from: isoDate, to: isoDate } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guardOf(req);
+      const today = ctx.store.todayISO();
+      const { from, to } = req.query;
+      if ((from && !to) || (to && !from)) throw new HttpError(400, 'invalid_request', 'Give both from and to for a pay period, or neither.');
+      return org.state.employees
+        .filter((e) => (!req.query.siteId || e.siteId === req.query.siteId) && (readsHr(req, g, e) || runsPayFor(g, e)))
+        .map((e) => ({ employeeId: e.id, estimate: sspEstimate(e, org.state.shifts, today) }))
+        .filter((x) => x.estimate.spells.length > 0 || x.estimate.oldRules > 0)
+        .map((x) => ({ ...x, ...(from && to ? { inPeriod: sspInPeriod(x.estimate, from, to) } : {}) }));
     },
   );
 
@@ -286,7 +319,8 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete<{ Params: { id: string } }>(
     '/v1/hr/records/:id',
-    { ...write, schema: { tags, params: idParam } },
+    // Copies on the record go with it, once the record is saved without it.
+    { ...write, schema: { tags, params: idParam }, onResponse: deleteCopiesOnSave(ctx) },
     async (req, reply) => {
       const org = orgOf(req);
       const record = org.hrRecords.find((r) => r.id === req.params.id);
@@ -296,6 +330,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       // A case is evidence of how a complaint or a warning was handled: closed, never deleted. Retention removes it with the file.
       if (record.kind === 'case') throw new HttpError(409, 'case_kept', 'A case is closed, not deleted. It is removed with the rest of the file when its retention period ends.');
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
+      deleteCopiesAfterSave(req, recordCopies([record]));
       audit(org, actorName(g), 'hr.record.deleted', { id: record.id, employeeId: record.employeeId, kind: record.kind });
       return reply.code(204).send();
     },

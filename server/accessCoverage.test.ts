@@ -18,6 +18,7 @@ const EXEMPT_FILES: Record<string, string> = {
 /** Single routes that are deliberately open, and why. */
 const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/privacy/register': 'The record of processing names nobody and is open to anyone who reads the rota.',
+  'GET /v1/privacy/policy-documents': 'Whether each company has a signed appropriate policy document: names no member of staff, read with the register.',
   'POST /v1/integrations/teampay/webhook/:orgId': 'Called by TeamPay with a signed body, never by a person.',
   'POST /v1/integrations/stripe/webhook': "Called by Stripe with a signed body, never by a person; applied only to the organisation that owns the Stripe customer.",
   'GET /v1/webhooks/events': 'The public catalogue of event types and what each carries: no organisation data.',
@@ -54,6 +55,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
   'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
   'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",
+  'PUT /v1/staff/kiosk-pin': "Staff app: the caller setting their own kiosk PIN, under the staff session.",
 };
 
 interface Route {

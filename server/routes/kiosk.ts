@@ -8,7 +8,8 @@ import { idParam } from '../schemas';
 import { cookieFrom, KIOSK_COOKIE, kioskCookie, sessionCookie } from '../session';
 import { audit, type Kiosk, type OrgData, type Store } from '../store';
 import { secure } from './access';
-import { tapCard } from './clocking';
+import { checkPin, clearPin, issuePin } from '../kioskPin';
+import { replaceSite, tapCard } from './clocking';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
 
 // The kiosk: a shared iPad at one site's staff entrance that can clock people in and out and do
@@ -84,9 +85,10 @@ function board({ org, kiosk }: Paired) {
         shift: shift ? { start: shift.startMinute, end: shift.endMinute } : null,
         status,
         since: since ?? null,
+        hasPin: Boolean(e.kioskPinSetAt),
       };
     });
-  return { kiosk: { name: kiosk.name }, site: { id: site.id, name: site.name }, today: date, people };
+  return { kiosk: { name: kiosk.name }, site: { id: site.id, name: site.name }, today: date, pinRequired: Boolean(site.kioskPinRequired), people };
 }
 
 const firstName = (name: string) => name.split(' ')[0];
@@ -124,7 +126,7 @@ export function kioskRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // Signing in by name, for someone without their card. Only people on today's rota at this site,
   // or already clocked in here, can be clocked from the kiosk.
-  app.post<{ Body: { employeeId: string; action: 'in' | 'out' | 'break_start' | 'break_end' } }>(
+  app.post<{ Body: { employeeId: string; action: 'in' | 'out' | 'break_start' | 'break_end'; pin?: string } }>(
     '/v1/kiosk/clock',
     {
       schema: {
@@ -132,7 +134,11 @@ export function kioskRoutes(app: FastifyInstance, ctx: AppContext) {
         body: {
           type: 'object',
           required: ['employeeId', 'action'],
-          properties: { employeeId: { type: 'string' }, action: { type: 'string', enum: ['in', 'out', 'break_start', 'break_end'] } },
+          properties: {
+            employeeId: { type: 'string' },
+            action: { type: 'string', enum: ['in', 'out', 'break_start', 'break_end'] },
+            pin: { type: 'string', maxLength: 12 },
+          },
         },
       },
     },
@@ -145,6 +151,8 @@ export function kioskRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!person || !employee) {
         throw new HttpError(403, 'not_on_rota', `Only people on today's rota at ${site.name} can sign in here by name. Use your card, or ask a manager.`);
       }
+      // Where the site asks for it, a name alone is not enough: anyone at the iPad can tap a colleague's name.
+      if (site.kioskPinRequired) await checkPin(store, org.orgId, employee, req.body.pin);
       const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
       const needOpen = (): TimeEntry => {
         if (!open) throw new HttpError(409, 'not_clocked_in', `${firstName(employee.name)}, you are not clocked in.`);
@@ -217,6 +225,69 @@ export function kioskAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       // The kiosk credential in, the person's session out: a shared iPad must never stay signed in as a manager.
       reply.header('set-cookie', [kioskCookie(encode({ o: org.orgId, k: kiosk.id, s: secret }), secure(req)), sessionCookie('', secure(req), 0)]);
       return reply.code(201).send({ kiosk: view(kiosk), path: '/kiosk/' });
+    },
+  );
+
+  app.put<{ Params: { id: string }; Body: { required: boolean } }>(
+    '/v1/sites/:id/kiosk-pin',
+    {
+      ...setup,
+      schema: {
+        tags: ['Clocking'],
+        description: "Whether signing in by name on the site's kiosk needs the person's PIN. Cards are never affected.",
+        params: idParam,
+        body: { type: 'object', required: ['required'], additionalProperties: false, properties: { required: { type: 'boolean' } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      if (!org.state.sites.some((s) => s.id === req.params.id)) throw notFound(`Site ${req.params.id}`);
+      g.allow('team.manage', req.params.id);
+      const site = replaceSite(org, req.params.id, (s) => ({ ...s, kioskPinRequired: req.body.required }));
+      audit(org, actorName(g), req.body.required ? 'kiosk.pin_required' : 'kiosk.pin_not_required', { siteId: site.id });
+      return site;
+    },
+  );
+
+  const employeeOf = (req: FastifyRequest<{ Params: { id: string } }>) => {
+    const org = orgOf(req);
+    const g = guard(ctx, req, org);
+    const employee = org.state.employees.find((e) => e.id === req.params.id);
+    if (!employee) throw notFound(`Employee ${req.params.id}`);
+    g.allow('team.manage', employee.siteId);
+    return { org, g, employee };
+  };
+
+  app.post<{ Params: { id: string } }>(
+    '/v1/employees/:id/kiosk-pin',
+    {
+      ...setup,
+      schema: {
+        tags: ['Clocking'],
+        description:
+          "Issues the person a new random kiosk PIN, replacing any they had, for a manager to hand over. The PIN is in this " +
+          'response only and is never stored in the clear. People can also choose their own in the staff app.',
+        params: idParam,
+      },
+    },
+    async (req, reply) => {
+      const { org, g, employee } = employeeOf(req);
+      if (employee.status === 'leaver') throw new HttpError(409, 'leaver', `${employee.name} has left.`);
+      const pin = await issuePin(ctx.store, org.orgId, employee);
+      audit(org, actorName(g), 'kiosk.pin_issued', { employeeId: employee.id });
+      return reply.code(201).send({ pin, setAt: employee.kioskPinSetAt });
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/v1/employees/:id/kiosk-pin',
+    { ...setup, schema: { tags: ['Clocking'], description: "Removes the person's kiosk PIN.", params: idParam } },
+    async (req, reply) => {
+      const { org, g, employee } = employeeOf(req);
+      await clearPin(ctx.store, org.orgId, employee);
+      audit(org, actorName(g), 'kiosk.pin_removed', { employeeId: employee.id });
+      return reply.code(204).send();
     },
   );
 

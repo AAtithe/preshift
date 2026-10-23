@@ -127,3 +127,82 @@ describe('the kiosk', () => {
     expect(org.audit.map((a) => a.action)).toEqual(expect.arrayContaining(['kiosk.paired', 'kiosk.removed']));
   });
 });
+
+describe('kiosk PINs', () => {
+  it('refuse PINs that are easy to guess, including the birth date', async () => {
+    const { pinProblem, randomPin } = await import('../src/engine/pin');
+    const who = { dateOfBirth: '1996-07-14' };
+    for (const bad of ['123', '1234567', '12a4', '0000', '1234', '9876', '7890', '1407', '0714', '1996', '140796']) {
+      expect(pinProblem(bad, who), bad).not.toBeNull();
+    }
+    expect(pinProblem('4827', who)).toBeNull();
+    for (let i = 0; i < 50; i++) expect(pinProblem(randomPin(who), who)).toBeNull();
+  });
+
+  it('once a site asks for them, sign-in by name needs the right PIN, and cards do not', async () => {
+    const t = await paired();
+    const clock = (action: string, pin?: string) => t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-1', action, ...(pin ? { pin } : {}) }, t.kiosk);
+
+    expect((await t.call('PUT', '/v1/sites/mar/kiosk-pin', { required: true }, undefined, 'integration')).body.kioskPinRequired).toBe(true);
+    expect((await t.call('GET', '/v1/kiosk/board', undefined, t.kiosk)).body).toMatchObject({ pinRequired: true, people: [{ hasPin: false }] });
+    expect((await clock('in')).body.error).toBe('no_pin');
+
+    const issued = await t.call('POST', '/v1/employees/mar-1/kiosk-pin', undefined, undefined, 'integration');
+    expect(issued.status).toBe(201);
+    const pin = issued.body.pin as string;
+    expect(pin).toMatch(/^\d{4}$/);
+    // Never stored in the clear: not on the record, not in organisation data.
+    const org = await t.store.load('demo');
+    expect(JSON.stringify(org)).not.toContain(`"${pin}"`);
+    expect(org.state.employees.find((e) => e.id === 'mar-1')).toMatchObject({ kioskPinSetBy: 'manager', kioskPinSetAt: expect.any(String) });
+
+    expect((await clock('in')).body.error).toBe('pin_required');
+    const wrong = pin === '4827' ? '5938' : '4827';
+    expect((await clock('in', wrong)).body).toMatchObject({ error: 'wrong_pin', details: { triesLeft: 4 } });
+    const inn = await clock('in', pin);
+    expect(inn.status).toBe(200);
+    expect(inn.body.entry.method).toBe('kiosk');
+
+    // Cards are unaffected by the PIN setting.
+    await t.call('PUT', '/v1/employees/mar-1/badge', { badgeId: 'AB12CD34' }, undefined, 'integration');
+    expect((await t.call('POST', '/v1/kiosk/tap', { badgeId: 'AB12CD34' }, t.kiosk)).status).toBe(200);
+  });
+
+  it('locks a PIN after five wrong tries, for that person only', async () => {
+    const t = await paired();
+    await t.call('PUT', '/v1/sites/mar/kiosk-pin', { required: true }, undefined, 'integration');
+    const pin = (await t.call('POST', '/v1/employees/mar-1/kiosk-pin', undefined, undefined, 'integration')).body.pin as string;
+    const wrong = pin === '4827' ? '5938' : '4827';
+    const results = [];
+    for (let i = 0; i < 5; i++) results.push((await t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-1', action: 'in', pin: wrong }, t.kiosk)).body.error);
+    expect(results).toEqual(['wrong_pin', 'wrong_pin', 'wrong_pin', 'wrong_pin', 'pin_locked']);
+    // Even the right PIN is refused while locked.
+    expect((await t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-1', action: 'in', pin }, t.kiosk)).body.error).toBe('pin_locked');
+    // Someone else on the rota is not locked out by it.
+    await t.call('POST', '/v1/shifts', { employeeId: 'mar-2', roleId: 'bar', siteId: 'mar', date: t.today, startMinute: 0, endMinute: 1439, breakMinutes: 0 }, undefined, 'integration');
+    const other = (await t.call('POST', '/v1/employees/mar-2/kiosk-pin', undefined, undefined, 'integration')).body.pin;
+    expect((await t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-2', action: 'in', pin: other }, t.kiosk)).status).toBe(200);
+    // A new PIN from a manager clears the lock.
+    const fresh = (await t.call('POST', '/v1/employees/mar-1/kiosk-pin', undefined, undefined, 'integration')).body.pin;
+    expect((await t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-1', action: 'in', pin: fresh }, t.kiosk)).status).toBe(200);
+  }, 60_000);
+
+  it('lets a person set their own PIN in the staff app, never someone else at the kiosk', async () => {
+    const t = await paired();
+    await t.call('PUT', '/v1/sites/mar/kiosk-pin', { required: true }, undefined, 'integration');
+    const invite = await t.call('POST', '/v1/staff-logins/mar-1/invite', undefined, undefined, 'integration');
+    const link = Object.fromEntries(new URLSearchParams(new URL(invite.body.path, 'https://x').hash.slice(1)));
+    const joined = await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: 'pint of best bitter' });
+    const staff = joined.cookies[0];
+    expect(joined.body.kioskPin).toEqual({ set: false, required: true });
+
+    expect((await t.call('PUT', '/v1/staff/kiosk-pin', { pin: '1234' }, staff)).body.error).toBe('weak_pin');
+    const set = await t.call('PUT', '/v1/staff/kiosk-pin', { pin: '4827' }, staff);
+    expect(set.body.kioskPin).toEqual({ set: true, required: true });
+    expect((await t.call('PUT', '/v1/staff/kiosk-pin', { pin: '4827' })).status).toBe(401);
+    expect((await t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-1', action: 'in', pin: '4827' }, t.kiosk)).status).toBe(200);
+    expect((await t.call('DELETE', '/v1/employees/mar-1/kiosk-pin', undefined, undefined, 'integration')).status).toBe(204);
+    expect((await t.call('POST', '/v1/kiosk/clock', { employeeId: 'mar-1', action: 'out', pin: '4827' }, t.kiosk)).body.error).toBe('no_pin');
+  });
+
+});

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { weekCost } from '../../src/engine/cost';
+import { weekCost, weekOnCosts } from '../../src/engine/cost';
 import { employmentAllowanceIssues, employmentAllowanceWeek } from '../../src/engine/allowance';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/journal';
 import { addDays, weekDates } from '../../src/engine/time';
-import { entriesAsShifts, payrollHours, payrollVariance } from '../../src/engine/timesheet';
+import { sspEstimate, sspInPeriod, type SspCheckLine } from '../../src/engine/ssp';
+import { entriesAsShifts, payrollHours, payrollVariance, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
 import type { TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -53,6 +54,34 @@ export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'ac
       ? { ...org.state, shifts: [...org.state.shifts.filter((s) => !dates.has(s.date)), ...entriesAsShifts(actual)] }
       : org.state,
   };
+}
+
+/** Sickness with SSP due in the period, for the people a company employs. */
+export function sicknessIn(org: OrgData, entityId: string, from: string, to: string, today: string): PayrollSicknessLine[] {
+  return org.state.employees
+    .filter((e) => e.entityId === entityId && (e.absences ?? []).some((a) => a.type === 'sickness' && a.from <= to && (a.to ?? today) >= from))
+    .flatMap((e) => {
+      const estimate = sspEstimate(e, org.state.shifts, today < to ? today : to);
+      const days = estimate.spells.flatMap((s) => s.days).filter((d) => d.date >= from && d.date <= to);
+      if (!days.length) return [];
+      const perWeek = estimate.spells.find((s) => s.days.includes(days[0]))?.pattern.days.length ?? 5;
+      return [{ employeeId: e.id, ...(e.payrollId ? { payrollId: e.payrollId } : {}), dates: days.map((d) => d.date), qualifyingDaysPerWeek: perWeek, sspEstimate: sspInPeriod(estimate, from, to) }];
+    });
+}
+
+/**
+ * What payroll paid in SSP against what the absence record says was due, person by person. Only
+ * when the payroll reports SSP at all: a run without it has nothing to check.
+ */
+export function sspCheck(org: OrgData, entityId: string, from: string, to: string, paid: PayRunEmployee[], today: string): SspCheckLine[] | undefined {
+  if (!paid.some((p) => p.ssp !== undefined)) return undefined;
+  const expected = new Map(sicknessIn(org, entityId, from, to, today).map((l) => [l.employeeId, l.sspEstimate]));
+  const ids = new Set([...expected.keys(), ...paid.filter((p) => (p.ssp ?? 0) > 0).map((p) => p.employeeId)]);
+  return [...ids].map((employeeId) => {
+    const e = expected.get(employeeId) ?? 0;
+    const p = paid.find((x) => x.employeeId === employeeId)?.ssp ?? 0;
+    return { employeeId, expected: e, paid: p, difference: Math.round((p - e) * 100) / 100 };
+  });
 }
 
 export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -175,7 +204,9 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
             org.state.entities,
           ),
         }))
-        .filter((b) => b.batch.lines.length > 0);
+        .filter((b) => b.batch.lines.length > 0)
+        // Sickness goes with the hours, so payroll pays SSP for it and we can check what it paid.
+        .map((b) => ({ ...b, batch: { ...b.batch, sickness: sicknessIn(org, b.entity.id, periodStart, periodEnd, ctx.store.todayISO()) } }));
       if (batches.length === 0) throw new HttpError(422, 'no_hours', 'No approved hours in this period');
 
       // Hours carry a rate. Someone whose rate in Preshift and in TeamPay disagree, undecided, would be
@@ -201,18 +232,35 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       const cost = weekCost(state, periodStart);
       const queued = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
       const created = [];
-      for (const { entity, batch } of batches) {
+      for (const { entity, batch: hours } of batches) {
+        // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
+        const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id));
+        for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
+        // Back pay not yet sent goes with this batch; arrears sent with a batch since replaced go again with this one.
+        const replaced = new Set(org.submissions.filter((s) => s.status === 'superseded').map((s) => s.id));
+        const owed = org.payChanges.filter((c) => c.backPay && (!c.backPay.sentIn || replaced.has(c.backPay.sentIn)) &&
+          org.state.employees.find((e) => e.id === c.employeeId)?.entityId === entity.id);
+        const batch = {
+          ...hours,
+          adjustments: owed.map((c) => {
+            const e = org.state.employees.find((x) => x.id === c.employeeId)!;
+            return {
+              employeeId: e.id,
+              ...(e.payrollId ? { payrollId: e.payrollId } : {}),
+              amount: c.backPay!.amount,
+              description: `Back pay from ${c.backPay!.from} to ${c.backPay!.to}`,
+              reference: c.id,
+            };
+          }),
+        };
         // Anyone not yet in payroll is set up first; the outbox delivers in order.
-        for (const line of batch.lines) {
+        for (const line of [...batch.lines, ...batch.adjustments]) {
           const e = org.state.employees.find((x) => x.id === line.employeeId)!;
           if (!e.payrollId && !queued.has(e.id)) {
             enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
             queued.add(e.id);
           }
         }
-        // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
-        const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id));
-        for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
         const version = mine.length + 1;
         const people = new Set(org.state.employees.filter((e) => e.entityId === entity.id).map((e) => e.id));
         const submission = {
@@ -228,6 +276,13 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           createdBy: actorName(g),
           accrued: Object.fromEntries([...cost.employees].filter(([id]) => people.has(id)).map(([id, c]) => [id, c.total])),
         };
+        // Back pay costs what any pay costs: priced on top of the week's pay, so on-costs cross thresholds as payroll's will.
+        for (const a of batch.adjustments) {
+          const e = org.state.employees.find((x) => x.id === a.employeeId)!;
+          const gross = cost.employees.get(e.id)?.gross ?? 0;
+          submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + a.amount).total - weekOnCosts(e, gross).total) * 100) / 100;
+        }
+        for (const c of owed) c.backPay!.sentIn = submission.id;
         org.submissions.push(submission);
         enqueue(org, {
           type: 'hours.submit',
@@ -413,6 +468,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           .at(-1);
         const accrued = new Map(Object.entries(submission?.accrued ?? {}));
         const variance = payrollVariance(accrued, run.employees);
+        const ssp = sspCheck(org, entity.id, run.periodStart, run.periodEnd, run.employees, ctx.store.todayISO());
         org.payRuns.push({
           id: run.id,
           entityId: entity.id,
@@ -421,7 +477,10 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           periodEnd: run.periodEnd,
           receivedAt: new Date().toISOString(),
           variance,
+          ...(ssp ? { ssp } : {}),
         });
+        const wrong = ssp?.filter((l) => Math.abs(l.difference) >= 0.01) ?? [];
+        if (wrong.length) audit(org, 'TeamPay', 'payroll.ssp_mismatch', { run: run.id, entityId: entity.id, people: wrong.length, difference: Math.round(wrong.reduce((s, l) => s + l.difference, 0) * 100) / 100 });
         audit(org, 'TeamPay', 'payroll.run_completed', { run: run.id, entityId: entity.id, variance: variance.variance });
       } else if (event.type === 'payroll.run.flagged') {
         audit(org, 'TeamPay', 'payroll.run_flagged', event.data);
