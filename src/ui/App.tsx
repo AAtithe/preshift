@@ -64,16 +64,19 @@ const PeopleView = screen(() => import('./PeopleView'), 'PeopleView', ['people']
 const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['privacy']);
 const ProfileView = screen(() => import('./ProfileView'), 'ProfileView', ['profile']);
 const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', ['programme']);
+const RequestsView = screen(() => import('./RequestsView'), 'RequestsView', ['requests']);
 const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
 const SettingsView = screen(() => import('./SettingsView'), 'SettingsView', ['settings']);
 const SetupView = screen(() => import('./SetupView'), 'SetupView', ['setup']);
 const ShiftEditor = screen(() => import('./ShiftEditor'), 'ShiftEditor');
+const SupportView = screen(() => import('./SupportView'), 'SupportView', ['support']);
 const TeamView = screen(() => import('./TeamView'), 'TeamView', ['team']);
 const Timeline = screen(() => import('./Timeline'), 'Timeline', ['rota']);
 const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['training']);
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
+const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
@@ -638,6 +641,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
+              {shown === 'welfare' && <WelfareView key={sectionSites.join(',')} state={state} siteIds={sectionSites} today={today} allow={allow} onOpenHr={openHr} />}
               {shown === 'holiday' && (
                 <HolidayView
                   state={state}
@@ -648,6 +652,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
+              {shown === 'requests' && <RequestsView state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
                 <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
@@ -692,6 +697,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
+              {shown === 'support' && <SupportView me={me?.user?.name ?? null} context={{ siteId: single?.id, week }} onOpen={(t) => setTab(t as Tab)} />}
               </Suspense>
             </main>
 

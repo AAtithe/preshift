@@ -10,6 +10,7 @@ import { BreakRule, BreakSteps } from './guides/breaks';
 import { HelpModal } from './HelpModal';
 import { hours, money, money2, pct } from './format';
 import { NOT_YOURS, type Allow } from './permissions';
+import { PayrollLink } from './PayrollLink';
 
 interface Employer {
   entityId: string;
@@ -27,7 +28,7 @@ interface Status {
 }
 interface Submission { id: string; entityId?: string; periodStart: string; version: number; status: string; totalHours: number; lineCount: number; createdAt: string }
 interface PayRun { id: string; entityId?: string; periodStart: string; receivedAt: string; variance: PayrollVariance }
-interface OutboxItem { id: string; type: string; status: string; attempts: number; lastError?: string }
+interface OutboxItem { id: string; type: string; status: string; attempts: number; lastError?: string; reason?: string; payload?: { employeeId?: string } }
 
 interface Props {
   state: RotaState;
@@ -47,9 +48,11 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged, 
   const [subs, setSubs] = useState<Submission[]>([]);
   const [runs, setRuns] = useState<PayRun[]>([]);
   const [failed, setFailed] = useState<OutboxItem[]>([]);
+  const [heldItems, setHeldItems] = useState<OutboxItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [employerDraft, setEmployerDraft] = useState<Record<string, string>>({});
+  const [linking, setLinking] = useState(false);
   const end = addDays(week, 6);
   // Demo controls depend on running against the simulator, which /v1/me says for those who cannot read payroll.
   const isSimulator = status ? status.provider.includes('simulator') : simulator;
@@ -76,7 +79,9 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged, 
     setCompare(cmp);
     setSubs(sb.filter((s) => s.periodStart === week));
     setRuns(rn.filter((r) => r.periodStart === week));
-    setFailed(ob.filter((i) => i.status === 'failed'));
+    // A starter held for a possible match on TeamPay waits for a person, not a retry: it is shown under linking.
+    setFailed(ob.filter((i) => i.status === 'failed' && !i.reason));
+    setHeldItems(ob.filter((i) => i.status === 'failed' && i.reason));
   }, [siteId, week, end, seesPayroll, seesTime]);
 
   useEffect(() => {
@@ -116,6 +121,10 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged, 
   const ranFor = employers.filter((e) => latestRunOf(e.entityId));
   const missingEmployer = employers.filter((e) => !e.employerId);
 
+  const entityId = state.sites.find((s) => s.id === siteId)?.entityId ?? '';
+  const awaitingDecision = state.employees.filter((e) => e.entityId === entityId && e.payrollReview).length;
+  const held = heldItems.filter((i) => state.employees.find((e) => e.id === i.payload?.employeeId)?.entityId === entityId).length;
+
   const approveAll = () => step('Approve', () => api.post('/v1/time-entries/approve', { siteId, from: week, to: end }));
 
   return (
@@ -152,6 +161,13 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged, 
           <button disabled={busy || !sends || !status || status.employees.synced === status.employees.total} title={sends ? undefined : NOT_YOURS} onClick={() => step('Sync people', () => api.post('/v1/integrations/payroll/sync-employees'))}>
             Set up in TeamPay
           </button>
+          {awaitingDecision > 0 && <div className="warn-text">{awaitingDecision} linked with differences to decide</div>}
+          {held > 0 && <div className="warn-text">{held} held: may already be on TeamPay</div>}
+          {seesPayroll && (
+            <button className="link" onClick={() => setLinking(!linking)}>
+              {linking ? 'Close linking' : 'Link existing TeamPay people'}
+            </button>
+          )}
         </Step>
         <Step n={2} title="Clocked hours" done={entries.length > 0}>
           <div>{entries.length} records, {count('open')} still clocked in</div>
@@ -206,6 +222,12 @@ export function PayrollView({ state, siteId, week, allow, simulator, onChanged, 
           )}
         </Step>
       </section>
+      {linking && seesPayroll && entityId && (
+        <section className="settings-card">
+          <h2>People already on TeamPay</h2>
+          <PayrollLink state={state} entityId={entityId} canLink={sends} onChanged={async () => { await refresh(); await onChanged(); }} />
+        </section>
+      )}
 
       {!seesPayroll && (
         <p className="notice">You see this site's hours. Payroll submissions and pay runs are for those who run payroll.</p>
