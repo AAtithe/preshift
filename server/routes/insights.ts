@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { cohortBenchmark, quartileOf, type BenchmarkMetric, type SiteSample } from '../../src/engine/benchmark';
 import { moveIssues, realisedSaving, recordOf, weeklyMoves, type MoveRecord } from '../../src/engine/coach';
 import { forecastAccuracy, overrideForecast } from '../../src/engine/forecast';
+import { accuracyReport } from '../../src/engine/forecastreport';
 import { weekMetrics } from '../../src/engine/metrics';
 import { baselineFromHistory, MILESTONES, newProgramme, programmeStatus, wholeWeeks, type Programme } from '../../src/engine/programme';
 import { finishedWeeks, siteScorecard, type Scorecard } from '../../src/engine/scorecard';
@@ -12,9 +13,10 @@ import { requireScope } from '../auth';
 import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../context';
 import { forecastBody, isoDate, rangeQuery, siteWeekQuery } from '../schemas';
 import { modelDates } from '../forecasting';
-import { guard } from '../guard';
+import { canOrgWide } from '../../src/engine/access';
+import { actorOf, guard } from '../guard';
 import { isSandbox } from '../sandbox';
-import { audit, orgsOfAccount, type OrgData } from '../store';
+import { audit, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
 type Range = { siteId?: string; from?: string; to?: string };
@@ -22,17 +24,6 @@ type Range = { siteId?: string; from?: string; to?: string };
 const siteParam = { type: 'object', required: ['siteId'], properties: { siteId: { type: 'string' } } } as const;
 const siteQuery = { type: 'object', required: ['siteId'], properties: { siteId: { type: 'string' }, weeks: { type: 'integer', minimum: 1, maximum: 26 } } } as const;
 const money = { type: 'number', minimum: 0 } as const;
-
-/**
- * Sign-offs, baselines, verifications and the gain share set the fee the operator pays, so they are
- * the WS lead's alone: a person WS has marked as lead, or an integration key WS holds with the
- * programme:lead scope. The operator's own admin is not enough, and a full-access key is not either.
- */
-async function requireLead(req: FastifyRequest, reply: FastifyReply) {
-  const p = req.principal;
-  const ok = p?.user ? p.user.lead === true : p?.scopes.includes('programme:lead');
-  if (!ok) return reply.code(403).send({ error: 'forbidden', message: 'Only the Williams, Stanley & Co. lead can sign off the programme' });
-}
 
 /** A verification that proves a saving: real sales, after the baseline, inside the programme. */
 const counts = (p: Programme) => p.verifications.some((v) => v.sales > 0 && v.from >= p.startWeek && (!p.baseline || v.from > p.baseline.to));
@@ -85,36 +76,19 @@ function sampleOf(org: OrgData, siteId: string, today: string): SiteSample {
 export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const write = { preHandler: requireScope('rota:write') };
+  /**
+   * Sign-offs, baselines, verifications and the gain share set the fee the operator pays, so they are
+   * the WS lead's alone: a person holding the WS client partner role here (with their authenticator),
+   * or a deployment key WS holds with the programme:lead scope. The operator's owner does not hold it,
+   * a sign-in with no access record is not enough, and a full-access key is not either.
+   */
+  const requireLead = async (req: FastifyRequest) => {
+    const actor = actorOf(req, orgOf(req), ctx.store.todayISO());
+    const ok = actor.kind === 'user' ? canOrgWide(actor.user, 'programme.lead', ctx.store.todayISO()) : actor.ws === true;
+    if (!ok) throw new HttpError(403, 'forbidden', 'Only the Williams, Stanley & Co. client partner can sign off the programme');
+  };
   const lead = { preHandler: [requireScope('rota:write'), requireLead] };
   const today = () => londonToday(ctx);
-
-  app.put<{ Params: { email: string }; Body: { lead: boolean } }>(
-    '/v1/programme-leads/:email',
-    {
-      schema: {
-        tags: ['Programme'],
-        description: 'Marks a person as the WS lead for this organisation. Only an integration key WS holds with the programme:lead scope can do this.',
-        params: { type: 'object', required: ['email'], properties: { email: { type: 'string' } } },
-        body: { type: 'object', required: ['lead'], additionalProperties: false, properties: { lead: { type: 'boolean' } } },
-      },
-      preHandler: async (req, reply) => {
-        if (req.principal.user || !req.principal.scopes.includes('programme:lead')) {
-          return reply.code(403).send({ error: 'forbidden', message: 'Only a WS key with the programme:lead scope can name a lead' });
-        }
-      },
-    },
-    async (req) => {
-      const email = req.params.email.toLowerCase();
-      const user = await ctx.store.getUser(email);
-      const orgId = req.principal.orgId;
-      if (!user || !orgsOfAccount(user).includes(orgId)) throw notFound(`Person ${email}`);
-      // Lead here only: an account that also works for another organisation is not its lead.
-      const others = (user.leadOrgs ?? []).filter((o) => o !== orgId);
-      await ctx.store.updateUser(email, { leadOrgs: req.body.lead ? [...others, orgId] : others });
-      audit(orgOf(req), req.principal.name, 'programme.lead', { email, lead: req.body.lead });
-      return { email, lead: req.body.lead };
-    },
-  );
 
   // ----- Till actuals and the forecast model -----
 
@@ -269,6 +243,33 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       requireSite(org, req.query.siteId);
       guard(ctx, req, org).allow('rota.view', req.query.siteId);
       return forecastAccuracy(org.state.forecast, org.state.actuals ?? [], req.query.siteId, req.query.from, req.query.to);
+    },
+  );
+
+  app.get<{ Querystring: { siteIds: string; week: string; weeks?: number } }>(
+    '/v1/forecast/accuracy/report',
+    {
+      ...read,
+      schema: {
+        tags: ['Forecast'],
+        description:
+          "Forecast against takings for several sites over several weeks ending with `week`: day and hourly error, bias, sales over and under forecast and the labour they imply at each site's target, and days of the week wrong the same way. Sites the caller cannot see are left out.",
+        querystring: {
+          type: 'object',
+          required: ['siteIds', 'week'],
+          properties: { siteIds: { type: 'string', minLength: 1 }, week: isoDate, weeks: { type: 'integer', minimum: 1, maximum: 26 } },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const ids = [...new Set(req.query.siteIds.split(',').map((s) => s.trim()).filter(Boolean))];
+      for (const id of ids) requireSite(org, id);
+      // The same right as the forecast and takings it reads: rota.view, site by site.
+      const g = guard(ctx, req, org);
+      const seen = ids.filter((id) => g.can('rota.view', id));
+      if (seen.length === 0) throw new HttpError(403, 'forbidden', 'None of these sites is yours to see');
+      return accuracyReport(org.state, org.state.actuals ?? [], seen, weekStart(req.query.week), req.query.weeks ?? 8, today());
     },
   );
 

@@ -54,6 +54,13 @@ const policyBody = {
  * erasure, retention, the request log) is privacy.manage, which needs the authenticator, and is
  * done by a person, never an integration key: a subject access export is everything held on someone.
  */
+const welfareHeld = (org: OrgData) => ({
+  pulses: org.welfare?.pulses.length ?? 0,
+  recognitions: org.welfare?.recognitions.length ?? 0,
+  chats: org.welfare?.chats.length ?? 0,
+  members: org.welfare?.rewardsEnrolled.length ?? 0,
+});
+
 export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const admin = {
@@ -74,8 +81,11 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
         email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
         payrollLive: !ctx.simulatorFor(org.orgId),
+        rewards: org.welfare?.rewards?.environment === 'production',
       },
       policyOf(org),
+      org.support?.tickets.length ?? 0,
+      welfareHeld(org),
     );
   });
 
@@ -113,6 +123,15 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.
       const anonymised = new Set(result.applied.filter((a) => a.code === 'anonymise').map((a) => a.employeeId));
       org.hrRecords = org.hrRecords.filter((r) => !anonymised.has(r.employeeId));
+      // Recognition messages and chat requests are about the person, and go with them.
+      if (org.welfare) {
+        org.welfare.recognitions = org.welfare.recognitions.filter((r) => !anonymised.has(r.employeeId));
+        org.welfare.chats = org.welfare.chats.filter((c) => !anonymised.has(c.employeeId));
+        org.welfare.rewardsOptOut = org.welfare.rewardsOptOut.filter((id) => !anonymised.has(id));
+      }
+      // And what they wrote in the staff app and were told there: requests keep only what the rota needs.
+      for (const r of org.requests ?? []) if (anonymised.has(r.employeeId)) delete r.note;
+      org.notifications = (org.notifications ?? []).filter((n) => !anonymised.has(n.employeeId));
       for (const id of result.closeLoginsFor) await ctx.store.deleteStaffLogin(org.orgId, id);
       // The audit keeps ids and counts only, never the data that was removed.
       audit(org, actor(req), 'privacy.retention_applied', { applied: result.applied });
@@ -134,6 +153,12 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       const org = orgOf(req);
       const e = org.state.employees.find((x) => x.id === req.params.id);
       if (!e) throw notFound(`Employee ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      // Someone else answers a request about you: it may cover an investigation you are not yet told
+      // of, and what may be withheld from you, such as a witness's statement, is theirs to decide.
+      if (g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else answers a request for your own data.');
+      // Cases go only to those who handle them, as everywhere else.
+      const records = org.hrRecords.filter((r) => r.employeeId === e.id && (r.kind !== 'case' || g.can('hr.cases')));
       const login = await ctx.store.getStaffLogin(org.orgId, e.id);
       const employer = org.state.entities.find((x) => x.id === e.entityId);
       const register = processingRegister(
@@ -144,8 +169,11 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
           email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
           payrollLive: !ctx.simulatorFor(org.orgId),
+          rewards: org.welfare?.rewards?.environment === 'production',
         },
         policyOf(org),
+        org.support?.tickets.length ?? 0,
+        welfareHeld(org),
       );
       const about = (detail?: Record<string, unknown>) => detail?.id === e.id || detail?.employeeId === e.id;
       audit(org, actor(req), 'privacy.subject_exported', { employeeId: e.id });
@@ -155,7 +183,10 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         person: e,
         shifts: org.state.shifts.filter((s) => s.employeeId === e.id),
         timeEntries: org.timeEntries.filter((t) => t.employeeId === e.id),
-        hrRecords: org.hrRecords.filter((r) => r.employeeId === e.id),
+        hrRecords: records,
+        // What they asked for and were told in the staff app.
+        staffRequests: (org.requests ?? []).filter((r) => r.employeeId === e.id),
+        notifications: (org.notifications ?? []).filter((n) => n.employeeId === e.id),
         payroll: {
           hoursSent: org.submissions
             .filter((s) => s.accrued[e.id] !== undefined)
@@ -164,10 +195,19 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
             r.variance.lines.filter((l) => l.employeeId === e.id).map((l) => ({ periodStart: r.periodStart, periodEnd: r.periodEnd, ...l })),
           ),
         },
+        wellbeing: {
+          recognitions: (org.welfare?.recognitions ?? []).filter((r) => r.employeeId === e.id),
+          chatRequests: (org.welfare?.chats ?? []).filter((c) => c.employeeId === e.id),
+          hospitalityRewards: {
+            member: (org.welfare?.rewardsEnrolled ?? []).includes(e.id),
+            optedOut: (org.welfare?.rewardsOptOut ?? []).includes(e.id),
+          },
+          pulse: 'Weekly pulse answers are stored without your id, so they cannot be found or returned as yours.',
+        },
         staffLogin: login
           ? { email: login.email ?? null, createdAt: login.createdAt, activatedAt: login.activatedAt ?? null, lastSignInAt: login.lastSignInAt ?? null }
           : null,
-        changes: org.audit.filter((a) => about(a.detail)),
+        changes: org.audit.filter((a) => about(a.detail) && (a.detail?.kind !== 'case' || g.can('hr.cases'))),
         requests: (org.privacy?.requests ?? []).filter((r) => r.employeeId === e.id).map(requestView),
         howWeUseIt: register,
         yourRights:

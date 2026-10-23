@@ -1,8 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { weekStart } from '../src/engine/time';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
+import { emailSetting } from './mail';
 import { COOKIE, STAFF_COOKIE } from './session';
 import { MemoryStore, PgStore, type Query, type Store } from './store';
 
@@ -119,7 +120,7 @@ describe('staff logins', () => {
     expect((await t.call('GET', '/v1/staff-logins', undefined, staff)).status).toBe(401);
   });
 
-  it('signs in, locks after five wrong passwords, and a new invite resets the password', async () => {
+  it('signs in, locks after five wrong passwords, and never hands over a link to a login someone has set up', async () => {
     const t = await boot();
     const first = (await t.join('mar-1', 'priya@example.com')).cookie;
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: 'wrong password!' })).status).toBe(401);
@@ -130,11 +131,13 @@ describe('staff logins', () => {
     for (let i = 0; i < 5; i++) await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: 'wrong password!' });
     expect((await t.call('POST', '/v1/staff/login', { email: 'priya@example.com', password: PASSWORD })).body.error).toBe('locked');
 
-    // Forgotten password: the manager sends a new invite. Old sessions end once it is used.
-    const reset = await t.call('POST', '/v1/staff/join', { ...(await t.invite('mar-1')), email: 'priya@example.com', password: 'a brand new password' });
-    expect(reset.status).toBe(200);
-    expect((await t.call('GET', '/v1/staff/me', undefined, first)).status).toBe(401);
-    expect((await t.call('GET', '/v1/staff/me', undefined, reset.cookie)).status).toBe(200);
+    // Forgotten password: a new link opens her clocking, so it only ever goes to her own email.
+    // Without email set up it is refused, and no link is made.
+    const refused = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('email_only');
+    expect(JSON.stringify(refused.body)).not.toMatch(/invite=/);
+    expect((await t.call('GET', '/v1/staff/me', undefined, first)).status).toBe(200);
   }, 60_000);
 
   it('ends access when the login is closed or the person leaves', async () => {
@@ -182,5 +185,192 @@ describe('staff logins', () => {
 
     const out = await t.call('POST', '/v1/staff/clock-out', { location: AT_SITE }, me);
     expect(out.body.recent[0].breaks).toHaveLength(1);
+  });
+});
+
+describe('staff app invitation emails', () => {
+  const EMAIL = { resendApiKey: 're_test_abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+  let sent: { to: string[]; subject: string; text: string; html: string }[] = [];
+  let refuse = false;
+  afterEach(() => vi.unstubAllGlobals());
+  function stubResend() {
+    sent = [];
+    refuse = false;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url !== 'https://api.resend.com/emails') throw new Error(`unexpected fetch ${url}`);
+      if (refuse) return new Response('{"message":"domain not verified"}', { status: 403 });
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ id: `mail-${sent.length}` }), { status: 200 });
+    });
+  }
+  async function withEmail(address?: string) {
+    stubResend();
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    await store.setSetting(emailSetting('demo'), JSON.stringify(EMAIL));
+    const org = await store.load('demo');
+    org.state.employees.find((e) => e.id === 'mar-1')!.email = address;
+    return { ...(await boot(store)), store };
+  }
+  const linkIn = (text: string) => text.match(/https:\/\/rota\.ws\.example\/staff\/#\S+/)![0];
+
+  it("emails the invite to the person's own address and keeps the link out of the answer", async () => {
+    const t = await withEmail('Priya@Example.com');
+    const res = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
+    expect(JSON.stringify(res.body)).not.toMatch(/invite=/);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(['priya@example.com']);
+    expect(sent[0].subject).toBe('GM invited you to the Preshift staff app');
+    expect(sent[0].text).toMatch(/Marylebone/);
+
+    // The emailed link is the one that works.
+    const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
+    expect((await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD })).status).toBe(200);
+
+    // The list says what became of the email; a bounce reported later shows against the person.
+    const listed = (await t.manager('GET', '/v1/staff-logins')).body[0];
+    expect(listed.lastEmail).toMatchObject({ kind: 'staff_invite', to: 'priya@example.com', status: 'sent', employeeId: 'mar-1' });
+    const org = await t.store.load('demo');
+    org.mail['mail-1'].events.push({ id: 'evt-1', type: 'bounced', at: new Date().toISOString(), detail: 'Mailbox does not exist' });
+    expect((await t.manager('GET', '/v1/staff-logins')).body[0].lastEmail).toMatchObject({ status: 'bounced', detail: 'Mailbox does not exist' });
+  });
+
+  it('sends a reset only to the address the person signed up with, never to the manager', async () => {
+    const t = await withEmail('old@example.com');
+    const first = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(first.body.emailed).toBe(true);
+    const link = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[0].text)).hash.slice(1)));
+    const joined = await t.call('POST', '/v1/staff/join', { ...link, email: 'priya@example.com', password: PASSWORD });
+
+    // Asking to hand it over is refused, and makes no link.
+    const handed = await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true });
+    expect(handed.status).toBe(409);
+    expect(handed.body.error).toBe('email_only');
+    expect(handed.body.message).toContain('priya@example.com');
+    expect(sent).toHaveLength(1);
+
+    // The reset goes to her own address. Old sessions end once she uses it.
+    const again = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(again.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
+    expect(sent[1].subject).toBe('Your new Preshift staff app link');
+    const resetLink = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[1].text)).hash.slice(1)));
+    const reset = await t.call('POST', '/v1/staff/join', { ...resetLink, email: 'priya@example.com', password: 'a brand new password' });
+    expect(reset.status).toBe(200);
+    expect((await t.call('GET', '/v1/staff/me', undefined, joined.cookie)).status).toBe(401);
+    expect((await t.call('GET', '/v1/staff/me', undefined, reset.cookie)).status).toBe(200);
+
+    // When Resend refuses, the link still never comes back.
+    refuse = true;
+    const failed = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(failed.body).toMatchObject({ emailed: false, reason: 'send_failed' });
+    expect(failed.body.path).toBeUndefined();
+  }, 60_000);
+
+  it('lets a manager start again by closing the login, which signs the person out everywhere', async () => {
+    const t = await withEmail();
+    const link = (await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body;
+    const params = Object.fromEntries(new URLSearchParams(link.path.split('#')[1]));
+    const me = (await t.call('POST', '/v1/staff/join', { ...params, email: 'priya@example.com', password: PASSWORD })).cookie;
+    expect((await t.manager('DELETE', '/v1/staff-logins/mar-1')).status).toBe(204);
+    expect((await t.call('GET', '/v1/staff/me', undefined, me)).status).toBe(401);
+    // A fresh login, which the person sets up anew, may be handed over like any first invite.
+    expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true })).body).toMatchObject({ emailed: false, reason: 'handed_over' });
+  });
+
+  it('hands the link back when asked, with no address, or when Resend refuses', async () => {
+    const t = await withEmail('priya@example.com');
+    const handed = await t.manager('POST', '/v1/staff-logins/mar-1/invite', { handOver: true });
+    expect(handed.body).toMatchObject({ emailed: false, reason: 'handed_over' });
+    expect(handed.body.path).toMatch(/^\/staff\/#/);
+    expect(sent).toHaveLength(0);
+
+    expect((await t.manager('POST', '/v1/staff-logins/mar-2/invite')).body).toMatchObject({ emailed: false, reason: 'no_address' });
+
+    refuse = true;
+    const failed = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
+    expect(failed.body).toMatchObject({ emailed: false, reason: 'send_failed' });
+    expect(failed.body.path).toMatch(/^\/staff\/#/);
+  });
+
+  it('hands the link back where email is not set up, as before', async () => {
+    const t = await boot();
+    expect((await t.manager('POST', '/v1/staff-logins/mar-1/invite')).body).toMatchObject({ emailed: false, reason: 'email_not_set_up' });
+  });
+});
+
+describe('the review of staff logins closed and opened again', () => {
+  async function bootPeople() {
+    const person = (key: string, userId: string) => ({ key, orgId: 'demo', name: `${key} key`, scopes: ['*' as const], userId, mfa: true });
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const { app } = await buildApp({
+      apiKeys: [{ key: 'system', orgId: 'demo', name: 'System', scopes: ['*'] }, person('owner', 'usr_owner'), person('gm', 'usr_gm_mar'), person('fd', 'usr_fd')],
+      store,
+      provider: new TeamPaySimulator(),
+      autoDispatch: false,
+    });
+    const as = (key: string) => (method: string, url: string, body?: unknown) =>
+      app.inject({ method: method as 'GET', url, headers: { authorization: `Bearer ${key}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, payload: body !== undefined ? JSON.stringify(body) : undefined })
+        .then((r) => ({ status: r.statusCode, body: r.body ? r.json() : undefined }));
+    const join = async (by: (m: string, u: string, b?: unknown) => Promise<{ body: { path: string } }>, person: string, email: string) => {
+      const link = (await by('POST', `/v1/staff-logins/${person}/invite`, { handOver: true })).body;
+      const params = Object.fromEntries(new URLSearchParams(link.path.split('#')[1]));
+      const res = await app.inject({ method: 'POST', url: '/v1/staff/join', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ ...params, email, password: PASSWORD }) });
+      expect(res.statusCode).toBe(200);
+    };
+    return { store, owner: as('owner'), gm: as('gm'), fd: as('fd'), system: as('system'), join };
+  }
+  const PERIOD = '/v1/staff-logins/review?from=2020-01-01&to=2099-12-31';
+
+  it('shows a close, re-invite and re-join with a new address as high risk, to those who audit, and lets someone else sign it off', async () => {
+    const t = await bootPeople();
+    await t.join(t.gm, 'mar-2', 'sam@example.com');
+    expect((await t.gm('DELETE', '/v1/staff-logins/mar-2')).status).toBe(204);
+    await t.join(t.gm, 'mar-2', 'sam.other@example.com');
+
+    // The finance director audits across the organisation; the GM's audit right is one site's, and a key is nobody.
+    const seen = await t.fd('GET', PERIOD);
+    expect(seen.status).toBe(200);
+    expect(seen.body.summary).toEqual({ closed: 1, needsReview: 1, highRisk: 1 });
+    const [c] = seen.body.cases;
+    expect(c).toMatchObject({ employeeId: 'mar-2', status: 'rejoined', previousEmail: 'sam@example.com', newEmail: 'sam.other@example.com', risk: 'high', needsReview: true });
+    expect(c.flags).toEqual(['same_person', 'handed_over', 'new_address']);
+    expect((await t.gm('GET', PERIOD)).status).toBe(403);
+    expect((await t.system('GET', PERIOD)).status).toBe(403);
+
+    // A sign-off needs a reason, is made once, and is recorded in the audit trail.
+    expect((await t.fd('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'concern', note: 'short' })).status).toBe(400);
+    const signed = await t.fd('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'concern', note: 'Sam did not ask for this. Raised with HR.' });
+    expect(signed.status).toBe(201);
+    expect(signed.body.review).toMatchObject({ by: 'Nadia Rahman', outcome: 'concern' });
+    expect((await t.owner('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'genuine', note: 'Looked at it again.' })).status).toBe(409);
+    expect((await t.fd('GET', PERIOD)).body.summary.needsReview).toBe(0);
+    const org = await t.store.load('demo');
+    expect(org.audit.some((a) => a.action === 'staff.login_reviewed' && a.actor === 'Nadia Rahman')).toBe(true);
+  });
+
+  it('never lets whoever closed or re-invited a login sign it off, and keeps the record after the audit log is trimmed', async () => {
+    const t = await bootPeople();
+    await t.join(t.owner, 'mar-3', 'kit@example.com');
+    await t.owner('DELETE', '/v1/staff-logins/mar-3');
+    await t.join(t.owner, 'mar-3', 'kit@example.com');
+    const [c] = (await t.owner('GET', PERIOD)).body.cases;
+    const own = await t.owner('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'genuine', note: 'Kit lost their phone.' });
+    expect(own.status).toBe(409);
+    expect(own.body.error).toBe('review_refused');
+
+    // A month of phone clock-ins can push a close off the audit log; the review reads its own record.
+    const org = await t.store.load('demo');
+    for (let i = 0; i < 6000; i++) org.audit.push({ at: new Date().toISOString(), actor: 'x', action: 'time.phone_clock_in' });
+    org.audit.splice(0, org.audit.length - 5000);
+    expect(org.audit.some((a) => a.action === 'staff.login_closed')).toBe(false);
+    expect((await t.fd('GET', PERIOD)).body.cases).toHaveLength(1);
+    expect((await t.fd('POST', '/v1/staff-logins/review', { caseId: c.id, outcome: 'genuine', note: 'Kit lost their phone; confirmed with Kit.' })).status).toBe(201);
+  });
+
+  it('counts only a login that was there as closed', async () => {
+    const t = await bootPeople();
+    expect((await t.gm('DELETE', '/v1/staff-logins/mar-4')).status).toBe(204);
+    expect((await t.fd('GET', PERIOD)).body.cases).toEqual([]);
   });
 });

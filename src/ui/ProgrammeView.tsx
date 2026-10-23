@@ -6,7 +6,6 @@ import type { RotaState } from '../engine/types';
 import { addDays, weekStart } from '../engine/time';
 import { api, ApiError } from './api';
 import { money, pct } from './format';
-import type { Account } from './SettingsView';
 
 interface Entry {
   programme: Programme;
@@ -25,7 +24,8 @@ interface Props {
   state: RotaState;
   siteIds: string[];
   today: string;
-  me: Account | null;
+  /** Holds the WS client partner's sign-off: only then are the lead's actions offered. */
+  lead: boolean;
   /** Whether this person may opt the organisation in to sharing: a settings change. */
   canShare: boolean;
   onOpenSite: (siteId: string) => void;
@@ -45,12 +45,11 @@ const formatMetric = (m: BenchmarkMetric, v: number) => (m === 'splh' ? money(v)
  * weeks, which milestones are proved, the targets, and the saving, marked
  * verified only once it is signed off in the management accounts.
  */
-export function ProgrammeView({ state, siteIds, today, me, canShare, onOpenSite }: Props) {
+export function ProgrammeView({ state, siteIds, today, lead, canShare, onOpenSite }: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [bench, setBench] = useState<Benchmarks | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
-  const lead = me?.lead === true;
   const single = siteIds.length === 1 ? siteIds[0] : null;
 
   const [benchOpen, setBenchOpen] = useState(false);
@@ -95,7 +94,7 @@ export function ProgrammeView({ state, siteIds, today, me, canShare, onOpenSite 
         <h2>Labour programme</h2>
         <p className="muted small">
           Twelve weeks with Williams, Stanley &amp; Co.: {PHASES.map((p) => `${p.label} (weeks ${p.fromWeek} to ${p.toWeek})`).join(', ')}. Milestones are proved
-          by the site's own figures where they can be, and signed off by the WS lead where they cannot. The saving counts only once it
+          by the site's own figures where they can be, and signed off by the WS client partner where they cannot. The saving counts only once it
           is in the management accounts.
         </p>
         {inScope.length === 0 ? (
@@ -148,7 +147,7 @@ export function ProgrammeView({ state, siteIds, today, me, canShare, onOpenSite 
           <StartForm key={notOn.join()} sites={notOn.map((id) => ({ id, name: siteName(id) }))} today={today} busy={busy}
             onStart={(siteId, startWeek, gainSharePct) => act(`${siteName(siteId)} is on the programme from w/c ${startWeek}.`, () => api.put(`/v1/programmes/${siteId}`, { startWeek, gainSharePct }))} />
         )}
-        {!lead && notOn.length > 0 && <p className="muted small">The WS lead puts sites on the programme.</p>}
+        {!lead && notOn.length > 0 && <p className="muted small">The WS client partner puts sites on the programme.</p>}
       </section>
 
       {detail && <SiteDetail key={detail.programme.siteId} entry={detail} lead={lead} busy={busy} act={act} />}

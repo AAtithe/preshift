@@ -74,7 +74,7 @@ export function autoSchedule(
         let start = first.hour;
         let end = first.hour + 1;
         while (end - start < opts.maxShiftHours) {
-          const right = end < 24 && demand[end].gap > 0;
+          const right = end < demand.length && demand[end].gap > 0;
           const left = start > 0 && demand[start - 1].gap > 0;
           if (!right && !left) break;
           if (right && (!left || demand[end].gap >= demand[start - 1].gap)) end++;
@@ -164,7 +164,7 @@ function trimOverstaffedEdges(state: RotaState, ids: Set<string>, minShiftHours:
       const lastHour = Math.floor((shift.endMinute - 1) / 60);
       let next: Shift | null = null;
       if (demand[firstHour]?.gap < 0) next = { ...shift, startMinute: shift.startMinute + 60 };
-      else if (lastHour < 24 && demand[lastHour]?.gap < 0) next = { ...shift, endMinute: shift.endMinute - 60 };
+      else if (lastHour < demand.length && demand[lastHour]?.gap < 0) next = { ...shift, endMinute: shift.endMinute - 60 };
       if (!next) break;
       const employee = state.employees.find((e) => e.id === next!.employeeId)!;
       next.breakMinutes = breakFor(employee, next.date, next.endMinute - next.startMinute, complianceOptions(state, employee).nation);

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { isSandbox, sandboxExpired } from './sandbox';
+import { ACCESS_PREFIX, oauthPrincipal } from './oauth';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
 import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
@@ -50,9 +51,10 @@ export interface ApiKey {
   scopes: Scope[];
   /** Set for a key made in the app, so it can be revoked by id. */
   keyId?: string;
+  /** For a key made in the app: who made it, by id where recorded and always by name. */
+  madeBy?: { id?: string; name: string };
   /** Set when the caller is a signed-in person rather than an integration key. */
-  /** `lead`: Williams, Stanley & Co.'s programme lead in the organisation signed in to. */
-  user?: { email: string; role: UserRecord['role']; lead?: boolean };
+  user?: { email: string; role: UserRecord['role'] };
   /**
    * A personal key acts as that person: their roles decide, not the key's scopes alone.
    * Keys without a user are system keys with organisation-wide authority.
@@ -76,6 +78,8 @@ export interface ApiKey {
 declare module 'fastify' {
   interface FastifyRequest {
     principal: ApiKey;
+    /** Set whenever a key is presented and recognised, refused or not, so the call can be logged. */
+    apiCall?: { orgId: string; keyId: string; refused?: 'revoked' | 'rate_limited'; started: number };
   }
 }
 
@@ -177,17 +181,37 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
     let keyed = byKey.get(token);
     if (!keyed && token.startsWith(KEY_PREFIX)) {
       const stored = await users.getApiKeyByHash(hashKey(token));
+      if (stored?.revokedAt) {
+        // Still recognised, so the attempt is logged against the key it used.
+        req.apiCall = { orgId: stored.orgId, keyId: stored.id, refused: 'revoked', started: Date.now() };
+        return reply.code(401).send({ error: 'unauthorised', message: 'That API key is not valid. It may have been revoked.' });
+      }
       if (stored) {
-        keyed = { key: `key:${stored.id}`, keyId: stored.id, orgId: stored.orgId, name: `API key ${stored.name}`, scopes: stored.scopes as Scope[] };
+        keyed = {
+          key: `key:${stored.id}`,
+          keyId: stored.id,
+          orgId: stored.orgId,
+          // Named with its maker, so the audit says who stands behind each change the key makes.
+          name: `API key ${stored.name}, made by ${stored.createdBy}`,
+          madeBy: { ...(stored.createdById ? { id: stored.createdById } : {}), name: stored.createdBy },
+          scopes: stored.scopes as Scope[],
+        };
         if (!stored.lastUsedAt || Date.now() - Date.parse(stored.lastUsedAt) > USED_EVERY_MS) {
           await users.putApiKey({ ...stored, lastUsedAt: new Date().toISOString() });
         }
       }
     }
+    if (!keyed && token.startsWith(ACCESS_PREFIX)) {
+      // A connection a person approved through Sign in with Preshift (server/oauth.ts).
+      keyed = (await oauthPrincipal(token, users)) ?? undefined;
+      if (!keyed) return reply.code(401).send({ error: 'unauthorised', message: 'That connection has expired or been disconnected. Connect to Preshift again.' });
+    }
     if (keyed) {
+      req.apiCall = { orgId: keyed.orgId, keyId: keyed.keyId ?? `env:${keyed.name}`, started: Date.now() };
       const rate = limit(keyed.key);
       reply.header('x-ratelimit-limit', options.rateLimit ?? RATE_LIMIT).header('x-ratelimit-remaining', rate.remaining).header('x-ratelimit-reset', rate.resetSeconds);
       if (!rate.allowed) {
+        req.apiCall.refused = 'rate_limited';
         return reply.code(429).header('retry-after', rate.resetSeconds).send({ error: 'rate_limited', message: `Slow down: this key has made more than ${options.rateLimit ?? RATE_LIMIT} requests this minute` });
       }
       req.principal = keyed;
@@ -205,7 +229,7 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
       orgId: claims.orgId,
       name: user.email,
       scopes: ['*'],
-      user: { email: user.email, role: user.role, lead: (user.leadOrgs ?? []).includes(claims.orgId) },
+      user: { email: user.email, role: user.role },
       email: user.email,
       sessionMfa: claims.mfa,
       accountMfaId: user.authenticator?.secret ? user.authenticator.id : undefined,

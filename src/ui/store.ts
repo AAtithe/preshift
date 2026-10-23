@@ -165,7 +165,7 @@ export function useRotaStore() {
       guard(async () => {
         // Server-managed fields are never sent: the id and payroll link are the server's, and leaving goes through markLeaver.
         // The personnel file and absence have routes of their own and are never sent back here.
-        const { id, payrollId: _p, status: _s, leaveDate: _l, hr: _h, absences: _ab, payHidden, pendingPay: _pp, ...fields } = employee;
+        const { id, payrollId: _p, payrollReview: _pr, status: _s, leaveDate: _l, hr: _h, absences: _ab, payHidden, pendingPay: _pp, ...fields } = employee;
         // Pay this reader never received is left out, never sent back as nought; without pay rights it is not sent at all.
         const { hourlyRate: _r, annualSalary: _a, ...unpaid } = fields;
         const kept = payHidden || !withPay ? unpaid : fields;
@@ -341,7 +341,7 @@ export function useHrRecords(setError: (message: string | null) => void) {
     records,
     save: (record: HrRecord, isNew: boolean) =>
       run(async () => {
-        const { id, createdBy: _b, createdAt: _a, ...body } = record;
+        const { id, createdBy: _b, createdAt: _a, history: _h, ...body } = record;
         const saved = isNew
           ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
           : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);

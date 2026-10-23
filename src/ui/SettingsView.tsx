@@ -2,6 +2,7 @@ import { EposSetup } from './EposSetup';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 import { ApiKeys, Webhooks } from './DeveloperSettings';
+import type { BillingStanding } from './BillingView';
 
 /** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
 export interface Account {
@@ -12,8 +13,8 @@ export interface Account {
   organisations?: { orgId: string; name: string; current: boolean; home: boolean }[];
   /** Set for a public demo visitor, who has a sandbox of their own. */
   demo?: boolean;
-  /** The Williams, Stanley & Co. lead on the labour programme, in this organisation. */
-  lead?: boolean;
+  /** Set for an organisation that signed itself up and pays by card. */
+  billing?: BillingStanding;
 }
 
 interface EmailStatus {
@@ -42,8 +43,8 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
         <section className="settings-card">
           <h2>Settings in the demo</h2>
           <p className="small muted">
-            In the live product this is where the Claude API key and email are set up, where API keys and webhooks are made for other systems to plug in, and where each person changes their own
-            password. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
+            In the live product this is where the Claude API key and email are set up, where API keys and webhooks are made for other systems to plug in. Each person changes their own password under
+            Your profile. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
             your own copy of the demo group, kept apart from every customer, and it is wiped at midnight UK time.
           </p>
           <form method="post" action="/demo/start">
@@ -62,7 +63,7 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
         <p className="muted small">
           Inviting people, their roles, password resets (emailed once email is set up below) and suspending access are on the Access tab, where each change is
           checked against the access rules and recorded. A person sets their own password from their invitation link, so
-          nobody else ever knows it.
+          nobody else ever knows it, and keeps their name, password and authenticator under Your profile.
         </p>
       </section>
       {canSettings && <EposSetup onSynced={onSalesChanged} />}
@@ -70,7 +71,6 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
       {canSettings && <EmailSetup />}
       {canSettings && <ApiKeys />}
       {canSettings && <Webhooks />}
-      {account && <OwnPassword />}
     </div>
   );
 }
@@ -166,7 +166,7 @@ function ClaudeKey() {
   );
 }
 
-function OwnPassword() {
+export function OwnPassword() {
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 

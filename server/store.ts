@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
+import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
+import type { SupportTicket } from '../src/engine/support';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
@@ -8,10 +10,12 @@ import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
+import type { RewardsConnection } from './integrations/rewards/provider';
+import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -81,6 +85,7 @@ export interface MailRecord {
   to: string;
   kind: MailKind;
   userId?: string;
+  employeeId?: string;
   sentAt: string;
   /** Who sent it: a person's name, or the sign-in page for "Forgot your password?". */
   by: string;
@@ -88,10 +93,22 @@ export interface MailRecord {
   events: { id: string; type: MailEventType; at: string; detail?: string }[];
 }
 
+/** A shared iPad paired as one site's clocking kiosk. Its credential is kept hashed in settings, not here. */
+export interface Kiosk {
+  id: string;
+  siteId: string;
+  name: string;
+  pairedBy: string;
+  pairedAt: string;
+  lastSeenAt?: string;
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
   timeEntries: TimeEntry[];
+  /** Paired clocking kiosks. Absent on organisations saved before kiosks existed. */
+  kiosks?: Kiosk[];
   submissions: PayrollSubmission[];
   payRuns: PayRunRecord[];
   outbox: OutboxItem[];
@@ -112,6 +129,16 @@ export interface OrgData {
   lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
+  /** Holiday, time off, sickness, availability, swaps and open shift claims from the staff app. */
+  requests?: StaffRequest[];
+  /** Shifts posted for anyone eligible to claim. */
+  openShifts?: OpenShift[];
+  /** What each member of staff has been told, newest last. */
+  notifications?: StaffNotification[];
+  /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
+  toldWeeks?: Record<string, string[]>;
+  /** The London day the managers' morning digest last went out, so it goes once a day. */
+  lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
   webhookDeliveries?: WebhookDelivery[];
   users: User[];
@@ -128,13 +155,49 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
+  support?: { tickets: SupportTicket[]; answeredByHelp: number };
+  /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
+  staffLoginLog: StaffLoginEvent[];
+  /** Sign-offs of staff logins closed and opened again. Never removed. */
+  loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
+  /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
+  welfare?: WelfareData;
+  /**
+   * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
+   * it after that; the row is kept, with its audit trail, rather than deleted.
+   */
+  closed?: { at: string; by: string };
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
+
+export interface WelfareData {
+  /** Only what someone changed from the defaults (welfarePolicy fills the rest). */
+  policy?: Partial<WelfarePolicy>;
+  recognitions: Recognition[];
+  /** Pulse answers, stored without who gave them and in no particular order. */
+  pulses: PulseResponse[];
+  /**
+   * Who has answered which week, so nobody answers twice: a keyed hash of person and week, kept
+   * apart from the answers with nothing to join them by.
+   */
+  pulseAnswered: string[];
+  chats: ChatRequest[];
+  /** People who asked not to be enrolled in Hospitality Rewards. */
+  rewardsOptOut: string[];
+  /** Who Hospitality Rewards has as a member, after the last sync: removed when no longer eligible. */
+  rewardsEnrolled: string[];
+  /** The benefits platform, if connected. Its API key lives in the settings store. */
+  rewards?: RewardsConnection;
+}
+
+export const welfareOf = (org: OrgData): WelfareData =>
+  (org.welfare ??= { recognitions: [], pulses: [], pulseAnswered: [], chats: [], rewardsOptOut: [], rewardsEnrolled: [] });
 
 export interface ReminderState {
   key: string;
@@ -151,6 +214,8 @@ export interface OrgSettings {
    * in return sees the cohort's. Off until an admin turns it on: give to get.
    */
   benchmarking?: boolean;
+  /** People (user ids) who have turned off the morning email of staff requests waiting for them. */
+  digestOff?: string[];
 }
 
 export type UserRole = 'admin' | 'member';
@@ -181,8 +246,6 @@ export interface UserRecord {
   failedAttempts: number;
   /** Epoch seconds; sign-in is refused until then after repeated failures. */
   lockedUntil: number;
-  /** Organisations where this account is Williams, Stanley & Co.'s programme lead: signs off milestones and savings. Set only by a WS key. */
-  leadOrgs?: string[];
   /** SHA-256 of the one outstanding reset link; a new link replaces it. Never the token itself. */
   resetTokenHash?: string;
   /** Epoch seconds the reset link stops working. */
@@ -272,16 +335,50 @@ export interface ApiKeyRecord {
   endsWith: string;
   createdAt: string;
   createdBy: string;
+  /** The person who made it: what they may not do for themselves, the key may not do for them. */
+  createdById?: string;
   lastUsedAt?: string;
+  /**
+   * Set when revoked. A revoked key is kept, never deleted, so a later attempt to use it is still
+   * recognised, refused and logged against it: the evidence a breach investigation needs.
+   */
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
+/** One request made with an API key. Kept 13 months for breach investigation. */
+export interface ApiCall {
+  orgId: string;
+  /** The app key's id, or `env:<name>` for a key set by deployment. */
+  keyId: string;
+  at: string;
+  method: string;
+  /** Path and query as sent. */
+  path: string;
+  status: number;
+  ip: string;
+  ms: number;
+  /** Set when the key was refused before reaching any data: revoked or rate limited. */
+  refused?: 'revoked' | 'rate_limited';
 }
 
 export interface ApiKeyStore {
   getApiKeyByHash(hash: string): Promise<ApiKeyRecord | null>;
+  /** Every key the organisation has made, revoked ones included. */
   listApiKeys(orgId: string): Promise<ApiKeyRecord[]>;
   /** Creates or replaces, by hash. */
   putApiKey(key: ApiKeyRecord): Promise<void>;
-  deleteApiKey(orgId: string, id: string): Promise<boolean>;
+  /** Marks the key revoked; false if it is unknown or already revoked. */
+  revokeApiKey(orgId: string, id: string, by: string): Promise<boolean>;
+  logApiCall(call: ApiCall): Promise<void>;
+  /** Newest first. */
+  listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }): Promise<ApiCall[]>;
+  /** Removes calls made before the given time; returns how many. */
+  purgeApiCalls(before: string): Promise<number>;
 }
+
+/** How long API call records are kept: the partner's 12 months, plus a month to report on them. */
+export const API_CALL_RETENTION_DAYS = 396;
 
 export interface StaffStore {
   getStaffLogin(orgId: string, employeeId: string): Promise<StaffLogin | null>;
@@ -307,7 +404,7 @@ export interface DocumentAccess {
   at: string;
   /** The signed-in person's email, or the API key's name. */
   actor: string;
-  via: 'session' | 'api key';
+  via: 'session' | 'api key' | 'staff app';
   ip?: string;
 }
 
@@ -402,6 +499,8 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     authenticators: seeded ? demoAuthenticators(people.users) : {},
     hrRecords: seeded ? seedHrRecords(today) : [],
     payChanges: seeded ? seedPayChanges(today ?? toISODate(new Date())) : [],
+    staffLoginLog: [],
+    loginReviews: [],
   };
 }
 
@@ -572,10 +671,33 @@ export class MemoryStore implements Store {
     this.apiKeys.set(key.hash, { ...key });
   }
 
-  async deleteApiKey(orgId: string, id: string) {
-    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id);
-    if (found) this.apiKeys.delete(found.hash);
+  async revokeApiKey(orgId: string, id: string, by: string) {
+    const found = [...this.apiKeys.values()].find((k) => k.orgId === orgId && k.id === id && !k.revokedAt);
+    if (found) this.apiKeys.set(found.hash, { ...found, revokedAt: new Date().toISOString(), revokedBy: by });
     return !!found;
+  }
+
+  private apiCalls: ApiCall[] = [];
+
+  async logApiCall(call: ApiCall) {
+    this.apiCalls.push({ ...call });
+    // Memory is for development and tests; keep it bounded.
+    if (this.apiCalls.length > 100_000) this.apiCalls.splice(0, this.apiCalls.length - 100_000);
+  }
+
+  async listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }) {
+    return this.apiCalls
+      .filter((c) => c.orgId === orgId && c.keyId === keyId && (!options.from || c.at >= options.from) && (!options.to || c.at < options.to))
+      .reverse()
+      .slice(0, options.limit)
+      .map((c) => ({ ...c }));
+  }
+
+  async purgeApiCalls(before: string) {
+    const kept = this.apiCalls.filter((c) => c.at >= before);
+    const removed = this.apiCalls.length - kept.length;
+    this.apiCalls = kept;
+    return removed;
   }
 
   private readonly documents = new Map<string, StoredFile>();
@@ -698,6 +820,18 @@ export class PgStore implements Store {
         [],
       );
       await this.query('create index if not exists api_keys_org_idx on preshift.api_keys (org_id)', []);
+      await this.query(
+        `create table if not exists preshift.api_calls (
+           seq bigserial primary key,
+           org_id text not null,
+           key_id text not null,
+           at timestamptz not null,
+           data jsonb not null
+         )`,
+        [],
+      );
+      await this.query('create index if not exists api_calls_key_idx on preshift.api_calls (org_id, key_id, at)', []);
+      await this.query('create index if not exists api_calls_at_idx on preshift.api_calls (at)', []);
       // Base64 text rather than bytea: Neon's HTTP driver and PGlite pass strings identically.
       await this.query(
         `create table if not exists preshift.documents (
@@ -937,10 +1071,42 @@ export class PgStore implements Store {
     );
   }
 
-  async deleteApiKey(orgId: string, id: string) {
+  async revokeApiKey(orgId: string, id: string, by: string) {
     await this.init();
-    const rows = await this.query('delete from preshift.api_keys where org_id = $1 and id = $2 returning id', [orgId, id]);
+    // One statement, so two people revoking at once both see the key revoked and only one records it.
+    const rows = await this.query(
+      `update preshift.api_keys set data = data || jsonb_build_object('revokedAt', $3::text, 'revokedBy', $4::text)
+       where org_id = $1 and id = $2 and not (data ? 'revokedAt') returning id`,
+      [orgId, id, new Date().toISOString(), by],
+    );
     return rows.length > 0;
+  }
+
+  async logApiCall(call: ApiCall) {
+    await this.init();
+    await this.query('insert into preshift.api_calls (org_id, key_id, at, data) values ($1, $2, $3, $4)', [
+      call.orgId,
+      call.keyId,
+      call.at,
+      JSON.stringify(call),
+    ]);
+  }
+
+  async listApiCalls(orgId: string, keyId: string, options: { from?: string; to?: string; limit: number }) {
+    await this.init();
+    const rows = await this.query(
+      `select data from preshift.api_calls
+       where org_id = $1 and key_id = $2 and ($3::timestamptz is null or at >= $3) and ($4::timestamptz is null or at < $4)
+       order by at desc, seq desc limit $5`,
+      [orgId, keyId, options.from ?? null, options.to ?? null, options.limit],
+    );
+    return rows.map((r) => jsonFrom<ApiCall>(r.data));
+  }
+
+  async purgeApiCalls(before: string) {
+    await this.init();
+    const rows = await this.query('with gone as (delete from preshift.api_calls where at < $1 returning 1) select count(*)::int as n from gone', [before]);
+    return Number(rows[0].n);
   }
 
   async putDocument(orgId: string, id: string, file: StoredFile) {
@@ -1040,6 +1206,9 @@ function deserialise(data: unknown, version: number): OrgData {
     ...raw,
     hrRecords: raw.hrRecords ?? [],
     payChanges: raw.payChanges ?? [],
+    // Organisations saved before the staff login review began their log empty.
+    staffLoginLog: raw.staffLoginLog ?? [],
+    loginReviews: raw.loginReviews ?? [],
     state: upgradeState(raw.state),
     users: raw.users ?? [],
     accessReviews: raw.accessReviews ?? [],

@@ -1,6 +1,7 @@
 // A sales forecast from a site's own past takings, for a site with no forecasting feed. Simple
 // enough for a GM to check by hand: each day says what it was worked from.
 
+import { calendarHour, tradingDayHours, tradingHour } from './demand';
 import { addDays } from './time';
 import type { DaySales, HourForecast, RotaState, Site } from './types';
 
@@ -19,6 +20,8 @@ export const DEFAULT_SPEND_PER_COVER = 40;
 const DEFAULT_CURVE: Record<number, number> = {
   11: 0.02, 12: 0.09, 13: 0.11, 14: 0.06, 15: 0.03, 16: 0.03, 17: 0.06,
   18: 0.11, 19: 0.15, 20: 0.15, 21: 0.1, 22: 0.06, 23: 0.03,
+  // After midnight, for a site with a late licence: hour 24 is 00:00 the next morning.
+  24: 0.02, 25: 0.01, 26: 0.01, 27: 0.01,
 };
 
 export type ForecastBasis = 'last_year' | 'recent' | 'none';
@@ -115,13 +118,27 @@ function spendPerCover(takings: Map<string, DaySales>): number {
  * some, else the standard curve, either way only within opening hours.
  */
 function hourShape(state: RotaState, site: Site, date: string): { shares: Map<number, number>; shape: DayForecast['shape'] } {
-  const open = (h: number) => h * 60 >= site.openMinute && h * 60 < site.closeMinute;
+  const open = (h: number) => h < tradingDayHours(site) && h * 60 >= site.openMinute && h * 60 < site.closeMinute;
   const own = new Map<number, number>();
   for (const f of state.forecast) {
-    if (f.siteId !== site.id || f.date >= date || weekdayOf(f.date) !== weekdayOf(date) || !open(f.hour)) continue;
-    own.set(f.hour, (own.get(f.hour) ?? 0) + f.sales);
+    if (f.siteId !== site.id) continue;
+    // A row after midnight belongs to the evening before: Saturday 01:00 shapes Fridays.
+    const t = tradingHour(site, f.date, f.hour);
+    if (t.date >= date || weekdayOf(t.date) !== weekdayOf(date) || !open(t.hour)) continue;
+    own.set(t.hour, (own.get(t.hour) ?? 0) + f.sales);
   }
-  const source = [...own.values()].some((v) => v > 0) ? own : new Map(Object.entries(DEFAULT_CURVE).map(([h, s]) => [Number(h), s]));
+  const curve = new Map(Object.entries(DEFAULT_CURVE).map(([h, s]) => [Number(h), s]));
+  const hasOwn = [...own.values()].some((v) => v > 0);
+  if (hasOwn) {
+    // A new late licence has no history after midnight: those hours borrow the standard pattern,
+    // scaled to the site's own trade. Earlier hours keep the site's own shape, quiet hours included.
+    const ownTotal = [...own.values()].reduce((a, b) => a + b, 0);
+    const curveOver = [...own.keys()].reduce((a, h) => a + (curve.get(h) ?? 0), 0);
+    if (curveOver > 0 && ![...own.keys()].some((h) => h >= 24)) {
+      for (const [h, share] of curve) if (h >= 24 && open(h)) own.set(h, (ownTotal * share) / curveOver);
+    }
+  }
+  const source = hasOwn ? own : curve;
   const total = [...source.entries()].filter(([h]) => open(h)).reduce((s, [, v]) => s + v, 0);
   const shares = new Map<number, number>();
   if (total > 0) for (const [h, v] of source) if (open(h) && v > 0) shares.set(h, v / total);
@@ -141,7 +158,7 @@ function splitByHour(siteId: string, date: string, sales: number, covers: number
     whole[i]++;
     left--;
   }
-  return hours.map((hour, i) => ({ siteId, date, hour, sales: whole[i], covers: total > 0 ? Math.round((covers * whole[i]) / total) : 0 }));
+  return hours.map((hour, i) => ({ siteId, ...calendarHour(date, hour), sales: whole[i], covers: total > 0 ? Math.round((covers * whole[i]) / total) : 0 }));
 }
 
 /**

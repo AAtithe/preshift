@@ -8,7 +8,7 @@ import { entriesAsShifts, payrollHours, payrollVariance } from '../../src/engine
 import type { TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
-import { actorName, guard } from '../guard';
+import { actorName, guard, type Guard } from '../guard';
 import { enqueue } from '../outbox';
 import { PayrollError } from '../integrations/payroll/provider';
 import { employerFor, employerStatus } from '../payrollEmployers';
@@ -24,6 +24,25 @@ function approvedIn(org: OrgData, from: string, to: string) {
  * the rota. Only the week itself is swapped for actuals; other weeks keep their
  * rota, which is what Employment Allowance rolls forward through.
  */
+/**
+ * The companies whose payroll a person may read. Payroll runs per company (one PAYE scheme each) and
+ * its records hold every employee's pay, so reading one needs payroll.view at every site the company
+ * has, not only some. Records from before per-company payroll carry no company and stay org-wide.
+ */
+function payrollReach(g: Guard, org: OrgData): (entityId?: string) => boolean {
+  const reach = g.sites('payroll.view');
+  if (reach === 'all') return () => true;
+  const whole = new Set(
+    org.state.entities
+      .filter((e) => {
+        const sites = org.state.sites.filter((s) => s.entityId === e.id);
+        return sites.length > 0 && sites.every((s) => reach.has(s.id));
+      })
+      .map((e) => e.id),
+  );
+  return (entityId) => !!entityId && whole.has(entityId);
+}
+
 export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'actual' | 'auto' = 'auto') {
   const actual = approvedIn(org, weekStart, addDays(weekStart, 6));
   const useActual = basis === 'actual' || (basis === 'auto' && actual.length > 0);
@@ -44,26 +63,34 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/integrations/payroll', { ...read, schema: { tags: ['Payroll'], description: 'Payroll connection health, overall and for each PAYE scheme.' } }, async (req) => {
     const org = orgOf(req);
-    guard(ctx, req, org).allow('payroll.view');
-    const active = org.state.employees.filter((e) => e.status !== 'leaver');
+    const g = guard(ctx, req, org);
+    g.allow('payroll.view');
+    const mine = payrollReach(g, org);
+    const everyCompany = g.sites('payroll.view') === 'all';
+    const active = org.state.employees.filter((e) => e.status !== 'leaver' && (everyCompany || mine(e.entityId)));
+    const submissions = org.submissions.filter((x) => mine(x.entityId));
+    const payRuns = org.payRuns.filter((x) => mine(x.entityId));
     return {
       provider: ctx.providerFor(org.orgId).name,
       employees: { total: active.length, synced: active.filter((e) => e.payrollId).length },
       // One row per company: its TeamPay employer, and how many of its people are set up there.
-      employers: org.state.entities.map((entity) => {
+      employers: org.state.entities.filter((entity) => mine(entity.id)).map((entity) => {
         const people = active.filter((e) => e.entityId === entity.id);
         return {
           ...employerStatus(org, entity, ctx.employers),
           employees: { total: people.length, synced: people.filter((e) => e.payrollId).length },
         };
       }),
-      outbox: {
-        pending: org.outbox.filter((i) => i.status === 'pending').length,
-        failed: org.outbox.filter((i) => i.status === 'failed').length,
-        delivered: org.outbox.filter((i) => i.status === 'delivered').length,
-      },
-      lastSubmission: org.submissions.at(-1) ?? null,
-      lastPayRun: org.payRuns.at(-1) ?? null,
+      // The outbox runs across every company, so its counts are for those who read every company's payroll.
+      outbox: everyCompany
+        ? {
+            pending: org.outbox.filter((i) => i.status === 'pending').length,
+            failed: org.outbox.filter((i) => i.status === 'failed').length,
+            delivered: org.outbox.filter((i) => i.status === 'delivered').length,
+          }
+        : { pending: 0, failed: 0, delivered: 0 },
+      lastSubmission: submissions.at(-1) ?? null,
+      lastPayRun: payRuns.at(-1) ?? null,
     };
   });
 
@@ -81,8 +108,10 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/integrations/payroll/outbox', { ...pay, schema: { tags: ['Payroll'] } }, async (req) => {
     const org = orgOf(req);
-    guard(ctx, req, org).allow('payroll.view');
-    return org.outbox.slice(-200).reverse();
+    const g = guard(ctx, req, org);
+    g.allow('payroll.view');
+    // Every company's people and batches are in it, so it is for those who read every company's payroll.
+    return g.sites('payroll.view') === 'all' ? org.outbox.slice(-200).reverse() : [];
   });
 
   app.post<{ Params: { id: string } }>('/v1/integrations/payroll/outbox/:id/retry', { ...write, schema: { tags: ['Payroll'], params: idParam } }, async (req) => {
@@ -149,6 +178,19 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         .filter((b) => b.batch.lines.length > 0);
       if (batches.length === 0) throw new HttpError(422, 'no_hours', 'No approved hours in this period');
 
+      // Hours carry a rate. Someone whose rate in Preshift and in TeamPay disagree, undecided, would be
+      // paid at a rate nobody has confirmed, so the batch waits for that decision.
+      const inBatch = new Set(batches.flatMap((b) => b.batch.lines.map((l) => l.employeeId)));
+      const undecided = org.state.employees.filter((e) => inBatch.has(e.id) && e.payrollReview?.differences.some((d) => d.pay));
+      if (undecided.length) {
+        throw new HttpError(
+          409,
+          'payroll_review',
+          `Pay for ${undecided.map((e) => e.name).join(', ')} differs between Preshift and TeamPay. Decide which is right in Payroll, then send.`,
+          undecided.map((e) => e.id),
+        );
+      }
+
       // All or nothing: a group's payroll is not half sent because one company is not set up.
       const missing = batches.map((b) => employerStatus(org, b.entity, ctx.employers)).filter((s) => !s.employerId);
       if (missing.length) {
@@ -208,7 +250,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Payroll'],
         description:
-          "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, its leave year start (MM-DD), and what it pays for travel between sites: the normal rate, the minimum wage for each person's age, or a fixed hourly rate (never below the minimum wage).",
+          "Sets a company's PAYE reference, the TeamPay employer its PAYE scheme is set up as, its leave year start (MM-DD), and what it pays for travel between sites: the normal rate, the minimum wage for each person's age, or a fixed hourly rate, lifted to the minimum wage on every hour unless `averaging` is set, when the pay period is topped up to average it instead.",
         params: idParam,
         body: {
           type: 'object',
@@ -224,6 +266,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
               properties: {
                 basis: { type: 'string', enum: ['normal', 'minimum', 'fixed'] },
                 hourly: { type: 'number', minimum: 0, maximum: 200 },
+                averaging: { type: 'boolean' },
               },
             },
           },
@@ -259,8 +302,13 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       if (req.body.travelPay !== undefined) {
         const t = req.body.travelPay;
         if (t.basis === 'fixed' && typeof t.hourly !== 'number') throw new HttpError(400, 'travel_rate_missing', 'A fixed travel rate needs an hourly amount.');
-        // Normal is the default, so it is stored as no policy at all.
-        entity.travelPay = t.basis === 'normal' ? undefined : t.basis === 'minimum' ? { basis: 'minimum' } : { basis: 'fixed', hourly: Math.round(t.hourly * 100) / 100 };
+        // Normal is stored as a choice, so a company that chose it is not asked again.
+        entity.travelPay =
+          t.basis === 'normal'
+            ? { basis: 'normal' }
+            : t.basis === 'minimum'
+              ? { basis: 'minimum' }
+              : { basis: 'fixed', hourly: Math.round(t.hourly * 100) / 100, ...(t.averaging ? { averaging: true } : {}) };
       }
       audit(org, actorName(g), 'entity.updated', { id: entity.id, fields: Object.keys(req.body) });
       return entity;
@@ -269,13 +317,15 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/v1/payroll/submissions', { ...pay, schema: { tags: ['Payroll'] } }, async (req) => {
     const org = orgOf(req);
-    guard(ctx, req, org).allow('payroll.view');
-    return org.submissions.slice().reverse();
+    const g = guard(ctx, req, org);
+    g.allow('payroll.view');
+    return org.submissions.filter((x) => payrollReach(g, org)(x.entityId)).reverse();
   });
   app.get('/v1/payroll/runs', { ...pay, schema: { tags: ['Payroll'], description: 'Completed TeamPay runs with rota-to-payroll variance.' } }, async (req) => {
     const org = orgOf(req);
-    guard(ctx, req, org).allow('payroll.view');
-    return org.payRuns.slice().reverse();
+    const g = guard(ctx, req, org);
+    g.allow('payroll.view');
+    return org.payRuns.filter((x) => payrollReach(g, org)(x.entityId)).reverse();
   });
 
   app.get<{ Querystring: { weekStart: string; basis?: 'rota' | 'actual' | 'auto'; format?: 'json' | 'xero-csv'; entityId?: string } }>(

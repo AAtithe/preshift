@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { heldPermissions } from '../../src/engine/access';
 import { reviewEmployee } from '../../src/engine/employees';
 import { payTermsOf, sameTerms } from '../../src/engine/payChanges';
+import { refreshReview } from '../../src/engine/payrollMatch';
 import type { Employee, PayChange, PayChangeStatus, PayChangeSummary, PayTerms } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -13,8 +14,9 @@ import { allowPay, PAYROLL_FIELDS, queueUpsert } from './employees';
 
 // Pay changes need two people: one who sets pay proposes, finance approves (pay.approve). The rate in
 // force stays until then, so the rota, the accrual and payroll never run on a number nobody checked.
-// A system key, which acts for the organisation rather than a person, still sets pay directly: it
-// has no second person to ask, and every change it makes is in the audit trail.
+// A key made in the app proposes like the person who made it: otherwise anyone who may make keys
+// could set pay, their own included, with nobody checking. Only a deployment's own key, set in its
+// environment rather than made by a person, still sets pay directly; every change is in the audit trail.
 
 const termsBody = {
   payBasis: { type: 'string', enum: ['hourly', 'salaried'] },
@@ -43,11 +45,11 @@ export const changesRate = (e: Employee, body: Partial<Employee>) => RATE_FIELDS
  * overview flags that nobody can approve pay.
  */
 export function approverExists(org: OrgData, g: Guard, today: string): boolean {
-  return org.users.some((u) => u.status === 'active' && u.id !== g.user?.id && heldPermissions(u, today).has('pay.approve'));
+  return org.users.some((u) => u.status === 'active' && u.id !== g.behind?.id && heldPermissions(u, today).has('pay.approve'));
 }
 
-/** Whether this caller proposes rather than sets: a person, when someone else can approve. */
-export const proposes = (g: Guard, org: OrgData, today: string) => g.actor.kind === 'user' && approverExists(org, g, today);
+/** Whether this caller proposes rather than sets: a person, or a key a person made, when someone else can approve. */
+export const proposes = (g: Guard, org: OrgData, today: string) => (g.actor.kind === 'user' || g.appKey) && approverExists(org, g, today);
 
 /**
  * Records a proposal. The caller must already hold pay.edit for the person (allowPay). A rate below
@@ -71,7 +73,7 @@ export function proposePayChange(org: OrgData, g: Guard, e: Employee, after: Pay
     ...(reason?.trim() ? { reason: reason.trim() } : {}),
     status: 'pending',
     requestedBy: actorName(g),
-    ...(g.user ? { requestedById: g.user.id } : {}),
+    ...(g.behind ? { requestedById: g.behind.id } : {}),
     requestedAt: new Date().toISOString(),
   };
   org.payChanges.push(change);
@@ -104,8 +106,9 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Finance decides, and never on a change they proposed or on their own pay. */
   function allowDecision(g: Guard, c: PayChange) {
     g.allow('pay.approve', c.siteId);
-    if (g.user && g.user.id === c.requestedById) throw new HttpError(403, 'forbidden', 'Somebody else approves a change you proposed.');
-    if (g.user?.employeeId === c.employeeId) throw new HttpError(403, 'forbidden', 'Somebody else decides your own pay.');
+    if (!g.user) throw new HttpError(403, 'forbidden', 'A person decides pay, not an API key.');
+    if (g.behind && g.behind.id === c.requestedById) throw new HttpError(403, 'forbidden', 'Somebody else approves a change you proposed.');
+    if (g.behind?.employeeId === c.employeeId) throw new HttpError(403, 'forbidden', 'Somebody else decides your own pay.');
     if (c.status !== 'pending') throw new HttpError(409, 'decided', `This change was already ${c.status}.`);
   }
 
@@ -186,6 +189,8 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       const before = { ...e };
       Object.assign(e, c.after);
+      // Linked to TeamPay with pay that differed: once Preshift's pay matches payroll's, nothing is left to decide.
+      if (e.payrollReview) e.payrollReview = refreshReview(e, e.payrollReview);
       Object.assign(c, { status: 'approved', decidedBy: actorName(g), ...(g.user ? { decidedById: g.user.id } : {}), decidedAt: new Date().toISOString(), ...(req.body?.note ? { note: req.body.note } : {}) });
       if (PAYROLL_FIELDS.some((f) => before[f] !== e[f])) queueUpsert(org, e);
       audit(org, actorName(g), 'pay.change_approved', { id: c.id, employeeId: e.id });

@@ -115,6 +115,28 @@ export function inviteEmail(to: string, name: string, invitedBy: string, role: s
   };
 }
 
+/**
+ * A staff app invitation: the person sets up their own login on their phone, to clock in at the
+ * site and see their own shifts. A new one is also how a forgotten password is reset.
+ */
+export function staffInviteEmail(to: string, name: string, invitedBy: string, site: string, link: string, days: number, reset = false): Mail {
+  const opening = reset
+    ? `${invitedBy} has sent you a new link for the Preshift staff app at ${site}. Your old password stops working once you use it.`
+    : `${invitedBy} has invited you to the Preshift staff app at ${site}. It is where you clock in and out on your phone, and see your shifts and hours.`;
+  const setUp = 'Open this link on your phone and choose a password only you know: nobody else, not even your manager, will see it.';
+  const notes = [
+    `The link works once and expires in ${days} days.`,
+    `If you were not expecting this, ignore it: nothing happens unless the link is used.`,
+  ];
+  const text = [`Hello ${name},`, '', opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return {
+    to,
+    subject: reset ? 'Your new Preshift staff app link' : `${oneLine(invitedBy)} invited you to the Preshift staff app`,
+    text,
+    html: letter([`Hello ${name},`, opening, setUp], { label: reset ? 'Choose a new password' : 'Set up the staff app', link }, notes),
+  };
+}
+
 /** A reset made by someone who manages access, rather than asked for by the person. */
 export function accessResetEmail(to: string, resetBy: string, link: string, hours: number): Mail {
   const opening = `${resetBy} has reset your Preshift password. Your old password no longer works and every device signed in to your account has been signed out.`;
@@ -125,4 +147,62 @@ export function accessResetEmail(to: string, resetBy: string, link: string, hour
   ];
   const text = [opening, '', setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
   return { to, subject: 'Your Preshift password has been reset', text, html: letter([opening, setUp], { label: 'Choose a new password', link }, notes) };
+}
+
+/**
+ * News for a member of staff from the staff app: their rota is out, a shift moved, a request was
+ * decided. Several from one save arrive as one email. Names and times only: never pay, never a
+ * reason for absence, so a shared or forwarded inbox gives nothing away.
+ */
+export function staffNoticeEmail(to: string, name: string, notices: { title: string; body: string }[], link: string): Mail {
+  const lines = notices.flatMap((n) => [n.title, n.body]);
+  const subject = notices.length === 1 ? oneLine(notices[0].title) : `${notices.length} updates from your rota`;
+  const notes = ['Open the staff app to see your shifts, swap a shift, or ask for time off.'];
+  const text = [`Hello ${name},`, '', ...notices.flatMap((n) => [n.title, n.body, '']), link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject, text, html: letter([`Hello ${name},`, ...lines], { label: 'Open the staff app', link }, notes) };
+}
+
+/**
+ * A manager's morning: what staff have asked for that is theirs to decide, sickness to cover and
+ * open shifts still unfilled. Names, dates and times only, never a reason for absence or pay.
+ */
+export function managerDigestEmail(to: string, name: string, count: number, sections: { heading: string; lines: string[] }[], link: string): Mail {
+  const opening = `${count} thing${count === 1 ? '' : 's'} from your team need${count === 1 ? 's' : ''} you today.`;
+  const notes = ['Each is checked again against the rota rules when you decide it, and the person is told straight away.', 'Turn this email off on the Staff requests screen.'];
+  const text = [
+    `Good morning ${name},`, '', opening, '',
+    ...sections.flatMap((s) => [s.heading, ...s.lines.map((l) => `- ${l}`), '']),
+    link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.',
+  ].join('\n');
+  const body = sections.flatMap((s) => [s.heading, ...s.lines]);
+  return {
+    to,
+    subject: `Staff requests: ${count} waiting for you`,
+    text,
+    html: letter([`Good morning ${name},`, opening, ...body], { label: 'Open Staff requests', link }, notes),
+  };
+}
+
+/** The link that confirms a self sign-up: the person proves the inbox is theirs before any account exists. */
+export function signupEmail(to: string, name: string, business: string, link: string, hours: number): Mail {
+  const opening = `Thank you for starting a Preshift trial for ${business}.`;
+  const setUp = 'Use this link to confirm this is your email, choose your password and open your new organisation. Choose one only you know.';
+  const notes = [
+    `The link works once and expires in ${hours} hours.`,
+    'If you did not ask for this, ignore it: nothing is set up unless the link is used.',
+  ];
+  const text = [`Hello ${name},`, '', opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: 'Confirm your email to start Preshift', text, html: letter([`Hello ${name},`, opening, setUp], { label: 'Confirm and choose a password', link }, notes) };
+}
+
+/**
+ * Someone asked to sign up with an email that already has an account. Told to the inbox, never to
+ * the page, so the sign-up form cannot be used to find out who has one.
+ */
+export function signupExistingEmail(to: string, link: string): Mail {
+  const opening = 'Someone asked to start a Preshift trial with this email, which already signs in to Preshift.';
+  const setUp = 'If it was you, sign in with your usual password. Forgotten it? Use "Forgot your password?" on the sign-in page.';
+  const notes = ['If it was not you, ignore this email. Nothing has changed.'];
+  const text = [opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: 'You already have a Preshift account', text, html: letter([opening, setUp], { label: 'Sign in to Preshift', link }, notes) };
 }

@@ -1,20 +1,32 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
 import { requiredBreakMinutes } from '../../src/engine/compliance';
-import { addDays, ageOn } from '../../src/engine/time';
-import type { Employee, GeoFix, Site, TimeEntry } from '../../src/engine/types';
+import { addDays, ageOn, weekStart } from '../../src/engine/time';
+import { PULSE_RETENTION_DAYS, RECOGNITION_LABEL, welfarePolicy, type PulseResponse } from '../../src/engine/welfare';
+import type { Employee, GeoFix, RightToWorkDocument, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
+import { emailSetting, linkFor, parseEmailSettings, sendMail, staffInviteEmail } from '../mail';
+import { latestByEmployee, recordSent } from '../maillog';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
-import { geoFixBody, idParam } from '../schemas';
-import { audit, type OrgData, type StaffLogin, type Store } from '../store';
+import { geoFixBody, idParam, isoDate } from '../schemas';
+import { canOrgWide } from '../../src/engine/access';
+import { loginCases, reviewRefusal, type StaffLoginEvent } from '../../src/engine/loginreview';
+import { audit, welfareOf, type OrgData, type StaffLogin, type Store } from '../store';
+import { balanceOf, ownRequestView, requestsOf, staffRequestRoutes } from './requests';
+import { cipherOf, cleanFileName, MAX_DOCUMENT_BYTES, sniffType } from './documents';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
 
 const INVITE_DAYS = 7;
+
+/** Writes to the staff login log beside the audit entry: the close review reads this, as the audit log is trimmed. */
+function logLogin(org: OrgData, event: Omit<StaffLoginEvent, 'at'>) {
+  org.staffLoginLog.push({ at: new Date().toISOString(), ...event });
+}
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const sameHash = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -63,8 +75,40 @@ function clockableSites(org: OrgData, employee: Employee, at: Date): Site[] {
 
 const siteView = (s: Site) => ({ id: s.id, name: s.name, geofence: s.geofence ?? null });
 
+/**
+ * Marks that a person has answered a week's pulse, so nobody answers twice. A keyed hash of person and
+ * week, with the key kept apart from the organisation's data: the marker cannot be matched to an answer,
+ * which carries no id, and nobody reading the data can tell whose marker it is without the key.
+ */
+async function pulseMarker(store: Store, orgId: string, employeeId: string, week: string) {
+  const key = await store.settingOnce(`pulse_key:${orgId}`, () => randomBytes(32).toString('hex'));
+  return `${week}:${createHmac('sha256', key).update(`${employeeId}|${week}`).digest('hex')}`;
+}
+
+/** What the staff app shows about looking after them: support, the weekly pulse, rewards and thanks received. */
+async function welfareView({ org, employee }: Staff, store: Store, today: string) {
+  const w = org.welfare;
+  const week = weekStart(today);
+  const marker = await pulseMarker(store, org.orgId, employee.id, week);
+  return {
+    supportLine: welfarePolicy(w?.policy).supportLine ?? null,
+    pulse: { week, answered: (w?.pulseAnswered ?? []).includes(marker) },
+    chatOpen: (w?.chats ?? []).some((c) => c.employeeId === employee.id && c.status === 'open'),
+    rewards: {
+      connected: !!w?.rewards,
+      member: (w?.rewardsEnrolled ?? []).includes(employee.id),
+      optedOut: (w?.rewardsOptOut ?? []).includes(employee.id),
+    },
+    recognitions: (w?.recognitions ?? [])
+      .filter((r) => r.employeeId === employee.id && r.at >= addDays(today, -90))
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .map((r) => ({ id: r.id, at: r.at, label: RECOGNITION_LABEL[r.category], message: r.message, points: r.points, by: r.by })),
+  };
+}
+
 /** Everything the staff app shows: only this person's own shifts and hours. */
-function overview({ org, employee, login }: Staff) {
+async function overview(staff: Staff, store: Store) {
+  const { org, employee, login } = staff;
   const today = londonParts(new Date()).date;
   const siteName = (id: string) => org.state.sites.find((s) => s.id === id)?.name ?? id;
   const roleName = (id: string) => org.state.roles.find((r) => r.id === id)?.name ?? id;
@@ -96,6 +140,36 @@ function overview({ org, employee, login }: Staff) {
       .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn - a.clockIn)
       .slice(0, 20)
       .map(entryView),
+    welfare: await welfareView(staff, store, today),
+    ...selfService(org, employee, today),
+  };
+}
+
+/** What the person can ask for and has asked for: their holiday, availability, requests and messages. */
+function selfService(org: OrgData, employee: Employee, today: string) {
+  const balance = balanceOf(org, employee, today);
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const sick = (employee.absences ?? []).find((a) => a.type === 'sickness' && !a.to);
+  const recentSick = (employee.absences ?? []).filter((a) => a.type === 'sickness' && (!a.to || a.to >= addDays(today, -60))).at(-1);
+  return {
+    unread: (org.notifications ?? []).filter((n) => n.employeeId === employee.id && !n.read).length,
+    holiday: {
+      remainingHours: r1(balance.remainingHours),
+      bookedHours: r1(balance.bookedHours),
+      takenHours: r1(balance.takenHours),
+      dayHours: r1(balance.dayHours),
+      yearEnd: balance.year.end,
+      upcoming: employee.leave.filter((d) => d >= today).sort(),
+    },
+    availability: employee.availability,
+    unavailable: (employee.unavailable ?? []).filter((u) => u.date >= today),
+    sick: sick ? { from: sick.from } : null,
+    fitNoteFor: recentSick ? { from: recentSick.from, to: recentSick.to ?? null, uploaded: recentSick.fitNotes?.length ?? 0 } : null,
+    requests: requestsOf(org)
+      .filter((r) => r.employeeId === employee.id && (r.status === 'pending' || r.status === 'accepted' || (r.decidedAt ?? r.createdAt) >= `${addDays(today, -30)}`))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 30)
+      .map((r) => ownRequestView(org, r)),
   };
 }
 
@@ -103,7 +177,8 @@ function overview({ org, employee, login }: Staff) {
  * The staff app's own API, outside the manager API. Signing in here gives a staff session,
  * which this API alone accepts, and which reaches only the person's own shifts and clocking.
  */
-export function staffRoutes(app: FastifyInstance, store: Store) {
+export function staffRoutes(app: FastifyInstance, ctx: AppContext) {
+  const { store } = ctx;
   const hidden = { schema: { hide: true } };
 
   async function invited(orgId: string, employeeId: string, token: string) {
@@ -145,9 +220,10 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     };
     if (!(await store.putStaffLogin(next))) throw new HttpError(409, 'email_taken', 'That email is already used by another staff login.');
     audit(org, `staff:${employee.id}`, 'staff.login_activated', { employeeId: employee.id });
+    logLogin(org, { employeeId: employee.id, kind: 'activated', by: `staff:${employee.id}`, email });
     await store.save(org);
     await signedIn(req, reply, store, next, issued);
-    return overview({ login: next, org, employee });
+    return overview({ login: next, org, employee }, store);
   });
 
   app.post<{ Body: { email?: string; password?: string } }>('/v1/staff/login', hidden, async (req, reply) => {
@@ -173,12 +249,12 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
     const next = { ...login, failedAttempts: 0, lockedUntil: 0, lastSignInAt: new Date().toISOString() };
     await store.putStaffLogin(next);
     await signedIn(req, reply, store, next);
-    return overview({ login: next, org, employee });
+    return overview({ login: next, org, employee }, store);
   });
 
   app.post('/v1/staff/logout', hidden, async (req, reply) => reply.header('set-cookie', staffCookie('', secure(req), 0)).send({ ok: true }));
 
-  app.get('/v1/staff/me', hidden, async (req) => overview(await requireStaff(req, store)));
+  app.get('/v1/staff/me', hidden, async (req) => overview(await requireStaff(req, store), store));
 
   app.post<{ Body: { siteId?: string; location?: GeoFix } }>(
     '/v1/staff/clock-in',
@@ -197,7 +273,7 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
       const entry = clockIn(org, employee, site.id, { method: 'phone', location: fix });
       audit(org, `staff:${employee.id}`, 'time.phone_clock_in', { id: entry.id, siteId: site.id });
       await store.save(org);
-      return overview(staff);
+      return overview(staff, store);
     },
   );
 
@@ -215,12 +291,119 @@ export function staffRoutes(app: FastifyInstance, store: Store) {
       clockOut(org, entry, { method: 'phone', location: req.body?.location });
       audit(org, `staff:${employee.id}`, 'time.phone_clock_out', { id: entry.id });
       await store.save(org);
-      return overview(staff);
+      return overview(staff, store);
     },
   );
 
   breakRoutes(app, store);
+  welfareStaffRoutes(app, store);
+  staffRequestRoutes(app, ctx, (req) => requireStaff(req, store));
+
+  // A fit note, photographed on the phone. Stored encrypted with the right to work copies, read only by
+  // those who read the personnel file, and attached to the person's current or latest sickness.
+  app.post<{ Querystring: { fileName?: string }; Body: Buffer }>(
+    '/v1/staff/fit-note',
+    {
+      bodyLimit: MAX_DOCUMENT_BYTES,
+      schema: { hide: true, querystring: { type: 'object', properties: { fileName: { type: 'string', maxLength: 255 } } } },
+      onResponse: async (req, reply) => {
+        const id = uploaded.get(req);
+        if (id && reply.statusCode >= 400) await store.deleteDocument(id.orgId, id.documentId);
+      },
+    },
+    async (req, reply) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const today = londonParts(new Date()).date;
+      const absence = (employee.absences ?? []).filter((a) => a.type === 'sickness' && (!a.to || a.to >= addDays(today, -60))).at(-1);
+      if (!absence) throw new HttpError(409, 'no_sickness', 'A fit note goes with a sickness absence. Report sickness first, or give it to your manager.');
+      if ((absence.fitNotes?.length ?? 0) >= 5) throw new HttpError(409, 'too_many_documents', 'Five fit notes are already on file for this absence. Give any more to your manager.');
+      const cipher = cipherOf(ctx);
+      const data = Buffer.isBuffer(req.body) ? req.body : null;
+      if (!data?.length) throw new HttpError(400, 'invalid_request', 'Send the photo or PDF of the fit note.');
+      const contentType = sniffType(data);
+      if (!contentType) throw new HttpError(415, 'unsupported_file', 'Send a photo (JPEG, PNG or WebP) or a PDF.');
+      const doc: RightToWorkDocument = {
+        id: `fit_${randomUUID()}`,
+        fileName: cleanFileName(req.query.fileName, contentType, 'fit-note'),
+        contentType,
+        bytes: data.length,
+        sha256: createHash('sha256').update(data).digest('hex'),
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: employee.name,
+      };
+      await store.putDocument(org.orgId, doc.id, { contentType, data: cipher.seal(org.orgId, doc.id, data) });
+      uploaded.set(req, { orgId: org.orgId, documentId: doc.id });
+      absence.fitNotes = [...(absence.fitNotes ?? []), doc];
+      audit(org, `staff:${employee.id}`, 'hr.absence.updated', { id: employee.id, absenceId: absence.id, fields: ['fitNotes'] });
+      await store.save(org);
+      await store.logDocumentAccess({ orgId: org.orgId, documentId: doc.id, employeeId: employee.id, action: 'added', at: doc.uploadedAt, actor: `staff:${employee.id}`, via: 'staff app', ip: req.ip });
+      return reply.code(201).send(await overview(staff, store));
+    },
+  );
 }
+
+/**
+ * Looking after themselves, from their own phone: a weekly "How was your week?", asking for a private
+ * chat, and whether they want Hospitality Rewards. Each acts on the caller alone.
+ */
+function welfareStaffRoutes(app: FastifyInstance, store: Store) {
+  const openChat = (staff: Staff) => {
+    const w = welfareOf(staff.org);
+    if (w.chats.some((c) => c.employeeId === staff.employee.id && c.status === 'open')) return;
+    w.chats.push({ id: `chat_${randomUUID()}`, employeeId: staff.employee.id, siteId: staff.employee.siteId, at: new Date().toISOString(), status: 'open' });
+    audit(staff.org, `staff:${staff.employee.id}`, 'staff.chat_requested', { employeeId: staff.employee.id });
+  };
+
+  app.post<{ Body: { score?: number; chat?: boolean } }>(
+    '/v1/staff/pulse',
+    { schema: { hide: true, body: { type: 'object', required: ['score'], additionalProperties: false, properties: { score: { type: 'integer', minimum: 1, maximum: 5 }, chat: { type: 'boolean' } } } } },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const today = londonParts(new Date()).date;
+      const week = weekStart(today);
+      const marker = await pulseMarker(store, org.orgId, employee.id, week);
+      const w = welfareOf(org);
+      if (w.pulseAnswered.includes(marker)) throw new HttpError(409, 'answered', 'You have already answered this week. Thank you.');
+      // Kept without who gave it, and placed anywhere in the list, so the order of answers says nothing either.
+      const answer: PulseResponse = { siteId: employee.siteId, week, score: req.body.score as PulseResponse['score'] };
+      w.pulses.splice(randomInt(w.pulses.length + 1), 0, answer);
+      w.pulseAnswered.push(marker);
+      const oldest = weekStart(addDays(today, -PULSE_RETENTION_DAYS));
+      w.pulses = w.pulses.filter((p) => p.week >= oldest);
+      w.pulseAnswered = w.pulseAnswered.filter((m) => m.slice(0, 10) >= oldest);
+      if (req.body.chat) openChat(staff);
+      await store.save(org);
+      return overview(staff, store);
+    },
+  );
+
+  app.post('/v1/staff/chat', { schema: { hide: true } }, async (req) => {
+    const staff = await requireStaff(req, store);
+    openChat(staff);
+    await store.save(staff.org);
+    return overview(staff, store);
+  });
+
+  app.post<{ Body: { optOut?: boolean } }>(
+    '/v1/staff/rewards',
+    { schema: { hide: true, body: { type: 'object', required: ['optOut'], additionalProperties: false, properties: { optOut: { type: 'boolean' } } } } },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const w = welfareOf(org);
+      const out = w.rewardsOptOut.filter((id) => id !== employee.id);
+      w.rewardsOptOut = req.body.optOut ? [...out, employee.id] : out;
+      // Removed from the platform at the next sync, the next morning at the latest.
+      audit(org, `staff:${employee.id}`, req.body.optOut ? 'staff.rewards_opted_out' : 'staff.rewards_opted_in', { employeeId: employee.id });
+      await store.save(org);
+      return overview(staff, store);
+    },
+  );
+}
+
+const uploaded = new WeakMap<FastifyRequest, { orgId: string; documentId: string }>();
 
 /**
  * Breaks need no location check: a break is unpaid time, so recording one can only lower the
@@ -238,7 +421,7 @@ function breakRoutes(app: FastifyInstance, store: Store) {
       apply(entry);
       audit(staff.org, `staff:${staff.employee.id}`, action, { id: entry.id });
       await store.save(staff.org);
-      return overview(staff);
+      return overview(staff, store);
     });
   }
 }
@@ -264,6 +447,7 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = orgOf(req);
     const manages = guard(ctx, req, org).at('team.manage');
     const home = new Map(org.state.employees.map((e) => [e.id, e.siteId]));
+    const mail = latestByEmployee(org);
     return (await store.listStaffLogins(req.principal.orgId))
       .filter((l) => home.has(l.employeeId) && manages({ siteId: home.get(l.employeeId)! }))
       .map((l) => ({
@@ -272,13 +456,14 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       status: l.hash ? 'active' : (l.inviteExpires ?? 0) > now() ? 'invited' : 'expired',
       inviteExpires: l.inviteExpires ? new Date(l.inviteExpires * 1000).toISOString() : null,
       inviteWaiting: Boolean(l.inviteHash && (l.inviteExpires ?? 0) > now()),
+      lastEmail: mail.get(l.employeeId) ?? null,
       activatedAt: l.activatedAt ?? null,
       lastSignInAt: l.lastSignInAt ?? null,
       locked: l.lockedUntil > now(),
     }));
   });
 
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Body: { handOver?: boolean } | undefined }>(
     '/v1/staff-logins/:id/invite',
     {
       ...write,
@@ -286,8 +471,13 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
         tags: ['Staff app'],
         description:
           'Creates a one-time invite link, valid for 7 days, for the person to set up their staff login on their phone. ' +
-          'Sending a new one replaces any earlier link, and is also how a forgotten password is reset.',
+          'Sending a new one replaces any earlier link, and is also how a forgotten password is reset. ' +
+          "Once email is set up under Settings it is emailed to the person's own address (their login's, else the one on their record) " +
+          'and not returned; `handOver: true`, no address or a refused send returns the link to pass on instead. ' +
+          'Once the person has set up their login, a new link only ever goes to the address they signed up with: it is never ' +
+          'returned, and without email set up it is refused (`email_only`), so nobody but the person can sign in as them and clock their hours.',
         params: idParam,
+        body: { type: ['object', 'null'], properties: { handOver: { type: 'boolean' } }, additionalProperties: false },
       },
     },
     async (req, reply) => {
@@ -295,6 +485,23 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       if (employee.status === 'leaver') throw new HttpError(409, 'leaver', `${employee.name} has left.`);
       const token = randomBytes(24).toString('base64url');
       const existing = await store.getStaffLogin(req.principal.orgId, employee.id);
+      const org = orgOf(req);
+      const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
+      const handOver = req.body?.handOver === true;
+      // A login someone has set up opens their clocking, and clocked hours are pay: whoever held a
+      // link to it could sign in as them. So it only ever goes to their own inbox, checked before
+      // any link is made.
+      const joined = Boolean(existing?.hash);
+      if (joined && (handOver || !settings)) {
+        throw new HttpError(
+          409,
+          'email_only',
+          `${employee.name} has set up their login, so a new link only ever goes to their own email, never to anyone else. ` +
+            (handOver
+              ? `It cannot be handed over. If they no longer use ${existing!.email}, close their login and invite them again.`
+              : 'Set up email under Settings first, or close their login and invite them again.'),
+        );
+      }
       const login: StaffLogin = existing ?? {
         orgId: req.principal.orgId,
         employeeId: employee.id,
@@ -306,10 +513,104 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       };
       const expires = now() + INVITE_DAYS * 86_400;
       await store.putStaffLogin({ ...login, inviteHash: sha256(token), inviteExpires: expires, invitedBy: actor(req) });
-      audit(orgOf(req), actor(req), 'staff.invited', { employeeId: employee.id });
       // After #, which browsers never send to a server or in a Referer header.
       const fragment = new URLSearchParams({ org: req.principal.orgId, person: employee.id, invite: token });
-      return reply.code(201).send({ path: `/staff/#${fragment}`, expiresAt: new Date(expires * 1000).toISOString() });
+      const path = `/staff/#${fragment}`;
+      const expiresAt = new Date(expires * 1000).toISOString();
+
+      // To the person's own inbox where there is one: the login's address once they have joined, else their record's.
+      const to = (existing?.email ?? employee.email ?? '').trim().toLowerCase();
+      const why = handOver ? 'handed_over' : !settings ? 'email_not_set_up' : !EMAIL.test(to) ? 'no_address' : null;
+      if (why === null) {
+        const site = org.state.sites.find((x) => x.id === employee.siteId)?.name ?? 'your site';
+        const message = staffInviteEmail(to, employee.name, actor(req), site, linkFor(settings, path), INVITE_DAYS, !!existing?.hash);
+        const id = await sendMail(settings!, message);
+        if (id !== null) {
+          if (id) recordSent(org, id, { to, kind: 'staff_invite', employeeId: employee.id, by: actor(req) });
+          audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: true });
+          logLogin(org, { employeeId: employee.id, kind: 'invited', by: actor(req), emailed: true });
+          // The link stays between the person and their inbox.
+          return reply.code(201).send({ emailed: true, to, expiresAt });
+        }
+        audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: false });
+        logLogin(org, { employeeId: employee.id, kind: 'invited', by: actor(req), emailed: false });
+        // Never handed back for a login they have set up, even when the email fails.
+        if (joined) return reply.code(201).send({ emailed: false, reason: 'send_failed', expiresAt, emailProblem: 'The email did not go. Check the email settings and send again; this link only ever goes to their own email.' });
+        return reply.code(201).send({ emailed: false, reason: 'send_failed', path, expiresAt, emailProblem: 'The email did not go. Check the email settings, or hand this link over yourself.' });
+      }
+      audit(org, actor(req), 'staff.invited', { employeeId: employee.id, emailed: false });
+      logLogin(org, { employeeId: employee.id, kind: 'invited', by: actor(req), emailed: false });
+      return reply.code(201).send({ emailed: false, reason: why, path, expiresAt });
+    },
+  );
+
+  // ----- The review of logins closed and opened again -----
+
+  /** A person who reads the access trail across the organisation: reviews are signed by name, so never a key. */
+  const loginReviewer = (req: FastifyRequest) => {
+    const g = guard(ctx, req, orgOf(req));
+    const today = store.todayISO();
+    if (g.actor.kind !== 'user') throw new HttpError(403, 'forbidden', 'Staff login reviews are made by people signed in, never by an integration key.');
+    if (!canOrgWide(g.actor.user, 'audit.view', today) && !canOrgWide(g.actor.user, 'users.manage', today)) {
+      throw new HttpError(403, 'forbidden', 'Reviewing staff logins needs audit or access management rights across the organisation.');
+    }
+    return actorName(g);
+  };
+  const casesOf = (org: OrgData, from: string, to: string) => {
+    const people = new Map(org.state.employees.map((e) => [e.id, e]));
+    return loginCases(org.staffLoginLog, org.loginReviews, org.timeEntries, from, to).map((c) => ({
+      ...c,
+      name: people.get(c.employeeId)?.name ?? c.employeeId,
+      siteId: people.get(c.employeeId)?.siteId ?? null,
+    }));
+  };
+
+  app.get<{ Querystring: { from: string; to: string } }>(
+    '/v1/staff-logins/review',
+    {
+      schema: {
+        tags: ['Staff app'],
+        description:
+          'Every staff login closed between `from` and `to`, followed through any re-invite and re-join, flagged where the same person closed and re-invited it, ' +
+          'the new link was handed over, it was set up with a different email, or hours have been clocked by phone since. Opened-again logins need a sign-off.',
+        querystring: { type: 'object', required: ['from', 'to'], properties: { from: isoDate, to: isoDate } },
+      },
+    },
+    async (req) => {
+      loginReviewer(req);
+      const cases = casesOf(orgOf(req), req.query.from, req.query.to);
+      return {
+        cases,
+        summary: { closed: cases.length, needsReview: cases.filter((c) => c.needsReview).length, highRisk: cases.filter((c) => c.risk === 'high' && c.needsReview).length },
+      };
+    },
+  );
+
+  app.post<{ Body: { caseId: string; outcome: 'genuine' | 'concern'; note: string } }>(
+    '/v1/staff-logins/review',
+    {
+      schema: {
+        tags: ['Staff app'],
+        description: 'Signs off one login closed and opened again: genuine, or a concern to follow up. Never by whoever closed or re-invited it.',
+        body: {
+          type: 'object',
+          required: ['caseId', 'outcome', 'note'],
+          additionalProperties: false,
+          properties: { caseId: { type: 'string' }, outcome: { enum: ['genuine', 'concern'] }, note: { type: 'string', minLength: 10, maxLength: 2000 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const by = loginReviewer(req);
+      const org = orgOf(req);
+      const found = casesOf(org, '0000-01-01', '9999-12-31').find((c) => c.id === req.body.caseId);
+      if (!found) throw notFound(`Login close ${req.body.caseId}`);
+      const refused = reviewRefusal(found, by);
+      if (refused) throw new HttpError(409, 'review_refused', refused);
+      const review = { caseId: found.id, at: new Date().toISOString(), by, outcome: req.body.outcome, note: req.body.note.trim() };
+      org.loginReviews.push(review);
+      audit(org, by, 'staff.login_reviewed', { employeeId: found.employeeId, caseId: found.id, outcome: review.outcome, risk: found.risk });
+      return reply.code(201).send({ ...found, review, needsReview: false });
     },
   );
 
@@ -318,8 +619,11 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     { ...write, schema: { tags: ['Staff app'], description: 'Closes a staff login and signs them out on every phone.', params: idParam } },
     async (req, reply) => {
       const employee = employeeOf(req);
+      const existed = await store.getStaffLogin(req.principal.orgId, employee.id);
       await store.deleteStaffLogin(req.principal.orgId, employee.id);
       audit(orgOf(req), actor(req), 'staff.login_closed', { employeeId: employee.id });
+      // Only a login that was there is a close to review.
+      if (existed) logLogin(orgOf(req), { employeeId: employee.id, kind: 'closed', by: actor(req) });
       return reply.code(204).send();
     },
   );

@@ -22,11 +22,19 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_EMPLOYER_ID` | The client's employer in TeamPay, for an organisation with one company only. A group sets an employer on each company instead (`PATCH /v1/entities/:id`); this variable is never used for more than one company. |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
+| `PRESHIFT_PUBLIC_URL` | Optional. The address people reach Preshift on, for example `https://rota.example.co.uk`, used as the issuer for Sign in with Preshift. Set it only behind a proxy that changes the host name |
 | `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
 | `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `PRESHIFT_DEMO` | `1` switches on the public demo alongside customers: a private sandbox per visitor from `/demo`, on a route allowlist, simulator payroll, wiped at midnight UK time. Unset is the kill switch. See the README |
 | `PRESHIFT_DEMO_CLAUDE_KEY` | Claude API key the demo sandboxes share for the rota assistant, capped per sandbox and per day. Never a customer's key. Unset means the assistant is off in the demo |
-| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes), `/internal/webhooks` (every 15 minutes, webhook retries) and `/internal/demo-reset` (the demo's midnight reset) |
+| `PRESHIFT_SIGNUP` | `1` switches on self sign-up: "Start a free trial" on the sign-in page. Needs email set up under Settings in the first organisation, which sends the confirmation links. Unset is the kill switch; organisations already made carry on |
+| `PRESHIFT_TRIAL_DAYS` | Free trial for a self sign-up, in days. Defaults to 14 |
+| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_live_...` or `sk_test_...`). Billing is on only when this, the webhook secret and the price are all set |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_...`) of the Stripe webhook pointed at `/v1/integrations/stripe/webhook`, sending `checkout.session.completed`, `customer.subscription.created`, `.updated`, `.deleted`, `invoice.paid` and `invoice.payment_failed` |
+| `STRIPE_PRICE_ID` | The monthly Stripe price, graduated per site from `src/engine/pricing.ts`. Make it with `npm run stripe:prices`, which prints the value. The subscription's quantity is the organisation's site count |
+| `STRIPE_PRICE_ID_ANNUAL` | The yearly price made by the same script (two months free). Without it only monthly billing is offered |
+| `PRESHIFT_APP_URL` | Optional. The address Stripe returns people to after Checkout and the customer portal; defaults to the address they came in on |
+| `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes), `/internal/webhooks` (every 15 minutes, webhook retries) `/internal/demo-reset` (the demo's midnight reset) and `/internal/digest` (06:35 UTC, the managers' morning email of staff requests) |
 
 ## Authentication and tenancy
 
@@ -38,10 +46,13 @@ People and access (`/v1/users`, `/v1/access/*`) are managed by people only, neve
 key; settings (`/v1/settings`) need a signed-in person with `settings.manage`, and staff data
 requests (`/v1/privacy/*` beyond the register) a person with `privacy.manage`. Personnel files
 (`/v1/hr/*`) need `hr.view` or `hr.manage` where the person works, and cases `hr.cases`. Integrations use bearer API keys, each bound to one organisation with scopes (see Plugging in,
-below). `programme:lead` is never implied by `*` and cannot be given to a key made in the app: it is held
-by Williams, Stanley & Co. alone, in a deployment key, because programme sign-offs, baselines,
-verifications and the gain share set the fee an operator pays. A key with it can also name a person
-as the WS lead in its organisation (`PUT /v1/programme-leads/:email`). A GM key can build rotas and approve
+below). Programme sign-offs, baselines, verifications and the gain share set the fee an operator
+pays, so they need the `programme.lead` permission, which only the WS client partner role carries,
+or a deployment key Williams, Stanley & Co. holds with the `programme:lead` scope. That scope is never
+implied by `*` and cannot be given to a key made in the app. WS roles are granted only by the WS
+client partner or by that key, which may also invite the first partner (`POST /v1/users` with
+`audience: "ws"`) and is refused any operator role; the operator's owner, and a sign-in with no access
+record, can remove WS people but never appoint or change them. A GM key can build rotas and approve
 time but cannot send hours to payroll; that is a payroll or finance key. Every request is
 confined to its key's organisation.
 
@@ -84,13 +95,25 @@ labour, an in-house app, a partner product. Nobody at Preshift has to issue anyt
    `payroll.send`, `hr:read` `hr.view`, `hr:write` `hr.manage`, `webhooks:write` `settings.manage`
    (refused as 403 `beyond_own_access`). The Owner role holds neither `payroll.send` nor
    `time.approve`, as paired duties, so it cannot make a key that sends payroll or approves hours.
-   Keys made here are organisation-wide system keys, recorded against the person who made them. The key (`psk_...`) is shown once. Only its SHA-256 is stored, in its own table,
+   Keys made here are organisation-wide system keys, recorded against the person who made them, and they answer to that
+   person: the audit names them (`API key Tevalis EPOS, made by Olivia Grant`), a pay rate sent with the key is proposed to
+   finance like the maker's own (never set, and never the maker's own pay or staff record), a key never approves or
+   rejects pay, and a key never sees or records a case. Only a deployment's own key, set in its environment, sets pay directly. The key (`psk_...`) is shown once. Only its SHA-256 is stored, in its own table,
    so no data endpoint can return it and a database leak gives nobody a working key.
 2. The system sends `Authorization: Bearer psk_...` on every request. It reaches that organisation
    only, and only the scopes ticked. A key can never make, list or revoke keys, or manage people
    or settings: that needs a person signed in.
 3. Revoking a key under Settings stops it on the next request. Each key shows when it was last used,
    so keys nobody uses any more are easy to find and remove.
+4. Every call made with a key is recorded: time, method, path and query, status, caller address and
+   response time, written before the response leaves so the log has no gaps. Refused calls are
+   recorded too, marked `revoked` or `rate_limited`. Revoking keeps the key's record, so an attempt
+   to use a leaked key after revocation is refused, logged against it and visible in its log.
+   People with `settings.manage` see each key's last 200 calls under Settings, API keys, Calls, and
+   download up to 1,000 as CSV from `GET /v1/api-keys/:id/calls?from=&to=&limit=&format=csv`
+   (deployment keys as `env:<name>`); each download is written to the audit trail. Calls are kept
+   396 days (the partner addendum's 12 months plus a month) and purged by the daily run. Requests
+   from people signed in to the app are in the audit trail instead.
 
 Staff records and pay sit behind `employees:read`, apart from `rota:read`, so a BI tool or EPOS can
 read labour totals without seeing anyone's date of birth, rate or pay. Without it, `/v1/rota/week`
@@ -201,14 +224,46 @@ not publish", "approve Friday's clocked time at the bar".
 | `publish_rota` | `rota:write` | `POST /v1/rota/publish` |
 | `approve_time` | `time:approve` | `POST /v1/time-entries/approve` |
 
-Connecting Claude: in claude.ai, Settings, Connectors, add a custom connector with the URL
-`https://<your Preshift address>/mcp`, and give it the key as a bearer token where the client
-asks for one. In Claude Code:
+Connecting Claude with a key, in Claude Code:
 
 ```bash
 claude mcp add --transport http preshift https://<your Preshift address>/mcp \
   --header "Authorization: Bearer psk_..."
 ```
+
+### Sign in with Preshift (claude.ai)
+
+claude.ai connects with no key at all. Add a custom connector (Settings, Connectors) with the
+address `https://<your Preshift address>/mcp` and press Connect. Claude finds Preshift's sign-in
+on its own, opens it, and the person signs in to Preshift as they normally do. They then see
+what Claude will be able to do and tick the boxes, and Claude is connected. Claude Code and
+Claude Desktop use the same sign-in when added without a key header.
+
+- Standards: OAuth 2.1 with PKCE (S256 only), dynamic client registration (RFC 7591),
+  protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`,
+  authorisation server metadata (RFC 8414) at `/.well-known/oauth-authorization-server`, and
+  token revocation (RFC 7009) at `/oauth/revoke`. A `401` from `/mcp` names the metadata in
+  `WWW-Authenticate`, which is how a client finds the sign-in.
+- A token acts as the person who approved it, exactly as a personal API key does. Their roles
+  decide, site by site: a GM's connection reaches their own site only. It never counts as having
+  passed the authenticator, so strong rights (pay changes and approval, payroll, settings, access,
+  HR cases, close export) stay in the app, whatever the person holds.
+- The person ticks what Claude may do from `rota:read` (ticked by default), `employees:read`,
+  `rota:write` and `time:approve`. Nothing else is offered.
+- Only someone with an active access record in the organisation can connect. The public demo
+  refuses.
+- Access tokens last an hour; refresh tokens 30 days and rotate on every use. A refresh token
+  used twice ends the whole connection, as it means someone holds a copy. Codes last five
+  minutes and work once, with their own verifier, for their own app and address.
+- A connection ends at once when the person disconnects it at `/oauth/connections`, when it is
+  revoked, when the person is removed or suspended, or when their password is reset.
+- Redirect addresses must be https, or http on `localhost` for desktop clients, and must match
+  what the app registered exactly. A bad one is shown as an error, never followed.
+- Every connection and disconnection is in the organisation's audit trail (`oauth.connected`,
+  `oauth.revoked`). Calls made through it are logged like any key's, as `oauth:<grant id>`.
+- Clients, codes and tokens are kept in the settings table, hashed, so nothing new needs setting
+  up. Set `PRESHIFT_PUBLIC_URL` if Preshift sits behind a proxy that changes the host name;
+  otherwise the address is taken from the request.
 
 Locally, `npm run dev` serves it at `http://localhost:8787/mcp` with `dev-key`. Add a tool in
 `server/mcp.ts`: name the route it calls and the scope it needs; the route does the rest.
@@ -234,6 +289,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /v1/me` | The key, the person it acts as, and their live permissions |
+| `PATCH /v1/me` | Your own name and job title, for anyone signed in or on their own personal key. Email, roles and the rota link are not changed here; integration keys are refused |
 | `GET /v1/access/catalogue` | Roles, permissions, paired-duty rules |
 | `GET/POST /v1/users`, `GET/PATCH /v1/users/:id` | Directory, invite with first role, edit name, title and rota link |
 | `POST /v1/users/:id/grants`, `PATCH/DELETE /v1/users/:id/grants/:mid` | Grant (422 refused, 409 `needs_confirmation`), change end date, revoke (kept, marked revoked) |
@@ -257,11 +313,11 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Set-up | A signed-in person (or their personal key) holding `settings.manage` organisation-wide, with a proved authenticator; never a system integration key. `GET /v1/setup/status` (still the sample group, and whether it can be cleared), `PUT /v1/setup` (companies, sites, roles and staffing rules in one go; refused with `invalid_setup` if incomplete and `in_use` if it removes a company, site or role that people, shifts, clocked time or someone's site access still use; re-forecasts from this week from each site's `salesProfile`), `POST /v1/setup/start-fresh` (clears the sample group, its fictional people and HR files; refused with `not_sample` once anything real exists, including HR records, a data request, or a real person's access tied to a sample site). People are not part of set-up: they are added through `POST /v1/employees` so each starter reaches payroll. |
 | Employees | `GET/POST /v1/employees`, `GET/PATCH /v1/employees/:id`, `POST /v1/employees/:id/leaver` |
 | Right to work copies | `POST /v1/employees/:id/right-to-work/documents?fileName=` with the file as the raw body (PDF, JPEG, PNG or WebP, up to 4 MB; the type is read from the bytes, anything else is 415), `GET .../documents/:docId` to view, `DELETE .../documents/:docId` (signed-in admins only), `GET .../documents/:docId/access` (the copy's access log, signed-in admins only). Each copy is listed on the employee's `rightToWork.documents` with its SHA-256, who added it and when. Editing the employee never changes that list. |
-| HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, type, from, to}`. Cases are returned to signed-in admins only, never to members. |
+| HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, from, to}`, with `type` only for those who run pay (`payroll.view`, `pay.edit` or `pay.approve`), as sick pay turns on it. Whether someone was off sick is health data: the rota needs only the days. Cases are returned to signed-in people who handle them, never to members and never to an API key. Every record carries `history`: each change, who made it and the values it replaced, kept by the server. A record stays with its person (`person_fixed`), and a case is closed, never deleted (`case_kept`). Nobody changes their own staff record (`PATCH /v1/employees/:id`, `/leaver`) or exports their own subject file: somebody else does. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches) |
 | Rest overrides | `GET /v1/rota/overrides`, `POST /v1/rota/overrides` with `{weekStart, key, reason}`, `DELETE /v1/rota/overrides/:id`. Daily and weekly rest breaches carry an `overrideKey`; a person with the right to publish the rota at the breach's site (never a system key) posts it with a reason of at least 15 characters, and the breach publishes as a warning naming them and their reason. The key covers that breach as it stood: moving either shift, or changing the days worked, makes a new breach that blocks again. Overrides and withdrawals go to the audit log, and each publish records the overrides it went out under. |
-| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=`. Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. `POST /v1/forecast/from-takings` `{siteId or siteIds, weekStart, replace?}` works the week out of each site's own takings: the same day 52 weeks back scaled by the last four weeks against the same weeks a year earlier (at least six matched days, a change between half and double), else the last six same weekdays with takings, the latest counting most and the highest and lowest dropped from five or more. Days with no takings count as closed. Hours split the day as the site's past forecasts for that weekday did, else a standard lunch and dinner curve; covers follow the site's own spend per head. Days already forecast are left alone unless `replace` is true; each day comes back with its basis, the takings days it used and a note |
+| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=`. `GET /v1/forecast/accuracy/report?siteIds=a,b&week=&weeks=` (1 to 26, default 8) is the same over several sites and weeks, by the day so a site that only keys in daily takings is measured too: for each site and week, the days measured (a forecast and takings, before today), day error and, where the till sends hours, hourly error, bias, sales over and under forecast and the labour each implies at the site's own target, the days that were on the typical week alone, and days of the week wrong by 10% or more the same way across three weeks or more. Sites the caller cannot see are left out; none at all is 403. Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. `POST /v1/forecast/from-takings` `{siteId or siteIds, weekStart, replace?}` works the week out of each site's own takings: the same day 52 weeks back scaled by the last four weeks against the same weeks a year earlier (at least six matched days, a change between half and double), else the last six same weekdays with takings, the latest counting most and the highest and lowest dropped from five or more. Days with no takings count as closed. Hours split the day as the site's past forecasts for that weekday did, else a standard lunch and dinner curve; covers follow the site's own spend per head. Days already forecast are left alone unless `replace` is true; each day comes back with its basis, the takings days it used and a note |
 | Takings | `GET/PUT/DELETE /v1/sales` (a till or EPOS integration pushes each day's net takings per site; `PUT` adds or replaces by site and day, `DELETE ?siteId&date` removes one so reports fall back to the forecast) |
 | EPOS | `GET /v1/integrations/epos` (the connected till, which site takes which location, the last sync), `GET /v1/integrations/epos/locations`, `POST /v1/integrations/epos/sync` (`{from?, to?}`, defaults to the last seven finished days, at most 92 days; keeps days keyed in by hand). Connecting, matching and disconnecting need a signed-in person with settings.manage; syncing needs demand.manage at every matched site, the same right as keying takings in. |
 | Calendar | `GET /v1/calendar?siteId=&from=&to=` (occasions, events, weather by day, what the model applies and why, reminders), `GET /v1/reminders?siteIds=` (what is due now), `POST /v1/reminders` (`done`, `dismiss`, or `expect` with a factor, which becomes a forecast adjustment; a second answer replaces the first), `PUT /v1/sites/:id/location`, `POST /v1/outside/refresh` (weather, feeds and the forecast ahead, now), `GET /v1/weather`, `GET/POST /v1/event-feeds`, `DELETE /v1/event-feeds/:id` (past events are kept as history), `GET/POST /v1/local-events`, `DELETE /v1/local-events/:id` (hand-entered only) |
@@ -269,13 +325,17 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Bookings | `PUT /v1/bookings` (push by the booking system's reference; only date, time, covers, status, made and cancelled dates are kept, anything else is dropped), `POST /v1/bookings/import` (a CSV export; columns found by name, UK dates unless `usDates`), `GET /v1/bookings`, `GET /v1/bookings/status` |
 | Till actuals | `GET/PUT /v1/actuals` (hourly sales and covers as traded: what the model learns from and accuracy is measured against) |
 | Coach | `POST /v1/coach/moves` (works out and records this week's moves), `POST /v1/coach/apply` (takes a move exactly as offered; refuses a stale one or one that now breaks a rule), `POST /v1/coach/dismiss` (with the reason), `GET /v1/coach/history` (with the saving each taken move actually realised), `GET /v1/scorecard?siteId=&weeks=` |
-| Programme | `GET /v1/programmes`, `PUT /v1/programmes/:siteId`, `PUT /v1/programmes/:siteId/baseline`, `POST /v1/programmes/:siteId/signoffs`, `DELETE /v1/programmes/:siteId/signoffs/:milestoneId`, `POST /v1/programmes/:siteId/verifications` (all writes need `programme:lead`) |
+| Programme | `GET /v1/programmes`, `PUT /v1/programmes/:siteId`, `PUT /v1/programmes/:siteId/baseline`, `POST /v1/programmes/:siteId/signoffs`, `DELETE /v1/programmes/:siteId/signoffs/:milestoneId`, `POST /v1/programmes/:siteId/verifications` (all writes need the WS client partner, or a WS key with `programme:lead`) |
 | Benchmarks | `PUT /v1/settings/benchmarking` (the operator's admin opts in), `GET /v1/benchmarks` (quartiles from other opted-in operators only) |
 | Time | `POST /v1/time-entries/clock-in`, `/:id/clock-out`, manual `POST /v1/time-entries`, `PATCH`, `POST /approve` (returns `belowBreakMinimum`, recorded in the audit), `GET /compare`, `GET /break-check` (finished shifts below the legal rest break: `short` or `split`) |
 | Clocking | `PUT`/`DELETE /v1/sites/:id/geofence`, `PUT`/`DELETE /v1/employees/:id/badge`, `POST /v1/time-entries/tap` (RFID card: clocks in, or out if already in). Device clock-in and clock-out take `location: {lat, lng, accuracyMetres}`; a fenced site refuses one missing or outside the fence (`location_required`, `outside_site`, `too_imprecise`). The fix's accuracy is allowed on top of the radius, up to the radius again, and fixes worse than 250 m are refused. A card tap from a reader fixed on site under its own API key (no person behind it) is not location checked and may send `at` for a tap held offline, never in the future. A card tap from a signed-in person's tablet or phone is location checked like a device clock. Any clock from a person is timed by the server; an `at` more than two minutes off is refused (`time_set_by_server`). Employee records carry `personalHidden: true` and `under18` for readers without `team.manage` or `hr.view` at the person's sites: date of birth, right to work detail and card number are withheld. |
-| Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (returns a one-time link, valid 7 days), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
+| Staff app | Managers: `GET /v1/staff-logins`, `POST /v1/staff-logins/:employeeId/invite` (a one-time link, valid 7 days. Once email is set up under Settings it is emailed to the person's own address, their login's once they have joined, else the one on their record, and the answer is `{emailed: true, to, expiresAt}` with no link. `{handOver: true}`, no address or a send Resend refuses returns `{emailed: false, reason, path, expiresAt}` to pass on, `reason` being `handed_over`, `no_address`, `email_not_set_up` or `send_failed`. `GET /v1/staff-logins` carries each person's `lastEmail` with what Resend reported, bounces included. Once the person has set up their login, a new link, their password reset, only ever goes to the address they signed up with: `handOver` or no email set up is refused with `email_only` before any link is made, and a failed send returns no link. Closing the login and inviting again starts afresh. Every invite, set-up and close is also kept in a staff login log that is never trimmed, as the audit log is. `GET /v1/staff-logins/review?from=&to=` lists each login closed in the period, followed through its re-invite and re-join, flagged where the same person closed and re-invited it, the link was handed over, it was set up with a different email, or hours have been clocked by phone since, with a risk of high, medium or low; `POST /v1/staff-logins/review` `{caseId, outcome: genuine|concern, note}` signs one off, once, and never by whoever closed or re-invited it. Both need a person signed in with `audit.view` or `users.manage` across the organisation), `DELETE /v1/staff-logins/:employeeId`. Staff, with their own `ps_staff` session (30 days, signed with a key derived for staff only, so it is never accepted by the manager API): `POST /v1/staff/invite` (the invite in the body; the link carries it after `#`), `POST /v1/staff/join`, `/login`, `/logout`, `GET /v1/staff/me`, `POST /v1/staff/clock-in`, `/clock-out`, `/break-start`, `/break-end`. Recorded breaks are kept on the entry as `breaks: [{start, end}]` and set `breakMinutes` at clock-out; clocking out ends a running break. A card tap on `/v1/time-entries/tap` while on a break returns `break_end`. Five wrong passwords lock the login for 15 minutes. Phone clocking is refused at a site with no geofence (`site_not_set_up`). |
+| Staff requests | Managers: `GET /v1/requests?siteId=&status=open\|all` (the sites where the caller decides each kind: holiday and availability need `team.manage`, time off and sickness `hr.manage` with an HR scope, swaps and open shift claims `rota.publish`; each carries `problem`, `issues`, `clashes`, `othersOff`, `balance` and `canDecide`, and notes on sickness and time off only for personnel file readers), `POST /v1/requests/:id/approve` and `/decline` (`{note?}`; approving is checked again and refused with `compliance_block` or `request_stale`; a swap needs the colleague's agreement first, `not_agreed`; nobody decides their own). `GET/POST /v1/open-shifts` (`{siteId, roleId, date, startMinute, endMinute, breakMinutes?, note?}`, or `{fromShiftId}` to take a shift off whoever has it and post it; answers `told`, the number of eligible people notified), `DELETE /v1/open-shifts/:id` (withdraw). `GET /v1/requests/digest` (whether the caller's morning email is on, and what it would say today) and `PUT /v1/requests/digest` (`{on}`), signed-in people only. `GET /v1/employees/:id/absences/:absenceId/fit-notes/:docId` (`hr:read`, logged). Staff, on the `ps_staff` session: `GET /v1/staff/notifications`, `POST /v1/staff/notifications/read` (`{ids?}`), `GET /v1/staff/team`, `GET /v1/staff/board`, `GET /v1/staff/shifts/:id/swap-options`, `POST /v1/staff/swaps` (`{shiftId, toEmployeeId?, returnShiftId?, note?}`), `POST /v1/staff/swaps/:id/accept` and `/decline`, `POST /v1/staff/open-shifts/:id/claim`, `POST /v1/staff/requests/holiday` (`{from, to, note?}`), `/time-off` (`{absenceType, from, to, note?}`), `/availability` (`{availability}`), `POST /v1/staff/requests/:id/cancel`, `PUT /v1/staff/unavailable` (`{dates: [{date, note?}]}`), `POST /v1/staff/sick` (`{from?, note?}`), `/sick/back` (`{lastDayOff}`), `POST /v1/staff/fit-note?fileName=` (the file as the body). `GET /v1/staff/me` adds `unread`, `holiday`, `availability`, `unavailable`, `sick`, `fitNoteFor` and `requests`. Publishing the rota, deleting a published shift and every decision notify the people concerned. |
+| Kiosks | Managers: `GET /v1/kiosks`, `POST /v1/kiosks` (signed-in session only: sets the device's `ps_kiosk` credential for a year and ends the session on it), `DELETE /v1/kiosks/:id`. Kiosk, under its own credential: `GET /v1/kiosk/board` (today's rota at its site), `POST /v1/kiosk/tap` (a card, as a fixed reader), `POST /v1/kiosk/clock` (`in`, `out`, `break_start`, `break_end` by name, for people on today's rota there). Entries are recorded with method `kiosk` for by-name clocks and `card` for taps. |
+| Support | `GET /v1/support/tickets` (the organisation's questions, bug reports and feature ideas, open and blocking first, with `desk`, the names who answer, and `youAreDesk`), `POST /v1/support/tickets` `{kind: question|bug|feature, title, detail, impact?, steps?, hoursSavedPerWeek?, context?}` (a bug's `impact` sets its severity; 30 a day per organisation), `POST /v1/support/answered`, `POST /v1/support/tickets/:id/vote`, `POST /v1/support/tickets/:id/comments`, `PATCH /v1/support/tickets/:id` `{status}`. People signed in only, never an integration key. The desk is the client's WS client partner (the `ws_partner` role across the organisation): only their reply stops the response clock and only they change a status. A new ticket emails each partner through their own WS organisation's email, and records `notified` (emailed, failed, not_set_up, no_desk). First response targets are London working hours, Monday to Friday, bank holidays excepted: blocking 4 working hours, major and questions 1 working day, minor 3, ideas 5. Closed tickets are deleted two years after closing and are listed in the record of processing. Off in the public demo |
 | Travel | `PUT /v1/sites/:id/location` (`{postcode}`, looked up on postcodes.io, or `{lat, lng}`; clears looked-up journeys to and from the site), `POST /v1/sites/travel/refresh` (TfL journey planner for every pair of located sites, each way, weekday 17:00, public transport or walking; hand-set times kept; a labelled straight-line estimate where TfL has no answer), `PUT`/`DELETE /v1/sites/:id/travel/:toId` (`{minutes}` set by hand, both ways). Journeys are kept on each site as `travel: {siteId: {minutes, source: tfl\|estimate\|manual, mode, checkedAt}}`. Shift responses carry `travel` (blocking: cannot get there in time), `travel-tight` and `travel-unknown` issues. A same-day journey between sites is paid working time: costs, journals and payroll submissions include it, charged to the shift travelled to, and payroll hours lines carry `travelHours` (already inside `hours`). What a company pays for travel is set with `PATCH /v1/entities/:id` `{travelPay: {basis: normal\|minimum\|fixed, hourly?}}`: `minimum` is the minimum wage for each person's age, `fixed` needs `hourly` and is lifted to the minimum wage where it is lower, and `normal` clears the policy. Travel at a rate other than the person's normal rate is its own hours line with `travel: true` and that `rate`. `TFL_APP_KEY` is optional; the planner works without one at low volume. |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference) |
+| Linking existing TeamPay staff | `GET /v1/integrations/payroll/link?entityId=` (`payroll.view`: the company's TeamPay records beside its people, with suggested matches, held starters and links awaiting a decision), `POST /v1/employees/:id/payroll-link` `{payrollId, keep?: 'payroll' \| 'preshift'}` (`payroll.send`; also settles an existing link's differences. Pay follows the two-person rule: `keep: 'payroll'` raises TeamPay's pay as a pay change for finance to approve and the person's hours wait until then; `keep: 'preshift'` overrides what TeamPay pays, so it needs `pay.approve`; never on your own pay; a business with nobody else who can approve applies either at once), `POST /v1/employees/:id/payroll-new-starter` (confirms a held starter is not on TeamPay), `DELETE /v1/employees/:id/payroll-link` (only before any hours have gone to TeamPay under it). Before creating a starter the outbox reads the employer's TeamPay employees: Preshift's own reference or exactly one record with the same name and date of birth is linked, not created; a near match (same date of birth and surname, or same name) is held with reason `possible_match`, two exact matches with `ambiguous_match`. Differences are never overwritten either way: the person carries `payrollReview`, nothing is sent to TeamPay for them, their name, date of birth, pay and hours cannot be edited, and an hours batch including anyone with an undecided pay difference is refused with `payroll_review`. |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |
 
@@ -331,7 +391,10 @@ TeamPay's paths and field names. It follows what TeamPay publishes (REST, push h
 starters, pull pay runs, `payroll.run.completed` webhooks, sandbox keys), but these details are
 assumptions until checked against the API reference:
 
-- Paths: `POST /employees`, `PATCH /employees/:id`, `POST /employees/:id/leaver`, `POST /hours`, `GET /pay-runs/:id`.
+- Paths: `GET /employees`, `POST /employees`, `PATCH /employees/:id`, `POST /employees/:id/leaver`, `POST /hours`, `GET /pay-runs/:id`.
+- Listing employees: assumed `GET /employees?include_leavers=true&page=N&per_page=100`, answering
+  `{ employees: [...], next_page }` with `external_ref`, `date_of_birth`, pay and leave fields. Linking and the
+  duplicate check depend on it; if it cannot be read, starters wait rather than risk a second record.
 - Field names (snake case), and whether cost centre and role are accepted on hours lines.
 - That one API key can act for several employers by naming one per call, and that the
   `payroll.run.completed` webhook says which employer the run is for (`employer_id`).
@@ -340,7 +403,7 @@ assumptions until checked against the API reference:
 - How TeamPay treats a resubmitted hours batch for the same period (replace or add).
 - Pay schedules other than weekly. Preshift periods are weekly in this build.
 
-Because WS runs TeamPay, these can be settled in one working session. Change that file, run
+Because WS runs TeamPay, these can be settled in one working session: `docs/TEAMPAY_CONFIRMATION.md` is the agenda, with a live check to run against the sandbox. Change that file, run
 `npm test`, and the rest of the system is unaffected.
 
 ## Weather and local events
@@ -442,6 +505,7 @@ is sent; if the log cannot be written, the file is not shown.
 | `/v1/*`, `/docs`, `/health` | The API, as one Node function |
 | `/internal/dispatch` | Daily Vercel Cron retry of undelivered payroll changes (needs `CRON_SECRET`) |
 | `/internal/webhooks` | Vercel Cron every 15 minutes: webhook retries that are due (needs `CRON_SECRET`) |
+| `/internal/digest` | Vercel Cron at 06:35 UTC: each manager's morning email of staff requests waiting for them, once a day per organisation with email set up (needs `CRON_SECRET`) |
 | `/demo`, `/demo/start` | The public demo's start page, and the form post that starts a visitor's sandbox (with `PRESHIFT_DEMO=1`) |
 | `/internal/demo-reset` | The demo's midnight reset, from Vercel Cron at 23:05 and 00:05 UTC (needs `CRON_SECRET`) |
 

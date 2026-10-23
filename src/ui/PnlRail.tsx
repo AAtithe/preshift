@@ -104,6 +104,14 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
               <td className="tnum">{ledger(-Math.round(metrics.cost.travel.cost))}</td>
             </tr>
           )}
+          {metrics.cost.travel.unpriced > 0 && (
+            <tr className="memo warn-memo">
+              <th colSpan={2}>
+                {metrics.cost.travel.unpriced} move{metrics.cost.travel.unpriced === 1 ? '' : 's'} between sites not costed: a site has no
+                postcode, so the journey is unknown. Set it on the Sites overview.
+              </th>
+            </tr>
+          )}
           <tr>
             <th>Holiday accrual</th>
             <td className="tnum">{ledger(-rHoliday)}</td>
@@ -164,12 +172,19 @@ export function PnlRail({ state, metrics, issues, canPublish, published, blocks,
       </div>
 
       <div className="rail-sign">
-        <button className="primary" disabled={!canPublish || !!publishRefused} onClick={onPublish} title={publishRefused ?? (blocks ? 'Resolve blocking issues before publishing' : undefined)}>
-          {published ? 'Signed off and published' : 'Sign off and publish'}
-        </button>
-        <span className="muted small">
-          {published ? 'The team can see this week.' : blocks ? 'Blocking issues must be cleared first.' : 'Publishing sends the week to the team.'}
-        </span>
+        {/* Someone whose roles do not publish is told where the week stands, not shown a button they cannot use. */}
+        {publishRefused ? (
+          <span className="muted small">{published ? 'Published: the team can see this week.' : 'Not published yet.'}</span>
+        ) : (
+          <>
+            <button className="primary" disabled={!canPublish} onClick={onPublish} title={blocks ? 'Resolve blocking issues before publishing' : undefined}>
+              {published ? 'Signed off and published' : 'Sign off and publish'}
+            </button>
+            <span className="muted small">
+              {published ? 'The team can see this week.' : blocks ? 'Blocking issues must be cleared first.' : 'Publishing sends the week to the team.'}
+            </span>
+          </>
+        )}
       </div>
     </aside>
   );

@@ -51,6 +51,7 @@ export const PROBATION_NOTICE_DAYS = 14;
 // Only absence the person chose or could not explain counts towards triggers. Family, dependants
 // and compassionate leave are statutory rights and must never count against anyone.
 const TRIGGER_TYPES: AbsenceType[] = ['sickness', 'unauthorised'];
+const isTrigger = (a: Absence) => a.type !== undefined && TRIGGER_TYPES.includes(a.type);
 
 export interface Course {
   name: string;
@@ -103,7 +104,7 @@ export interface Bradford {
 export function bradfordFactor(employee: Employee, today: string): Bradford {
   const windowStart = addDays(today, -364);
   const spells = (employee.absences ?? []).filter(
-    (a) => TRIGGER_TYPES.includes(a.type) && !a.excludeFromTriggers && a.from <= today && (a.to ?? today) >= windowStart,
+    (a) => isTrigger(a) && !a.excludeFromTriggers && a.from <= today && (a.to ?? today) >= windowStart,
   );
   const days = spells.reduce((sum, a) => sum + absenceDays({ ...a, from: a.from < windowStart ? windowStart : a.from }, today), 0);
   return { spells: spells.length, days, score: spells.length * spells.length * days };
@@ -190,13 +191,13 @@ export function hrChecks(employee: Employee, records: HrRecord[], roles: Role[],
   for (const a of employee.absences ?? []) {
     const days = absenceDays(a, today);
     if (a.from <= today && (!a.to || a.to >= today)) {
-      push(`off:${a.id}`, 'warn', `Off since ${a.from} (${ABSENCE_LABEL[a.type].toLowerCase()})${a.to ? `, due back after ${a.to}` : ', no return date'}.`);
+      push(`off:${a.id}`, 'warn', `Off since ${a.from}${a.type ? ` (${ABSENCE_LABEL[a.type].toLowerCase()})` : ''}${a.to ? `, due back after ${a.to}` : ', no return date'}.`);
     }
-    if (a.type === 'sickness' && days > FIT_NOTE_AFTER_DAYS && !a.fitNote) {
+    if (a.type === 'sickness' && days > FIT_NOTE_AFTER_DAYS && !a.fitNote && !a.fitNotes?.length) {
       push(`fit-note:${a.id}`, 'warn', `Off sick ${days} days from ${a.from} with no fit note. One is needed after seven days.`);
     }
     if (
-      TRIGGER_TYPES.includes(a.type) && a.to && a.to < today && !a.returnToWorkOn &&
+      isTrigger(a) && a.to && a.to < today && !a.returnToWorkOn &&
       daysBetween(a.to, today) <= RETURN_TO_WORK_WINDOW_DAYS
     ) {
       push(`rtw:${a.id}`, 'warn', `No return to work conversation recorded after the absence from ${a.from}.`);

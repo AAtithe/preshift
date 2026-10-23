@@ -6,7 +6,7 @@ import type { Shift, TimeEntry } from '../src/engine/types';
 import { buildApp } from './app';
 import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider } from './integrations/payroll/provider';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
-import { signHmac, verifyHmac } from './integrations/payroll/teampay';
+import { signHmac, TeamPayProvider, verifyHmac } from './integrations/payroll/teampay';
 import { employerStatus } from './payrollEmployers';
 import { MemoryStore, upgradeState } from './store';
 
@@ -23,6 +23,10 @@ class RecordingPayroll implements PayrollProvider {
   async upsertEmployee(employerId: string, e: PayrollEmployee, payrollId: string | undefined) {
     this.calls.push({ method: 'upsertEmployee', employerId, detail: e.externalRef });
     return { payrollId: payrollId ?? `p_${employerId}_${this.seq++}` };
+  }
+  async listEmployees() {
+    // A payroll with nobody on it before Preshift, so every starter is created.
+    return [];
   }
   async markLeaver(employerId: string, payrollId: string) {
     this.calls.push({ method: 'markLeaver', employerId, detail: payrollId });
@@ -244,5 +248,24 @@ describe('payroll simulator', () => {
     const { run } = new TeamPaySimulator().runPayroll('er_1', WEEK, '2026-10-25', [hourly, salaried], batch);
     expect(run.employees.find((e) => e.employeeId === hourly.id)!.gross).toBe(300);
     expect(run.employees.find((e) => e.employeeId === salaried.id)!.gross).toBe(1000);
+  });
+});
+
+describe('TeamPay hours lines', () => {
+  it('names travel at its own rate in the line reference, and leaves other lines as the entry ids', async () => {
+    const sent: unknown[] = [];
+    const fetchImpl = (async (_url: string, init: { body: string }) => {
+      sent.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ id: 'sub_1' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const teampay = new TeamPayProvider({ baseUrl: 'https://teampay.test/v1', apiKey: 'k', webhookSecret: 's', employerId: 'er_1', fetchImpl });
+    const line = { employeeId: 'e1', payrollId: 'p1', siteId: 'mar', roleId: 'server', entryIds: ['b'] };
+    await teampay.submitHours('er_1', {
+      periodStart: WEEK, periodEnd: '2026-10-25', salariedEntryIds: [], totalHours: 4.72,
+      lines: [{ ...line, hours: 4, rate: 16 }, { ...line, hours: 0.72, travelHours: 0.72, rate: 13, travel: true }],
+    }, 'key-1');
+    const lines = (sent[0] as { lines: { reference: string; rate: number }[] }).lines;
+    expect(lines.map((l) => l.reference)).toEqual(['b', 'Travel between sites: b']);
+    expect(lines[1].rate).toBe(13);
   });
 });

@@ -174,7 +174,7 @@ export type MailState = MailView;
 
 export const lastEmailOf = (u: User) => (u as User & { lastEmail?: MailState }).lastEmail;
 
-export const MAIL_KIND: Record<MailState['kind'], string> = { invite: 'Invitation', reset: 'Password reset', forgot: 'Forgotten password' };
+export const MAIL_KIND: Record<MailState['kind'], string> = { invite: 'Invitation', reset: 'Password reset', forgot: 'Forgotten password', staff_invite: 'Staff app invitation' };
 
 const MAIL_STATUS: Record<MailState['status'], { text: string; tone: 'good' | 'bad' | 'muted' }> = {
   sent: { text: 'accepted by Resend, not yet confirmed delivered', tone: 'muted' },

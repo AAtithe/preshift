@@ -21,26 +21,38 @@ import { eposRoutes, syncAllTills } from './routes/epos';
 import { payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
+import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
+import { clientRoutes } from './routes/clients';
+import { supportRoutes } from './routes/support';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
+import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
+import { signupRoutes } from './routes/signup';
+import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
-import { travelRoutes } from './routes/travel';
+import { refreshStaleTravel, travelRoutes } from './routes/travel';
+import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { requestRoutes } from './routes/requests';
+import { emailNotifications } from './notify';
+import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
+import { syncAllRewards, welfareRoutes } from './routes/welfare';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { mcpRoutes } from './mcp';
-import { MemoryStore, PgStore, type Store } from './store';
+import { oauthRoutes } from './oauth';
+import { API_CALL_RETENTION_DAYS, MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
 export interface BuildOptions {
@@ -59,6 +71,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** The built kiosk page for shared iPads (hosted build). Public: it does nothing until the iPad is paired. */
+  kioskDir?: string;
   /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
   /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
@@ -71,6 +85,8 @@ export interface BuildOptions {
   webhookFetch?: Fetch;
   /** Requests per minute per API key. */
   rateLimit?: number;
+  /** Self sign-up from the sign-in page. Defaults to PRESHIFT_SIGNUP=1. See server/routes/signup.ts. */
+  signup?: boolean;
 }
 
 function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; simulator?: TeamPaySimulator } {
@@ -218,7 +234,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await syncAllRewards(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
+    await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
     // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
     // waiting go first, the run stops before the function's time runs out, and one organisation failing
@@ -264,7 +282,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         failed.push(orgId);
       }
     }
-    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
+    // Journey times between sites drift as routes and timetables change: plan any out of date
+    // ones again with what time is left. Sandboxes keep their seeded times.
+    const journeys = Date.now() - started < 40_000 ? await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey, today, { skip: isSandbox, deadline: started + 50_000 }) : 0;
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
@@ -273,6 +294,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await deliverAllWebhooks(store, options.webhookFetch);
     return { ok: true };
+  });
+
+  // Each morning: every manager hears what staff have asked for that is theirs to decide. Once a
+  // day per organisation, however often it is called.
+  app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
@@ -285,16 +313,25 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
 
   const keys = options.apiKeys ?? loadApiKeys(env);
   const auth = authenticate(keys, store, { rateLimit: options.rateLimit });
+  // Billing through Stripe for organisations that signed themselves up (server/billing.ts).
+  const stripe = stripeFromEnv(env);
+  const signup = options.signup ?? env.PRESHIFT_SIGNUP === '1';
   demoRoutes(app, store, { enabled: demo, appPath: '/app/', demoPage: options.demoPage ?? path.resolve('site/demo.html') });
-  signInRoutes(app, ctx, { demo });
+  signInRoutes(app, ctx, { demo, signup, stripe: !!stripe });
+  signupRoutes(app, ctx, { enabled: signup, trialDays: trialDaysFromEnv(env) });
+  stripeWebhookRoutes(app, ctx, stripe);
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, auth);
-  staffRoutes(app, store);
+  // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
+  oauthRoutes(app, store);
+  staffRoutes(app, ctx);
+  kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
     loginPage: options.loginPage ?? path.resolve('site/login.html'),
     appDir: options.appDir,
     staffDir: options.staffDir,
+    kioskDir: options.kioskDir,
   });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
@@ -316,6 +353,12 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
+    // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
+    // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' || !req.org || isWebhook(req.url) || isSandbox(req.org.orgId) || allowedWhileLocked(req.routeOptions.url)) return;
+      if (standingOf(await getBilling(store, req.org.orgId), ctx.now(), !!stripe).locked) throw new HttpError(402, 'billing_required', LOCKED_MESSAGE);
+    });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
       if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
@@ -326,6 +369,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       try {
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
+        // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
+        await emailNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -333,6 +378,28 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         reply.code(e.statusCode).header('content-type', 'application/json; charset=utf-8');
         return JSON.stringify({ error: e.code, message: e.message });
       }
+    });
+    // Every call made with an API key is recorded, refused ones included, after the save above so
+    // the status is final. Written before the response leaves: on serverless hosting work after it
+    // can be cut off, and an access log with gaps proves nothing. A failed write never fails the call.
+    api.addHook('onSend', async (req, reply, payload) => {
+      const call = req.apiCall;
+      if (!call) return payload;
+      const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+      await store
+        .logApiCall({
+          orgId: call.orgId,
+          keyId: call.keyId,
+          at: new Date(call.started).toISOString(),
+          method: req.method,
+          path: req.url,
+          status: reply.statusCode,
+          ip: forwarded || req.ip,
+          ms: Date.now() - call.started,
+          ...(call.refused ? { refused: call.refused } : {}),
+        })
+        .catch((err) => app.log.error(err, 'Could not record an API call'));
+      return payload;
     });
     rotaRoutes(api, ctx);
     employeeRoutes(api, ctx);
@@ -348,7 +415,12 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
+    payrollLinkRoutes(api, ctx);
+    welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
+    clientRoutes(api, ctx);
+    supportRoutes(api, ctx);
+    billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);
@@ -356,6 +428,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    // What staff ask for in the staff app, decided here by whoever runs their rota or team.
+    requestRoutes(api, ctx);
+    kioskAdminRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

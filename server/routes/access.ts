@@ -12,10 +12,12 @@ import { audit, orgsOfAccount, type OrgData, type Store, type UserRecord } from 
 import { emailSetting, parseEmailSettings, resetEmail, sendMail } from '../mail';
 import { addEvent, fromWebhook, recordSent, verifyWebhook, webhookPath } from '../maillog';
 import { hashToken } from './users';
+import { getBilling, standingOf } from '../billing';
 
 export const MAX_FAILURES = 5;
 export const LOCK_SECONDS = 15 * 60;
-const FIRST_ORG = 'demo';
+/** The first organisation on a system: its owner is made at first run, and its email sends sign-up links. */
+export const FIRST_ORG = 'demo';
 export const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const RESET_MINUTES = 30;
@@ -58,7 +60,7 @@ export function secure(req: FastifyRequest) {
   return req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 }
 
-async function signIn(req: FastifyRequest, reply: FastifyReply, store: Store, user: UserRecord, next: string, orgId = user.orgId) {
+export async function signIn(req: FastifyRequest, reply: FastifyReply, store: Store, user: UserRecord, next: string, orgId = user.orgId) {
   const token = await createSession({ email: user.email, orgId }, await store.sessionSecret());
   if (user.lastOrgId !== orgId) await store.updateUser(user.email, { lastOrgId: orgId });
   return reply.code(303).header('set-cookie', sessionCookie(token, secure(req))).header('location', next).send();
@@ -91,7 +93,7 @@ async function wrongPassword(store: Store, user: UserRecord) {
 }
 
 /** Back to the sign-in page. A link's token rides after #, so it never reaches a server log. */
-const backToLogin = (reply: FastifyReply, params: Record<string, string>, fragment = '') =>
+export const backToLogin = (reply: FastifyReply, params: Record<string, string>, fragment = '') =>
   reply.code(303).header('location', `/login?${new URLSearchParams(params)}${fragment}`).send();
 
 const recordFor = (org: OrgData, email: string) => org.users.find((u) => u.email === email);
@@ -107,12 +109,17 @@ async function linkTarget(store: Store, token: string) {
 }
 
 /** Sign-in, first-run setup and setting a password from a link. Registered outside the authenticated API. */
-export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { demo?: boolean } = {}) {
+export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { demo?: boolean; signup?: boolean; stripe?: boolean } = {}) {
   const { store } = ctx;
   const hidden = { schema: { hide: true } };
 
-  // demoAvailable lets the sign-in page offer the public demo when it is switched on.
-  app.get('/auth/status', hidden, async () => ({ setupNeeded: !(await store.hasUsers()), ...(options.demo ? { demoAvailable: true } : {}) }));
+  // demoAvailable lets the sign-in page offer the public demo when it is switched on; signupAvailable
+  // offers a free trial once sign-up is switched on and the first organisation's email can confirm it.
+  app.get('/auth/status', hidden, async () => {
+    const setupNeeded = !(await store.hasUsers());
+    const signup = !!options.signup && !setupNeeded && !!parseEmailSettings(await store.getSetting(emailSetting(FIRST_ORG)));
+    return { setupNeeded, ...(options.demo ? { demoAvailable: true } : {}), ...(signup ? { signupAvailable: true } : {}) };
+  });
 
   // First run only: whoever opens the app first on a fresh database creates the owner account,
   // with the Owner role on record, so their access follows the same rules as everyone's.
@@ -226,12 +233,15 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const session = await signedIn(req.headers.cookie, store);
     if (!session) return reply.code(401).send({ error: 'unauthorised', message: 'Not signed in' });
     // What the person may do is their access record (/v1/me), not anything on the account.
+    // Billing standing goes to everyone in an organisation that pays here, so a pause is explained to
+    // whoever meets it; the detail is on the Billing page, for those who manage settings.
+    const billing = isSandbox(session.claims.orgId) ? null : await getBilling(store, session.claims.orgId);
     return {
       email: session.user.email,
       orgId: session.claims.orgId,
       organisations: await organisationsOf(session.user, session.claims.orgId),
-      lead: (session.user.leadOrgs ?? []).includes(session.claims.orgId),
       ...(isSandbox(session.claims.orgId) ? { demo: true } : {}),
+      ...(billing ? { billing: standingOf(billing, ctx.now(), !!options.stripe) } : {}),
     };
   });
 
