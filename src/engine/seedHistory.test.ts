@@ -5,7 +5,7 @@ import { complianceExposure } from './exposure';
 import { menuEngineering, weekPrime } from './prime';
 import { retentionScores } from './retention';
 import { seedState } from './seed';
-import { isSampleEntry, seedHistory, seedLiveDay } from './seedHistory';
+import { isSampleEntry, seedHistory, seedLiveDay, tradeLiveDay } from './seedHistory';
 import { addDays, weekStart } from './time';
 import { troncCompliance } from './tronc';
 
@@ -87,5 +87,24 @@ describe('demo trading history', () => {
     expect(call.confident).toBe(true);
     expect(call.pace).toBeLessThan(0.8);
     expect(call.recommendations.length).toBeGreaterThan(0);
+  });
+
+  it('says nothing has traded before opening, then trades on as the day goes', () => {
+    const morning = seedLiveDay(state, TODAY, 9 * 60);
+    expect(morning.sales?.some((s) => s.date === TODAY)).toBe(false);
+    expect(cutCall(morning, timeEntries, 'mar', TODAY, 9 * 60).reason).toMatch(/Nothing has traded yet today/);
+
+    const sales = tradeLiveDay(morning, TODAY, 17 * 60 + 20);
+    const later = { ...morning, sales: sales! };
+    expect(later.sales.find((s) => s.siteId === 'mar' && s.date === TODAY)).toEqual(seedLiveDay(state, TODAY, 17 * 60 + 20).sales?.find((s) => s.siteId === 'mar' && s.date === TODAY));
+    expect(cutCall(later, timeEntries, 'mar', TODAY, 17 * 60 + 20).confident).toBe(true);
+    expect(tradeLiveDay(later, TODAY, 17 * 60 + 20)).toBeNull();
+  });
+
+  it('leaves a live day the visitor keyed in by hand', () => {
+    const keyed = { ...state, sales: [...(state.sales ?? []), { siteId: 'mar', date: TODAY, netSales: 900, source: 'manual' as const }] };
+    const sales = tradeLiveDay(keyed, TODAY, 17 * 60 + 20);
+    expect(sales?.find((s) => s.siteId === 'mar' && s.date === TODAY)).toEqual({ siteId: 'mar', date: TODAY, netSales: 900, source: 'manual' });
+    expect(sales?.some((s) => s.siteId === 'fitz' && s.date === TODAY)).toBe(true);
   });
 });

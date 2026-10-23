@@ -10,7 +10,7 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { demoRoutes, keepSandboxTrading, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
@@ -377,6 +377,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       // The handler checks the signature first, so the reply does not say which organisations exist.
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
+    });
+    // A demo sandbox's takings move on with the clock, so the cut call has a day to read whenever it is opened.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' && req.routeOptions.url === '/v1/sales' && req.org && keepSandboxTrading(req.org, ctx.now())) req.orgTouched = true;
     });
     // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
     // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.

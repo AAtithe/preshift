@@ -456,18 +456,38 @@ export function seedHistory(state: RotaState, today: string): { state: RotaState
 export function seedLiveDay(state: RotaState, today: string, nowMinute: number): RotaState {
   const week = Math.round((Date.parse(weekStart(today)) - Date.parse(addDays(weekStart(today), -7 * WEEKS))) / (7 * 86_400_000));
   const shifts = state.sites.flatMap((site) => siteShifts(state, site.id, today, week, today));
-  const pace: Record<string, number> = { mar: 0.72, fitz: 0.97, shd: 1.08 };
-  const sales: DaySales[] = [];
+  const withRota = { ...state, shifts: [...state.shifts.filter((s) => !shifts.some((x) => x.id === s.id)), ...shifts] };
+  return { ...withRota, sales: tradeLiveDay(withRota, today, nowMinute) ?? withRota.sales };
+}
+
+const LIVE_PACE: Record<string, number> = { mar: 0.72, fitz: 0.97, shd: 1.08 };
+
+/**
+ * The till's takings for each hour of today already traded, or null when nothing has changed. A
+ * sandbox lasts until midnight, so it calls this again as the day goes on: a visitor who arrived
+ * before opening still sees the day trade. Hours already taken are never rewritten, and a day the
+ * visitor keyed in by hand is theirs.
+ */
+export function tradeLiveDay(state: RotaState, today: string, nowMinute: number): DaySales[] | null {
+  const sales = [...(state.sales ?? [])];
+  let changed = false;
   for (const site of state.sites) {
-    const hours = state.forecast
-      .filter((f) => f.siteId === site.id && f.date === today && (f.hour + 1) * 60 <= nowMinute)
+    const at = sales.findIndex((s) => s.siteId === site.id && s.date === today);
+    const current = at >= 0 ? sales[at] : undefined;
+    if (current && current.source !== 'till') continue;
+    const had = new Set((current?.hours ?? []).map((h) => h.hour));
+    const added = state.forecast
+      .filter((f) => f.siteId === site.id && f.date === today && (f.hour + 1) * 60 <= nowMinute && !had.has(f.hour))
       .map((f) => {
-        const netSales = round2(f.sales * (pace[site.id] ?? 1) * (1 + 0.05 * noise(`live${site.id}${f.hour}`)));
+        const netSales = round2(f.sales * (LIVE_PACE[site.id] ?? 1) * (1 + 0.05 * noise(`live${site.id}${f.hour}`)));
         return { hour: f.hour, netSales, orders: Math.max(1, Math.round(netSales / 42)) };
       });
-    if (hours.length === 0) continue;
-    sales.push({ siteId: site.id, date: today, netSales: round2(hours.reduce((s, h) => s + h.netSales, 0)), source: 'till', hours });
+    if (added.length === 0) continue;
+    const hours = [...(current?.hours ?? []), ...added].sort((a, b) => a.hour - b.hour);
+    const day: DaySales = { siteId: site.id, date: today, netSales: round2(hours.reduce((s, h) => s + h.netSales, 0)), source: 'till', hours };
+    if (at >= 0) sales[at] = day;
+    else sales.push(day);
+    changed = true;
   }
-  const others = (state.sales ?? []).filter((s) => s.date !== today || !sales.some((x) => x.siteId === s.siteId));
-  return { ...state, shifts: [...state.shifts.filter((s) => !shifts.some((x) => x.id === s.id)), ...shifts], sales: [...others, ...sales] };
+  return changed ? sales : null;
 }

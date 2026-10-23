@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { seedHrRecords, seedState } from '../src/engine/seed';
-import { seedHistory, seedLiveDay } from '../src/engine/seedHistory';
+import { seedHistory, seedLiveDay, tradeLiveDay } from '../src/engine/seedHistory';
 import { londonParts } from '../src/engine/time';
 import { sessionUser } from './auth';
 import { HttpError } from './context';
@@ -10,7 +10,7 @@ import { hashPassword } from './passwords';
 import { isSandbox, londonDate, nextLondonMidnight, sandboxExpired, sandboxId } from './sandbox';
 import { seedUsers } from './seedUsers';
 import { createSession, SESSION_SECONDS, sessionCookie } from './session';
-import { audit, type Store } from './store';
+import { audit, type OrgData, type Store } from './store';
 
 // The public demo, on the live system alongside customers. Anyone who presses "Start the demo" gets
 // a sandbox organisation of their own, seeded with the demo group, and is signed in as its admin
@@ -388,6 +388,21 @@ export function sandboxGuard(enabled: boolean) {
       throw refused('This is the public demo, so invitations, passwords, keys, webhooks, email, identity documents, staff app logins and support tickets are switched off here.');
     }
   };
+}
+
+/**
+ * Keeps a sandbox's day trading. A sandbox lasts until midnight, but its till takings were written
+ * when it was made, so one opened before the sites opened would show no trade all day and the cut
+ * call would never have a call to make. Each read of the takings adds the hours since traded.
+ * Returns whether anything was added; customers are untouched.
+ */
+export function keepSandboxTrading(org: OrgData, now: Date): boolean {
+  if (!isSandbox(org.orgId) || sandboxExpired(org.orgId, now.getTime())) return false;
+  const live = londonParts(now);
+  const sales = tradeLiveDay(org.state, live.date, live.minute);
+  if (!sales) return false;
+  org.state.sales = sales;
+  return true;
 }
 
 interface DayCounters {

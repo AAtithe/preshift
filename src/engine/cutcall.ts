@@ -98,11 +98,13 @@ export function cutCall(
   const pace = tillHours.length ? Math.min(opts.paceCeiling, Math.max(opts.paceFloor, rawPace)) : 1;
   const enoughTraded = forecastDay > 0 && forecastSoFar / forecastDay >= opts.minTradedShare;
   const confident = tillHours.length > 0 && enoughTraded;
-  const reason = !tillHours.length
-    ? 'No hourly takings from the till for today, so there is no trading pace to call on.'
-    : !enoughTraded
-      ? 'Too early to call: under a tenth of the day forecast has traded.'
-      : undefined;
+  const reason = forecastDay > 0 && forecastSoFar === 0
+    ? 'Nothing has traded yet today. The first call comes once a tenth of the day forecast is in.'
+    : !tillHours.length
+      ? 'No hourly takings from the till for today, so there is no trading pace to call on.'
+      : !enoughTraded
+        ? 'Too early to call: under a tenth of the day forecast has traded.'
+        : undefined;
   const reforecastDay = salesSoFar + (forecastDay - forecastSoFar) * pace;
 
   const empty: CutCall = {
