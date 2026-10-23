@@ -626,6 +626,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onSaveSales={actions.saveSales}
                   onSalesChanged={() => void actions.refreshSales()}
                   payrollAccess={allow('payroll.view')}
+                  financeAccess={showCost}
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
               )}

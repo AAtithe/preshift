@@ -81,6 +81,7 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Sync, send hours, retry | `payroll.send` |
 | A company's TeamPay employer and PAYE reference | `settings.manage`: it decides where that company's hours are sent |
 | Labour accrual journal | `close.export` |
+| Reports | `GET /v1/reports/catalogue` lists the datasets the caller may read, with the fields they may see, and the standard reports on them. `POST /v1/reports/run` takes `{dataset, groupBy, measures, filters?, range? or from?/to?, sort?, limit?}` (add `?format=csv` for CSV); each dataset needs its own permission (for example people and turnover `team.manage` or `hr.view`, labour `costs.view`, cases `hr.cases` org-wide), rows are kept to sites where it is held, and fields needing more are left out and listed in `withheld`. At most three years a run. `GET`, `POST /v1/reports/saved`, `PUT` and `DELETE /v1/reports/saved/:id` keep reports, private or `shared`; saving is a person's act, never a key's (`403`), and a report is changed only by its author or `settings.manage` |
 
 ## Plugging in: API keys
 

@@ -6,6 +6,7 @@ import { api } from './api';
 import { dayLabel, download, hours, money, pct, signed, slug, toCsv as csv } from './format';
 import { ForecastAccuracyReport } from './ForecastAccuracyReport';
 import { PayrollAccuracy } from './PayrollAccuracy';
+import { ReportBuilder, ReportLibrary, useCatalogue, type Opened } from './ReportBuilder';
 import { TakingsEntry } from './TakingsEntry';
 
 type Report = 'trend' | 'roles' | 'actual' | 'takings' | 'forecast' | 'accuracy';
@@ -56,6 +57,8 @@ interface Props {
   scopeName: string;
   /** Pay runs need payroll.view; without it the accuracy report is left out rather than shown empty. */
   payrollAccess?: boolean;
+  /** The labour and takings reports price the week, so they are only for those who see cost. */
+  financeAccess?: boolean;
   onSaveSales: (rows: Omit<DaySales, 'source'>[], cleared: { siteId: string; date: string }[], source: DaySales['source']) => Promise<unknown>;
   /** Takings changed on the server (a till sync): reload them. */
   onSalesChanged: () => void;
@@ -63,11 +66,59 @@ interface Props {
 
 type ReportProps = Pick<Props, 'state' | 'siteIds' | 'week' | 'today' | 'scopeName'>;
 
+type Hub = 'library' | 'finance';
+
+/** Reports across the app: the library and builder for everyone, the labour and takings reports for those who see cost. */
 export function ReportsView(props: Props) {
+  const [hub, setHub] = useState<Hub>('library');
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const { catalogue, saved, reloadSaved, error } = useCatalogue();
+  // The header's scope, as site names, when it is narrower than every site.
+  const scopeSites = props.siteIds.length > 0 && props.siteIds.length < props.state.sites.length ? props.state.sites.filter((s) => props.siteIds.includes(s.id)).map((s) => s.name) : null;
+
+  function newReport() {
+    const ds = catalogue!.datasets.find((d) => d.id === 'movements') ?? catalogue!.datasets[0];
+    const dim = ds.dimensions.find((d) => d.id === 'site') ?? ds.dimensions[0];
+    setOpened({ name: '', definition: { dataset: ds.id, groupBy: dim ? [dim.id] : [], measures: ds.measures.slice(0, 2).map((m) => m.id) } });
+  }
+
+  return (
+    <div className="reports">
+      {props.financeAccess && (
+        <div className="day-pills report-hub" role="tablist" aria-label="Reports">
+          <button role="tab" aria-selected={hub === 'library'} className={hub === 'library' ? 'active' : ''} onClick={() => (setHub('library'), setOpened(null))}>All reports</button>
+          <button role="tab" aria-selected={hub === 'finance'} className={hub === 'finance' ? 'active' : ''} onClick={() => setHub('finance')}>Labour and takings</button>
+        </div>
+      )}
+      {hub === 'finance' && props.financeAccess ? (
+        <FinanceReports {...props} />
+      ) : error ? (
+        <p className="bad-text">{error}</p>
+      ) : !catalogue ? (
+        <p className="muted">Loading</p>
+      ) : catalogue.datasets.length === 0 ? (
+        <p className="muted">Your role opens no report data yet.</p>
+      ) : opened ? (
+        <ReportBuilder catalogue={catalogue} opened={opened} scopeSites={scopeSites} onSaved={() => void reloadSaved()} onBack={() => setOpened(null)} />
+      ) : (
+        <>
+          <div className="close-intro">
+            <p className="muted">
+              Every report runs on what the app records: people, time, the rota, labour, payroll, guests and access. Open a standard report, change it, and save it as your own or share it. You see only the sites and figures your role opens; anyone you share with sees only theirs.
+            </p>
+          </div>
+          <ReportLibrary catalogue={catalogue} saved={saved} onOpen={setOpened} onNew={newReport} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function FinanceReports(props: Props) {
   const [report, setReport] = useState<Report>('trend');
   const current = REPORTS.find((r) => r.id === report)!;
   return (
-    <div className="reports">
+    <>
       <div className="close-intro">
         <div className="day-pills" role="tablist" aria-label="Report">
           {REPORTS.filter((r) => r.id !== 'accuracy' || props.payrollAccess !== false).map((r) => (
@@ -84,7 +135,7 @@ export function ReportsView(props: Props) {
       {report === 'takings' && <TakingsEntry state={props.state} siteIds={props.siteIds} week={props.week} today={props.today} onSave={props.onSaveSales} onSynced={props.onSalesChanged} />}
       {report === 'forecast' && <ForecastAccuracyReport state={props.state} siteIds={props.siteIds} week={props.week} scopeName={props.scopeName} />}
       {report === 'accuracy' && <PayrollAccuracy state={props.state} entityIds={props.entityIds} scopeName={props.scopeName} />}
-    </div>
+    </>
   );
 }
 

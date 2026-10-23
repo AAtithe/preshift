@@ -38,7 +38,20 @@ export const NAV: NavGroup[] = [
     id: 'overview',
     heading: 'Overview',
     // Side by side labour cost by site: for those who see cost everywhere in scope.
-    items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true, access: { scope: ['costs.view'] } }],
+    items: [
+      { id: 'sites', label: 'Sites', scope: 'week', plans: true, access: { scope: ['costs.view'] } },
+      // Reports on everything the app records. Each dataset has its own permission, so anyone who reads
+      // any of them is offered the section; the server decides which data and figures they get.
+      {
+        id: 'reports',
+        label: 'Reports',
+        scope: 'week',
+        access: {
+          scope: ['rota.view', 'team.manage', 'hr.view', 'hr.manage', 'rota.publish', 'time.record', 'time.approve', 'costs.view'],
+          org: ['payroll.view', 'pay.edit', 'pay.approve', 'hr.cases', 'users.manage', 'audit.view', 'settings.manage'],
+        },
+      },
+    ],
   },
   {
     id: 'planning',
@@ -92,8 +105,6 @@ export const NAV: NavGroup[] = [
     items: [
       { id: 'team', label: 'Labour cost', scope: 'week', access: { scope: ['costs.view'] } },
       { id: 'close', label: 'Close', scope: 'week', access: { org: ['close.export'] } },
-      // Labour cost against takings and payroll accuracy.
-      { id: 'reports', label: 'Reports', scope: 'week', access: { scope: ['costs.view'] } },
       // The labour programme: the ladder, milestones and the verified saving, in money.
       { id: 'programme', label: 'Programme', scope: 'week', access: { scope: ['costs.view'] } },
     ],
