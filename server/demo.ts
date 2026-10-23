@@ -223,6 +223,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/coach/dismiss': true,
   'GET /v1/coach/history': true,
   'GET /v1/scorecard': true,
+  'GET /v1/scorecards': true,
   'GET /v1/programmes': true,
   'GET /v1/weather': true,
   'GET /v1/event-feeds': true,

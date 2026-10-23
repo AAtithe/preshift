@@ -6,11 +6,17 @@ import { api } from './api';
 import { dayLabel, download, hours, money, pct, signed, slug, toCsv as csv } from './format';
 import { ForecastAccuracyReport } from './ForecastAccuracyReport';
 import { PayrollAccuracy } from './PayrollAccuracy';
+import { ScorecardsReport } from './ScorecardsReport';
 import { TakingsEntry } from './TakingsEntry';
 
-type Report = 'trend' | 'roles' | 'actual' | 'takings' | 'forecast' | 'accuracy';
+type Report = 'scorecards' | 'trend' | 'roles' | 'actual' | 'takings' | 'forecast' | 'accuracy';
 
 const REPORTS: { id: Report; label: string; intro: string }[] = [
+  {
+    id: 'scorecards',
+    label: 'Scorecards',
+    intro: 'Every site’s GM scorecard side by side, ranked on habits before results: the rung first, then weeks on target, then hours over demand. A site on target with a late rota is lucky, not run. Each card shows which habit held week by week and the one thing that GM works on next.',
+  },
   {
     id: 'trend',
     label: 'Labour trend',
@@ -64,7 +70,7 @@ interface Props {
 type ReportProps = Pick<Props, 'state' | 'siteIds' | 'week' | 'today' | 'scopeName'>;
 
 export function ReportsView(props: Props) {
-  const [report, setReport] = useState<Report>('trend');
+  const [report, setReport] = useState<Report>('scorecards');
   const current = REPORTS.find((r) => r.id === report)!;
   return (
     <div className="reports">
@@ -78,6 +84,7 @@ export function ReportsView(props: Props) {
         </div>
         <p className="muted">{current.intro}</p>
       </div>
+      {report === 'scorecards' && <ScorecardsReport state={props.state} siteIds={props.siteIds} week={props.week} scopeName={props.scopeName} />}
       {report === 'trend' && <Trend {...props} />}
       {report === 'roles' && <ByRole {...props} />}
       {report === 'actual' && <VsActual {...props} />}
