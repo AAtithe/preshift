@@ -8,7 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
 test.skip(!!process.env.PRESHIFT_E2E_URL, 'Changes pay and switches demo people: runs against the local demo only');
 
 const bar = (page: Page) => page.getByRole('navigation', { name: 'Management' });
-const PERSON = 'Ben Ford';
+// Shoreditch: the iPad checks move shifts on Marylebone's rota at the same time, so this keeps clear of it.
+const PERSON = 'Josh Turner';
 
 async function signIn(page: Page) {
   await page.goto('/login?next=/app/');
@@ -34,7 +35,7 @@ test('a rise proposed by the people manager waits, then applies when the finance
   await signIn(page);
 
   // Kate Morgan, people manager, proposes the rise from the Staff list.
-  await actAs(page, 'usr_people', '/app/?view=people&site=mar');
+  await actAs(page, 'usr_people', '/app/?view=people&site=shd');
   await page.getByRole('row').filter({ hasText: PERSON }).first().click();
   const editor = page.locator('.modal');
   const rateInput = editor.getByLabel('Hourly rate (£)');
@@ -63,7 +64,7 @@ test('a rise proposed by the people manager waits, then applies when the finance
   // The pay history shows the decision, and the record carries the new rate.
   await expect(page.getByRole('row').filter({ hasText: PERSON }).filter({ hasText: 'Nadia Rahman' }).filter({ hasText: 'In the bar budget' }).first()).toBeVisible();
   await page.evaluate(() => localStorage.removeItem('preshift.demoKey'));
-  await page.goto('/app/?view=people&site=mar');
+  await page.goto('/app/?view=people&site=shd');
   await page.getByRole('row').filter({ hasText: PERSON }).first().click();
   await expect(page.locator('.modal').getByLabel('Hourly rate (£)')).toHaveValue(String(Number(rate)));
   expect(errors).toEqual([]);
