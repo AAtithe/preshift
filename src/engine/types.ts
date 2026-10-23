@@ -77,6 +77,8 @@ export interface Site {
   eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Signing in by name on the site's kiosk needs the person's PIN. Off unless a manager turns it on. */
+  kioskPinRequired?: boolean;
   /** Which nation's school calendar applies. England when absent; only England and Wales get an estimate. */
   nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
   /** A typical trading week, used to forecast any week no sales system has sent figures for. */
@@ -245,6 +247,9 @@ export interface Employee {
   pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** When the person's kiosk PIN was last set, and by whom. The PIN itself is kept hashed, apart from the record. */
+  kioskPinSetAt?: string;
+  kioskPinSetBy?: 'self' | 'manager';
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
   rotaNotes?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
@@ -438,6 +443,11 @@ export interface HrRecord {
   createdAt: string;
   /** Every change, oldest first, with what it replaced: a record can always be shown as it stood. Kept by the server. */
   history?: HrRecordChange[];
+  /**
+   * Copies on file: the signed contract or statement, a warning letter, a fit note, a certificate.
+   * Encrypted and stored apart from the record, like right to work copies. Managed by the server.
+   */
+  files?: RightToWorkDocument[];
 }
 
 /** One change to an HR record: who made it, when, and the values it replaced. */
@@ -735,7 +745,35 @@ export interface PayChange {
   decidedById?: string;
   decidedAt?: string;
   note?: string;
+  /**
+   * The date the new pay is agreed from. Absent means from the day it is approved. A date ahead is
+   * applied on that day; a date already past is applied on approval, with back pay for the gap.
+   */
+  effectiveFrom?: string;
+  /** The day the new terms went onto the person's record. Absent on an approved change still to take effect. */
+  appliedOn?: string;
+  /** Pay owed for work between the effective date and the day the change was applied. */
+  backPay?: BackPay;
+  /**
+   * Set when the change applied without a second person: made by a system key, or by a person when
+   * nobody else could approve. Every change to pay is on this list, however it was made.
+   */
+  direct?: 'system' | 'no_approver';
+}
+
+/** Arrears from a pay change approved after the date it was agreed from. */
+export interface BackPay {
+  from: string;
+  to: string;
+  /** Hours worked in the gap, for hourly pay. */
+  hours: number;
+  /** Gross owed, before holiday, employer NI and pension. */
+  amount: number;
+  /** Clocked and approved hours, or the rota where nothing was clocked. */
+  basis: 'clocked' | 'rota' | 'salary';
+  /** The payroll submission it went to TeamPay with. Absent until it is sent. */
+  sentIn?: string;
 }
 
 /** What a person's record carries about a change waiting for approval. */
-export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt'>;
+export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt' | 'effectiveFrom'>;

@@ -41,6 +41,9 @@ export function PayrollAccuracy({ state, entityIds, scopeName }: Props) {
   }
 
   const hitRate = report.within / report.runs.length;
+  // Sick pay is checked apart from the accrual: SSP is set by law, so any difference is a payroll setting to fix.
+  const sspRuns = report.runs.filter((r) => r.ssp);
+  const sspWrong = sspRuns.filter((r) => sspMisses(r).length > 0);
   return (
     <>
       <div className="kpis report-kpis">
@@ -58,6 +61,13 @@ export function PayrollAccuracy({ state, entityIds, scopeName }: Props) {
           <div className="kpi-value">{signed(report.variance, money2)}</div>
           <div className="kpi-hint">{report.variance > 0 ? 'Payroll cost more than accrued' : report.variance < 0 ? 'Accrued more than payroll cost' : 'Even'}</div>
         </div>
+        {sspRuns.length > 0 && (
+          <div className="kpi">
+            <div className="kpi-label">Sick pay as due</div>
+            <div className={`kpi-value ${sspWrong.length ? 'bad-text' : 'good-text'}`}>{sspRuns.length - sspWrong.length} of {sspRuns.length}</div>
+            <div className="kpi-hint">Runs where SSP paid matched the absence record</div>
+          </div>
+        )}
         <div className="kpi">
           <div className="kpi-label">Payroll actual</div>
           <div className="kpi-value">{money(report.actual)}</div>
@@ -124,6 +134,9 @@ export function PayrollAccuracy({ state, entityIds, scopeName }: Props) {
   );
 }
 
+/** People whose SSP in a run differs from what was due by a penny or more. */
+const sspMisses = (run: PayRunSummary) => (run.ssp ?? []).filter((l) => Math.abs(l.difference) >= 0.01);
+
 function RunRows({ run, entity, open, onToggle, personName }: { run: ReturnType<typeof accrualAccuracy>['runs'][number]; entity: string; open: boolean; onToggle: () => void; personName: (id: string) => string }) {
   const v = run.variance;
   const lines = v.lines.filter((l) => Math.abs(l.variance) >= 0.5).slice(0, 10);
@@ -136,11 +149,28 @@ function RunRows({ run, entity, open, onToggle, personName }: { run: ReturnType<
         <td className="num">{money2(v.actual)}</td>
         <td className={`num ${run.withinTolerance ? '' : 'bad-text'}`}>{signed(v.variance, money2)}</td>
         <td className={`num ${run.withinTolerance ? '' : 'bad-text'}`}>{signed(v.variancePct, (n) => pct(n, 2))}</td>
-        <td>{run.withinTolerance ? <span className="good-text">Inside</span> : <span className="tag bad">Outside</span>}</td>
+        <td>
+          {run.withinTolerance ? <span className="good-text">Inside</span> : <span className="tag bad">Outside</span>}
+          {sspMisses(run).length > 0 && <> <span className="tag bad">SSP differs</span></>}
+        </td>
       </tr>
       {open && (
         <tr className="detail">
           <td colSpan={7}>
+            {run.ssp && run.ssp.length > 0 && (
+              <table className="table compact">
+                <tbody>
+                  {run.ssp.map((l) => (
+                    <tr key={`ssp-${l.employeeId}`}>
+                      <td>{personName(l.employeeId)}: statutory sick pay</td>
+                      <td className="num muted">Due {money2(l.expected)}</td>
+                      <td className="num muted">Paid {money2(l.paid)}</td>
+                      <td className={`num ${Math.abs(l.difference) >= 0.01 ? 'bad-text' : 'good-text'}`}>{Math.abs(l.difference) >= 0.01 ? signed(l.difference, money2) : 'Matches'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
             {lines.length === 0 ? (
               <span className="muted small">Nobody was out by 50p or more.</span>
             ) : (
