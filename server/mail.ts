@@ -218,3 +218,31 @@ export function noticeEmail(to: string, subject: string, body: string, link: str
   const html = letter(paragraphs, link ? { label: 'Open the staff app', link } : null, notes);
   return { to, subject: oneLine(subject), text, html };
 }
+
+/**
+ * The daily reminder of pay changes waiting for finance. Carries counts and dates only, never a name
+ * or a rate: pay is not for an inbox anyone might glance at. An escalation goes to the owner too.
+ */
+export function payApprovalEmail(
+  to: string,
+  name: string,
+  digest: { waiting: number; overdue: number; nearCutoff: number; oldestDays: number; cutoff: string },
+  link: string,
+  escalated: boolean,
+): Mail {
+  const changes = (n: number) => `${n} pay change${n === 1 ? '' : 's'}`;
+  const opening = `${changes(digest.waiting)} ${digest.waiting === 1 ? 'is' : 'are'} waiting for finance to approve. The oldest has waited ${digest.oldestDays} day${digest.oldestDays === 1 ? '' : 's'}.`;
+  const points = [
+    digest.overdue ? `${changes(digest.overdue)} ${digest.overdue === 1 ? 'is' : 'are'} past the turnaround your organisation set.` : '',
+    digest.nearCutoff ? `Hours go to payroll on ${digest.cutoff}. Anything not decided by then misses that pay run, and people are paid on their old rate.` : '',
+    escalated ? 'You are copied in as the owner because this has gone past the rule for pay approvals.' : '',
+  ].filter(Boolean);
+  const notes = ['Pay stays as it is until a change is approved. Nobody approves their own proposal or their own pay.'];
+  const text = [`Hello ${name},`, '', opening, ...points, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return {
+    to,
+    subject: escalated ? `Overdue: ${changes(digest.waiting)} waiting for approval` : `${changes(digest.waiting)} waiting for approval`,
+    text,
+    html: letter([`Hello ${name},`, opening, ...points], { label: 'Open pay approvals', link }, notes),
+  };
+}

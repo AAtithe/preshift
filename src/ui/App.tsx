@@ -746,7 +746,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           canEditPay={allow('pay.edit', editingPerson.siteId) && me?.user?.employeeId !== editingPerson.id}
           today={today}
           payNeedsApproval={!!me?.user}
-          onSave={async (employee, payReason) => {
+          onSave={async (employee, payReason, payFrom) => {
             const isNew = !state.employees.some((e) => e.id === employee.id);
             const withPay = allow('pay.edit', employee.siteId) && me?.user?.employeeId !== employee.id;
             // A person's pay change is a proposal: save the rest, then send the pay to finance with its reason.
@@ -756,7 +756,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               const saved = await actions.saveEmployee(original ? { ...employee, payBasis: original.payBasis } : employee, isNew, false);
               if (!saved) return;
               const { payBasis, hourlyRate, annualSalary } = employee;
-              if (await actions.proposePay(saved.id, { payBasis, hourlyRate, annualSalary }, payReason)) setEditingPerson(null);
+              if (await actions.proposePay(saved.id, { payBasis, hourlyRate, annualSalary }, payReason, payFrom)) setEditingPerson(null);
               return;
             }
             if (await actions.saveEmployee(employee, isNew, withPay)) setEditingPerson(null);

@@ -4,6 +4,7 @@ import { breakFor, complianceOptions, type Issue } from '../../src/engine/compli
 import { holidayBalance, workedShifts } from '../../src/engine/holiday';
 import { ABSENCE_LABEL } from '../../src/engine/hr';
 import {
+  newestFirst,
   blocking, claimCheck, datesBetween, dayLabel, decisionText, eligibleFor, holidayHours, MAX_REQUEST_DAYS, namesOf,
   REQUESTABLE_ABSENCE, shiftLine, swapCheck, swapped,
 } from '../../src/engine/requests';
@@ -505,12 +506,8 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
 
   app.get('/v1/staff/notifications', { schema: hidden }, async (req) => {
     const { org, employee } = await signedIn(req);
-    // Newest first. Two written in the same millisecond keep the order they were written in, newest first too.
-    return (org.notifications ?? [])
-      .map((n, i) => ({ n, i }))
-      .filter(({ n }) => n.employeeId === employee.id)
-      .sort((a, b) => b.n.at.localeCompare(a.n.at) || b.i - a.i)
-      .map(({ n: { id, kind, at, title, body, read } }) => ({ id, kind, at, title, body, read: Boolean(read) }));
+    return newestFirst((org.notifications ?? []).filter((n) => n.employeeId === employee.id))
+      .map(({ id, kind, at, title, body, read }) => ({ id, kind, at, title, body, read: Boolean(read) }));
   });
 
   app.post<{ Body: { ids?: string[] } | null }>(

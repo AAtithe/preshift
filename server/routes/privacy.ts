@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { clearPin } from '../kioskPin';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   applyRetention,
   DEFAULT_RETENTION,
   erasureRefusal,
+  policyDocumentChecks,
+  type PolicyDocument,
   processingRegister,
   REQUEST_KINDS,
   requestDueOn,
@@ -23,7 +26,7 @@ import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { getMessagingSettings } from '../messaging';
 import { claudeKeySetting } from './access';
-import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies } from './documents';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies, recordCopies } from './documents';
 
 const today = () => londonParts(new Date()).date;
 const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
@@ -91,6 +94,65 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
     );
   });
 
+  app.get(
+    '/v1/privacy/policy-documents',
+    {
+      ...read,
+      schema: {
+        tags: ['Privacy'],
+        description:
+          "Each employing company's appropriate policy document for sickness and other health data: who reviewed it, the director who " +
+          'signed it, when it is next reviewed, and where each company stands. Names no member of staff.',
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const docs = org.privacy?.policyDocuments ?? [];
+      const holdsHealthData = org.state.employees.some((e) => (e.absences ?? []).some((a) => a.type === 'sickness'));
+      return { documents: docs, checks: policyDocumentChecks(org.state.entities, docs, holdsHealthData, today()) };
+    },
+  );
+
+  app.put<{ Params: { entityId: string }; Body: Omit<PolicyDocument, 'entityId' | 'updatedBy' | 'updatedAt'> }>(
+    '/v1/privacy/policy-documents/:entityId',
+    {
+      ...admin,
+      schema: {
+        tags: ['Privacy'],
+        description: "Records a company's appropriate policy document: its title and link, the legal review, and the director's signature and date.",
+        params: { type: 'object', required: ['entityId'], properties: { entityId: { type: 'string' } } },
+        body: {
+          type: 'object',
+          required: ['title'],
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            url: { type: 'string', pattern: '^https://', maxLength: 500 },
+            reviewedBy: { type: 'string', maxLength: 120 },
+            reviewedOn: isoDate,
+            signedBy: { type: 'string', maxLength: 120 },
+            signedOn: isoDate,
+            reviewDue: isoDate,
+          },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const entity = org.state.entities.find((e) => e.id === req.params.entityId);
+      if (!entity) throw notFound(`Entity ${req.params.entityId}`);
+      const b = req.body;
+      if ((b.signedBy && !b.signedOn) || (b.signedOn && !b.signedBy)) throw new HttpError(422, 'signature', 'A signature needs both the director and the date.');
+      if (b.signedOn && b.signedOn > today()) throw new HttpError(422, 'invalid_dates', 'It cannot be signed on a day still to come.');
+      if (b.reviewedOn && b.signedOn && b.signedOn < b.reviewedOn) throw new HttpError(422, 'invalid_dates', 'Counsel reviews it before a director signs it.');
+      const doc: PolicyDocument = { ...b, entityId: entity.id, updatedBy: actor(req), updatedAt: new Date().toISOString() };
+      const privacy = privacyOf(org);
+      privacy.policyDocuments = [...(privacy.policyDocuments ?? []).filter((d) => d.entityId !== entity.id), doc];
+      audit(org, actor(req), 'privacy.policy_document_set', { entityId: entity.id, signed: Boolean(doc.signedOn) });
+      return doc;
+    },
+  );
+
   app.get('/v1/privacy/retention', { ...admin, schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
     const org = orgOf(req);
     const policy = policyOf(org);
@@ -124,6 +186,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       org.timeEntries = result.timeEntries;
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.
       const anonymised = new Set(result.applied.filter((a) => a.code === 'anonymise').map((a) => a.employeeId));
+      deleteCopiesAfterSave(req, recordCopies(org.hrRecords.filter((r) => anonymised.has(r.employeeId))));
       org.hrRecords = org.hrRecords.filter((r) => !anonymised.has(r.employeeId));
       // Recognition messages and chat requests are about the person, and go with them.
       if (org.welfare) {
@@ -234,7 +297,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Privacy'],
         description:
-          'Erases what the law does not require us to keep for a leaver: contact details, availability, RFID card, staff login and clocking locations. ' +
+          'Erases what the law does not require us to keep for a leaver: contact details, availability, RFID card, kiosk PIN, staff login and clocking locations. ' +
           'Payroll and right to work records stay until their retention period ends (Article 17(3)).',
         params: idParam,
       },
@@ -254,6 +317,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         return stripLocation(t);
       });
       await ctx.store.deleteStaffLogin(org.orgId, e.id);
+      await clearPin(ctx.store, org.orgId, org.state.employees[i]);
       // Their number and their choices about messages go with their login. The messages stay for
       // their retention period: they are what each side was told.
       if (org.messaging?.prefs[e.id]) delete org.messaging.prefs[e.id];

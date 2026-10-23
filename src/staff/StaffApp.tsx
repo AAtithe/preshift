@@ -31,6 +31,8 @@ interface Overview extends SelfServiceData {
   /** The legal minimum break for the shift they are on, when there is one. */
   breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
   welfare: Welfare;
+  /** Whether they have a kiosk PIN, and whether a site they clock at asks for one. */
+  kioskPin: { set: boolean; required: boolean };
 }
 
 interface Welfare {
@@ -407,7 +409,57 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
       </section>
 
       <Wellbeing data={data} onChange={onChange} onSignedOut={onSignedOut} />
+      <KioskPin data={data} onChange={onChange} onSignedOut={onSignedOut} />
     </>
+  );
+}
+
+/** The person's own PIN for signing in by name on the site's kiosk iPad. */
+function KioskPin({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  const { set, required } = data.kioskPin;
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const pin = String(form.get('pin'));
+    if (pin !== form.get('again')) return setMessage({ tone: 'bad', text: 'The two PINs do not match.' });
+    setBusy(true);
+    setMessage(null);
+    try {
+      onChange(await call<Overview>('PUT', '/v1/staff/kiosk-pin', { pin }));
+      setOpen(false);
+      setMessage({ tone: 'good', text: 'PIN saved. Use it on the kiosk iPad when you sign in by name.' });
+    } catch (err) {
+      if (err instanceof Problem && err.status === 401) return onSignedOut();
+      setMessage({ tone: 'bad', text: say(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="staff-card">
+      <h2>Kiosk PIN</h2>
+      <p className="muted">
+        {set ? 'You have a PIN for the kiosk iPad at work.' : 'Set a PIN to sign in by name on the kiosk iPad at work.'}
+        {required && !set ? ' Your site asks for one, so set it before your next shift, or use your card.' : ''}
+      </p>
+      {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
+      {open ? (
+        <form className="staff-form" onSubmit={submit}>
+          <label>New PIN, 4 to 6 digits <input name="pin" type="password" inputMode="numeric" pattern="\d{4,6}" autoComplete="off" required /></label>
+          <label>PIN again <input name="again" type="password" inputMode="numeric" pattern="\d{4,6}" autoComplete="off" required /></label>
+          <p className="muted small">Not 1234, not one digit repeated, and not your date of birth. Keep it to yourself.</p>
+          <button className="primary staff-big" disabled={busy}>{busy ? 'Saving' : 'Save PIN'}</button>
+          <button type="button" className="link" onClick={() => setOpen(false)}>Cancel</button>
+        </form>
+      ) : (
+        <button className="staff-big" onClick={() => { setOpen(true); setMessage(null); }}>{set ? 'Change PIN' : 'Set a PIN'}</button>
+      )}
+    </section>
   );
 }
 
