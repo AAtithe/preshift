@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'onboarding' | 'clients' | 'billing';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -45,6 +45,8 @@ export const NAV: NavGroup[] = [
     heading: 'Planning',
     items: [
       { id: 'rota', label: 'Rota', scope: 'week', siteOnly: true, plans: true, access: { scope: ['rota.view'] } },
+      // What staff ask for in the staff app: holiday, time off, sickness, availability, swaps and open shifts.
+      { id: 'requests', label: 'Staff requests', scope: 'people', access: { scope: ['rota.publish', 'team.manage', 'hr.manage'] } },
       // Takings drive the forecast, so it is for those who plan from it or see the money.
       { id: 'forecast', label: 'Forecast', scope: 'week', siteOnly: true, access: { scope: ['demand.manage', 'costs.view'] } },
       { id: 'demand', label: 'Demand', scope: 'week', siteOnly: true, plans: true, access: { scope: ['demand.manage', 'costs.view'] } },
@@ -73,6 +75,8 @@ export const NAV: NavGroup[] = [
       { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, access: { scope: ['team.manage', 'costs.view'] } },
       // Each new person's first weeks as one checklist: legal steps before day one, the rest after.
       { id: 'onboarding', label: 'Onboarding', scope: 'people', access: { scope: ['team.manage', 'hr.view'] } },
+      // Who needs a conversation, a safe way home, recognition and the team pulse. Sickness only with HR.
+      { id: 'welfare', label: 'Wellbeing', scope: 'people', access: { scope: ['team.manage', 'hr.view'] } },
       // Balances are the team's records; the provision in pounds shows only with cost.
       { id: 'holiday', label: 'Holiday', scope: 'people', access: { scope: ['team.manage', 'costs.view'] } },
       { id: 'absence', label: 'Absence', scope: 'people', access: { scope: ['hr.view'] } },
@@ -112,7 +116,15 @@ export const NAV: NavGroup[] = [
   },
   // Everyone who signs in keeps their own details, password and authenticator here.
   { id: 'you', heading: 'You', items: [{ id: 'profile', label: 'Your profile', scope: 'org', title: 'You', access: 'everyone' }] },
-  { id: 'help', heading: 'Help', items: [{ id: 'howto', label: 'How to', scope: 'org', title: 'Help', access: 'everyone' }] },
+  {
+    id: 'help',
+    heading: 'Help',
+    items: [
+      { id: 'howto', label: 'How to', scope: 'org', title: 'Help', access: 'everyone' },
+      // Questions, bugs and ideas for the client's WS client partner. The API decides who answers.
+      { id: 'support', label: 'Support', scope: 'org', title: 'Help', access: 'everyone' },
+    ],
+  },
 ];
 export const NAV_ITEMS = NAV.flatMap((g) => g.items);
 export const ALL = '';

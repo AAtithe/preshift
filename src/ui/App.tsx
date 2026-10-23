@@ -25,7 +25,9 @@ import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
 import { HowToView } from './HowToView';
+import { SupportView } from './SupportView';
 import { AbsenceView } from './AbsenceView';
+import { RequestsView } from './RequestsView';
 import { HrFile, type HrSection } from './HrFile';
 import { HrOverview } from './HrOverview';
 import { CasesView, ReviewsView } from './ReviewsView';
@@ -37,6 +39,7 @@ import { PeopleView } from './PeopleView';
 import { PnlRail } from './PnlRail';
 import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
+import { WelfareView } from './WelfareView';
 import { ClientsView } from './ClientsView';
 import { BillingBanner, BillingView } from './BillingView';
 import { ProgrammeView } from './ProgrammeView';
@@ -581,6 +584,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
+              {shown === 'welfare' && <WelfareView key={sectionSites.join(',')} state={state} siteIds={sectionSites} today={today} allow={allow} onOpenHr={openHr} />}
               {shown === 'holiday' && (
                 <HolidayView
                   state={state}
@@ -591,6 +595,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
+              {shown === 'requests' && <RequestsView state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
                 <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
@@ -635,6 +640,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
+              {shown === 'support' && <SupportView me={me?.user?.name ?? null} context={{ siteId: single?.id, week }} onOpen={(t) => setTab(t as Tab)} />}
             </main>
 
             <footer className="foot">

@@ -1262,6 +1262,62 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .client-add .form .span2 { grid-column: auto; }
 }
 
+/* Staff requests: posting an open shift. */
+.requests-post { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
+.requests-post label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.requests-post p { grid-column: 1 / -1; margin: 0; }
+.requests-digest { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; }
+.requests-digest input { margin-top: 3px; }
 .login-flags { margin: 4px 0 0; padding-left: 16px; }
 .login-review-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .login-review-form input { min-width: 200px; flex: 1; }
+/* Support */
+.settings.support { max-width: 1100px; }
+.support .toggle { margin: 10px 0 4px; }
+.support-form { display: grid; gap: 10px; margin-top: 10px; max-width: 720px; }
+.support-form > label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.support-form textarea { width: 100%; box-sizing: border-box; padding: 8px; font: inherit; color: var(--body-ink); background: var(--card); border: 1px solid var(--rule-strong); border-radius: var(--radius); resize: vertical; }
+.help-suggest { display: grid; gap: 8px; padding: 10px 12px; background: var(--surface-2); border-left: 3px solid var(--ink); border-radius: var(--radius); }
+.help-article h3 { margin: 0; font-size: 14px; }
+.help-article p { margin: 4px 0; }
+.help-actions { display: flex; gap: 8px; }
+details.help-article { border-top: 1px solid var(--rule); padding: 8px 0; }
+details.help-article summary { cursor: pointer; font-weight: 600; }
+.vote { min-width: 40px; font-variant-numeric: tabular-nums; }
+.vote.on { background: var(--ink); color: var(--card); }
+.thread { display: grid; gap: 6px; margin-top: 6px; }
+.thread-item { padding: 6px 8px; background: var(--surface-2); border-radius: var(--radius); }
+.thread-item.from-support { border-left: 3px solid var(--ink); }
+/* Linking people already on TeamPay */
+.payroll-link { display: grid; gap: 10px; }
+.payroll-link .section-title { margin: 8px 0 0; }
+.link-card { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; background: var(--card); }
+.link-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.link-pick { display: grid; gap: 4px; max-width: 520px; }
+.link-pick select { max-width: 100%; }
+.link-linked ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.link-linked li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+
+/* Billing: the quote as the invoice will show it */
+.billing-quote { width: 100%; max-width: 460px; border-collapse: collapse; margin: 10px 0; }
+.billing-quote td { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.billing-quote td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.billing-quote tr.total td { font-weight: 600; }
+.billing-quote tr:last-child td { border-bottom: 0; padding-top: 8px; }
+
+/* Wellbeing */
+.welfare-signals { margin: 0 0 8px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.welfare-signals li { display: grid; grid-template-columns: 150px 1fr; gap: 2px 10px; align-items: baseline; }
+.welfare-signals li .badge { grid-row: span 2; justify-content: center; }
+.welfare-signals li > span:last-child { grid-column: 2; }
+.welfare-recognise { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+.welfare-recognise .wide { flex: 1 1 320px; }
+.welfare-recognise .wide input { width: 100%; }
+.welfare-milestones { margin: 0 0 12px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.welfare-milestones li { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: baseline; }
+.welfare-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 640px) {
+  .welfare-signals li { grid-template-columns: 1fr; }
+  .welfare-signals li > span:last-child { grid-column: 1; }
+  .welfare-milestones li { grid-template-columns: 1fr; gap: 2px; }
+}

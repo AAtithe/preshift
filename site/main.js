@@ -175,3 +175,58 @@ function updateCalc() {
 
 ['i-rate', 'i-hours', 'i-week', 'i-contract', 'i-pension'].forEach((id) => $(id).addEventListener('input', updateCalc));
 updateCalc();
+
+// Price calculator. Mirrors PRICING and quote in src/engine/pricing.ts, which Stripe and the Billing page
+// charge from; server/pricing.test.ts fails if these figures drift from it.
+const PRICING = {
+  bands: [
+    { from: 1, to: 5, monthlyPence: 11900 },
+    { from: 6, to: null, monthlyPence: 9900 },
+  ],
+  vatRate: 0.2,
+  annualMonthsCharged: 10,
+  selfServeMaxSites: 20,
+};
+// A loaded hour of floor staff at the National Living Wage: rate, holiday accrual and employer NI.
+const LOADED_HOUR = 12.71 * (1 + RATES.holiday) * (1 + RATES.niRate);
+
+function priceQuote(sites, yearly) {
+  const months = yearly ? PRICING.annualMonthsCharged : 1;
+  const lines = [];
+  for (const band of PRICING.bands) {
+    const n = Math.max(0, Math.min(sites, band.to ?? Infinity) - band.from + 1);
+    if (n > 0) lines.push({ sites: n, unit: (band.monthlyPence * months) / 100 });
+  }
+  const net = lines.reduce((sum, l) => sum + l.sites * l.unit, 0);
+  const vat = Math.round(net * PRICING.vatRate * 100) / 100;
+  return { lines, net, vat, gross: net + vat, perSiteMonth: net / (yearly ? 12 : 1) / sites };
+}
+
+const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+const money = (n) => (Number.isInteger(n) ? gbp0(n) : gbp(n));
+
+function updatePrice() {
+  const sites = Number($('i-sites').value);
+  const yearly = $('i-yearly').checked;
+  const group = sites > PRICING.selfServeMaxSites;
+  $('o-sites').textContent = group ? `${PRICING.selfServeMaxSites}+ sites` : plural(sites, 'site');
+  $('price-self').hidden = group;
+  $('price-group').hidden = !group;
+  if (group) return;
+  const q = priceQuote(sites, yearly);
+  const per = yearly ? 'a year' : 'a month';
+  $('q-per-site').textContent = gbp0(q.perSiteMonth);
+  $('q-period-label').textContent = `Total ${per}`;
+  $('q-net').textContent = gbp0(q.net);
+  $('q-lines').innerHTML = q.lines.map((l) => `<tr><td>${plural(l.sites, 'site')} at ${money(l.unit)} ${per}</td><td>${money(l.sites * l.unit)}</td></tr>`).join('');
+  $('q-vat').textContent = gbp(q.vat);
+  $('q-total-label').textContent = `Total ${per} with VAT`;
+  $('q-gross').textContent = gbp(q.gross);
+  const hours = (q.perSiteMonth * 12) / 52 / LOADED_HOUR;
+  $('q-payback').innerHTML = `Pays for itself if it trims <b>${hours < 2 ? 'under two hours' : `${Math.ceil(hours)} hours`}</b> of labour a week at each site. Most rotas carry far more than that over demand.`;
+}
+
+['i-sites', 'i-yearly'].forEach((id) => $(id).addEventListener('input', updatePrice));
+$('p-band-1').textContent = gbp0(PRICING.bands[0].monthlyPence / 100);
+$('p-band-2').textContent = gbp0(PRICING.bands[1].monthlyPence / 100);
+updatePrice();

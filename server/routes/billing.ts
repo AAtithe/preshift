@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { PRICING, quote, type Interval } from '../../src/engine/pricing';
 import { SAMPLE_SITE_IDS } from '../../src/engine/seed';
 import {
   applySubscription,
@@ -27,28 +28,9 @@ export const billableSites = (org: OrgData) => Math.max(1, org.state.sites.filte
 /** A subscription still in force, so a second one is never bought alongside it. */
 const inForce = (r: BillingRecord) => !!r.subscriptionId && !!r.status && !['canceled', 'incomplete_expired'].includes(r.status);
 
-interface Price {
-  amountPence: number;
-  currency: string;
-  interval: string;
-}
-
-/** The price changes rarely, so it is asked of Stripe at most every ten minutes per instance. */
-const priceCache = new Map<string, { at: number; price: Price | null }>();
-
-async function priceOf(config: StripeConfig, fetcher: typeof fetch): Promise<Price | null> {
-  const cached = priceCache.get(config.priceId);
-  if (cached && Date.now() - cached.at < 600_000) return cached.price;
-  let price: Price | null = null;
-  try {
-    const p = await stripeCall<{ unit_amount?: number; currency?: string; recurring?: { interval?: string } }>(config, fetcher, 'GET', `/prices/${encodeURIComponent(config.priceId)}`);
-    if (typeof p.unit_amount === 'number' && p.currency) price = { amountPence: p.unit_amount, currency: p.currency, interval: p.recurring?.interval ?? 'month' };
-  } catch (err) {
-    console.error('Stripe price not read:', (err as Error).message);
-  }
-  priceCache.set(config.priceId, { at: Date.now(), price });
-  return price;
-}
+/** A group plan is agreed with us, never bought by card. */
+const groupPlan = (sites: number) =>
+  new HttpError(409, 'group_plan', `You have ${sites} sites. Groups of more than ${PRICING.selfServeMaxSites} sites are on a group plan agreed with us. Contact hello@preshift.co.uk and we will set it up.`);
 
 /** Stripe's refusal, said plainly; the detail goes to the log. */
 function stripeFailed(err: unknown): never {
@@ -91,13 +73,16 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
     const org = orgOf(req);
     const r = await getBilling(store, org.orgId);
     const standing = standingOf(r, ctx.now(), !!stripe);
+    const sites = billableSites(org);
     return {
       ...standing,
       stripe: !!stripe,
-      price: stripe && r ? await priceOf(stripe, ctx.fetch) : null,
-      sites: { now: billableSites(org), billed: r?.quantity ?? null },
+      // What the sites set up cost, from src/engine/pricing.ts, which the Stripe prices are made from.
+      quotes: r ? { month: quote(sites, 'month'), ...(stripe?.annualPriceId || !stripe ? { year: quote(sites, 'year') } : {}) } : null,
+      pricing: r ? { bands: PRICING.bands, selfServeMaxSites: PRICING.selfServeMaxSites, annualMonthsCharged: PRICING.annualMonthsCharged } : null,
+      sites: { now: sites, billed: r?.quantity ?? null },
       subscription: r && r.subscriptionId
-        ? { status: r.status ?? null, currentPeriodEnd: r.currentPeriodEnd ?? null, cancelAtPeriodEnd: !!r.cancelAtPeriodEnd }
+        ? { status: r.status ?? null, interval: r.interval ?? null, currentPeriodEnd: r.currentPeriodEnd ?? null, cancelAtPeriodEnd: !!r.cancelAtPeriodEnd }
         : null,
       lastInvoice: r?.lastInvoice ?? null,
       canSubscribe: !!stripe && !!r && !inForce(r),
@@ -107,12 +92,18 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
 
   // Stripe Checkout: the card is taken on Stripe's own page. Any trial left carries over, so paying
   // early never costs the free days.
-  app.post('/v1/billing/checkout', { schema: { ...hidden } }, async (req) => {
+  app.post<{ Body: { interval?: Interval } | undefined }>('/v1/billing/checkout', {
+    schema: { ...hidden, body: { type: ['object', 'null'], additionalProperties: false, properties: { interval: { type: 'string', enum: ['month', 'year'] } } } },
+  }, async (req) => {
     const who = billingPerson(req);
     const org = orgOf(req);
     const r = await record(req);
     const config = needStripe();
     if (inForce(r)) throw new HttpError(409, 'subscribed', 'There is already a subscription. Change the card or plan from Manage billing.');
+    const interval: Interval = req.body?.interval ?? 'month';
+    const priceId = interval === 'year' ? config.annualPriceId : config.priceId;
+    if (!priceId) throw new HttpError(409, 'no_annual', 'Annual billing is not offered on this system yet. Choose monthly.');
+    if (billableSites(org) > PRICING.selfServeMaxSites) throw groupPlan(billableSites(org));
     try {
       if (!r.customerId) {
         // One customer per organisation, even if two people press the button together.
@@ -134,7 +125,7 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
         mode: 'subscription',
         customer: r.customerId,
         client_reference_id: org.orgId,
-        line_items: [{ price: config.priceId, quantity: sites }],
+        line_items: [{ price: priceId, quantity: sites }],
         subscription_data: { metadata: { orgId: org.orgId }, ...(carryTrial ? { trial_end: trialEnd } : {}) },
         metadata: { orgId: org.orgId },
         // UK businesses reclaim VAT: the invoice carries their address and VAT number.
@@ -145,7 +136,7 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
         success_url: `${base}/app/?view=billing&checkout=done`,
         cancel_url: `${base}/app/?view=billing`,
       });
-      audit(org, who, 'billing.checkout_started', { sites });
+      audit(org, who, 'billing.checkout_started', { sites, interval });
       return { url: session.url };
     } catch (err) {
       return stripeFailed(err);
@@ -179,6 +170,7 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
     if (!inForce(r) || !r.itemId) throw new HttpError(409, 'not_subscribed', 'There is no subscription to change. Subscribe first.');
     const sites = billableSites(org);
     if (r.quantity === sites) return { sites: { now: sites, billed: sites } };
+    if (sites > PRICING.selfServeMaxSites) throw groupPlan(sites);
     try {
       const sub = await stripeCall<StripeSubscription>(config, ctx.fetch, 'POST', `/subscriptions/${encodeURIComponent(r.subscriptionId!)}`, {
         items: [{ id: r.itemId, quantity: sites }],

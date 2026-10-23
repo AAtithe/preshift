@@ -216,8 +216,9 @@ export const setupBody = {
           entityId: refId,
           labourTargetPct: { type: 'number', minimum: 0, maximum: 1 },
           trackingCode: text(120),
-          openMinute: { type: 'integer', minimum: 0, maximum: 1440 },
-          closeMinute: { type: 'integer', minimum: 0, maximum: 1440 },
+          openMinute: { type: 'integer', minimum: 0, maximum: 1439 },
+          // Past midnight runs on from 1440: 1560 is 02:00 the next morning.
+          closeMinute: { type: 'integer', minimum: 1, maximum: 1680 },
           salesProfile: {
             type: 'object',
             required: ['dailySales', 'averageSpend'],

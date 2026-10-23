@@ -10,6 +10,26 @@ export interface HourDemand {
   gap: number; // positive = short, negative = over
 }
 
+/** Latest closing time set-up accepts: four in the morning, after a late licence. */
+export const LATEST_CLOSE = 28 * 60;
+
+/**
+ * Hours in a site's trading day. A site closing at 02:00 trades to hour 26: hours 24 and 25 are the
+ * next calendar date's 00:00 and 01:00, still the evening that began the day before.
+ */
+export const tradingDayHours = (site: Pick<Site, 'closeMinute'>) => Math.max(24, Math.ceil(site.closeMinute / 60));
+
+/** Where an hour of the trading day is stored: forecast rows are by calendar date and hour 0 to 23. */
+export const calendarHour = (date: string, hour: number) => (hour < 24 ? { date, hour } : { date: addDays(date, 1), hour: hour - 24 });
+
+/**
+ * The trading day and hour a stored forecast row belongs to: 01:00 on Saturday is hour 25 of Friday
+ * at a site still open from Friday night. Every other row is its own date.
+ */
+export function tradingHour(site: Pick<Site, 'openMinute' | 'closeMinute'>, date: string, hour: number) {
+  return hour * 60 + 1440 < site.closeMinute && hour * 60 < site.openMinute ? { date: addDays(date, -1), hour: hour + 24 } : { date, hour };
+}
+
 export function isOpenHour(site: Site, hour: number): boolean {
   const start = hour * 60;
   return start >= site.openMinute && start < site.closeMinute;
@@ -47,11 +67,19 @@ export function dayDemand(state: RotaState, siteId: string, roleId: string, date
   // A closure set on the forecast closes the floor too, so nobody is rostered to a shut site.
   const closures = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId && a.date === date && a.factor === 0);
   const closed = (hour: number) => closures.some((a) => (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour));
-  return Array.from({ length: 24 }, (_, hour) => {
-    const f = forecast.get(hour);
-    const required = closed(hour) ? 0 : requiredHeadcount(rule, site, f, hour);
-    const scheduled = headcountAt(state.shifts, date, hour, roleId, siteId);
-    return { hour, sales: f?.sales ?? 0, covers: f?.covers ?? 0, required, scheduled, gap: required - scheduled };
+  // Past midnight the trading day reads the next calendar date's early hours.
+  const next = addDays(date, 1);
+  const late = tradingDayHours(site) > 24 ? state.forecast.filter((f) => f.date === next && f.siteId === siteId) : [];
+  const lateClosures = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId && a.date === next && a.factor === 0);
+  const closedLate = (hour: number) => lateClosures.some((a) => (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour));
+  return Array.from({ length: tradingDayHours(site) }, (_, hour) => {
+    const f = hour < 24 ? forecast.get(hour) : late.find((x) => x.hour === hour - 24);
+    const shut = hour < 24 ? closed(hour) : closedLate(hour - 24);
+    const required = shut ? 0 : requiredHeadcount(rule, site, f, hour);
+    const scheduled = hour < 24 ? headcountAt(state.shifts, date, hour, roleId, siteId) : headcountAt(state.shifts, next, hour - 24, roleId, siteId);
+    // Early hours that belong to the night before are shown, and counted, under that night.
+    const own = hour >= 24 || tradingHour(site, date, hour).date === date;
+    return { hour, sales: own ? f?.sales ?? 0 : 0, covers: own ? f?.covers ?? 0 : 0, required, scheduled, gap: required - scheduled };
   });
 }
 
