@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { checkFence } from '../engine/clocking';
 import { formatMinute } from '../engine/time';
+import type { Fortnight } from '../engine/rotaViews';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
 import { registerWorker, turnOff } from './push';
@@ -30,6 +31,8 @@ interface Overview extends SelfServiceData {
   /** The legal minimum break for the shift they are on, when there is one. */
   breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
   welfare: Welfare;
+  /** Hours, pay before tax and rest over the same fortnight as `shifts`. */
+  fortnight?: Fortnight;
   /** Whether they have a kiosk PIN, and whether a site they clock at asks for one. */
   kioskPin: { set: boolean; required: boolean };
 }
@@ -168,7 +171,7 @@ function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o:
   return (
     <>
       {tab === 'today' && <Home data={data} onChange={onChange} onSignedOut={onSignedOut} />}
-      {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} />}
+      {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} shifts={data.shifts} fortnight={data.fortnight} />}
       {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
       {tab === 'inbox' && <InboxTab call={call} say={say} refresh={reload} />}
       <nav className="staff-tabs" aria-label="Staff app">
