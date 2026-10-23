@@ -19,6 +19,8 @@ export default defineConfig({
     ? undefined
     : {
         command: 'npm run dev',
+        // The plain sample, without the worked history: these checks build and move this week's shifts.
+        env: { PRESHIFT_SAMPLE_HISTORY: '0' },
         url: 'http://localhost:5173',
         reuseExistingServer: !process.env.CI,
         timeout: 60_000,
