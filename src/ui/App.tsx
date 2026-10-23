@@ -41,6 +41,7 @@ import { PrivacyView } from './PrivacyView';
 import { OnboardingView } from './OnboardingView';
 import { WelfareView } from './WelfareView';
 import { ClientsView } from './ClientsView';
+import { CustomersView } from './CustomersView';
 import { BillingBanner, BillingView } from './BillingView';
 import { ProgrammeView } from './ProgrammeView';
 import { ReportsView } from './ReportsView';
@@ -636,6 +637,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
+              {shown === 'customers' && <CustomersView />}
               {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}

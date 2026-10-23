@@ -268,6 +268,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.
   'GET /v1/billing': false,
+  // Refused: every customer of the live system, never to a demo visitor.
+  'GET /v1/customers': false,
   'POST /v1/billing/checkout': false,
   'POST /v1/billing/portal': false,
   'POST /v1/billing/sites': false,
