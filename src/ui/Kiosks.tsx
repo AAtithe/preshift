@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { Employee } from '../engine/types';
 import { api, ApiError } from './api';
 
 interface KioskRow {
@@ -17,12 +18,17 @@ const when = (iso: string) =>
  * Shared iPads paired as this site's kiosk. Pairing happens on the iPad itself: the person
  * pressing the button is signed out there, and the iPad is left able to clock people and nothing else.
  */
-export function Kiosks({ siteId, siteName }: { siteId: string; siteName: string }) {
+export function Kiosks({ siteId, siteName, pinRequired, team }: { siteId: string; siteName: string; pinRequired: boolean; team: Employee[] }) {
   const [rows, setRows] = useState<KioskRow[]>([]);
   const [name, setName] = useState('Staff entrance iPad');
   const [message, setMessage] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [required, setRequired] = useState(pinRequired);
+  // When each person's PIN was set, kept here as PINs are issued and removed.
+  const [pinSet, setPinSet] = useState<Record<string, string | undefined>>(() => Object.fromEntries(team.map((e) => [e.id, e.kioskPinSetAt])));
+  const [issued, setIssued] = useState<{ name: string; pin: string } | null>(null);
+  useEffect(() => setRequired(pinRequired), [pinRequired]);
 
   const refresh = useCallback(async () => setRows((await api.get<KioskRow[]>('/v1/kiosks')).filter((k) => k.siteId === siteId)), [siteId]);
   useEffect(() => {
@@ -54,6 +60,84 @@ export function Kiosks({ siteId, siteName }: { siteId: string; siteName: string 
       setBusy(false);
     }
   }
+
+  async function act(fn: () => Promise<void>) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await fn();
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : 'Could not reach Preshift. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const issue = (e: Employee) =>
+    act(async () => {
+      const res = await api.post<{ pin: string; setAt: string }>(`/v1/employees/${e.id}/kiosk-pin`);
+      setPinSet((m) => ({ ...m, [e.id]: res.setAt }));
+      setIssued({ name: e.name, pin: res.pin });
+    });
+
+  const removePin = (e: Employee) =>
+    act(async () => {
+      await api.del(`/v1/employees/${e.id}/kiosk-pin`);
+      setPinSet((m) => ({ ...m, [e.id]: undefined }));
+    });
+
+  const pinSection = (
+    <>
+      <h3>PINs for signing in by name</h3>
+      <p className="muted small">
+        Without a PIN, anyone at the kiosk can tap a colleague's name and clock them. With PINs on, signing in by name needs
+        the person's own 4 to 6 digit PIN; cards work as before. Staff set their own in the staff app, or you issue one here to
+        hand over in person. Five wrong tries lock that person's PIN for 15 minutes.
+      </p>
+      <label className="small">
+        <input
+          type="checkbox"
+          checked={required}
+          disabled={busy}
+          onChange={(ev) => {
+            const next = ev.target.checked;
+            void act(async () => {
+              await api.put(`/v1/sites/${siteId}/kiosk-pin`, { required: next });
+              setRequired(next);
+            });
+          }}
+        />{' '}
+        Require a PIN to sign in by name at {siteName}
+      </label>
+      {required && team.some((e) => !pinSet[e.id]) && (
+        <p className="small warn-text">{team.filter((e) => !pinSet[e.id]).length} people have no PIN yet, so they can only clock with a card until they set one.</p>
+      )}
+      {issued && (
+        <div className="notice">
+          <div className="strong">PIN for {issued.name}: <span className="tnum" style={{ fontSize: 22, letterSpacing: '0.2em' }}>{issued.pin}</span></div>
+          <p className="small">Give it to {issued.name} in person. It is shown once and cannot be looked up later; they can change it in the staff app.</p>
+          <button className="link" onClick={() => setIssued(null)}>Done</button>
+        </div>
+      )}
+      <div className="grid-wrap">
+        <table className="table">
+          <thead><tr><th>Name</th><th>PIN</th><th className="num" /></tr></thead>
+          <tbody>
+            {team.map((e) => (
+              <tr key={e.id}>
+                <td>{e.name}</td>
+                <td>{pinSet[e.id] ? <>Set {when(pinSet[e.id]!)}</> : <span className="muted">None</span>}</td>
+                <td className="num">
+                  <button disabled={busy} onClick={() => void issue(e)}>{pinSet[e.id] ? 'Issue new PIN' : 'Issue PIN'}</button>{' '}
+                  {pinSet[e.id] && <button className="danger" disabled={busy} onClick={() => void removePin(e)}>Remove</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
 
   return (
     <>
@@ -98,6 +182,7 @@ export function Kiosks({ siteId, siteName }: { siteId: string; siteName: string 
           </table>
         </div>
       )}
+      {pinSection}
     </>
   );
 }
