@@ -1295,3 +1295,20 @@ details.help-article summary { cursor: pointer; font-weight: 600; }
 .billing-quote td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .billing-quote tr.total td { font-weight: 600; }
 .billing-quote tr:last-child td { border-bottom: 0; padding-top: 8px; }
+
+/* Wellbeing */
+.welfare-signals { margin: 0 0 8px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.welfare-signals li { display: grid; grid-template-columns: 150px 1fr; gap: 2px 10px; align-items: baseline; }
+.welfare-signals li .badge { grid-row: span 2; justify-content: center; }
+.welfare-signals li > span:last-child { grid-column: 2; }
+.welfare-recognise { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+.welfare-recognise .wide { flex: 1 1 320px; }
+.welfare-recognise .wide input { width: 100%; }
+.welfare-milestones { margin: 0 0 12px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.welfare-milestones li { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: baseline; }
+.welfare-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 640px) {
+  .welfare-signals li { grid-template-columns: 1fr; }
+  .welfare-signals li > span:last-child { grid-column: 1; }
+  .welfare-milestones li { grid-template-columns: 1fr; gap: 2px; }
+}
