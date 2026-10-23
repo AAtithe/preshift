@@ -8,6 +8,7 @@ import type { Employee, GeoFix, RightToWorkDocument, Site, TimeEntry } from '../
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
+import { MAX_PUSH_DEVICES, pushSubject, sendPush, validEndpoint, vapidKeys, type PushDevice } from '../push';
 import { emailSetting, linkFor, parseEmailSettings, sendMail, staffInviteEmail } from '../mail';
 import { latestByEmployee, recordSent } from '../maillog';
 import { setPin } from '../kioskPin';
@@ -127,6 +128,8 @@ async function overview(staff: Staff, store: Store) {
   return {
     employee: { id: employee.id, name: employee.name },
     email: login.email,
+    /** How many phones have notifications on. */
+    pushDevices: login.push?.length ?? 0,
     today,
     sites: clockableSites(org, employee, new Date()).map(siteView),
     open: open ? entryView(open) : null,
@@ -315,6 +318,7 @@ export function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   welfareStaffRoutes(app, store);
   staffRequestRoutes(app, ctx, (req) => requireStaff(req, store));
+  pushRoutes(app, store);
 
   // A fit note, photographed on the phone. Stored encrypted with the right to work copies, read only by
   // those who read the personnel file, and attached to the person's current or latest sickness.
@@ -476,6 +480,7 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       lastEmail: mail.get(l.employeeId) ?? null,
       activatedAt: l.activatedAt ?? null,
       lastSignInAt: l.lastSignInAt ?? null,
+      pushDevices: l.push?.length ?? 0,
       locked: l.lockedUntil > now(),
     }));
   });
@@ -644,4 +649,70 @@ export function staffAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       return reply.code(204).send();
     },
   );
+}
+
+const pushBody = {
+  type: 'object',
+  required: ['endpoint'],
+  properties: {
+    endpoint: { type: 'string', maxLength: 1000 },
+    keys: { type: 'object', required: ['p256dh', 'auth'], properties: { p256dh: { type: 'string', maxLength: 200 }, auth: { type: 'string', maxLength: 100 } } },
+    label: { type: 'string', maxLength: 40 },
+  },
+  additionalProperties: false,
+} as const;
+
+/**
+ * Notifications on the person's phone. The phone subscribes with this server's public key; the
+ * subscription is kept on their login, so closing it, or marking them as a leaver, ends it too.
+ */
+function pushRoutes(app: FastifyInstance, store: Store) {
+  app.get('/v1/staff/push', { schema: { hide: true } }, async (req) => {
+    const { login } = await requireStaff(req, store);
+    return { publicKey: (await vapidKeys(store)).publicKey, devices: (login.push ?? []).map(({ endpoint, label, addedAt }) => ({ endpoint, label: label ?? null, addedAt })) };
+  });
+
+  app.post<{ Body: { endpoint: string; keys?: { p256dh: string; auth: string }; label?: string } }>(
+    '/v1/staff/push/subscribe',
+    { schema: { hide: true, body: pushBody } },
+    async (req) => {
+      const { org, employee, login } = await requireStaff(req, store);
+      const { endpoint, keys, label } = req.body;
+      if (!keys || !validEndpoint(endpoint)) throw new HttpError(422, 'invalid_subscription', 'This phone gave an address Preshift does not send to. Try again, or use another browser.');
+      // A phone that subscribes again replaces itself; past five, the oldest goes.
+      const others = (login.push ?? []).filter((d) => d.endpoint !== endpoint);
+      const device: PushDevice = { endpoint, p256dh: keys.p256dh, auth: keys.auth, addedAt: new Date().toISOString(), ...(label?.trim() ? { label: label.trim() } : {}) };
+      await store.putStaffLogin({ ...login, push: [...others, device].slice(-MAX_PUSH_DEVICES) });
+      audit(org, `staff:${employee.id}`, 'staff.push_on', { employeeId: employee.id });
+      await store.save(org);
+      return { ok: true, devices: Math.min(others.length + 1, MAX_PUSH_DEVICES) };
+    },
+  );
+
+  app.post<{ Body: { endpoint: string } }>(
+    '/v1/staff/push/unsubscribe',
+    { schema: { hide: true, body: { type: 'object', required: ['endpoint'], properties: { endpoint: { type: 'string', maxLength: 1000 } }, additionalProperties: false } } },
+    async (req) => {
+      const { org, employee, login } = await requireStaff(req, store);
+      const push = (login.push ?? []).filter((d) => d.endpoint !== req.body.endpoint);
+      if (push.length !== (login.push ?? []).length) {
+        await store.putStaffLogin({ ...login, push });
+        audit(org, `staff:${employee.id}`, 'staff.push_off', { employeeId: employee.id });
+        await store.save(org);
+      }
+      return { ok: true, devices: push.length };
+    },
+  );
+
+  // So the person can see it works before they rely on it. Their own phones only.
+  app.post('/v1/staff/push/test', { schema: { hide: true } }, async (req) => {
+    const { employee, login } = await requireStaff(req, store);
+    const devices = login.push ?? [];
+    if (devices.length === 0) throw new HttpError(409, 'push_off', 'Notifications are not on for any of your phones yet.');
+    const keys = await vapidKeys(store);
+    const message = { title: 'Notifications are on', body: `Hello ${employee.name.split(' ')[0]}. This is how Preshift will tell you about your rota.`, url: '/staff/#inbox', tag: 'test' };
+    const results = await Promise.all(devices.map((d) => sendPush(keys, d, message, pushSubject())));
+    if (results.includes('gone')) await store.putStaffLogin({ ...login, push: devices.filter((_, i) => results[i] !== 'gone') });
+    return { sent: results.filter((r) => r === 'sent').length, failed: results.filter((r) => r === 'failed').length, gone: results.filter((r) => r === 'gone').length };
+  });
 }

@@ -408,6 +408,8 @@ export interface StaffNotification {
   read?: boolean;
   /** pending until the request that raised it is saved; then sent, none (no email set up or no address) or failed. */
   email?: 'pending' | 'sent' | 'none' | 'failed';
+  /** Pushed to the person's phones: sent to at least one, none (not turned on), or failed on every one. */
+  push?: 'sent' | 'none' | 'failed';
 }
 
 export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';
