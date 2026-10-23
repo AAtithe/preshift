@@ -4,6 +4,7 @@
 // routes so every starter reaches payroll.
 
 import { minimumWageFor } from './ukRates';
+import { calendarHour, isOpenHour, LATEST_CLOSE, tradingDayHours } from './demand';
 import { addDays, ageOn, parseISODate, weekDates, weekStart } from './time';
 import type { DemandRule, Department, Employee, Entity, HourForecast, RotaState, Role, Site } from './types';
 
@@ -116,8 +117,10 @@ const HOUR_WEIGHT = [
 export function forecastForWeek(site: Site, start: string): HourForecast[] {
   const profile = site.salesProfile;
   if (!profile) return [];
-  const open = HOUR_WEIGHT.map((_, h) => h).filter((h) => h * 60 >= site.openMinute && h * 60 < site.closeMinute);
-  const total = open.reduce((sum, h) => sum + HOUR_WEIGHT[h], 0);
+  // Hours past midnight weigh as late evening does, tailing off: a bar's 01:00 is not a café's.
+  const weight = (h: number) => (h < 24 ? HOUR_WEIGHT[h] : [0.04, 0.03, 0.02, 0.01][h - 24] ?? 0.01);
+  const open = Array.from({ length: tradingDayHours(site) }, (_, h) => h).filter((h) => h * 60 >= site.openMinute && h * 60 < site.closeMinute);
+  const total = open.reduce((sum, h) => sum + weight(h), 0);
   if (!total) return [];
   return weekDates(start).flatMap((date, day) => {
     const daySales = profile.dailySales[day] ?? 0;
@@ -125,10 +128,10 @@ export function forecastForWeek(site: Site, start: string): HourForecast[] {
     // Round each hour but put the pennies on the last one so the day ties back to the profile.
     let allocated = 0;
     return open.map((hour, i) => {
-      const sales = i === open.length - 1 ? daySales - allocated : Math.round((daySales * HOUR_WEIGHT[hour]) / total);
+      const sales = i === open.length - 1 ? daySales - allocated : Math.round((daySales * weight(hour)) / total);
       allocated += sales;
       const covers = profile.averageSpend > 0 ? Math.round(sales / profile.averageSpend) : 0;
-      return { siteId: site.id, date, hour, sales, covers, source: 'profile' as const };
+      return { siteId: site.id, ...calendarHour(date, hour), sales, covers, source: 'profile' as const };
     });
   });
 }
@@ -138,7 +141,8 @@ export function missingForecast(state: RotaState, siteIds: string[], start: stri
   const dates = new Set(weekDates(start));
   return state.sites
     .filter((s) => siteIds.includes(s.id))
-    .flatMap((site) => (state.forecast.some((f) => f.siteId === site.id && dates.has(f.date)) ? [] : forecastForWeek(site, start)));
+    // Sunday night's trade after midnight is stored on Monday: it is not a forecast for that week.
+    .flatMap((site) => (state.forecast.some((f) => f.siteId === site.id && dates.has(f.date) && isOpenHour(site, f.hour)) ? [] : forecastForWeek(site, start)));
 }
 
 /** Weeks ahead the set-up writes a forecast for. The rota build fills any week after that on demand. */
@@ -202,7 +206,9 @@ export function validateSetup(draft: SetupDraft): SetupIssue[] {
     const label = site.name.trim() || 'A site';
     if (!site.name.trim()) block('Every site needs a name.');
     if (!draft.entities.some((e) => e.id === site.entityId)) block(`${label}: choose the company it trades in.`);
-    if (site.closeMinute <= site.openMinute) block(`${label}: closing time must be after opening time, up to midnight.`);
+    if (site.closeMinute <= site.openMinute) block(`${label}: closing time must be after opening time.`);
+    if (site.closeMinute > LATEST_CLOSE) block(`${label}: closing can be after midnight, up to 04:00.`);
+    if (site.closeMinute - 1440 > site.openMinute) block(`${label}: trading would run into the next day's opening.`);
     if (!(site.labourTargetPct > 0 && site.labourTargetPct < 1)) block(`${label}: labour target must be between 0% and 100%.`);
     const profile = site.salesProfile;
     if (!profile || !profile.dailySales.some((d) => d > 0)) block(`${label}: enter typical net sales for at least one day.`);

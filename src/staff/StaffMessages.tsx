@@ -122,7 +122,7 @@ export function StaffReach({ onSignedOut }: { onSignedOut: () => void }) {
   const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
 
   useEffect(() => {
-    call<Prefs>('GET', '/v1/staff/notifications')
+    call<Prefs>('GET', '/v1/staff/channels')
       .then((p) => {
         setPrefs(p);
         setForm({
@@ -145,7 +145,7 @@ export function StaffReach({ onSignedOut }: { onSignedOut: () => void }) {
   async function save(e: FormEvent) {
     e.preventDefault();
     try {
-      const next = await call<Prefs>('PUT', '/v1/staff/notifications', {
+      const next = await call<Prefs>('PUT', '/v1/staff/channels', {
         channels: form.channel ? [form.channel] : [],
         phone: phoneChannel ? form.phone : null,
         whatsapp: form.channel === 'whatsapp' && form.agree,

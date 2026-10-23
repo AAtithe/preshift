@@ -191,7 +191,7 @@ function ThreadPane({ thread, onSent }: { thread: Thread; onSent: () => Promise<
 
   const read = thread.readers.filter((r) => r.readAt);
   return (
-    <section className="panel thread">
+    <section className="panel">
       <div className="panel-head">
         <span className="panel-title">{thread.name}</span>
         <span className="panel-sub">

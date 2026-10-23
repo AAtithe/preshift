@@ -21,6 +21,7 @@ import { eposRoutes, syncAllTills } from './routes/epos';
 import { payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
+import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
@@ -28,6 +29,7 @@ import { timeRoutes } from './routes/time';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clientRoutes } from './routes/clients';
+import { supportRoutes } from './routes/support';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
@@ -42,8 +44,12 @@ import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
 import { coverRoutes, staffCoverRoutes } from './routes/cover';
-import { releaseHeld } from './messaging';
+import { carryNotifications, releaseHeld } from './messaging';
+import { requestRoutes } from './routes/requests';
+import { emailNotifications } from './notify';
+import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
+import { syncAllRewards, welfareRoutes } from './routes/welfare';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -231,6 +237,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await syncAllRewards(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
     await releaseAllHeld();
     await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
@@ -308,6 +315,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true };
   });
 
+  // Each morning: every manager hears what staff have asked for that is theirs to decide. Once a
+  // day per organisation, however often it is called.
+  app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
+  });
+
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
   // midnight UK time in winter and summer alike. Runs whether or not the demo is switched on,
   // so switching it off still clears what visitors left.
@@ -329,7 +343,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   mcpRoutes(app, auth);
   // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
   oauthRoutes(app, store);
-  staffRoutes(app, store);
+  staffRoutes(app, ctx);
   // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
   staffMessageRoutes(app, ctx);
   staffCoverRoutes(app, ctx);
@@ -378,6 +392,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       try {
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
+        // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
+        await carryNotifications(ctx, req.org);
+        await emailNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -422,8 +439,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
+    payrollLinkRoutes(api, ctx);
+    welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);
+    supportRoutes(api, ctx);
     billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
@@ -434,6 +454,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     staffAdminRoutes(api, ctx);
     messageRoutes(api, ctx);
     coverRoutes(api, ctx);
+    // What staff ask for in the staff app, decided here by whoever runs their rota or team.
+    requestRoutes(api, ctx);
     kioskAdminRoutes(api, ctx);
   });
 

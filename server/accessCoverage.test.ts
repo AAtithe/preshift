@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(|\bopeningFor\(|\brequestOf\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bmessenger\(|\bconversationOf\(|\bopeningFor\(|\brequestOf\(|\bsupportPerson\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -33,13 +33,30 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/messages': "Staff app: the caller's own thread and announcements to them, under the staff session.",
   'POST /v1/staff/messages': "Staff app: the caller writing to their own managers, under the staff session.",
   'POST /v1/staff/messages/read': 'Staff app: the caller marking their own thread read, under the staff session.',
-  'GET /v1/staff/notifications': "Staff app: the caller's own choice of channels, under the staff session.",
-  'PUT /v1/staff/notifications': 'Staff app: the caller giving or withdrawing their own consent, under the staff session.',
+  'GET /v1/staff/channels': "Staff app: the caller's own choice of channels, under the staff session.",
+  'PUT /v1/staff/channels': 'Staff app: the caller giving or withdrawing their own consent, under the staff session.',
   'GET /v1/staff/cover': 'Staff app: cover offers made to the caller, under the staff session.',
   'POST /v1/staff/cover/:id/accept': 'Staff app: the caller saying yes to an offer made to them, re-checked under the rota rules.',
   'POST /v1/staff/cover/:id/decline': 'Staff app: the caller saying no to an offer made to them.',
   'GET /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta once to check the address; answers only with the organisation's own verify token.",
   'POST /v1/integrations/whatsapp/webhook/:orgId': "Called by Meta with a body signed by the organisation's app secret, never by a person.",
+  'POST /v1/staff/pulse': "Staff app: the caller's own answer to the weekly pulse, under the staff session.",
+  'POST /v1/staff/chat': 'Staff app: the caller asking for a chat for themselves, under the staff session.',
+  'POST /v1/staff/rewards': 'Staff app: the caller opting themselves in or out of Hospitality Rewards, under the staff session.',
+  'GET /v1/staff/notifications': "Staff app: the caller's own notifications, under the staff session.",
+  'POST /v1/staff/notifications/read': "Staff app: marks the caller's own notifications read, under the staff session.",
+  'GET /v1/staff/team': "Staff app: names and times of who shares the caller's own published shifts, under the staff session.",
+  'GET /v1/staff/board': 'Staff app: open shifts and swaps the caller is eligible for, under the staff session.',
+  'GET /v1/staff/shifts/:id/swap-options': "Staff app: colleagues who could take one of the caller's own shifts, under the staff session.",
+  'POST /v1/staff/open-shifts/:id/claim': 'Staff app: the caller asks for an open shift; a manager with rota.publish decides.',
+  'POST /v1/staff/requests/holiday': 'Staff app: the caller asks for holiday; a manager with team.manage decides.',
+  'POST /v1/staff/requests/time-off': 'Staff app: the caller asks for time off; a manager with hr.manage decides.',
+  'POST /v1/staff/requests/availability': 'Staff app: the caller proposes their availability; a manager with team.manage decides.',
+  'PUT /v1/staff/unavailable': "Staff app: the caller's own one-off unavailable days, under the staff session.",
+  'POST /v1/staff/requests/:id/cancel': 'Staff app: the caller withdraws their own request, under the staff session.',
+  'POST /v1/staff/sick': 'Staff app: the caller reports their own sickness, under the staff session.',
+  'POST /v1/staff/sick/back': 'Staff app: the caller ends their own sickness absence, under the staff session.',
+  'POST /v1/staff/fit-note': 'Staff app: the caller files their own fit note, under the staff session.',
   'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
   'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
   'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",

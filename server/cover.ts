@@ -7,13 +7,12 @@
 
 import { randomUUID } from 'node:crypto';
 import { askable, coverCandidates, coverStatus, offerText, openingOf, shiftLabel, type CoverRequest } from '../src/engine/cover';
-import { weekSignature } from '../src/engine/messaging';
 import { hasStarted } from '../src/engine/rotaWeek';
-import { weekStart } from '../src/engine/time';
 import type { Employee, Shift } from '../src/engine/types';
 import { londonParts, type AppContext } from './context';
-import { addMessage, deliverToStaff, directThread, inBatches, managerLink, messagingOf, notifyTeam, outboundFor, type Outbound } from './messaging';
-import { publishedWeekOf, siteName } from './routes/messages';
+import { addMessage, deliverToStaff, directThread, inBatches, managerLink, notifyTeam, outboundFor, type Outbound } from './messaging';
+import { siteName } from './routes/messages';
+import { syncTold } from './notify';
 import { audit, type OrgData } from './store';
 
 export const coverOf = (org: OrgData) => (org.coverRequests ??= []);
@@ -162,14 +161,8 @@ export async function announceTaken(ctx: Pick<AppContext, 'store' | 'fetch' | 'n
     const e = org.state.employees.find((x) => x.id === o.employeeId);
     if (e) await tell(out, org, e, `The cover for ${label} has been taken. Thank you for looking.`, 'Cover taken', !o.response);
   }
-  // They have been told their week, so the next publish does not tell them the same change again.
-  if (r.publish) {
-    const data = messagingOf(org);
-    const ws = weekStart(r.date);
-    for (const id of [taken.employee.id, r.originalEmployeeId]) {
-      if (id) data.notified[`${id}|${ws}`] = weekSignature(publishedWeekOf(org, id, ws));
-    }
-  }
+  // They have been told of this change, so the next publish does not tell them it again.
+  if (r.publish) syncTold(org, [taken.employee.id, ...(r.originalEmployeeId ? [r.originalEmployeeId] : [])], [taken.shift]);
   await notifyTeam(out, r.siteId, `Cover found: ${taken.employee.name} takes ${label}.`, managerLink(out, r.siteId));
 }
 

@@ -140,33 +140,30 @@ describe('messages between managers and staff', () => {
 });
 
 describe('rota notices', () => {
-  it('tells each person their week on publish, and again only when it changes', async () => {
+  it('carries the rota notice by WhatsApp to someone who chose it, instead of email', async () => {
     const t = await boot();
     const ben = await t.staff('mar-3', 'ben@example.com');
+    await t.call('PUT', '/v1/settings/messaging/whatsapp', t.owner, WHATSAPP);
+    expect((await t.call('PUT', '/v1/staff/channels', ben, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true })).status).toBe(200);
     await t.call('POST', '/v1/rota/build', { key: 'admin' }, { siteId: 'mar', weekStart: WEEK });
-    const first = await t.call('POST', '/v1/rota/publish', { key: 'admin' }, { siteId: 'mar', weekStart: WEEK });
-    expect(first.status).toBe(200);
-    expect(first.body.notices.told).toBeGreaterThan(3);
-    expect(first.body.notices.changed).toBe(0);
+    expect((await t.call('POST', '/v1/rota/publish', { key: 'admin' }, { siteId: 'mar', weekStart: WEEK })).status).toBe(200);
 
-    const shifts = (await t.call('GET', `/v1/shifts?siteId=mar&from=${WEEK}&to=2026-10-25`, { key: 'admin' })).body as { id: string; employeeId: string }[];
-    const bens = shifts.filter((s) => s.employeeId === 'mar-3');
-    expect(bens.length).toBeGreaterThan(0);
-    const notices = () => t.call('GET', '/v1/staff/messages', ben).then((r) => r.body.threads[0].messages as { body: string; from: string }[]);
-    expect(await notices()).toHaveLength(1);
-    expect((await notices())[0]).toMatchObject({ from: 'Rota' });
-    expect((await notices())[0].body).toMatch(/^Hi \w+, your rota for the week of Mon 19 Oct is out:\n/);
+    // One WhatsApp to Ben with his week; nobody else chose WhatsApp, so nobody else gets one.
+    const whatsapps = t.sent.filter((s) => s.url.startsWith('https://graph.facebook.com/'));
+    expect(whatsapps).toHaveLength(1);
+    expect(whatsapps[0].body.to).toBe('447700900123');
+    expect(whatsapps[0].body.template.components[0].parameters[0].text).toMatch(/^Your rota at Marylebone is out/);
+    // It is still in his staff app inbox, marked as carried by WhatsApp rather than emailed.
+    const feed = (await t.call('GET', '/v1/staff/notifications', ben)).body as { kind: string }[];
+    expect(feed.some((n) => n.kind === 'rota_published')).toBe(true);
+    const org = await t.store.load('demo');
+    const his = org.notifications!.filter((n) => n.employeeId === 'mar-3');
+    expect(his.every((n) => n.email === 'none' && n.via === 'whatsapp')).toBe(true);
 
     // Republishing an unchanged week tells nobody.
-    const again = await t.call('POST', '/v1/rota/publish', { key: 'admin' }, { siteId: 'mar', weekStart: WEEK });
-    expect(again.body.notices.told).toBe(0);
-
-    // A change tells only the person it changes, and says it is a change.
-    expect((await t.call('DELETE', `/v1/shifts/${bens[0].id}`, { key: 'admin' })).status).toBe(204);
-    const third = await t.call('POST', '/v1/rota/publish', { key: 'admin' }, { siteId: 'mar', weekStart: WEEK });
-    expect(third.body.notices).toMatchObject({ told: 1, changed: 1 });
-    expect((await notices()).at(-1)!.body).toMatch(bens.length > 1 ? /your shifts for the week of Mon 19 Oct have changed/ : /have been taken off the rota/);
-
+    const before = t.sent.length;
+    await t.call('POST', '/v1/rota/publish', { key: 'admin' }, { siteId: 'mar', weekStart: WEEK });
+    expect(t.sent.length).toBe(before);
     // Managers do not count rota notices as unread: they are not something staff wrote.
     expect((await t.call('GET', '/v1/messages?siteId=mar', { key: 'priya' })).body.every((c: { unread: number }) => c.unread === 0)).toBe(true);
   });
@@ -177,7 +174,7 @@ describe('channels', () => {
     const t = await boot();
     const ben = await t.staff('mar-3', 'ben@example.com');
     // Not offered until the organisation connects it.
-    expect((await t.call('PUT', '/v1/staff/notifications', ben, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true })).body.error).toBe('not_offered');
+    expect((await t.call('PUT', '/v1/staff/channels', ben, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true })).body.error).toBe('not_offered');
 
     // Only a person with settings, never a key.
     expect((await t.call('PUT', '/v1/settings/messaging/whatsapp', { key: 'admin' }, WHATSAPP)).status).toBe(403);
@@ -193,9 +190,9 @@ describe('channels', () => {
     expect((await t.app.inject({ method: 'GET', url: '/v1/integrations/whatsapp/webhook/demo?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=42' })).statusCode).toBe(403);
 
     // Consent is a tick by the person, for the number they typed.
-    expect((await t.call('PUT', '/v1/staff/notifications', ben, { channels: ['whatsapp'], phone: '07700 900123' })).body.error).toBe('consent_required');
-    expect((await t.call('PUT', '/v1/staff/notifications', ben, { channels: ['whatsapp'], phone: '01632 960001', whatsapp: true })).body.error).toBe('invalid_phone');
-    const prefs = await t.call('PUT', '/v1/staff/notifications', ben, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true });
+    expect((await t.call('PUT', '/v1/staff/channels', ben, { channels: ['whatsapp'], phone: '07700 900123' })).body.error).toBe('consent_required');
+    expect((await t.call('PUT', '/v1/staff/channels', ben, { channels: ['whatsapp'], phone: '01632 960001', whatsapp: true })).body.error).toBe('invalid_phone');
+    const prefs = await t.call('PUT', '/v1/staff/channels', ben, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true });
     expect(prefs.body).toMatchObject({ channels: ['whatsapp'], phone: '+447700900123', whatsapp: true });
 
     // Outside WhatsApp's 24 hour window a message must go as the approved template.
@@ -228,7 +225,7 @@ describe('channels', () => {
 
     // STOP withdraws consent at once.
     await t.inbound(reply('447700900123', 'wamid.in3', 'STOP'));
-    expect((await t.call('GET', '/v1/staff/notifications', ben)).body).toMatchObject({ channels: [], whatsapp: false });
+    expect((await t.call('GET', '/v1/staff/channels', ben)).body).toMatchObject({ channels: [], whatsapp: false });
     const before = t.sent.length;
     await t.call('POST', '/v1/messages/direct', { key: 'priya' }, { employeeId: 'mar-3', body: 'Still there?' });
     expect(t.sent.slice(before).filter((s) => s.url.startsWith('https://graph.facebook.com/'))).toEqual([]);
@@ -238,7 +235,7 @@ describe('channels', () => {
     const t = await boot();
     const ben = await t.staff('mar-3', 'ben@example.com');
     await t.call('PUT', '/v1/settings/messaging/sms', t.owner, { accountSid: `AC${'0'.repeat(32)}`, authToken: 'f'.repeat(32), from: '+447700900000' });
-    await t.call('PUT', '/v1/staff/notifications', ben, { channels: ['sms'], phone: '+447700900123', sms: true });
+    await t.call('PUT', '/v1/staff/channels', ben, { channels: ['sms'], phone: '+447700900123', sms: true });
 
     clock.now = new Date(`${TODAY}T22:30:00Z`); // 23:30 in London
     const held = await t.call('POST', '/v1/messages/direct', { key: 'priya' }, { employeeId: 'mar-3', body: 'Rota for next week is up' });
@@ -282,7 +279,7 @@ describe('channels', () => {
     const t = await boot();
     const ben = await t.staff('mar-3', 'ben@example.com');
     await t.call('PUT', '/v1/settings/messaging/sms', t.owner, { accountSid: `AC${'0'.repeat(32)}`, authToken: 'f'.repeat(32), from: 'Marylebone' });
-    await t.call('PUT', '/v1/staff/notifications', ben, { channels: ['sms'], phone: '07700 900123', sms: true });
+    await t.call('PUT', '/v1/staff/channels', ben, { channels: ['sms'], phone: '07700 900123', sms: true });
     await t.call('POST', '/v1/staff/messages', ben, { body: 'Can I swap Saturday?' });
     const exported = await t.call('POST', '/v1/privacy/subjects/mar-3/export', t.owner);
     expect(exported.status).toBe(200);

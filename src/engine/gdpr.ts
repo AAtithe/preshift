@@ -310,6 +310,16 @@ export interface ProcessingFlags {
   payrollLive: boolean;
   /** Messaging channels connected under Settings, and how many messages are held. */
   messaging?: { whatsapp: boolean; sms: boolean; slack: boolean; teams: boolean; messages: number; consents: number };
+  /** Hospitality Rewards is connected to a live account rather than the simulator. */
+  rewards?: boolean;
+}
+
+/** What the wellbeing features hold now, for the register's counts. */
+export interface WelfareHeld {
+  pulses: number;
+  recognitions: number;
+  chats: number;
+  members: number;
 }
 
 export interface ProcessingActivity {
@@ -343,6 +353,8 @@ export function processingRegister(
   staffLogins: number,
   flags: ProcessingFlags,
   policy: RetentionPolicy = DEFAULT_RETENTION,
+  supportTickets = 0,
+  welfare: WelfareHeld = { pulses: 0, recognitions: 0, chats: 0, members: 0 },
 ): { activities: ProcessingActivity[]; processors: Processor[] } {
   const live = state.employees.filter((e) => !e.anonymisedOn);
   const payroll = `${flags.payrollLive ? 'TeamPay' : 'TeamPay (simulated)'}`;
@@ -457,6 +469,26 @@ export function processingRegister(
       held: flags.messaging?.messages ?? 0,
     },
     {
+      activity: 'Recognition and staff benefits',
+      purpose: 'Thanking people for good work, crediting recognition points, and giving staff discounts and wellbeing support through Hospitality Rewards',
+      lawfulBasis: 'Legitimate interests (6(1)(f)). Anyone can opt out of the benefits platform from the staff app; a thank you is still recorded',
+      categories: 'Name, work email, site, company, start date; recognition messages, points and who gave them',
+      recipients: flags.rewards ? 'Hospitality Rewards' : 'None',
+      retention: 'Recognitions until the person is anonymised; platform membership ends at the first sync after leaving or opting out',
+      held: welfare.recognitions + welfare.members,
+    },
+    {
+      activity: 'Wellbeing pulse and chat requests',
+      purpose: 'Understanding how each team is doing, and offering a private conversation to anyone who asks for one',
+      lawfulBasis:
+        'Legitimate interests (6(1)(f)); answering is voluntary. Treated as possibly revealing health: answers are stored without the person’s id, ' +
+        'no free text is taken, and a site’s week is shown only once five people have answered',
+      categories: 'A weekly score of 1 to 5 with site and week; for a chat request, the person’s name, site and when they asked',
+      recipients: 'None',
+      retention: 'Pulse answers 13 months; chat requests until the person is anonymised',
+      held: welfare.pulses + welfare.chats,
+    },
+    {
       activity: 'Manager accounts and audit log',
       purpose: 'Securing access and showing who changed what',
       lawfulBasis: 'Legitimate interests (6(1)(f)); security of processing (Article 32)',
@@ -464,6 +496,15 @@ export function processingRegister(
       recipients: 'None',
       retention: 'Accounts until removed; the last 5,000 audit events',
       held: 0,
+    },
+    {
+      activity: 'Support tickets',
+      purpose: 'Answering questions and fixing problems reported to Williams, Stanley & Co.',
+      lawfulBasis: 'Contract (6(1)(b))',
+      categories: 'Name of the manager who raised it, what they wrote, the screen, site and week it was raised from, replies',
+      recipients: "The client's WS client partner (notified by email through Resend)",
+      retention: 'Two years after the ticket is closed, then deleted',
+      held: supportTickets,
     },
   ];
 
@@ -515,6 +556,14 @@ export function processingRegister(
       location: 'As the workspace is set up',
       safeguard: 'The organisation’s own contract with Slack or Microsoft for its workspace',
       active: !!flags.messaging?.slack || !!flags.messaging?.teams,
+    },
+    {
+      name: 'Hospitality Rewards',
+      role: 'Employee benefits and recognition',
+      data: 'Name, work email, site, company, start date, recognition points and messages',
+      location: 'UK (confirm in the contract)',
+      safeguard: 'Article 28 contract for enrolment. Check whether it acts as a controller once a member signs up, and say so in the staff privacy notice',
+      active: !!flags.rewards,
     },
     {
       name: 'Vercel and Neon',

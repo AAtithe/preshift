@@ -136,7 +136,6 @@ export function messagingOf(org: OrgData): MessagingData {
   if (!org.messaging) org.messaging = emptyMessaging();
   // Organisations saved before a field existed.
   org.messaging.lastInbound ??= {};
-  org.messaging.notified ??= {};
   org.messaging.reads ??= {};
   return org.messaging;
 }
@@ -437,4 +436,33 @@ export async function reachOf(store: Store, org: OrgData) {
       return [e.id, { app: Boolean(login?.hash), channel: order[0] ?? null, problems: unusable.map((u) => u.reason) }];
     }),
   );
+}
+
+/**
+ * Staff notices (the rota published or changed, a swap, an open shift, a request decided) show in
+ * the staff app and are emailed (server/notify.ts). Someone who chose WhatsApp or text gets them
+ * there instead: one message for everything waiting, kept in their thread so quiet hours can hold
+ * it, and the email is then not sent. Run before emailNotifications, inside the same request.
+ */
+export async function carryNotifications(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>, org: OrgData) {
+  const pending = (org.notifications ?? []).filter((n) => n.email === 'pending');
+  const data = org.messaging;
+  if (pending.length === 0 || !data) return;
+  const byPerson = new Map<string, typeof pending>();
+  for (const n of pending) if (data.prefs[n.employeeId]?.channels.some((c) => c === 'whatsapp' || c === 'sms')) byPerson.set(n.employeeId, [...(byPerson.get(n.employeeId) ?? []), n]);
+  if (byPerson.size === 0) return;
+  const out = await outboundFor(ctx, org);
+  const reach = await reachOf(ctx.store, org);
+  const at = ctx.now().toISOString();
+  for (const [employeeId, notes] of byPerson) {
+    const employee = org.state.employees.find((e) => e.id === employeeId);
+    const channel = reach.get(employeeId)?.channel;
+    if (!employee || (channel !== 'whatsapp' && channel !== 'sms')) continue;
+    const text = notes.map((n) => `${n.title}. ${n.body}`).join('\n');
+    const message = addMessage(org, directThread(org, employee, 'Preshift', at), { at, from: { kind: 'system', name: 'Rota' }, body: text, via: 'app' });
+    message.deliveries = await deliverToStaff(out, employee, text, { subject: notes[0].title });
+    const carried = message.deliveries.find((d) => (d.channel === 'whatsapp' || d.channel === 'sms') && (d.status === 'sent' || d.status === 'held'));
+    // Not carried (the provider refused it): left pending, so the email still goes.
+    if (carried) for (const n of notes) Object.assign(n, { email: 'none', via: carried.channel });
+  }
 }

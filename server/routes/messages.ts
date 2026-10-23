@@ -13,11 +13,10 @@ import { requireStaff } from './staff';
 import { acceptOffer, announceTaken, coverOf, type Taken } from '../cover';
 import { isYes, openOffersFor } from '../../src/engine/cover';
 import {
-  bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS, shortDate,
-  staffReader, trimMessaging, unread, userReader, weekNotice, weekSignature,
-  type Conversation, type Delivery, type Message, type NoticeShift, type PersonChannel, type StaffMessagingPrefs,
+  bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS,
+  staffReader, trimMessaging, unread, userReader,
+  type Conversation, type Delivery, type Message, type PersonChannel, type StaffMessagingPrefs,
 } from '../../src/engine/messaging';
-import { weekDates } from '../../src/engine/time';
 import type { Employee } from '../../src/engine/types';
 
 /** Managers who run a site's team read and write its messages: those who build its rota or manage its people. */
@@ -46,59 +45,6 @@ const teamOf = (org: OrgData, siteId: string) =>
 
 function messageView(m: Message) {
   return { id: m.id, at: m.at, from: m.from, body: m.body, via: m.via, urgent: !!m.urgent, deliveries: m.deliveries, reached: deliverySummary(m) };
-}
-
-/** A person's published shifts in a week, as their rota notice lists them. */
-export function publishedWeekOf(org: OrgData, employeeId: string, weekStart: string): NoticeShift[] {
-  const dates = new Set(weekDates(weekStart));
-  const roleName = (id: string) => org.state.roles.find((r) => r.id === id)?.name ?? id;
-  return org.state.shifts
-    .filter((s) => s.employeeId === employeeId && s.published && dates.has(s.date))
-    .map((s) => ({ date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, siteName: siteName(org, s.siteId), roleName: roleName(s.roleId) }));
-}
-
-/**
- * Tells everyone whose week changed with this publish, in their own thread and by the channel they
- * chose, then posts a line to each site's team channel. A person is told only when what they will
- * work differs from what they were last told, so republishing an unchanged week tells nobody, and
- * someone taken off the rota entirely is told that too.
- */
-export async function announceWeek(ctx: AppContext, org: OrgData, siteIds: string[], weekStart: string, by: string) {
-  const data = messagingOf(org);
-  const dates = new Set(weekDates(weekStart));
-  const at = ctx.now().toISOString();
-  const out = await outboundFor(ctx, org);
-  const inWeek = org.state.shifts.filter((s) => dates.has(s.date));
-  const candidates = org.state.employees.filter(
-    (e) => e.status !== 'leaver' && (inWeek.some((s) => s.employeeId === e.id && siteIds.includes(s.siteId)) || data.notified[`${e.id}|${weekStart}`] !== undefined),
-  );
-  let told = 0;
-  let changed = 0;
-  let offApp = 0;
-  await inBatches(candidates, 10, async (e) => {
-    const shifts = publishedWeekOf(org, e.id, weekStart);
-    const key = `${e.id}|${weekStart}`;
-    const before = data.notified[key] ?? '';
-    const now = weekSignature(shifts);
-    if (now === before) return;
-    data.notified[key] = now;
-    const thread = directThread(org, e, by, at);
-    const text = weekNotice(e.name, weekStart, shifts, before);
-    const message = addMessage(org, thread, { at, from: { kind: 'system', name: 'Rota' }, body: text, via: 'app' });
-    message.deliveries = await deliverToStaff(out, e, text, { subject: `Your rota for the week of ${shortDate(weekStart)}` });
-    told++;
-    if (before) changed++;
-    if (!message.deliveries.some((d) => d.status === 'sent' || d.status === 'held')) offApp++;
-  });
-  if (told > 0) {
-    for (const siteId of siteIds) {
-      const line = `${siteName(org, siteId)}: the rota for the week of ${shortDate(weekStart)} is published by ${by}. ${told} ${told === 1 ? 'person' : 'people'} told${changed ? `, ${changed} of them of a change` : ''}${offApp ? `; ${offApp} in the staff app only` : ''}.`;
-      await notifyTeam(out, siteId, line, managerLink(out, siteId));
-    }
-  }
-  trimMessaging(data, ctx.now());
-  audit(org, by, 'messaging.rota_notices', { siteIds, weekStart, told, changed });
-  return { told, changed, appOnly: offApp };
 }
 
 export function messageRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -436,14 +382,14 @@ export function staffMessageRoutes(app: FastifyInstance, ctx: AppContext) {
     return { ok: true };
   });
 
-  app.get('/v1/staff/notifications', hidden, async (req) => {
+  app.get('/v1/staff/channels', hidden, async (req) => {
     const { org, employee, login } = await requireStaff(req, store);
     return prefsView(messagingOf(org).prefs[employee.id], await offered(org.orgId), login.email ?? employee.email);
   });
 
   // Consent is given here, by the person, with the number they typed: never by a manager for them.
   app.put<{ Body: { channels?: string[]; phone?: string | null; whatsapp?: boolean; sms?: boolean; quiet?: { start: number; end: number } | null } }>(
-    '/v1/staff/notifications',
+    '/v1/staff/channels',
     hidden,
     async (req) => {
       const { org, employee, login } = await requireStaff(req, store);

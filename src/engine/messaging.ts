@@ -7,8 +7,6 @@
 // conversation is kept, because a manager's WhatsApp group is not a record anyone can produce to
 // a tribunal, answer a data request from, or close when someone leaves.
 
-import { formatMinute } from './time';
-
 /** Reaches one member of staff. 'app' is the inbox in the staff app, and always gets the message. */
 export type PersonChannel = 'app' | 'whatsapp' | 'sms' | 'email';
 /** Reaches a site's managers, in the channel their team already watches. */
@@ -103,13 +101,11 @@ export interface MessagingData {
   prefs: Record<string, StaffMessagingPrefs>;
   /** `${conversationId}|${reader}` to when they last read it. Readers are `staff:<id>` or `user:<id>`. */
   reads: Record<string, string>;
-  /** `${employeeId}|${weekStart}` to the signature of the shifts they were last told about. */
-  notified: Record<string, string>;
   /** When each person last wrote in by WhatsApp: WhatsApp allows free text only within 24 hours of that. */
   lastInbound: Record<string, string>;
 }
 
-export const emptyMessaging = (): MessagingData => ({ conversations: [], messages: [], prefs: {}, reads: {}, notified: {}, lastInbound: {} });
+export const emptyMessaging = (): MessagingData => ({ conversations: [], messages: [], prefs: {}, reads: {}, lastInbound: {} });
 
 export const MAX_BODY = 2000;
 export const MAX_TITLE = 120;
@@ -188,44 +184,6 @@ export function routeFor(prefs: StaffMessagingPrefs | undefined, reach: Reach): 
     else order.push(c);
   }
   return { order, unusable };
-}
-
-/** A shift as a notice needs it. */
-export interface NoticeShift {
-  date: string;
-  startMinute: number;
-  endMinute: number;
-  siteName: string;
-  roleName: string;
-}
-
-/** What a person's week looks like, so a notice goes only when it changed. Empty for no shifts. */
-export const weekSignature = (shifts: NoticeShift[]) =>
-  [...shifts]
-    .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
-    .map((s) => `${s.date} ${s.startMinute}-${s.endMinute} ${s.siteName} ${s.roleName}`)
-    .join('; ');
-
-const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-export const shortDate = (iso: string) => {
-  const d = new Date(`${iso}T12:00:00Z`);
-  return `${DAY[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH[d.getUTCMonth()]}`;
-};
-
-/**
- * The rota notice for one person's week. `before` is what they were last told: empty for a first
- * publish. Plain text, so it reads the same in the app, a WhatsApp message and a text.
- */
-export function weekNotice(name: string, weekStart: string, shifts: NoticeShift[], before: string): string {
-  const first = name.split(' ')[0] || name;
-  const week = `the week of ${shortDate(weekStart)}`;
-  if (shifts.length === 0) return `Hi ${first}, your shifts for ${week} have been taken off the rota. You are not rostered that week. Message your manager in the Preshift app if that is wrong.`;
-  const lines = [...shifts]
-    .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
-    .map((s) => `${shortDate(s.date)}: ${formatMinute(s.startMinute)} to ${formatMinute(s.endMinute)}, ${s.roleName}, ${s.siteName}`);
-  const opening = before ? `Hi ${first}, your shifts for ${week} have changed. Your rota is now:` : `Hi ${first}, your rota for ${week} is out:`;
-  return [opening, ...lines, 'Reply here or in the Preshift app if anything is wrong.'].join('\n');
 }
 
 /**

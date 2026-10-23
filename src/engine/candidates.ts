@@ -52,6 +52,7 @@ export function dropBlocker(employee: Employee, shift: Shift): string | null {
   const first = employee.name.split(' ')[0];
   if (employee.leave.includes(shift.date)) return `${first} is on approved leave that day.`;
   if (isAvailable(employee, shift)) return null;
+  if (employee.unavailable?.some((u) => u.date === shift.date)) return `${first} has said they cannot work that day.`;
   const day = weekday(shift.date);
   const windows = employee.availability.filter((a) => a.weekday === day);
   if (windows.length === 0) return `${first} is not available on ${DAY_NAMES[day]}.`;

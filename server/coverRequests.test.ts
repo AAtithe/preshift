@@ -150,7 +150,7 @@ describe('cover requests', () => {
     const { shift, askable } = await t.coverable();
     const a = askable[0];
     const phone = await t.staff(a.employeeId);
-    await t.call('PUT', '/v1/staff/notifications', phone, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true });
+    await t.call('PUT', '/v1/staff/channels', phone, { channels: ['whatsapp'], phone: '07700 900123', whatsapp: true });
     const made = await t.call('POST', '/v1/cover', t.priya, { shiftId: shift.id, employeeIds: [a.employeeId] });
     const offer = t.sent.filter((s) => s.url.startsWith('https://graph.facebook.com/')).at(-1)!;
     expect(offer.body.template.components[0].parameters[0].text).toMatch(/^Cover wanted: Sat 24 Oct/);

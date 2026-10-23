@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyMessaging, inQuiet, minutesToQuietEnd, normalisePhone, routeFor, trimMessaging, weekNotice, weekSignature, type Message } from './messaging';
+import { emptyMessaging, inQuiet, minutesToQuietEnd, normalisePhone, routeFor, trimMessaging, type Message } from './messaging';
 
 describe('phone numbers', () => {
   it('takes UK mobiles as people type them and refuses landlines', () => {
@@ -32,23 +32,6 @@ describe('routing', () => {
     expect(r.order).toEqual(['sms', 'email']);
     expect(r.unusable).toEqual([{ channel: 'whatsapp', reason: 'No WhatsApp number agreed by the person' }]);
     expect(routeFor(prefs, { connected: new Set(['email'] as const), email: undefined }).order).toEqual([]);
-  });
-});
-
-describe('rota notices', () => {
-  const shift = (date: string, startMinute: number, endMinute: number) => ({ date, startMinute, endMinute, siteName: 'Marylebone', roleName: 'Bar' });
-  it('lists the week in order and says when it is a change', () => {
-    const shifts = [shift('2026-10-21', 17 * 60, 23 * 60), shift('2026-10-19', 10 * 60, 16 * 60)];
-    const first = weekNotice('Ben Carter', '2026-10-19', shifts, '');
-    expect(first.split('\n')).toEqual([
-      'Hi Ben, your rota for the week of Mon 19 Oct is out:',
-      'Mon 19 Oct: 10:00 to 16:00, Bar, Marylebone',
-      'Wed 21 Oct: 17:00 to 23:00, Bar, Marylebone',
-      'Reply here or in the Preshift app if anything is wrong.',
-    ]);
-    expect(weekNotice('Ben Carter', '2026-10-19', shifts, 'before')).toMatch(/^Hi Ben, your shifts for the week of Mon 19 Oct have changed/);
-    expect(weekNotice('Ben Carter', '2026-10-19', [], 'before')).toMatch(/taken off the rota/);
-    expect(weekSignature(shifts)).toBe(weekSignature([...shifts].reverse()));
   });
 });
 

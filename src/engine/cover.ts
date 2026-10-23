@@ -8,7 +8,6 @@
 import { candidates, type Candidate, type Opening } from './candidates';
 import { formatMinute } from './time';
 import type { RotaState } from './types';
-import { shortDate } from './messaging';
 
 export type CoverStatus = 'open' | 'filled' | 'cancelled' | 'expired';
 
@@ -58,6 +57,14 @@ export interface CoverRequest {
 }
 
 export const MAX_NOTE = 280;
+
+const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Sat 24 Oct: short enough for a text, unambiguous within the weeks a cover request spans. */
+export const shortDate = (iso: string) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return `${DAY[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH[d.getUTCMonth()]}`;
+};
 
 export const openingOf = (r: Pick<CoverRequest, 'siteId' | 'roleId' | 'date' | 'startMinute' | 'endMinute'>): Opening => ({
   siteId: r.siteId,
