@@ -46,6 +46,7 @@ import { requestRoutes } from './routes/requests';
 import { emailNotifications } from './notify';
 import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
+import { syncAllRewards, welfareRoutes } from './routes/welfare';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -233,6 +234,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await syncAllRewards(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
     await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
@@ -414,6 +416,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
+    welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);
     supportRoutes(api, ctx);

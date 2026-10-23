@@ -14,6 +14,8 @@ import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, Staf
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
+import type { RewardsConnection } from './integrations/rewards/provider';
+import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -163,6 +165,8 @@ export interface OrgData {
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
+  /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
+  welfare?: WelfareData;
   /**
    * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.
@@ -171,6 +175,29 @@ export interface OrgData {
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
+
+export interface WelfareData {
+  /** Only what someone changed from the defaults (welfarePolicy fills the rest). */
+  policy?: Partial<WelfarePolicy>;
+  recognitions: Recognition[];
+  /** Pulse answers, stored without who gave them and in no particular order. */
+  pulses: PulseResponse[];
+  /**
+   * Who has answered which week, so nobody answers twice: a keyed hash of person and week, kept
+   * apart from the answers with nothing to join them by.
+   */
+  pulseAnswered: string[];
+  chats: ChatRequest[];
+  /** People who asked not to be enrolled in Hospitality Rewards. */
+  rewardsOptOut: string[];
+  /** Who Hospitality Rewards has as a member, after the last sync: removed when no longer eligible. */
+  rewardsEnrolled: string[];
+  /** The benefits platform, if connected. Its API key lives in the settings store. */
+  rewards?: RewardsConnection;
+}
+
+export const welfareOf = (org: OrgData): WelfareData =>
+  (org.welfare ??= { recognitions: [], pulses: [], pulseAnswered: [], chats: [], rewardsOptOut: [], rewardsEnrolled: [] });
 
 export interface ReminderState {
   key: string;
