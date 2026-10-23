@@ -156,9 +156,13 @@ export function useRotaStore() {
       return employee;
     },
     /** Proposes new pay: it goes to finance, and the person's pay stays as it is until approved. */
-    proposePay: (employeeId: string, terms: PayTerms, reason: string) =>
+    proposePay: (employeeId: string, terms: PayTerms, reason: string, effectiveFrom?: string) =>
       guard(async () => {
-        const change = await api.post<PayChange>(`/v1/employees/${employeeId}/pay-changes`, { ...terms, ...(reason.trim() ? { reason: reason.trim() } : {}) });
+        const change = await api.post<PayChange>(`/v1/employees/${employeeId}/pay-changes`, {
+          ...terms,
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+          ...(effectiveFrom ? { effectiveFrom } : {}),
+        });
         const employee = await api.get<Employee>(`/v1/employees/${employeeId}`);
         setState((s) => s && { ...s, employees: s.employees.map((x) => (x.id === employeeId ? employee : x)) });
         return change;
@@ -343,11 +347,19 @@ export function useHrRecords(setError: (message: string | null) => void) {
     records,
     save: (record: HrRecord, isNew: boolean) =>
       run(async () => {
-        const { id, createdBy: _b, createdAt: _a, history: _h, ...body } = record;
+        // Copies on the record are the server's: they are added and removed through their own routes.
+        const { id, createdBy: _b, createdAt: _a, history: _h, files: _f, ...body } = record;
         const saved = isNew
           ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
           : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);
         setRecords((list) => (isNew ? [...(list ?? []), saved] : (list ?? []).map((r) => (r.id === id ? saved : r))));
+        return saved;
+      }),
+    /** Attaches a copy (a signed contract, a letter, a fit note) to a record. */
+    attach: (recordId: string, file: Blob, fileName: string) =>
+      run(async () => {
+        const saved = await api.upload<HrRecord>(`/v1/hr/records/${recordId}/files?fileName=${encodeURIComponent(fileName)}`, file);
+        setRecords((list) => (list ?? []).map((r) => (r.id === recordId ? saved : r)));
         return saved;
       }),
     remove: (id: string) =>
