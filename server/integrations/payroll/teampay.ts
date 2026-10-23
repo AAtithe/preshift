@@ -107,9 +107,15 @@ export class TeamPayProvider implements PayrollProvider {
           role: l.roleId,
           hours: l.hours,
           rate: l.rate,
-          // Travel at its own rate is a line of its own; the reference names it so the payslip and
-          // the payroll team can tell it from the hours worked in the same role.
-          reference: l.travel ? `Travel between sites: ${l.entryIds.join(',')}` : l.entryIds.join(','),
+          // A premium is an uplift paid on top of hours already on a normal line, as its own pay element.
+          ...(l.premium ? { pay_element: 'premium', premium_code: l.premium.ruleId } : {}),
+          // Travel and premiums at their own rates are lines of their own; the reference names them so the
+          // payslip and the payroll team can tell them from the hours worked in the same role.
+          reference: l.premium
+            ? `${l.premium.name} premium: ${l.entryIds.join(',')}`
+            : l.travel
+              ? `Travel between sites: ${l.entryIds.join(',')}`
+              : l.entryIds.join(','),
         })),
         // Sick days go only for people TeamPay knows; SSP is TeamPay's to pay, our estimate is for its checks.
         sickness: (batch.sickness ?? []).filter((s) => s.payrollId).map((s) => ({

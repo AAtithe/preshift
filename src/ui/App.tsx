@@ -67,6 +67,7 @@ const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', [
 const RequestsView = screen(() => import('./RequestsView'), 'RequestsView', ['requests']);
 const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
+const PremiumsPanel = screen(() => import('./PremiumsPanel'), 'PremiumsPanel', ['pay']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
 const SettingsView = screen(() => import('./SettingsView'), 'SettingsView', ['settings']);
 const SetupView = screen(() => import('./SetupView'), 'SetupView', ['setup']);
@@ -670,6 +671,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   meId={me?.user?.id}
                   meEmployeeId={me?.user?.employeeId}
                   onChanged={actions.refreshEmployee}
+                />
+              )}
+              {shown === 'pay' && (
+                <PremiumsPanel
+                  entities={state.entities.filter((e) => entityIds.includes(e.id))}
+                  roles={state.roles}
+                  onSave={allow('pay.approve') ? actions.setPremiums : undefined}
                 />
               )}
               {shown === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
