@@ -195,6 +195,23 @@ describe('open shifts', () => {
     expect((await me(ben)).requests.find((r: { id: string }) => r.id === b.body.id).status).toBe('cancelled');
   });
 
+  it('shows the cancellation on top even when it lands in the same millisecond as the publish', async () => {
+    // Freeze the clock so every notification ties: the order written must decide, newest first.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T12:00:00Z') });
+    try {
+      const { k, join, me } = await boot();
+      const ben = await join('mar-12');
+      const day = await clearDay(k, (await me(ben)).today);
+      const id = await postAndPublish(k, bar('mar-12', day));
+      expect((await k.call('POST', '/v1/open-shifts', KEY, { fromShiftId: id })).status).toBe(201);
+      const list = await notes(k, ben);
+      expect(new Set(list.map((n) => (n as unknown as { at: string }).at)).size).toBe(1);
+      expect(list.map((n) => n.kind)).toEqual(['shift_cancelled', 'rota_published']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('puts a shift out for cover from the person who had it', async () => {
     const { k, join, me } = await boot();
     const ben = await join('mar-12');
