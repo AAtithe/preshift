@@ -307,6 +307,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/support/tickets/:id/vote': false,
   'POST /v1/support/tickets/:id/comments': false,
   'PATCH /v1/support/tickets/:id': false,
+  // Reports read and keep only the visitor's own sandbox, within the access of the role they chose.
+  'GET /v1/reports/catalogue': true,
+  'POST /v1/reports/run': true,
+  'GET /v1/reports/saved': true,
+  'POST /v1/reports/saved': true,
+  'PUT /v1/reports/saved/:id': true,
+  'DELETE /v1/reports/saved/:id': true,
   'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
   'GET /v1/dev/people': false,

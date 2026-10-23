@@ -1,3 +1,4 @@
+import type { ReportDefinition } from '../src/engine/reportBuilder';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
@@ -103,6 +104,20 @@ export interface Kiosk {
   lastSeenAt?: string;
 }
 
+/** A report someone saved. Running it shows each viewer only what their own access allows. */
+export interface SavedReport {
+  id: string;
+  name: string;
+  description?: string;
+  definition: ReportDefinition;
+  /** Shared with the organisation, or kept to the person who made it. */
+  shared: boolean;
+  createdBy: string;
+  createdByEmail: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -163,6 +178,8 @@ export interface OrgData {
   loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  /** Reports people built and saved: their own, or shared with everyone who may read the data. */
+  savedReports?: SavedReport[];
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */

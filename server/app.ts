@@ -18,6 +18,7 @@ import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { eposRoutes, syncAllTills } from './routes/epos';
+import { reportRoutes } from './routes/reports';
 import { payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
@@ -427,6 +428,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     userRoutes(api, ctx);
     clientRoutes(api, ctx);
     supportRoutes(api, ctx);
+    reportRoutes(api, ctx);
     billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);

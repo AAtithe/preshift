@@ -15,8 +15,8 @@ export interface Dimension<R> {
   label: string;
   type?: DimensionType;
   value: (row: R) => string | undefined;
-  /** Needed on top of the dataset's own permission, at the row's site. */
-  permission?: Permission;
+  /** Needed on top of the dataset's own permission, any one of them, at the row's site. */
+  permission?: Permission | Permission[];
 }
 
 export interface Measure<R> {
@@ -29,7 +29,7 @@ export interface Measure<R> {
   key?: (row: R) => string | undefined;
   /** A rate worked out after grouping: numerator over denominator, both other measures' ids. */
   ratio?: { numerator: string; denominator: string; scale?: number };
-  permission?: Permission;
+  permission?: Permission | Permission[];
   /** One line for the builder, so nobody has to guess what a figure means. */
   help?: string;
 }
@@ -51,8 +51,8 @@ export interface Dataset<R> {
   label: string;
   area: ReportArea;
   description: string;
-  /** Needed to read the dataset at all, at the row's site (or anywhere, for rows with no site). */
-  permission: Permission;
+  /** Needed to read the dataset at all, any one of them, at the row's site (or anywhere, for rows with no site). */
+  permission: Permission | Permission[];
   /** What the date filter and the day, week and month columns use. */
   dateLabel: string;
   date: (row: R) => string | undefined;
@@ -74,6 +74,8 @@ export interface ReportDefinition {
   groupBy: string[];
   measures: string[];
   filters?: ReportFilter[];
+  /** A named range, worked out as at the day the report runs, so a saved report stays current. */
+  range?: RangeToken;
   from?: string;
   to?: string;
   sort?: { by: string; direction: 'asc' | 'desc' };
@@ -155,9 +157,17 @@ function aggregate<R>(m: Measure<R>, rows: R[], month: (r: R) => string | undefi
   }
 }
 
+/** Whether the caller holds any one of the permissions, at a site or anywhere. */
+const holdsAny = (can: Can, p: Permission | Permission[] | undefined, siteId?: string) => !p || (Array.isArray(p) ? p : [p]).some((x) => can(x, siteId));
+
+/** Whether the caller may read the dataset, at a site or anywhere. */
+export function canDataset<R>(ds: Dataset<R>, can: Can, siteId?: string): boolean {
+  return holdsAny(can, ds.permission, siteId);
+}
+
 /** What the caller may see of a dataset: the fields, with the ones they lack permission for left out. */
 export function visibleFields<R>(ds: Dataset<R>, can: Can) {
-  const allowed = (p?: Permission) => !p || can(p);
+  const allowed = (p?: Permission | Permission[]) => holdsAny(can, p);
   return {
     dimensions: allDimensions(ds).filter((d) => allowed(d.permission)),
     measures: ds.measures.filter((m) => allowed(m.permission) && (!m.ratio || [m.ratio.numerator, m.ratio.denominator].every((id) => allowed(ds.measures.find((x) => x.id === id)?.permission)))),
@@ -172,10 +182,7 @@ export function visibleFields<R>(ds: Dataset<R>, can: Can) {
 export function runReport<R>(ds: Dataset<R>, rows: R[], def: ReportDefinition, can: Can): ReportResult {
   const dims = allDimensions(ds);
   const withheld: string[] = [];
-  const reach = (row: R) => {
-    const site = ds.site(row);
-    return site ? can(ds.permission, site) : can(ds.permission);
-  };
+  const reach = (row: R) => canDataset(ds, can, ds.site(row));
   const inRange = (row: R) => {
     if (!def.from && !def.to) return true;
     const d = ds.date(row);
@@ -193,7 +200,7 @@ export function runReport<R>(ds: Dataset<R>, rows: R[], def: ReportDefinition, c
   };
   const open = (def.filters ?? []).filter((f) => dimOf(f.field) && !dimOf(f.field)!.permission);
   const sites = [...new Set(base.filter((r) => open.every((f) => matches(r, f))).map(ds.site).filter((s): s is string => !!s))];
-  const holds = (p?: Permission) => !p || (sites.length ? sites.every((s) => can(p, s)) : can(p));
+  const holds = (p?: Permission | Permission[]) => !p || (sites.length ? sites.every((s) => holdsAny(can, p, s)) : holdsAny(can, p));
   const groupBy = def.groupBy.map(dimOf).filter((d): d is Dimension<R> => !!d && (holds(d.permission) || (withheld.push(d.id), false)));
   // A filter on a field the caller may not see would reveal it by elimination, so it is dropped too.
   const filters = (def.filters ?? []).filter((f) => {
@@ -278,4 +285,40 @@ export function monthsBetween(from: string, to: string): string[] {
   const out: string[] = [];
   for (let d = `${from.slice(0, 7)}-01`; d <= to; d = addDays(`${d.slice(0, 7)}-28`, 4).slice(0, 7) + '-01') out.push(d);
   return out;
+}
+
+export type RangeToken = 'last-4-weeks' | 'last-13-weeks' | 'last-12-months' | 'this-month' | 'last-month' | 'this-year' | 'next-4-weeks';
+
+export const RANGE_LABEL: Record<RangeToken, string> = {
+  'last-4-weeks': 'Last 4 weeks',
+  'last-13-weeks': 'Last 13 weeks',
+  'last-12-months': 'Last 12 months',
+  'this-month': 'This month',
+  'last-month': 'Last month',
+  'this-year': 'This year',
+  'next-4-weeks': 'Next 4 weeks',
+};
+
+/** A named range as dates, as at today. Weeks run Monday to Sunday and end with the week just finished. */
+export function resolveRange(token: RangeToken, today: string): { from: string; to: string } {
+  const lastSunday = addDays(weekStart(today), -1);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  switch (token) {
+    case 'last-4-weeks':
+      return { from: addDays(lastSunday, -27), to: lastSunday };
+    case 'last-13-weeks':
+      return { from: addDays(lastSunday, -90), to: lastSunday };
+    case 'last-12-months':
+      return { from: `${String(Number(today.slice(0, 4)) - 1)}${today.slice(4, 7)}-01`, to: today };
+    case 'this-month':
+      return { from: monthStart, to: today };
+    case 'last-month': {
+      const end = addDays(monthStart, -1);
+      return { from: `${end.slice(0, 7)}-01`, to: end };
+    }
+    case 'this-year':
+      return { from: `${today.slice(0, 4)}-01-01`, to: today };
+    case 'next-4-weeks':
+      return { from: today, to: addDays(today, 27) };
+  }
 }
