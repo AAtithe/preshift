@@ -43,3 +43,11 @@
 .staff-card details[open] summary { margin-bottom: 8px; }
 .staff-inbox li.unread .strong::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fill); margin-right: 6px; vertical-align: middle; }
 @media (max-width: 360px) { .staff-pair { grid-template-columns: 1fr; } .staff-avail { grid-template-columns: 1fr 84px 84px; } }
+
+.staff-wellbeing { display: grid; gap: 12px; }
+.staff-wellbeing p { margin: 0; }
+.staff-pulse { display: grid; gap: 8px; }
+.staff-pulse-scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.staff-pulse-scale button { display: grid; gap: 2px; justify-items: center; padding: 10px 0; border-radius: 10px; }
+.staff-pulse-n { font-size: 20px; font-weight: 700; }
+.staff-support, .staff-rewards { display: grid; gap: 6px; border-top: 1px solid var(--border); padding-top: 12px; }

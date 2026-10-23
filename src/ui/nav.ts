@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'clients' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -87,6 +87,8 @@ export const NAV: NavGroup[] = [
       { id: 'people', label: 'Staff', scope: 'people', siteOnly: true, access: { scope: ['team.manage', 'costs.view'] } },
       // Each new person's first weeks as one checklist: legal steps before day one, the rest after.
       { id: 'onboarding', label: 'Onboarding', scope: 'people', access: { scope: ['team.manage', 'hr.view'] } },
+      // Who needs a conversation, a safe way home, recognition and the team pulse. Sickness only with HR.
+      { id: 'welfare', label: 'Wellbeing', scope: 'people', access: { scope: ['team.manage', 'hr.view'] } },
       // Balances are the team's records; the provision in pounds shows only with cost.
       { id: 'holiday', label: 'Holiday', scope: 'people', access: { scope: ['team.manage', 'costs.view'] } },
       { id: 'absence', label: 'Absence', scope: 'people', access: { scope: ['hr.view'] } },
