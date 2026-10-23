@@ -32,7 +32,15 @@ Work through this list in order. The software is built. What is left for people 
 | 11 | Bradford factor on working days from each person's rota pattern | People, Absence: Bradford factor | [x] |
 | 12 | Browser test: propose, approve, pay updated | `npm run test:e2e` (local only) | [x] |
 
-## 3. Still open in the product
+## 3. April 2027 minimum wage uprating (built)
+
+- [ ] When the government announces the April 2027 rates (normally late November), enter them under Pay approvals, Minimum wage from 1 April 2027. Check them against GOV.UK first.
+- [ ] Choose whether to lift people to the new rate or keep the gap for those just above the old one. Preview the cost, then propose the rises.
+- [ ] Have finance approve the batch by mid March, so it is settled before April's first payroll.
+- [ ] Put right by hand any salaried person the preview flags as below the new minimum on their maximum hours.
+- [ ] Update `src/engine/ukRates.ts` with the 2027/28 rates before 6 April 2027. The checks on each record, the rota costing and the SSP rate still read 2026/27 until then.
+
+## 4. Still open in the product
 
 - [ ] A pay cut approved late does not claw back an overpayment. Decide the policy, then build it if wanted.
 - [ ] The SSP estimate uses rostered hours for average weekly earnings. Once TeamPay returns NI-liable pay per run, switch to that.

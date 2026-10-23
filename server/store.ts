@@ -1,3 +1,4 @@
+import type { UpratingMethod, UpratingRates } from '../src/engine/uprating';
 import type { PayPolicy } from '../src/engine/payPolicy';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
@@ -163,6 +164,8 @@ export interface OrgData {
   payPolicy?: PayPolicy;
   /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
   payDailyOn?: string;
+  /** The last minimum wage uprating proposed: the rates entered, so next year starts from them. */
+  wageUprating?: { rates: UpratingRates; method: UpratingMethod; margin: number; proposedAt: string; by: string; count: number };
   /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
   support?: { tickets: SupportTicket[]; answeredByHelp: number };
   /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */

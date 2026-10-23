@@ -6,6 +6,7 @@ import { backPayFor, payTermsOf, sameTerms } from '../../src/engine/payChanges';
 import { approvalDigest, DEFAULT_PAY_POLICY, nextCutoff, standingOf, type PayPolicy } from '../../src/engine/payPolicy';
 import { addDays } from '../../src/engine/time';
 import { entriesAsShifts } from '../../src/engine/timesheet';
+import { currentRates, DEFAULT_DIFFERENTIAL_MARGIN, uprating, upratingRatesProblem, type UpratingMethod, type UpratingRates, type WageBand } from '../../src/engine/uprating';
 import { refreshReview } from '../../src/engine/payrollMatch';
 import type { Employee, PayChange, PayChangeStatus, PayChangeSummary, PayTerms } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -29,6 +30,37 @@ const termsBody = {
 } as const;
 
 const RATE_FIELDS = ['payBasis', 'hourlyRate', 'annualSalary'] as const;
+
+interface UpratingBody {
+  effectiveFrom: string;
+  bands: WageBand[];
+  apprentice: number;
+  method?: UpratingMethod;
+  margin?: number;
+}
+
+const upratingSchema = {
+  type: 'object',
+  required: ['effectiveFrom', 'bands', 'apprentice'],
+  additionalProperties: false,
+  properties: {
+    effectiveFrom: isoDate,
+    bands: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      items: {
+        type: 'object',
+        required: ['minAge', 'hourly', 'label'],
+        additionalProperties: false,
+        properties: { minAge: { type: 'integer', minimum: 16, maximum: 30 }, hourly: { type: 'number', minimum: 0, maximum: 100 }, label: { type: 'string', maxLength: 60 } },
+      },
+    },
+    apprentice: { type: 'number', minimum: 0, maximum: 100 },
+    method: { type: 'string', enum: ['floor', 'differential'] },
+    margin: { type: 'number', minimum: 0, maximum: 5 },
+  },
+} as const;
 
 export const NO_APPROVER = 'Nobody else can approve pay changes yet, so it applied at once. Appoint a finance director in Access.';
 export const SET_BY_SYSTEM = 'Set directly by a system key, which acts for the organisation rather than a person.';
@@ -247,6 +279,37 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
     if (reach !== 'all' && reach.size === 0) g.allow('pay.approve');
   }
 
+  /**
+   * Proposes a change, or where this caller sets pay directly (a deployment's own key, or nobody
+   * else can approve) records it as approved and applies it now or on its date, saying why.
+   */
+  function raiseChange(org: OrgData, g: Guard, e: Employee, after: PayTerms, reason: string | undefined, effectiveFrom?: string): PayChange {
+    const change = proposePayChange(org, g, e, after, reason, today(), effectiveFrom);
+    if (proposes(g, org, today())) return change;
+    const direct = approverExists(org, g, today()) ? 'system' : 'no_approver';
+    Object.assign(change, { status: 'approved', direct, decidedBy: actorName(g), ...(g.behind ? { decidedById: g.behind.id } : {}), decidedAt: change.requestedAt, note: direct === 'system' ? SET_BY_SYSTEM : NO_APPROVER });
+    if (!change.effectiveFrom || change.effectiveFrom <= today()) applyTerms(org, actorName(g), change, e, today());
+    audit(org, actorName(g), 'pay.change_direct', { id: change.id, employeeId: e.id, direct });
+    return change;
+  }
+
+  /** The rates and method an uprating is asked for, checked. */
+  function upratingAsked(body: UpratingBody) {
+    const rates: UpratingRates = { effectiveFrom: body.effectiveFrom, bands: body.bands, apprentice: body.apprentice };
+    const problem = upratingRatesProblem(rates, today());
+    if (problem) throw new HttpError(422, 'invalid_rates', problem);
+    return { rates, method: body.method ?? 'floor', margin: body.margin ?? DEFAULT_DIFFERENTIAL_MARGIN };
+  }
+
+  /** Sets pay at one site or more: otherwise refused, with the reason. */
+  function setsPayAnywhere(g: Guard) {
+    const reach = g.sites('pay.edit');
+    if (reach !== 'all' && reach.size === 0) g.allow('pay.edit');
+  }
+
+  /** Who the caller may raise pay for: anyone at a site where they set pay, never themselves. */
+  const raisesFor = (g: Guard, e: Employee) => g.can('pay.edit', e.siteId) && g.behind?.employeeId !== e.id;
+
   /** A waiting change with where it stands against the turnaround and the next payroll cut-off. */
   const withStanding = (org: OrgData, c: PayChange) => (c.status === 'pending' ? { ...c, standing: standingOf(c, today(), payPolicyOf(org)) } : c);
 
@@ -345,16 +408,79 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!e) throw notFound(`Employee ${req.params.id}`);
       const g = guard(ctx, req, org);
       allowPay(g, e);
-      const change = proposePayChange(org, g, e, proposedTerms(e, req.body), req.body.reason, today(), req.body.effectiveFrom);
-      if (!proposes(g, org, today())) {
-        // Nobody else can approve, or a deployment's own key set it: it applies now, or on its date, and its record says why.
-        const direct = approverExists(org, g, today()) ? 'system' : 'no_approver';
-        Object.assign(change, { status: 'approved', direct, decidedBy: actorName(g), ...(g.behind ? { decidedById: g.behind.id } : {}), decidedAt: change.requestedAt, note: direct === 'system' ? SET_BY_SYSTEM : NO_APPROVER });
-        if (!change.effectiveFrom || change.effectiveFrom <= today()) applyTerms(org, actorName(g), change, e, today());
-        audit(org, actorName(g), 'pay.change_direct', { id: change.id, employeeId: e.id, direct });
-        await kick(ctx, org);
-      }
+      const change = raiseChange(org, g, e, proposedTerms(e, req.body), req.body.reason, req.body.effectiveFrom);
+      if (change.direct) await kick(ctx, org);
       return reply.code(201).send(withStanding(org, change));
+    },
+  );
+
+  app.get('/v1/pay-changes/uprating', { ...read, schema: { tags, description: 'Today\'s minimum wage rates and the next 1 April, to start an uprating from, with the last uprating proposed.' } }, async (req) => {
+    const org = orgOf(req);
+    seesPolicy(guard(ctx, req, org));
+    return { rates: currentRates(today()), margin: DEFAULT_DIFFERENTIAL_MARGIN, last: org.wageUprating ?? null };
+  });
+
+  app.post<{ Body: UpratingBody }>(
+    '/v1/pay-changes/uprating/preview',
+    {
+      ...write,
+      schema: {
+        tags,
+        description:
+          'Who needs a rise for new minimum wage rates, and to what: each hourly person employed on the day whose rate is below the new ' +
+          'rate for their age then (or, with method differential, within margin pounds of the old one), with the full cost a year; and ' +
+          'salaried people whose salary on their maximum hours falls below it. Changes nothing.',
+        body: upratingSchema,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      setsPayAnywhere(g);
+      const { rates, method, margin } = upratingAsked(req.body);
+      const people = org.state.employees.filter((e) => raisesFor(g, e));
+      return uprating(people, org.state.shifts, rates, method, today(), org.payChanges, undefined, margin);
+    },
+  );
+
+  app.post<{ Body: UpratingBody & { employeeIds?: string[] } }>(
+    '/v1/pay-changes/uprating',
+    {
+      ...write,
+      schema: {
+        tags,
+        description:
+          'Proposes the rises a preview lists, each dated from the day the new rates take effect, for finance to approve as one batch. ' +
+          'employeeIds limits it to some of them. People with pay already moving are left out and listed.',
+        body: { ...upratingSchema, properties: { ...upratingSchema.properties, employeeIds: { type: 'array', items: { type: 'string' }, maxItems: 2000 } } },
+      },
+    },
+    async (req, reply) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      setsPayAnywhere(g);
+      const { rates, method, margin } = upratingAsked(req.body);
+      const people = org.state.employees.filter((e) => raisesFor(g, e));
+      const plan = uprating(people, org.state.shifts, rates, method, today(), org.payChanges, undefined, margin);
+      const wanted = req.body.employeeIds ? new Set(req.body.employeeIds) : null;
+      const nlw = rates.bands.find((b) => b.minAge === Math.max(...rates.bands.map((x) => x.minAge)));
+      const reason = `Minimum wage uprating from ${rates.effectiveFrom}${nlw ? ` (${nlw.label} £${nlw.hourly.toFixed(2)})` : ''}${method === 'differential' ? ', differential kept' : ''}`;
+      const proposed: PayChange[] = [];
+      const skipped: { employeeId: string; name: string; reason: string }[] = [];
+      for (const line of plan.lines) {
+        if (wanted && !wanted.has(line.employeeId)) continue;
+        if (line.blocked) {
+          skipped.push({ employeeId: line.employeeId, name: line.name, reason: line.blocked });
+          continue;
+        }
+        const e = org.state.employees.find((x) => x.id === line.employeeId)!;
+        proposed.push(raiseChange(org, g, e, { payBasis: 'hourly', hourlyRate: line.proposed, annualSalary: 0 }, reason, rates.effectiveFrom));
+      }
+      if (proposed.length === 0) throw new HttpError(409, 'nothing_to_propose', skipped.length ? 'Everyone needing a rise already has pay moving.' : 'Nobody needs a rise for these rates.');
+      org.wageUprating = { rates, method, margin, proposedAt: new Date().toISOString(), by: actorName(g), count: proposed.length };
+      audit(org, actorName(g), 'pay.uprating_proposed', { effectiveFrom: rates.effectiveFrom, count: proposed.length, method });
+      if (proposed.some((c) => c.direct)) await kick(ctx, org);
+      return reply.code(201).send({ proposed: proposed.map((c) => withStanding(org, c)), skipped, salaryChecks: plan.salaryChecks });
     },
   );
 

@@ -262,3 +262,49 @@ describe('the rule for pay approvals', () => {
 });
 
 type PayChangeView = PayChange & { standing?: { cutoff: string; daysToCutoff: number } };
+
+describe('the April minimum wage uprating', () => {
+  const april = {
+    effectiveFrom: '2027-04-01',
+    bands: [
+      { minAge: 21, hourly: 13.3, label: 'National Living Wage (21+)' },
+      { minAge: 18, hourly: 11.5, label: 'NMW 18-20' },
+      { minAge: 16, hourly: 8.5, label: 'NMW 16-17' },
+    ],
+    apprentice: 8.5,
+  };
+
+  it('previews who needs a rise, proposes them dated 1 April, and they apply on the day once approved', async () => {
+    const call = await setup();
+    expect((await call('GET', '/v1/pay-changes/uprating')).body.rates).toMatchObject({ effectiveFrom: '2027-04-01' });
+    const preview = (await call('POST', '/v1/pay-changes/uprating/preview', april)).body as { lines: { employeeId: string; proposed: number; blocked?: string }[]; total: number };
+    expect(preview.lines.length).toBeGreaterThan(3);
+    expect(preview.lines.every((l) => l.proposed >= 8.5)).toBe(true);
+    // Lukas already has a rise waiting for finance: he is shown, not proposed twice.
+    expect(preview.lines.find((l) => l.employeeId === 'mar-5')?.blocked).toMatch(/already waiting/);
+    expect(preview.total).toBeGreaterThan(0);
+
+    const made = await call('POST', '/v1/pay-changes/uprating', april);
+    expect(made.status).toBe(201);
+    expect(made.body.skipped.map((s: { employeeId: string }) => s.employeeId)).toContain('mar-5');
+    const ids = made.body.proposed.map((c: { id: string }) => c.id) as string[];
+    expect(made.body.proposed[0]).toMatchObject({ status: 'pending', effectiveFrom: '2027-04-01', reason: expect.stringMatching(/^Minimum wage uprating from 2027-04-01/) });
+    // A second run finds everyone already moving.
+    expect((await call('POST', '/v1/pay-changes/uprating', april)).body.error).toBe('nothing_to_propose');
+
+    for (const id of ids) expect((await call('POST', `/v1/pay-changes/${id}/approve`, {}, 'nadia')).status).toBe(200);
+    const org = await k.store.load('demo');
+    const first = org.payChanges.find((c) => c.id === ids[0])!;
+    expect(first.appliedOn).toBeUndefined();
+    expect(applyDuePayChanges(org, '2027-04-01')).toBe(ids.length);
+    expect(org.state.employees.find((e) => e.id === first.employeeId)!.hourlyRate).toBe(first.after.hourlyRate);
+    expect(org.wageUprating).toMatchObject({ count: ids.length, by: 'Kate Morgan' });
+  });
+
+  it('is for those who set pay, and refuses rates that fall or a date already past', async () => {
+    const call = await setup();
+    expect((await call('POST', '/v1/pay-changes/uprating/preview', april, 'priya')).status).toBe(403);
+    expect((await call('POST', '/v1/pay-changes/uprating/preview', { ...april, apprentice: 7 })).body.error).toBe('invalid_rates');
+    expect((await call('POST', '/v1/pay-changes/uprating/preview', { ...april, effectiveFrom: '2026-04-01' })).body.error).toBe('invalid_rates');
+  });
+});

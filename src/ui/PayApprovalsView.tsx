@@ -6,6 +6,7 @@ import type { PayChange, PayTerms, RotaState } from '../engine/types';
 import { api } from './api';
 import { money, money2 } from './format';
 import type { Allow } from './permissions';
+import { UpratingPanel } from './UpratingPanel';
 
 interface Props {
   state: RotaState;
@@ -311,6 +312,8 @@ export function PayApprovalsView({ state, siteIds, today, allow, meId, meEmploye
         A year is the full cost: gross pay plus holiday on hourly pay, employer NI and employer pension, on contracted hours
         or the last four weeks of rota. Hover it for the split.
       </p>
+
+      {allow('pay.edit') && <UpratingPanel today={today} siteName={siteName} onProposed={load} />}
 
       {scheduled.length > 0 && (
         <>
