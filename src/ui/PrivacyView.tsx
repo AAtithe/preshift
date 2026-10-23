@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
+  policyReviewDue,
   REQUEST_KINDS,
   requestOverdue,
+  type PolicyDocument,
+  type PolicyDocumentCheck,
   type ProcessingActivity,
   type Processor,
   type RetentionItem,
@@ -24,6 +27,7 @@ interface Props {
 
 type Request = SubjectRequest & { dueOn: string };
 type Register = { activities: ProcessingActivity[]; processors: Processor[] };
+type PolicyDocuments = { documents: PolicyDocument[]; checks: PolicyDocumentCheck[] };
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
@@ -48,15 +52,18 @@ export function PrivacyView({ state, canManage, today, onChanged }: Props) {
   const [register, setRegister] = useState<Register | null>(null);
   const [retention, setRetention] = useState<{ policy: RetentionPolicy; items: RetentionItem[] } | null>(null);
   const [requests, setRequests] = useState<Request[]>([]);
+  const [policyDocs, setPolicyDocs] = useState<PolicyDocuments | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [reg, ret, reqs] = await Promise.all([
+      const [reg, ret, reqs, docs] = await Promise.all([
         api.get<Register>('/v1/privacy/register'),
         isAdmin ? api.get<{ policy: RetentionPolicy; items: RetentionItem[] }>('/v1/privacy/retention') : Promise.resolve(null),
         isAdmin ? api.get<Request[]>('/v1/privacy/requests') : Promise.resolve([]),
+        api.get<PolicyDocuments>('/v1/privacy/policy-documents'),
       ]);
+      setPolicyDocs(docs);
       setRegister(reg);
       setRetention(ret);
       setRequests(reqs);
@@ -109,6 +116,7 @@ export function PrivacyView({ state, canManage, today, onChanged }: Props) {
 
       {message && <div className={`notice ${message.bad ? 'error' : ''}`}>{message.text}</div>}
 
+      {policyDocs && <PolicyDocumentsCard state={state} docs={policyDocs} isAdmin={isAdmin} act={act} />}
       {isAdmin && <Requests state={state} requests={requests} today={today} act={act} />}
       {isAdmin && <Subjects state={state} today={today} act={act} />}
       {retention && <Retention retention={retention} isAdmin={isAdmin} act={act} />}
@@ -118,6 +126,81 @@ export function PrivacyView({ state, canManage, today, onChanged }: Props) {
 }
 
 type Act = (done: string, fn: () => Promise<unknown>, changesPeople?: boolean) => Promise<void>;
+
+/**
+ * The appropriate policy document each employing company needs to hold sickness and other health
+ * data. The software records it; reviewing it with counsel and signing it is for a director.
+ */
+function PolicyDocumentsCard({ state, docs, isAdmin, act }: { state: RotaState; docs: PolicyDocuments; isAdmin: boolean; act: Act }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  return (
+    <section className="settings-card">
+      <h2>Appropriate policy document</h2>
+      <p className="muted small">
+        Holding sickness records is processing health data, which the Data Protection Act 2018 allows an employer only with an
+        appropriate policy document: how the data protection principles are met and how long the data is kept. Each employing
+        company is its own controller, so each needs one, reviewed, signed by a director, and reviewed again every year.
+      </p>
+      <table className="table">
+        <thead><tr><th>Company</th><th>Document</th><th>Reviewed</th><th>Signed</th><th>Where it stands</th><th /></tr></thead>
+        <tbody>
+          {state.entities.map((entity) => {
+            const doc = docs.documents.find((d) => d.entityId === entity.id);
+            const check = docs.checks.find((c) => c.entityId === entity.id);
+            return editing === entity.id ? (
+              <tr key={entity.id}><td colSpan={6}><PolicyDocumentForm entityName={entity.name} doc={doc} onCancel={() => setEditing(null)} onSave={(body) => void act('Recorded.', async () => { await api.put(`/v1/privacy/policy-documents/${entity.id}`, body); setEditing(null); })} /></td></tr>
+            ) : (
+              <tr key={entity.id}>
+                <td>{entity.name}</td>
+                <td>{doc ? (doc.url ? <a href={doc.url} target="_blank" rel="noopener noreferrer">{doc.title}</a> : doc.title) : <span className="muted">None</span>}</td>
+                <td>{doc?.reviewedOn ? <>{doc.reviewedOn}<div className="muted small">{doc.reviewedBy}</div></> : '-'}</td>
+                <td>{doc?.signedOn ? <>{doc.signedOn}<div className="muted small">{doc.signedBy}</div></> : '-'}</td>
+                <td className={check?.severity === 'block' ? 'bad-text' : check?.severity === 'warn' ? 'warn-text' : 'good-text'}>
+                  {check?.severity === 'ok' ? `Next review ${doc ? policyReviewDue(doc) : ''}` : check?.message}
+                </td>
+                <td>{isAdmin && <button className="link" onClick={() => setEditing(entity.id)}>{doc ? 'Update' : 'Record'}</button>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function PolicyDocumentForm({ entityName, doc, onSave, onCancel }: { entityName: string; doc?: PolicyDocument; onSave: (body: Record<string, string>) => void; onCancel: () => void }) {
+  const [form, setForm] = useState({
+    title: doc?.title ?? 'Appropriate policy document: sickness and health data',
+    url: doc?.url ?? '',
+    reviewedBy: doc?.reviewedBy ?? '',
+    reviewedOn: doc?.reviewedOn ?? '',
+    signedBy: doc?.signedBy ?? '',
+    signedOn: doc?.signedOn ?? '',
+    reviewDue: doc?.reviewDue ?? '',
+  });
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    // Blank fields are left out, so a draft can be recorded before it is reviewed or signed.
+    onSave(Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v)));
+  }
+  return (
+    <form className="form" onSubmit={submit}>
+      <strong className="wide-field">{entityName}</strong>
+      <label className="wide-field">Title<input required value={form.title} onChange={set('title')} /></label>
+      <label className="wide-field">Link to the document<input type="url" placeholder="https://" value={form.url} onChange={set('url')} /></label>
+      <label>Reviewed by<input placeholder="e.g. employment counsel" value={form.reviewedBy} onChange={set('reviewedBy')} /></label>
+      <label>Reviewed on<input type="date" value={form.reviewedOn} onChange={set('reviewedOn')} /></label>
+      <label>Signed by (director)<input value={form.signedBy} onChange={set('signedBy')} /></label>
+      <label>Signed on<input type="date" value={form.signedOn} onChange={set('signedOn')} /></label>
+      <label>Next review (default a year after signing)<input type="date" value={form.reviewDue} onChange={set('reviewDue')} /></label>
+      <div className="modal-actions wide-field">
+        <button className="primary" type="submit">Save</button>
+        <button type="button" className="link" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
 
 function Requests({ state, requests, today, act }: { state: RotaState; requests: Request[]; today: string; act: Act }) {
   const blank = { kind: 'access' as SubjectRequestKind, employeeId: '', subject: '', receivedOn: today, notes: '' };

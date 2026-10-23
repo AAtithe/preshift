@@ -22,8 +22,10 @@ const KEYS = [
   person('chris', 'usr_viewer'),
 ];
 
-async function setup() {
-  const { app } = await buildApp({ apiKeys: KEYS, store: new MemoryStore(['demo'], '2026-10-21'), provider: new TeamPaySimulator(), autoDispatch: false });
+async function setup(options: { fdAuthenticator?: boolean } = {}) {
+  const store = new MemoryStore(['demo'], '2026-10-21');
+  const { app } = await buildApp({ apiKeys: KEYS, store, provider: new TeamPaySimulator(), autoDispatch: false });
+  if (options.fdAuthenticator === false) (await store.load('demo')).users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = false;
   return async (method: string, url: string, body?: unknown, key = 'system') => {
     const res = await app.inject({
       method: method as 'GET',
@@ -174,7 +176,7 @@ describe('access on time and payroll', () => {
   });
 
   it('keeps sending pay to payroll roles with an authenticator, and the journal to finance', async () => {
-    const call = await setup();
+    const call = await setup({ fdAuthenticator: false });
     expect((await call('POST', '/v1/payroll/submissions', { weekStart: WEEK }, 'priya')).status).toBe(403);
     const nadia = await call('POST', '/v1/payroll/submissions', { weekStart: WEEK }, 'nadia');
     expect(nadia.status).toBe(403);
