@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
 import { requiredBreakMinutes } from '../../src/engine/compliance';
 import { addDays, ageOn, weekStart } from '../../src/engine/time';
+import { fortnight } from '../../src/engine/rotaViews';
 import { PULSE_RETENTION_DAYS, RECOGNITION_LABEL, welfarePolicy, type PulseResponse } from '../../src/engine/welfare';
 import type { Employee, GeoFix, RightToWorkDocument, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -135,6 +136,8 @@ async function overview(staff: Staff, store: Store) {
       .filter((s) => s.employeeId === employee.id && s.published && s.date >= today && s.date <= addDays(today, 13))
       .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
       .map((s) => ({ id: s.id, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes, siteName: siteName(s.siteId), roleName: roleName(s.roleId) })),
+    // Hours, pay before tax and rest over the same fortnight, from the published shifts above.
+    fortnight: fortnightOf(org, employee, today),
     recent: org.timeEntries
       .filter((t) => t.employeeId === employee.id && t.date >= addDays(today, -13) && t.status !== 'open')
       .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn - a.clockIn)
@@ -143,6 +146,16 @@ async function overview(staff: Staff, store: Store) {
     welfare: await welfareView(staff, store, today),
     ...selfService(org, employee, today),
   };
+}
+
+function fortnightOf(org: OrgData, employee: Employee, today: string) {
+  const published = org.state.shifts.filter((s) => s.employeeId === employee.id && s.published);
+  const mine = published.filter((s) => s.date >= today && s.date <= addDays(today, 13));
+  // The last shift before the fortnight, so the rest into its first shift is right.
+  const before = published
+    .filter((s) => s.date < today && s.date >= addDays(today, -2))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.endMinute - a.endMinute)[0];
+  return fortnight(employee, mine, today, before);
 }
 
 /** What the person can ask for and has asked for: their holiday, availability, requests and messages. */

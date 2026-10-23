@@ -3,6 +3,7 @@ import { answersGuide } from './answers';
 import { assistantGuide } from './assistant';
 import { breaksGuide } from './breaks';
 import { kioskGuide } from './kiosk';
+import { rotaViewsGuide } from './rotaViews';
 import { shiftyGuide } from './shifty';
 
 export interface Guide {
@@ -13,4 +14,4 @@ export interface Guide {
 }
 
 /** Everything in How to, in the order it is listed. Add a guide here and it appears in the app. */
-export const GUIDES: Guide[] = [shiftyGuide, assistantGuide, breaksGuide, kioskGuide, answersGuide];
+export const GUIDES: Guide[] = [shiftyGuide, assistantGuide, rotaViewsGuide, breaksGuide, kioskGuide, answersGuide];

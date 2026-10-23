@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { formatMinute, parseClock } from '../engine/time';
 import type { Availability } from '../engine/types';
+import type { Fortnight } from '../engine/rotaViews';
 import { dayLabel } from '../ui/format';
+import { CrewLine, EffectLine, FortnightStrip, type Crew, type OwnShift, type ShiftEffect } from './RotaPictures';
 
 /** What the overview carries for self-service. The rest of it is the clock and hours. */
 export interface SelfServiceData {
@@ -95,15 +97,15 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 // ------------------------------------------------------------------------------------------------
 // Rota: who they work with, swaps, and open shifts.
 
-interface TeamShift {
+interface TeamShift extends Crew {
   shiftId: string;
   date: string;
   line: string;
-  team: { name: string; role: string; startMinute: number; endMinute: number }[];
+  siteName: string;
 }
 
 interface Board {
-  openShifts: { id: string; line: string; note: string | null; claimed: boolean }[];
+  openShifts: { id: string; line: string; note: string | null; claimed: boolean; effect?: ShiftEffect }[];
   offers: { id: string; from: string; line: string; returnLine: string | null; directed: boolean; note: string | null }[];
 }
 
@@ -112,7 +114,7 @@ interface SwapOptions {
   people: { id: string; name: string; role: string; shifts: { id: string; line: string }[] }[];
 }
 
-export function RotaTab({ call, say, today, requests, refresh }: { call: Call; say: Say; today: string; requests: OwnRequest[]; refresh: () => void }) {
+export function RotaTab({ call, say, today, requests, refresh, shifts, fortnight }: { call: Call; say: Say; today: string; requests: OwnRequest[]; refresh: () => void; shifts: OwnShift[]; fortnight?: Fortnight }) {
   const [team, setTeam] = useState<TeamShift[] | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
   const [swapping, setSwapping] = useState<string | null>(null);
@@ -150,6 +152,7 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
                 <span>
                   <span className="strong">{o.line}</span>
                   {o.note && <span className="muted small"> {o.note}</span>}
+                  {o.effect && !o.claimed && <EffectLine effect={o.effect} />}
                   <span className="staff-buttons">
                     {o.claimed ? (
                       <span className="muted small">You asked for this. Waiting for your manager.</span>
@@ -164,6 +167,8 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
         </Card>
       )}
 
+      {fortnight && <FortnightStrip today={today} shifts={shifts} summary={fortnight} />}
+
       <Card title="My rota and who I am working with">
         {team === null ? (
           <p className="muted">Loading</p>
@@ -176,10 +181,7 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
                 <span className="staff-day">{s.date === today ? 'Today' : day(s.date)}</span>
                 <span>
                   <span className="strong">{s.line.replace(/^\S+ \d+ \S+ /, '')}</span>
-                  <span className="muted small">
-                    {' '}
-                    {s.team.length ? `With ${s.team.map((t) => `${t.name} (${t.role}, ${formatMinute(t.startMinute)}-${formatMinute(t.endMinute)})`).join(', ')}` : 'Nobody else on yet'}
-                  </span>
+                  <CrewLine shift={s} />
                   <span className="staff-buttons">
                     {offered.has(s.line) ? (
                       <span className="muted small">Up for a swap</span>
