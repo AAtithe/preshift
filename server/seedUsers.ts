@@ -4,8 +4,8 @@ import type { AuthenticatorRecord } from './store';
 import { addDays } from '../src/engine/time';
 
 // Demo people for the two London sites. Chosen so the Access overview has real
-// things to show: a GM who approves her own hours, a finance director with no
-// authenticator, a dormant area manager, an expired invitation, an auditor
+// things to show: a GM who approves her own hours, a dormant area manager,
+// an expired invitation, an auditor
 // whose access is about to end, and paired duties held through two roles.
 
 type Grant = [roleId: string, siteIds: string[] | null, extra?: Partial<Membership>];
@@ -18,7 +18,7 @@ export function seedUsers(today: string): { users: User[]; reviews: AccessReview
   const people: Person[] = [
     [DEMO_OWNER_ID, 'Olivia Grant', 'olivia@marylebonegroup.example', 'Founder', 'operator', [['owner', null]], { mfaEnrolled: true, lastSeenAt: at(0) }],
     ['usr_ops', 'James Whitfield', 'james@marylebonegroup.example', 'Operations Director', 'operator', [['ops_director', null]], { mfaEnrolled: true, lastSeenAt: at(-1) }],
-    ['usr_fd', 'Nadia Rahman', 'nadia@marylebonegroup.example', 'Finance Director', 'operator', [['finance_director', null]], { mfaEnrolled: false, lastSeenAt: at(-3) }],
+    ['usr_fd', 'Nadia Rahman', 'nadia@marylebonegroup.example', 'Finance Director', 'operator', [['finance_director', null]], { mfaEnrolled: true, lastSeenAt: at(-3) }],
     ['usr_people', 'Kate Morgan', 'kate@marylebonegroup.example', 'People Manager', 'operator', [['people_manager', null], ['assistant_manager', ['mar']]], { mfaEnrolled: true, lastSeenAt: at(-2) }],
     ['usr_area', 'Daniel Price', 'daniel@marylebonegroup.example', 'Area Manager, London', 'operator', [['area_manager', ['mar', 'fitz', 'shd']]], { mfaEnrolled: true, lastSeenAt: at(-118) }],
     ['usr_gm_mar', 'Priya Shah', 'priya@marylebonegroup.example', 'General Manager', 'operator', [['general_manager', ['mar']]], { employeeId: 'mar-1', lastSeenAt: at(0) }],

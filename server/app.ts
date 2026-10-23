@@ -15,11 +15,11 @@ import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
-import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
+import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { eposRoutes, syncAllTills } from './routes/epos';
 import { reportRoutes } from './routes/reports';
-import { payRoutes } from './routes/pay';
+import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { payrollLinkRoutes } from './routes/payrollLink';
@@ -251,6 +251,30 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // never stops the rest.
     const today = londonToday(ctx);
     const started = Date.now();
+    // Once a day per organisation: approved pay changes dated today take effect, and finance hears
+    // what waits. Kept apart from the refresh below, which skips organisations with nothing to fetch.
+    let payRuns = 0;
+    for (const orgId of await store.orgIds()) {
+      if (Date.now() - started > 20_000) break;
+      try {
+        const org = await store.load(orgId);
+        if (org.payDailyOn === today || (!org.payChanges.some((c) => c.status === 'pending' || (c.status === 'approved' && !c.appliedOn)))) continue;
+        await payDaily(store, org, today);
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          // Someone saved meanwhile. Apply again over their copy, and mark the day done so the reminder is not sent twice.
+          const fresh = await store.load(orgId);
+          applyDuePayChanges(fresh, today);
+          fresh.payDailyOn = today;
+          await store.save(fresh);
+        }
+        payRuns++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'daily pay run failed');
+      }
+    }
     const due: { orgId: string; last: string }[] = [];
     for (const orgId of await store.orgIds()) {
       // Demo sandboxes last a day and fetch nothing from outside.
@@ -293,7 +317,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // Journey times between sites drift as routes and timetables change: plan any out of date
     // ones again with what time is left. Sandboxes keep their seeded times.
     const journeys = Date.now() - started < 40_000 ? await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey, today, { skip: isSandbox, deadline: started + 50_000 }) : 0;
-    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys };
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys, payRuns };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
@@ -415,6 +439,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
+    hrFileRoutes(api, ctx);
     timeRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);

@@ -169,13 +169,25 @@ export function decisionText(r: StaffRequest, names: ShiftNames, shift?: Slot): 
   return { title: `${REQUEST_LABEL[r.kind]} ${verdict}`, body: `${what}: ${verdict}${by}.${note}` };
 }
 
+/**
+ * Newest first. Notifications written in the same millisecond (one action often tells someone two
+ * things) keep the order they were written in, newest first too, so a tie never shows the older
+ * one on top or drops the newer one.
+ */
+export function newestFirst<T extends { at: string }>(list: T[]): T[] {
+  return list
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => b.n.at.localeCompare(a.n.at) || b.i - a.i)
+    .map(({ n }) => n);
+}
+
 /** Keeps each person's feed short: the newest first hundred, nothing older than ninety days. */
 export function pruneNotifications(list: StaffNotification[], today: string): StaffNotification[] {
   const cutoff = addDays(today, -NOTIFICATION_KEEP_DAYS);
   const kept = list.filter((n) => n.at.slice(0, 10) >= cutoff);
   const count = new Map<string, number>();
   // Newest first, so the oldest go when someone has too many.
-  const newest = [...kept].sort((a, b) => b.at.localeCompare(a.at));
+  const newest = newestFirst(kept);
   const keep = new Set(newest.filter((n) => (count.set(n.employeeId, (count.get(n.employeeId) ?? 0) + 1).get(n.employeeId) ?? 0) <= NOTIFICATIONS_PER_PERSON));
   return kept.filter((n) => keep.has(n));
 }
