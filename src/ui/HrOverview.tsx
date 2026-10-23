@@ -33,9 +33,9 @@ export function HrOverview({ state, siteIds, today, hr, onOpen }: Props) {
     () =>
       people
         .filter((e) => employeeStatus(e, today) !== 'left')
-        .map((e) => ({ e, checks: hrChecks(e, hr.records ?? [], state.roles, today) }))
+        .map((e) => ({ e, checks: hrChecks(e, hr.records ?? [], state.roles, today, state.shifts) }))
         .sort((a, b) => a.e.name.localeCompare(b.e.name)),
-    [people, hr.records, state.roles, today],
+    [people, hr.records, state.roles, state.shifts, today],
   );
   const actions = rows
     .flatMap(({ e, checks }) => checks.map((c) => ({ e, c })))

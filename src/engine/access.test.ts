@@ -20,6 +20,7 @@ function world() {
 describe('permissions', () => {
   it('scopes site roles to their sites and switches strong rights off without an authenticator', () => {
     const { by } = world();
+    by('usr_fd').mfaEnrolled = false;
     expect(can(by('usr_gm_mar'), 'rota.publish', TODAY, 'mar')).toBe(true);
     expect(can(by('usr_gm_mar'), 'rota.publish', TODAY, 'shd')).toBe(false);
     // Nadia's role needs an authenticator she has not set up: she can read cost but not send pay.
@@ -96,7 +97,9 @@ describe('removing access', () => {
 
 describe('health', () => {
   it('finds the control issues a reviewer should see', () => {
-    const { users, reviews, state } = world();
+    const { users, reviews, state, by } = world();
+    // The demo's finance director is set up; take her authenticator away to see the flag.
+    by('usr_fd').mfaEnrolled = false;
     const kinds = accessHealth(users, state.sites, state.employees, reviews, TODAY).map((a) => `${a.kind}:${a.userId ?? a.siteId ?? ''}`);
     expect(kinds).toContain('must_enrol:usr_fd');
     expect(kinds).toContain('self_approval:usr_gm_mar');

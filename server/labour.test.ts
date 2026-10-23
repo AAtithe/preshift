@@ -71,11 +71,16 @@ describe('recording a tronc scheme', () => {
   });
 
   it('keeps it from the site and the owner, and from payroll without an authenticator', async () => {
-    const { put } = await boot();
+    const { put, store } = await boot();
     for (const key of ['priya', 'owner']) expect((await put(key, scheme)).statusCode).toBe(403);
+    // The finance director holds pay.approve, but not until she has an authenticator.
+    const org = await store.load('demo');
+    org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = false;
     const fd = await put('nadia', scheme);
     expect(fd.statusCode).toBe(403);
     expect(fd.json().message).toMatch(/authenticator/);
+    org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = true;
+    expect((await put('nadia', scheme)).statusCode).toBe(200);
     // A system key acts for the organisation, as it does for pay.
     expect((await put('system', scheme)).statusCode).toBe(200);
   });

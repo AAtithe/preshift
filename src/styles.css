@@ -1072,6 +1072,8 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .section-inline { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .hr-records { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
 .hr-records > li { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.hr-files { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.hr-files label.link { cursor: pointer; }
 .hr-record-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hr-notes { margin: 6px 0 0; white-space: pre-wrap; font-size: 13px; }
 .status-bad { background: var(--bad-bg); color: var(--bad); }

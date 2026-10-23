@@ -82,6 +82,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/payroll/submissions': true,
   'GET /v1/payroll/runs': true,
   'GET /v1/privacy/register': true,
+  'GET /v1/privacy/policy-documents': true,
+  'PUT /v1/privacy/policy-documents/:entityId': true,
   'GET /v1/privacy/retention': true,
   'GET /v1/privacy/requests': true,
   'GET /v1/journal': true,
@@ -117,6 +119,10 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // Kiosks in the sandbox can be listed and removed; pairing one is refused below.
   'GET /v1/kiosks': true,
   'DELETE /v1/kiosks/:id': true,
+  // Kiosk PINs live in the sandbox's own people and settings.
+  'PUT /v1/sites/:id/kiosk-pin': true,
+  'POST /v1/employees/:id/kiosk-pin': true,
+  'DELETE /v1/employees/:id/kiosk-pin': true,
   'POST /v1/time-entries/:id/clock-out': true,
   'PATCH /v1/time-entries/:id': true,
   'POST /v1/integrations/payroll/sync-employees': true,
@@ -133,6 +139,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/pay-changes/:id/approve': true,
   'POST /v1/pay-changes/:id/reject': true,
   'POST /v1/pay-changes/:id/withdraw': true,
+  'GET /v1/pay-policy': true,
+  'PUT /v1/pay-policy': true,
+  // Sends email: a visitor's sandbox emails nobody.
+  'POST /v1/pay-changes/remind': false,
+  'GET /v1/hr/sick-pay': true,
   // Whether a till is connected: never in a sandbox, so this only ever says not connected.
   'GET /v1/integrations/epos': true,
   // Wellbeing on the sandbox's fictional team. Hospitality Rewards connects to the simulator only:
@@ -293,6 +304,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/employees/:id/absences/:absenceId/fit-notes/:docId': false,
   'GET /v1/employees/:id/right-to-work/documents/:docId/access': false,
   'DELETE /v1/employees/:id/right-to-work/documents/:docId': false,
+  'POST /v1/hr/records/:id/files': false,
+  'GET /v1/hr/records/:id/files/:fileId': false,
+  'DELETE /v1/hr/records/:id/files/:fileId': false,
   // Refused: these call postcode and TfL services on the live system's quota at a visitor's say.
   'PUT /v1/sites/:id/location': false,
   'POST /v1/sites/travel/refresh': false,
@@ -348,9 +362,14 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/sick': false,
   'POST /v1/staff/sick/back': false,
   'POST /v1/staff/fit-note': false,
+  'GET /v1/staff/push': false,
+  'POST /v1/staff/push/subscribe': false,
+  'POST /v1/staff/push/unsubscribe': false,
+  'POST /v1/staff/push/test': false,
   'GET /v1/kiosk/board': false,
   'POST /v1/kiosk/tap': false,
   'POST /v1/kiosk/clock': false,
+  'PUT /v1/staff/kiosk-pin': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;
