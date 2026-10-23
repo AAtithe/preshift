@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { complianceExposure } from '../engine/exposure';
 import type { RotaState, TimeEntry } from '../engine/types';
-import { addDays } from '../engine/time';
+import { addDays, weekDates, weekStart } from '../engine/time';
 import { UK_RATES_2026_27 } from '../engine/ukRates';
 import { dayLabel, hours, money, money2 } from './format';
 import { Kpi } from './Kpi';
@@ -19,12 +19,41 @@ const RTW_LABEL: Record<string, string> = {
   'right-to-work': 'No valid right to work',
 };
 
+/**
+ * The week the register reads. A week still trading has only some of its breaches in, so an open week
+ * (this one, or one to come) reads the last closed week instead, unless someone asks for it so far.
+ */
+export function registerWeek(week: string, asOf: string, showOpen: boolean): { week: string; closed: boolean; substituted: boolean } {
+  const closed = weekDates(week).every((d) => d < asOf);
+  if (closed || showOpen) return { week, closed, substituted: false };
+  return { week: addDays(weekStart(asOf), -7), closed: true, substituted: true };
+}
+
 export function RiskView(props: Props) {
+  // Asking for the open week holds only for the week it was asked for.
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const shown = registerWeek(props.week, props.asOf, openFor === props.week);
   // Enough history for the 17 week average and a monthly pay period, up to the end of the week shown.
-  const { entries, error } = useTimeEntries(props.siteId, addDays(props.week, -18 * 7), addDays(props.week, 6));
+  const { entries, error } = useTimeEntries(props.siteId, addDays(shown.week, -18 * 7), addDays(shown.week, 6));
   if (error) return <p className="muted">{error}</p>;
   if (!entries) return <p className="muted">Loading clocked hours.</p>;
-  return <Register {...props} entries={entries} />;
+  const label = (w: string) => `${dayLabel(w).date} to ${dayLabel(addDays(w, 6)).date}`;
+  return (
+    <>
+      {shown.substituted ? (
+        <p className="notice small">
+          Showing the last closed week, {label(shown.week)}. The week picked has not finished trading, so its breaches are not all in yet.{' '}
+          <button className="link" onClick={() => setOpenFor(props.week)}>Show {label(props.week)} so far</button>
+        </p>
+      ) : !shown.closed ? (
+        <p className="notice small">
+          Showing {label(shown.week)} so far: breaches still to happen this week are not in it.{' '}
+          <button className="link" onClick={() => setOpenFor(null)}>Show the last closed week</button>
+        </p>
+      ) : null}
+      <Register {...props} week={shown.week} entries={entries} />
+    </>
+  );
 }
 
 function Register({ state, siteId, week, asOf, entries }: Props & { entries: TimeEntry[] }) {
