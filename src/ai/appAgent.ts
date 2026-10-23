@@ -1,5 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { formatMinute } from '../engine/time';
+import type { MessagesClient } from './messagesClient';
 import { usageCostUsd } from './pricing';
 import { APP_TOOLS, executeAppTool, type AppToolContext, type Proposal } from './appTools';
 import { ROTA_MODEL, RotaAgentError } from './rotaAgent';
@@ -54,7 +55,7 @@ export interface AppAgentReply {
   servedModels: string[];
 }
 
-export async function runAppAgent(client: Anthropic, turn: AppAgentTurn, signal?: AbortSignal, onStep: (s: string) => void = () => {}): Promise<AppAgentReply> {
+export async function runAppAgent(client: MessagesClient, turn: AppAgentTurn, signal?: AbortSignal, onStep: (s: string) => void = () => {}): Promise<AppAgentReply> {
   const { ctx, where } = turn;
   const header =
     `[Today ${ctx.now.date} ${formatMinute(ctx.now.minute)} UK time. ${where.user} is on the ${where.screen} screen, ` +
