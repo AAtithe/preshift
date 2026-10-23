@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
-import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider } from './provider';
+import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
 
 export interface TeamPayConfig {
   baseUrl: string; // e.g. https://api.team-pay.co.uk/v1 (sandbox and production keys come from the TeamPay dashboard)
@@ -45,6 +45,42 @@ export class TeamPayProvider implements PayrollProvider {
       ? await this.request<{ id: string }>(employerId, 'PATCH', `/employees/${encodeURIComponent(payrollId)}`, body, idempotencyKey)
       : await this.request<{ id: string }>(employerId, 'POST', '/employees', body, idempotencyKey);
     return { payrollId: res.id };
+  }
+
+  async listEmployees(employerId: string): Promise<PayrollRecord[]> {
+    type Row = {
+      id: string;
+      external_ref?: string | null;
+      name: string;
+      date_of_birth?: string | null;
+      pay_basis?: 'hourly' | 'salaried';
+      hourly_rate?: number | null;
+      annual_salary?: number | null;
+      contracted_hours?: number | null;
+      start_date?: string | null;
+      leave_date?: string | null;
+    };
+    const out: PayrollRecord[] = [];
+    // Paged until TeamPay says there is no next page; the cap stops a misbehaving API looping for ever.
+    for (let page = 1; page <= 200; page++) {
+      const res = await this.request<{ employees: Row[]; next_page?: number | null }>(employerId, 'GET', `/employees?include_leavers=true&page=${page}&per_page=100`);
+      for (const r of res.employees) {
+        out.push({
+          payrollId: r.id,
+          externalRef: r.external_ref ?? undefined,
+          name: r.name,
+          dateOfBirth: r.date_of_birth ?? undefined,
+          payBasis: r.pay_basis,
+          hourlyRate: r.hourly_rate ?? undefined,
+          annualSalary: r.annual_salary ?? undefined,
+          contractedHours: r.contracted_hours ?? undefined,
+          startDate: r.start_date ?? undefined,
+          leaveDate: r.leave_date ?? undefined,
+        });
+      }
+      if (!res.next_page) return out;
+    }
+    throw new PayrollError('TeamPay returned more than 200 pages of employees', false);
   }
 
   async markLeaver(employerId: string, payrollId: string, leaveDate: string, idempotencyKey: string) {

@@ -112,6 +112,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PATCH /v1/time-entries/:id': true,
   'POST /v1/integrations/payroll/sync-employees': true,
   'POST /v1/integrations/payroll/outbox/:id/retry': true,
+  // Linking staff already on TeamPay: a sandbox's payroll is its own simulator, so linking there touches nobody's real records.
+  'GET /v1/integrations/payroll/link': true,
+  'POST /v1/employees/:id/payroll-link': true,
+  'POST /v1/employees/:id/payroll-new-starter': true,
+  'DELETE /v1/employees/:id/payroll-link': true,
   'POST /v1/payroll/submissions': true,
   // Pay changes waiting on finance approval, inside the sandbox.
   'GET /v1/pay-changes': true,
@@ -133,6 +138,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/integrations/rewards/sync': true,
   'GET /v1/integrations/rewards/eligibility.csv': true,
   'POST /v1/dev/simulate-clocking': true,
+  'POST /v1/dev/payroll-existing': true,
   'POST /v1/dev/teampay/run-payroll': true,
   'PUT /v1/privacy/policy': true,
   'POST /v1/privacy/retention/apply': true,
