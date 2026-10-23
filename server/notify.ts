@@ -4,6 +4,7 @@ import { londonParts, weekDates, weekStart } from '../src/engine/time';
 import type { Shift, StaffNotification, StaffNotificationKind } from '../src/engine/types';
 import { emailSetting, linkFor, parseEmailSettings, sendMail, staffNoticeEmail } from './mail';
 import type { OrgData, Store } from './store';
+import { pushSubject, sendPush, vapidKeys, type PushMessage } from './push';
 
 /**
  * Tells one member of staff something. It shows in their staff app at once, and is emailed once
@@ -79,19 +80,42 @@ export function syncTold(org: OrgData, employeeIds: string[], shifts: Pick<Shift
 }
 
 /**
- * Emails what is waiting, one email per person, to their staff app address or else the one on
- * their record. Run inside the request, after its checks and before its save, so the saved state
- * says what was sent. Without email set up, or an address, the notice stays in the app only.
+ * Delivers what is waiting, once the request that raised it has passed its checks and before its
+ * save, so the saved state says what went out. Each person gets one push to each phone they turned
+ * notifications on for, and one email to their staff app address or else the one on their record.
+ * Without either, the notice stays in the app's inbox, which always has it.
  */
-export async function emailNotifications(store: Store, org: OrgData) {
+export async function deliverNotifications(store: Store, org: OrgData, fetcher: typeof fetch = fetch) {
   const pending = (org.notifications ?? []).filter((n) => n.email === 'pending');
   if (pending.length === 0) return;
   const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
   const byPerson = new Map<string, StaffNotification[]>();
   for (const n of pending) byPerson.set(n.employeeId, [...(byPerson.get(n.employeeId) ?? []), n]);
-  for (const [employeeId, notes] of byPerson) {
-    const e = org.state.employees.find((x) => x.id === employeeId);
-    const login = settings && e ? await store.getStaffLogin(org.orgId, employeeId) : null;
+  const people = [...byPerson].map(([employeeId, notes]) => ({ notes, e: org.state.employees.find((x) => x.id === employeeId) }));
+  const logins = new Map(await Promise.all(people.map(async ({ e }) => [e?.id ?? '', e && e.status !== 'leaver' ? await store.getStaffLogin(org.orgId, e.id) : null] as const)));
+
+  // Pushes all at once: a publish can tell the whole team, and each push service answers in its own time.
+  const keys = [...logins.values()].some((l) => l?.hash && l.push?.length) ? await vapidKeys(store) : null;
+  await Promise.all(people.map(async ({ notes, e }) => {
+    const login = e ? logins.get(e.id) : null;
+    if (!keys || !login?.hash || !login.push?.length) {
+      for (const n of notes) n.push = 'none';
+      return;
+    }
+    const message: PushMessage = notes.length === 1
+      ? { title: notes[0].title, body: notes[0].body, url: '/staff/#inbox', tag: notes[0].kind }
+      : { title: `${notes.length} updates from your rota`, body: notes.map((n) => n.title).join('. '), url: '/staff/#inbox', tag: 'updates' };
+    const results = await Promise.all(login.push.map((d) => sendPush(keys, d, message, pushSubject(), fetcher)));
+    for (const n of notes) n.push = results.includes('sent') ? 'sent' : 'failed';
+    // A phone that has unsubscribed, or whose subscription expired, is forgotten.
+    // Read again first, so a sign-in or a phone added meanwhile is not overwritten.
+    const gone = new Set(login.push.filter((_, i) => results[i] === 'gone').map((d) => d.endpoint));
+    const fresh = gone.size ? await store.getStaffLogin(org.orgId, login.employeeId) : null;
+    if (fresh) await store.putStaffLogin({ ...fresh, push: (fresh.push ?? []).filter((d) => !gone.has(d.endpoint)) });
+  }));
+
+  for (const { notes, e } of people) {
+    const login = e ? logins.get(e.id) : null;
     const to = (login?.email ?? e?.email ?? '').trim().toLowerCase();
     if (!settings || !e || e.status === 'leaver' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
       for (const n of notes) n.email = 'none';

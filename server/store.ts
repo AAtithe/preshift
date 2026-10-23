@@ -12,6 +12,7 @@ import type { Publication } from '../src/engine/scorecard';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import type { PushDevice } from './push';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { RewardsConnection } from './integrations/rewards/provider';
@@ -318,6 +319,8 @@ export interface StaffLogin {
   failedAttempts: number;
   /** Epoch seconds. */
   lockedUntil: number;
+  /** Phones the person turned notifications on for. Closing the login forgets them with it. */
+  push?: PushDevice[];
 }
 
 /**

@@ -43,7 +43,7 @@ import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
-import { emailNotifications } from './notify';
+import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
@@ -370,7 +370,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
-        await emailNotifications(store, req.org);
+        await deliverNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
