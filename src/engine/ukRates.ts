@@ -63,6 +63,50 @@ export const UK_RATES_2026_27: UkRates = {
   ssp: { weeklyRate: 123.25, aweShare: 0.8, aweWeeks: 8, maxWeeks: 28, linkDays: 56, newRulesFrom: '2026-04-06' },
 };
 
+/**
+ * What comes out of an employee's pay, for estimating net pay and the HMRC bill: income tax at the
+ * rest of UK rates on the standard 1257L code, employee Class 1 NI and the employee's auto-enrolment
+ * contribution. Scottish and Welsh taxpayers, other tax codes, student loans and salary sacrifice all
+ * move the real figure; payroll is the record, this is the forecast.
+ */
+export interface PayeRates {
+  taxYear: string;
+  personalAllowance: number;
+  /** Taxable income charged at the basic rate, above the personal allowance. */
+  basicRateBand: number;
+  basicRate: number;
+  higherRate: number;
+  /** Employee NI primary threshold and upper earnings limit, a year. */
+  niPrimaryThreshold: number;
+  niUpperEarningsLimit: number;
+  employeeNiRate: number;
+  employeeNiUpperRate: number;
+  /**
+   * Employee auto-enrolment contribution on qualifying earnings, as taken from net pay under relief at
+   * source: the statutory 5% less the 1% basic rate relief the provider claims from HMRC.
+   */
+  employeePensionRate: number;
+  /** HMRC wants PAYE paid electronically by the 22nd of the month after the tax month. */
+  payeDueDay: number;
+  /** Pension contributions reach the scheme by the 22nd of the month after they were deducted. */
+  pensionDueDay: number;
+}
+
+export const PAYE_2026_27: PayeRates = {
+  taxYear: '2026/27',
+  personalAllowance: 12_570,
+  basicRateBand: 37_700,
+  basicRate: 0.2,
+  higherRate: 0.4,
+  niPrimaryThreshold: 12_570,
+  niUpperEarningsLimit: 50_270,
+  employeeNiRate: 0.08,
+  employeeNiUpperRate: 0.02,
+  employeePensionRate: 0.04,
+  payeDueDay: 22,
+  pensionDueDay: 22,
+};
+
 export function minimumWageFor(age: number, rates: UkRates = UK_RATES_2026_27) {
   return rates.minimumWage.find((band) => age >= band.minAge) ?? null;
 }

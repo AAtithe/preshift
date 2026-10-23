@@ -77,6 +77,7 @@ const Timeline = screen(() => import('./Timeline'), 'Timeline', ['rota']);
 const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['training']);
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
+const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
@@ -618,6 +619,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
+              {shown === 'cash' && <CashView canSettings={allow('settings.manage')} />}
               {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={(id) => chooseScope(entityId, id)} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (

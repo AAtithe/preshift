@@ -1360,3 +1360,13 @@ details.help-article summary { cursor: pointer; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   .screen-loading, .screen-loading span { animation: none; }
 }
+
+/* Labour cash */
+.cash-entities { margin: 4px 0 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+.cash-weeks td:first-child { white-space: nowrap; }
+.cash-items .badge { margin-right: 4px; }
+.cash-parts { max-width: 360px; }
+.cash-notes { padding-left: 18px; display: grid; gap: 4px; }
+.cash-schedules { margin-top: 14px; }
+.cash-schedules .settings-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding: 8px 0; border-top: 1px solid var(--rule); }
+.cash-schedules .settings-form > label.strong { flex: 1 1 200px; display: flex; gap: 8px; align-items: center; }

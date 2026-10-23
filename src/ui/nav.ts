@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests' | 'cash';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -96,6 +96,8 @@ export const NAV: NavGroup[] = [
       { id: 'reports', label: 'Reports', scope: 'week', access: { scope: ['costs.view'] } },
       // The labour programme: the ladder, milestones and the verified saving, in money.
       { id: 'programme', label: 'Programme', scope: 'week', access: { scope: ['costs.view'] } },
+      // Net pay, HMRC and pensions by date and company: pay totals for the business, so payroll and the close.
+      { id: 'cash', label: 'Labour cash', scope: 'org', title: 'Finance', access: { org: ['payroll.view', 'close.export'] } },
     ],
   },
   {
