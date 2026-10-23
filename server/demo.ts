@@ -176,6 +176,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/rota/weeks': true,
   // Managers' overrides of the rest rules, kept in the sandbox's own rota.
   'GET /v1/rota/overrides': true,
+  'GET /v1/rota/changes': true,
   'POST /v1/rota/overrides': true,
   'DELETE /v1/rota/overrides/:id': true,
   // Business set-up works on the caller's organisation only, so a prospect can set up their own.

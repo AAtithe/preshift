@@ -8,6 +8,7 @@ import {
   blocking, claimCheck, datesBetween, dayLabel, decisionText, eligibleFor, holidayHours, MAX_REQUEST_DAYS, namesOf,
   REQUESTABLE_ABSENCE, shiftLine, swapCheck, swapped,
 } from '../../src/engine/requests';
+import { shiftEffect } from '../../src/engine/rotaViews';
 import { hasStarted } from '../../src/engine/rotaWeek';
 import { addDays, londonParts } from '../../src/engine/time';
 import { entriesAsShifts } from '../../src/engine/timesheet';
@@ -673,6 +674,10 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
         shiftId: s.id,
         date: s.date,
         line: shiftLine(s, names),
+        startMinute: s.startMinute,
+        endMinute: s.endMinute,
+        role: names.role(s.roleId),
+        siteName: names.site(s.siteId),
         team: published
           .filter((x) => x.siteId === s.siteId && x.date === s.date && x.employeeId !== employee.id && x.startMinute < s.endMinute && s.startMinute < x.endMinute)
           .sort((a, b) => a.startMinute - b.startMinute)
@@ -685,17 +690,24 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
     const { org, employee } = await signedIn(req);
     const names = namesOf(org.state);
     const now = londonParts(new Date());
-    // One list of shifts going: those put to them, and any untargeted one they could take.
-    const openShifts = shiftsGoingFor(org, employee, ctx.now()).map(({ open: o, claimed }) => ({
-      id: o.id,
-      line: shiftLine(o, names),
-      note: o.note ?? null,
-      claimed,
-      fill: o.fill ?? 'claim',
-      urgent: !!o.urgent,
-      // Put to them by name: a no moves it on to the next round.
-      canDecline: !!o.offers && !claimed,
-    }));
+    // One list of shifts going: those put to them, and any untargeted one they could take, each with
+    // what taking it would do to them: their week's hours with it, the rest either side, anything to review.
+    const own = org.state.shifts.filter((s) => s.employeeId === employee.id && s.published);
+    const openShifts = shiftsGoingFor(org, employee, ctx.now()).map(({ open: o, claimed }) => {
+      const effect = shiftEffect(employee, own, { ...slotOf(o), employeeId: employee.id });
+      const warnings = claimed ? [] : claimCheck(org.state, employee, slotOf(o)).issues.filter((i) => i.severity === 'warn').map((i) => i.message);
+      return {
+        id: o.id,
+        line: shiftLine(o, names),
+        note: o.note ?? null,
+        claimed,
+        fill: o.fill ?? 'claim',
+        urgent: !!o.urgent,
+        // Put to them by name: a no moves it on to the next round.
+        canDecline: !!o.offers && !claimed,
+        effect: { ...effect, warnings },
+      };
+    });
     const offers = requestsOf(org)
       .filter((r) => r.kind === 'swap' && r.status === 'pending' && r.employeeId !== employee.id)
       .filter((r) => (r.toEmployeeId ? r.toEmployeeId === employee.id : true))
