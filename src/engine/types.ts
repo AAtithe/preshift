@@ -83,6 +83,9 @@ export interface Site {
   nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
   /** A typical trading week, used to forecast any week no sales system has sent figures for. */
   salesProfile?: SalesProfile;
+  /** Cost of sales as a share of food and of drink sales the site is held to, for prime cost. */
+  foodCostTargetPct?: number;
+  drinkCostTargetPct?: number;
   /** Where the site is, for journeys between sites, its weather and nearby events. Set from its postcode. */
   location?: SiteLocation;
   /** Journey times from this site to others, by destination site id. */
@@ -159,6 +162,10 @@ export interface RightToWork {
   expiry?: string;
   /** Copies of what was seen. Managed by the server: the files are kept apart from the record. */
   documents?: RightToWorkDocument[];
+  /** Student permission: the most hours allowed in a Monday to Sunday week during term time. */
+  studentWeeklyHourLimit?: number;
+  /** Student permission: the institution's official vacations, when full-time work is allowed. */
+  termVacations?: { from: string; to: string }[];
 }
 
 /**
@@ -260,6 +267,13 @@ export interface Employee {
   unavailable?: Unavailability[];
   /** Set when the retention period ended and the record was anonymised under UK GDPR. */
   anonymisedOn?: string;
+  /** How often the person is paid, which sets the minimum wage pay reference period. Weekly when absent. */
+  payFrequency?: 'weekly' | 'monthly';
+  /**
+   * Weekly deductions and payments that reduce pay for minimum wage purposes: uniform or tools the
+   * worker pays for, salary sacrifice, and similar.
+   */
+  nmwReducingDeductionsWeekly?: number;
 }
 
 export type ContractType = 'permanent' | 'fixed-term' | 'casual' | 'apprentice';
@@ -625,6 +639,90 @@ export interface RotaState {
   sales?: DaySales[];
   /** Recorded by the API only; never sent with shifts. */
   restOverrides?: RestOverride[];
+  /** Tips, gratuities and service charge taken on the workers' behalf. Absent until a tips feed or entry exists. */
+  tips?: TipsTaken[];
+  /** Each site's tronc scheme. */
+  troncSchemes?: TroncScheme[];
+  /** The menu with recipe costs, till sales by dish, supplier invoices and stock counts, for prime cost. */
+  dishes?: Dish[];
+  dishSales?: DishSales[];
+  purchases?: Purchase[];
+  stockCounts?: StockCount[];
+}
+
+/**
+ * Tips, gratuities and service charges the business took on the customer's behalf on one day.
+ * Under the Employment (Allocation of Tips) Act 2023 all of it belongs to the workers.
+ */
+export interface TipsTaken {
+  id: string;
+  siteId: string;
+  date: string;
+  source: 'service-charge' | 'card-tip' | 'cash-pooled';
+  amount: number;
+  /** Date the money reached staff through payroll. */
+  paidOn?: string;
+  /** Written by the till feed. A figure keyed in by hand has none, and the till never overwrites it. */
+  fromTill?: boolean;
+}
+
+export interface TroncScheme {
+  siteId: string;
+  /** The person who decides the allocation. */
+  troncmaster: string;
+  /** The troncmaster decides the allocation without the employer. Only then are payments free of Class 1 NI. */
+  independent: boolean;
+  /** Points per clocked hour by role. */
+  pointsPerHour: Record<string, number>;
+  /** Optional split of the pool by department before points are applied. */
+  departmentShares?: Partial<Record<Department, number>>;
+  serviceCharge: 'none' | 'discretionary' | 'mandatory';
+  /** Date the written tipping policy was made available to staff. */
+  policyPublishedOn?: string;
+  /** Date staff were last consulted on whether the allocation is fair. */
+  lastReviewedOn?: string;
+  /** Who last recorded the scheme, and when: set by the server, never by the caller. */
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export type SalesCategory = 'food' | 'drink';
+
+/** One item on the menu: net selling price and the recipe cost of one portion or serve. */
+export interface Dish {
+  id: string;
+  siteId: string;
+  name: string;
+  category: SalesCategory;
+  /** Net of VAT. */
+  price: number;
+  recipeCost: number;
+}
+
+/** Units of one dish sold on one day, from the till. */
+export interface DishSales {
+  siteId: string;
+  date: string;
+  dishId: string;
+  units: number;
+}
+
+/** A supplier invoice or credit note, net of VAT. Credit notes are negative. */
+export interface Purchase {
+  id: string;
+  siteId: string;
+  date: string;
+  supplier: string;
+  category: SalesCategory;
+  amount: number;
+}
+
+/** Stock on hand at close of business on `date`, at cost. */
+export interface StockCount {
+  siteId: string;
+  date: string;
+  category: SalesCategory;
+  value: number;
 }
 
 /** A field where Preshift and the payroll record disagree. */

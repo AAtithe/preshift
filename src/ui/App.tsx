@@ -40,6 +40,7 @@ function prefetchScreens(tab?: Tab) {
 
 const AbsenceView = screen(() => import('./AbsenceView'), 'AbsenceView', ['absence']);
 const AccessView = screen(() => import('./access/AccessView'), 'AccessView', ['access']);
+const ActualsView = screen(() => import('./ActualsView'), 'ActualsView', ['actuals']);
 const AssignPanel = screen(() => import('./AssignPanel'), 'AssignPanel');
 const BillingView = screen(() => import('./BillingView'), 'BillingView', ['billing']);
 const CalendarView = screen(() => import('./CalendarView'), 'CalendarView', ['calendar']);
@@ -48,6 +49,7 @@ const ClientsView = screen(() => import('./ClientsView'), 'ClientsView', ['clien
 const ClockView = screen(() => import('./ClockView'), 'ClockView', ['clock']);
 const CloseView = screen(() => import('./CloseView'), 'CloseView', ['close']);
 const CoachView = screen(() => import('./CoachView'), 'CoachView', ['coach']);
+const CutCallView = screen(() => import('./CutCallView'), 'CutCallView', ['cutcall']);
 const DemandView = screen(() => import('./DemandView'), 'DemandView', ['demand']);
 const EmployeeEditor = screen(() => import('./EmployeeEditor'), 'EmployeeEditor');
 const ForecastView = screen(() => import('./ForecastView'), 'ForecastView', ['forecast']);
@@ -61,12 +63,15 @@ const OnboardingView = screen(() => import('./OnboardingView'), 'OnboardingView'
 const PayApprovalsView = screen(() => import('./PayApprovalsView'), 'PayApprovalsView', ['pay']);
 const PayrollView = screen(() => import('./PayrollView'), 'PayrollView', ['payroll']);
 const PeopleView = screen(() => import('./PeopleView'), 'PeopleView', ['people']);
+const PrimeView = screen(() => import('./PrimeView'), 'PrimeView', ['prime']);
 const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['privacy']);
 const ProfileView = screen(() => import('./ProfileView'), 'ProfileView', ['profile']);
 const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', ['programme']);
 const RequestsView = screen(() => import('./RequestsView'), 'RequestsView', ['requests']);
 const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
+const RetentionView = screen(() => import('./RetentionView'), 'RetentionView', ['retention']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
+const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
 const SettingsView = screen(() => import('./SettingsView'), 'SettingsView', ['settings']);
 const SetupView = screen(() => import('./SetupView'), 'SetupView', ['setup']);
@@ -76,6 +81,7 @@ const TeamView = screen(() => import('./TeamView'), 'TeamView', ['team']);
 const Timeline = screen(() => import('./Timeline'), 'Timeline', ['rota']);
 const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['training']);
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
+const TroncView = screen(() => import('./TroncView'), 'TroncView', ['tronc']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
@@ -661,6 +667,20 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {shown === 'actuals' && single && <ActualsView state={state} siteId={single.id} week={week} asOf={today} onOpenPayroll={() => setTab('payroll')} />}
+              {shown === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} canEdit={allow('payroll.send') || allow('pay.approve')} canRecord={(allow('time.approve', single.id) && allow('costs.view', single.id)) || allow('payroll.send') || allow('pay.approve')} />}
+              {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
+              {shown === 'risk' && single && <RiskView state={state} siteId={single.id} week={week} asOf={today} />}
+              {shown === 'retention' && single && <RetentionView state={state} siteId={single.id} asOf={today} />}
+              {shown === 'cutcall' && single && (
+                <CutCallView
+                  state={state}
+                  site={single}
+                  today={londonParts(new Date()).date}
+                  now={londonParts(new Date()).minute}
+                  onApply={allow('rota.edit', single.id) ? (shift) => actions.saveShift(shift, false) : undefined}
+                />
+              )}
               {shown === 'pay' && (
                 <PayApprovalsView
                   state={state}
