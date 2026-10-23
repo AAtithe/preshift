@@ -2,6 +2,7 @@ import type { PayPolicy } from '../src/engine/payPolicy';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
+import type { SupportTicket } from '../src/engine/support';
 import { seedHrRecords, seedState } from '../src/engine/seed';
 import type { PolicyDocument, RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
@@ -11,10 +12,12 @@ import type { EventFeed } from './integrations/feeds';
 import type { Publication } from '../src/engine/scorecard';
 import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
-import type { HrRecord, PayChange, RotaState, TimeEntry } from '../src/engine/types';
+import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
+import type { RewardsConnection } from './integrations/rewards/provider';
+import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
 import type { OutboxItem } from './outbox';
 import { queueEvent, type WebhookDelivery, type WebhookEndpoint } from './webhooks';
 import { demoAuthenticators, seedUsers } from './seedUsers';
@@ -94,10 +97,22 @@ export interface MailRecord {
   events: { id: string; type: MailEventType; at: string; detail?: string }[];
 }
 
+/** A shared iPad paired as one site's clocking kiosk. Its credential is kept hashed in settings, not here. */
+export interface Kiosk {
+  id: string;
+  siteId: string;
+  name: string;
+  pairedBy: string;
+  pairedAt: string;
+  lastSeenAt?: string;
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
   timeEntries: TimeEntry[];
+  /** Paired clocking kiosks. Absent on organisations saved before kiosks existed. */
+  kiosks?: Kiosk[];
   submissions: PayrollSubmission[];
   payRuns: PayRunRecord[];
   outbox: OutboxItem[];
@@ -118,6 +133,16 @@ export interface OrgData {
   lastOutsideRefresh?: string;
   /** Partner systems told when something changes. Absent on organisations saved before webhooks. */
   webhooks?: WebhookEndpoint[];
+  /** Holiday, time off, sickness, availability, swaps and open shift claims from the staff app. */
+  requests?: StaffRequest[];
+  /** Shifts posted for anyone eligible to claim. */
+  openShifts?: OpenShift[];
+  /** What each member of staff has been told, newest last. */
+  notifications?: StaffNotification[];
+  /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
+  toldWeeks?: Record<string, string[]>;
+  /** The London day the managers' morning digest last went out, so it goes once a day. */
+  lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
   webhookDeliveries?: WebhookDelivery[];
   users: User[];
@@ -138,6 +163,8 @@ export interface OrgData {
   payPolicy?: PayPolicy;
   /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
   payDailyOn?: string;
+  /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
+  support?: { tickets: SupportTicket[]; answeredByHelp: number };
   /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
   staffLoginLog: StaffLoginEvent[];
   /** Sign-offs of staff logins closed and opened again. Never removed. */
@@ -146,6 +173,8 @@ export interface OrgData {
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
+  /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
+  welfare?: WelfareData;
   /**
    * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.
@@ -154,6 +183,29 @@ export interface OrgData {
   /** Row version for optimistic locking in persistent stores. */
   version?: number;
 }
+
+export interface WelfareData {
+  /** Only what someone changed from the defaults (welfarePolicy fills the rest). */
+  policy?: Partial<WelfarePolicy>;
+  recognitions: Recognition[];
+  /** Pulse answers, stored without who gave them and in no particular order. */
+  pulses: PulseResponse[];
+  /**
+   * Who has answered which week, so nobody answers twice: a keyed hash of person and week, kept
+   * apart from the answers with nothing to join them by.
+   */
+  pulseAnswered: string[];
+  chats: ChatRequest[];
+  /** People who asked not to be enrolled in Hospitality Rewards. */
+  rewardsOptOut: string[];
+  /** Who Hospitality Rewards has as a member, after the last sync: removed when no longer eligible. */
+  rewardsEnrolled: string[];
+  /** The benefits platform, if connected. Its API key lives in the settings store. */
+  rewards?: RewardsConnection;
+}
+
+export const welfareOf = (org: OrgData): WelfareData =>
+  (org.welfare ??= { recognitions: [], pulses: [], pulseAnswered: [], chats: [], rewardsOptOut: [], rewardsEnrolled: [] });
 
 export interface ReminderState {
   key: string;
@@ -170,6 +222,8 @@ export interface OrgSettings {
    * in return sees the cohort's. Off until an admin turns it on: give to get.
    */
   benchmarking?: boolean;
+  /** People (user ids) who have turned off the morning email of staff requests waiting for them. */
+  digestOff?: string[];
 }
 
 export type UserRole = 'admin' | 'member';
@@ -358,7 +412,7 @@ export interface DocumentAccess {
   at: string;
   /** The signed-in person's email, or the API key's name. */
   actor: string;
-  via: 'session' | 'api key';
+  via: 'session' | 'api key' | 'staff app';
   ip?: string;
 }
 

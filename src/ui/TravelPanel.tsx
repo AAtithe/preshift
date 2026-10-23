@@ -62,6 +62,12 @@ export function TravelPanel({ sites, entities, onSetTravelPay, onSetLocation, on
         </button>
       </div>
       {result && <p className="travel-result">{result}</p>}
+      {sites.length - located.length > 0 && (
+        <p className="travel-missing">
+          No postcode for {sites.filter((s) => !siteLocation(s)).map((s) => s.name).join(' and ')}. Moves to and from{' '}
+          {sites.length - located.length === 1 ? 'it' : 'them'} are not checked for time or costed as paid travel until one is set.
+        </p>
+      )}
       <div className="grid-wrap">
         <table className="table travel-table">
           <thead>
@@ -150,8 +156,8 @@ function TravelPayRows({ entities, onSetTravelPay }: Pick<Props, 'entities' | 'o
   function saveAmount(entity: Entity, value: string) {
     const hourly = Math.round(Number(value) * 100) / 100;
     if (!onSetTravelPay || !Number.isFinite(hourly) || hourly < 0 || hourly > 200) return;
-    if (entity.travelPay?.basis === 'fixed' && entity.travelPay.hourly === hourly) return;
-    void onSetTravelPay(entity.id, { basis: 'fixed', hourly });
+    if (entity.travelPay?.basis !== 'fixed' || entity.travelPay.hourly === hourly) return;
+    void onSetTravelPay(entity.id, { basis: 'fixed', hourly, averaging: entity.travelPay.averaging });
   }
 
   return (
@@ -159,11 +165,12 @@ function TravelPayRows({ entities, onSetTravelPay }: Pick<Props, 'entities' | 'o
       <div className="eyebrow">Travel pay</div>
       <p className="muted small">
         A move between sites in a working day is working time, so it is paid and costed to the site travelled to.
-        A fixed rate never pays below the minimum wage for the person's age (£{ADULT_MINIMUM.hourly.toFixed(2)} at 21 and over),
-        so every hour of travel stays legal without relying on the rest of the week.
+        A fixed rate is lifted to the minimum wage for the person's age (£{ADULT_MINIMUM.hourly.toFixed(2)} at 21 and over) on
+        every hour, so travel stays legal on its own. Choose averaging to pay less per hour of travel: the week is then topped
+        up wherever its average pay over work and travel would fall below the minimum, and the top-up is flagged.
       </p>
       {entities.map((entity) => {
-        const basis = entity.travelPay?.basis ?? 'normal';
+        const basis = entity.travelPay?.basis ?? '';
         return (
           <div key={entity.id} className="travel-pay-row">
             <span className="strong">{entity.name}</span>
@@ -174,10 +181,12 @@ function TravelPayRows({ entities, onSetTravelPay }: Pick<Props, 'entities' | 'o
               title={onSetTravelPay ? undefined : 'Set by whoever manages company settings'}
               onChange={(e) => choose(entity, e.target.value as TravelPay['basis'])}
             >
+              {basis === '' && <option value="" disabled>Choose how travel is paid</option>}
               <option value="normal">Their normal rate</option>
               <option value="minimum">Minimum wage for their age</option>
               <option value="fixed">A fixed rate</option>
             </select>
+            {basis === '' && <span className="travel-unchosen small">Not chosen yet: paid at their normal rate until it is.</span>}
             {basis === 'fixed' && entity.travelPay?.basis === 'fixed' && (
               <span className="travel-cell">
                 <span className="muted small">£</span>
@@ -192,6 +201,20 @@ function TravelPayRows({ entities, onSetTravelPay }: Pick<Props, 'entities' | 'o
                 />
                 <span className="muted small">an hour</span>
               </span>
+            )}
+            {basis === 'fixed' && entity.travelPay?.basis === 'fixed' && (
+              <label className="muted small check-inline" title="The law allows a lower travel rate if each pay period's pay averages the minimum wage over work and travel">
+                <input
+                  type="checkbox"
+                  checked={!!entity.travelPay.averaging}
+                  disabled={!onSetTravelPay}
+                  onChange={(e) => {
+                    const t = entity.travelPay;
+                    if (onSetTravelPay && t?.basis === 'fixed') void onSetTravelPay(entity.id, { basis: 'fixed', hourly: t.hourly, averaging: e.target.checked });
+                  }}
+                />{' '}
+                Average to the minimum wage over the week instead
+              </label>
             )}
           </div>
         );

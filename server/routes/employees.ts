@@ -206,6 +206,15 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       // The list of stored copies is the server's: editing the check never adds or drops a file.
       if (req.body.rightToWork) after.rightToWork = { ...req.body.rightToWork, documents: before.rightToWork?.documents ?? [] };
       validateEmployment(org, after);
+      // Deciding the payroll differences settles these fields; changing them first would decide on stale figures.
+      if (before.payrollReview && PAYROLL_FIELDS.some((f) => before[f] !== after[f])) {
+        throw new HttpError(
+          409,
+          'payroll_review',
+          `${before.name}'s record differs from TeamPay. Decide which is right in Payroll before changing their name, date of birth, pay or hours.`,
+          before.payrollReview.differences,
+        );
+      }
       if (before.payrollId && after.entityId !== before.entityId) {
         throw new HttpError(
           409,

@@ -6,6 +6,7 @@ import { backPayFor, payTermsOf, sameTerms } from '../../src/engine/payChanges';
 import { approvalDigest, DEFAULT_PAY_POLICY, nextCutoff, standingOf, type PayPolicy } from '../../src/engine/payPolicy';
 import { addDays } from '../../src/engine/time';
 import { entriesAsShifts } from '../../src/engine/timesheet';
+import { refreshReview } from '../../src/engine/payrollMatch';
 import type { Employee, PayChange, PayChangeStatus, PayChangeSummary, PayTerms } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -48,6 +49,8 @@ const workedShifts = (org: OrgData) => entriesAsShifts(org.timeEntries);
 export function applyTerms(org: OrgData, actor: string, c: PayChange, e: Employee, on: string) {
   const before = { ...e };
   Object.assign(e, c.after);
+  // Linked to TeamPay with pay that differed: once Preshift's pay matches payroll's, nothing is left to decide.
+  if (e.payrollReview) e.payrollReview = refreshReview(e, e.payrollReview);
   c.appliedOn = on;
   const owed = c.effectiveFrom ? backPayFor(c, c.effectiveFrom, on, workedShifts(org), org.state.shifts) : null;
   if (owed) c.backPay = owed;

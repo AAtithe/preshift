@@ -149,6 +149,40 @@ export function accessResetEmail(to: string, resetBy: string, link: string, hour
   return { to, subject: 'Your Preshift password has been reset', text, html: letter([opening, setUp], { label: 'Choose a new password', link }, notes) };
 }
 
+/**
+ * News for a member of staff from the staff app: their rota is out, a shift moved, a request was
+ * decided. Several from one save arrive as one email. Names and times only: never pay, never a
+ * reason for absence, so a shared or forwarded inbox gives nothing away.
+ */
+export function staffNoticeEmail(to: string, name: string, notices: { title: string; body: string }[], link: string): Mail {
+  const lines = notices.flatMap((n) => [n.title, n.body]);
+  const subject = notices.length === 1 ? oneLine(notices[0].title) : `${notices.length} updates from your rota`;
+  const notes = ['Open the staff app to see your shifts, swap a shift, or ask for time off.'];
+  const text = [`Hello ${name},`, '', ...notices.flatMap((n) => [n.title, n.body, '']), link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject, text, html: letter([`Hello ${name},`, ...lines], { label: 'Open the staff app', link }, notes) };
+}
+
+/**
+ * A manager's morning: what staff have asked for that is theirs to decide, sickness to cover and
+ * open shifts still unfilled. Names, dates and times only, never a reason for absence or pay.
+ */
+export function managerDigestEmail(to: string, name: string, count: number, sections: { heading: string; lines: string[] }[], link: string): Mail {
+  const opening = `${count} thing${count === 1 ? '' : 's'} from your team need${count === 1 ? 's' : ''} you today.`;
+  const notes = ['Each is checked again against the rota rules when you decide it, and the person is told straight away.', 'Turn this email off on the Staff requests screen.'];
+  const text = [
+    `Good morning ${name},`, '', opening, '',
+    ...sections.flatMap((s) => [s.heading, ...s.lines.map((l) => `- ${l}`), '']),
+    link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.',
+  ].join('\n');
+  const body = sections.flatMap((s) => [s.heading, ...s.lines]);
+  return {
+    to,
+    subject: `Staff requests: ${count} waiting for you`,
+    text,
+    html: letter([`Good morning ${name},`, opening, ...body], { label: 'Open Staff requests', link }, notes),
+  };
+}
+
 /** The link that confirms a self sign-up: the person proves the inbox is theirs before any account exists. */
 export function signupEmail(to: string, name: string, business: string, link: string, hours: number): Mail {
   const opening = `Thank you for starting a Preshift trial for ${business}.`;

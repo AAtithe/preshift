@@ -1,6 +1,6 @@
 import type { Employee, Entity, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours } from './cost';
-import { travelMinutesInto, travelRate } from './travel';
+import { travelMinutesInto, travelPay, travelRate } from './travel';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -133,6 +133,26 @@ export function payrollHours(
     }
   }
   const out = [...lines.values()].map((l) => ({ ...l, hours: round2(l.hours), travelHours: round2(l.travelHours ?? 0) }));
+  // A company averaging travel below the minimum wage tops the period up on the travel line itself,
+  // so payroll pays exactly what keeps the period's average pay legal. Worked on the rounded hours
+  // payroll pays, so rounding cannot leave the period short.
+  for (const employee of employees) {
+    const mine = out.filter((l) => l.employeeId === employee.id);
+    const travelLines = mine.filter((l) => l.travel);
+    const travelHours = travelLines.reduce((sum, l) => sum + l.hours, 0);
+    if (travelHours <= 0) continue;
+    const work = mine.filter((l) => !l.travel);
+    const { pay, topUp } = travelPay(
+      employee,
+      entities,
+      periodStart,
+      { workHours: work.reduce((sum, l) => sum + l.hours, 0), workPay: work.reduce((sum, l) => sum + l.hours * l.rate, 0), travelHours },
+    );
+    if (topUp <= 0) continue;
+    // Rounded up to the penny: rounding down would leave the period a fraction under.
+    const rate = Math.ceil(((pay + topUp) / travelHours) * 100) / 100;
+    for (const l of travelLines) l.rate = rate;
+  }
   return {
     periodStart,
     periodEnd,

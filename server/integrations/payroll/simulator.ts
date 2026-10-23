@@ -3,7 +3,7 @@ import { UK_RATES_2026_27 } from '../../../src/engine/ukRates';
 import { weekOnCosts } from '../../../src/engine/cost';
 import type { Employee } from '../../../src/engine/types';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
-import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider } from './provider';
+import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
 import { signHmac, verifyHmac } from './teampay';
 
 /**
@@ -45,6 +45,38 @@ export class TeamPaySimulator implements PayrollProvider {
       this.employees.set(id, { ...e, payrollId: id, employerId });
       return { payrollId: id };
     });
+  }
+
+  async listEmployees(employerId: string): Promise<PayrollRecord[]> {
+    if (this.failNext > 0) {
+      this.failNext--;
+      throw new PayrollError('Simulated TeamPay outage', true, 503);
+    }
+    return [...this.employees.values()]
+      .filter((e) => e.employerId === employerId)
+      .map(({ employerId: _employer, siteId: _site, irregularHours: _irregular, pensionEnrolled: _pension, ...e }) => e);
+  }
+
+  /** Puts a person on the simulated payroll as if they were there before Preshift, for linking demos and tests. */
+  addExisting(employerId: string, record: Omit<PayrollRecord, 'payrollId'> & { payrollId?: string }) {
+    const payrollId = record.payrollId ?? `tp_emp_${randomUUID().slice(0, 8)}`;
+    this.employees.set(payrollId, {
+      externalRef: record.externalRef ?? '',
+      name: record.name,
+      dateOfBirth: record.dateOfBirth ?? '',
+      siteId: '',
+      payBasis: record.payBasis ?? 'hourly',
+      hourlyRate: record.hourlyRate ?? 0,
+      annualSalary: record.annualSalary ?? 0,
+      contractedHours: record.contractedHours ?? 0,
+      irregularHours: !record.contractedHours,
+      pensionEnrolled: true,
+      startDate: record.startDate,
+      payrollId,
+      employerId,
+      leaveDate: record.leaveDate,
+    });
+    return payrollId;
   }
 
   async markLeaver(employerId: string, payrollId: string, leaveDate: string, key: string) {

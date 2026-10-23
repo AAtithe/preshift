@@ -114,7 +114,7 @@ export function AbsenceView({ state, siteIds, today, onOpen, onSaveAbsence }: Pr
               {spells.map(({ e, a }) => {
                 const days = absenceDays(a, today);
                 const todo = [
-                  a.type === 'sickness' && days > FIT_NOTE_AFTER_DAYS && !a.fitNote && 'Fit note',
+                  a.type === 'sickness' && days > FIT_NOTE_AFTER_DAYS && !a.fitNote && !a.fitNotes?.length && 'Fit note',
                   (a.type === 'sickness' || a.type === 'unauthorised') && a.to && a.to < today && !a.returnToWorkOn && 'Return to work',
                 ].filter(Boolean);
                 return (

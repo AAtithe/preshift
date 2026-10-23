@@ -396,14 +396,17 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete<{ Params: { id: string; absenceId: string } }>(
     '/v1/employees/:id/absences/:absenceId',
-    { ...write, schema: { tags, params: absenceParams } },
+    { ...write, schema: { tags, params: absenceParams }, onResponse: deleteCopiesOnSave(ctx) },
     async (req) => {
       const org = orgOf(req);
       const e = findEmployee(org, req.params.id);
       const g = guardOf(req);
       mayManage(g, e);
-      if (!e.absences?.some((a) => a.id === req.params.absenceId)) throw notFound(`Absence ${req.params.absenceId}`);
-      e.absences = e.absences.filter((a) => a.id !== req.params.absenceId);
+      const gone = e.absences?.find((a) => a.id === req.params.absenceId);
+      if (!gone) throw notFound(`Absence ${req.params.absenceId}`);
+      e.absences = e.absences!.filter((a) => a.id !== req.params.absenceId);
+      // Its fit notes go with it, once the change has saved.
+      deleteCopiesAfterSave(req, (gone.fitNotes ?? []).map((d) => ({ employeeId: e.id, documentId: d.id })));
       audit(org, actorName(g), 'hr.absence.deleted', { id: e.id, absenceId: req.params.absenceId });
       return shown(req, g, e);
     },
