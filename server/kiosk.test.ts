@@ -147,13 +147,17 @@ describe('kiosk PINs', () => {
     expect((await t.call('GET', '/v1/kiosk/board', undefined, t.kiosk)).body).toMatchObject({ pinRequired: true, people: [{ hasPin: false }] });
     expect((await clock('in')).body.error).toBe('no_pin');
 
+    // Never stored in the clear: not on the record, not in organisation data. The demo data already holds
+    // four digit values (an intercompany code is 1351), so the check is that issuing the PIN added no copy
+    // of it, not that the value appears nowhere, or a random PIN that matches one fails the test.
+    const before = JSON.stringify(await t.store.load('demo'));
     const issued = await t.call('POST', '/v1/employees/mar-1/kiosk-pin', undefined, undefined, 'integration');
     expect(issued.status).toBe(201);
     const pin = issued.body.pin as string;
     expect(pin).toMatch(/^\d{4}$/);
-    // Never stored in the clear: not on the record, not in organisation data.
     const org = await t.store.load('demo');
-    expect(JSON.stringify(org)).not.toContain(`"${pin}"`);
+    const copies = (json: string) => json.split(`"${pin}"`).length - 1;
+    expect(copies(JSON.stringify(org))).toBe(copies(before));
     expect(org.state.employees.find((e) => e.id === 'mar-1')).toMatchObject({ kioskPinSetBy: 'manager', kioskPinSetAt: expect.any(String) });
 
     expect((await clock('in')).body.error).toBe('pin_required');
