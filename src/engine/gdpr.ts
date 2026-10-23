@@ -351,6 +351,7 @@ export function processingRegister(
   staffLogins: number,
   flags: ProcessingFlags,
   policy: RetentionPolicy = DEFAULT_RETENTION,
+  supportTickets = 0,
   welfare: WelfareHeld = { pulses: 0, recognitions: 0, chats: 0, members: 0 },
 ): { activities: ProcessingActivity[]; processors: Processor[] } {
   const live = state.employees.filter((e) => !e.anonymisedOn);
@@ -476,6 +477,15 @@ export function processingRegister(
       recipients: 'None',
       retention: 'Accounts until removed; the last 5,000 audit events',
       held: 0,
+    },
+    {
+      activity: 'Support tickets',
+      purpose: 'Answering questions and fixing problems reported to Williams, Stanley & Co.',
+      lawfulBasis: 'Contract (6(1)(b))',
+      categories: 'Name of the manager who raised it, what they wrote, the screen, site and week it was raised from, replies',
+      recipients: "The client's WS client partner (notified by email through Resend)",
+      retention: 'Two years after the ticket is closed, then deleted',
+      held: supportTickets,
     },
   ];
 

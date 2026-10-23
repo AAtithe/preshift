@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatPence, type Interval, type Quote } from '../engine/pricing';
 import { api, ApiError } from './api';
 
 // Billing, for an organisation that signed itself up: the trial, the subscription and the sites paid
@@ -17,9 +18,10 @@ export interface BillingStanding {
 
 interface Billing extends BillingStanding {
   stripe: boolean;
-  price: { amountPence: number; currency: string; interval: string } | null;
+  quotes: { month: Quote; year?: Quote } | null;
+  pricing: { selfServeMaxSites: number; annualMonthsCharged: number } | null;
   sites: { now: number; billed: number | null };
-  subscription: { status: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean } | null;
+  subscription: { status: string | null; interval: Interval | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean } | null;
   lastInvoice: { status: 'paid' | 'failed'; amountPence: number; currency: string; at: string; url?: string } | null;
   canSubscribe: boolean;
   canManage: boolean;
@@ -46,6 +48,7 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
       : null,
   );
   const [busy, setBusy] = useState(false);
+  const [interval, setPeriod] = useState<Interval>('month');
 
   const refresh = useCallback(async () => {
     try {
@@ -59,11 +62,11 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
   }, [canSettings, refresh]);
 
   /** Checkout and the portal are Stripe's own pages: the browser goes there and comes back. */
-  async function goTo(path: string) {
+  async function goTo(path: string, body?: unknown) {
     setBusy(true);
     setMessage(null);
     try {
-      const { url } = await api.post<{ url: string }>(path);
+      const { url } = await api.post<{ url: string }>(path, body);
       location.assign(url);
     } catch (e) {
       setMessage({ text: problem(e), bad: true });
@@ -98,8 +101,8 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
   if (!billing) return <div className="settings">{message ? <p className="small bad-text">{message.text}</p> : <p className="muted small">Loading billing...</p>}</div>;
 
   const s = STANDING[billing.standing];
-  const price = billing.price;
-  const perSite = price ? `${money(price.amountPence, price.currency)} per site a ${price.interval}, plus VAT` : null;
+  const chosen = (interval === 'year' && billing.quotes?.year) || billing.quotes?.month;
+  const group = !!chosen?.groupPlan;
   const sitesOut = billing.subscription && billing.sites.billed !== null && billing.sites.billed !== billing.sites.now;
 
   return (
@@ -124,7 +127,7 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
           <p className="small">
             {billing.subscription.cancelAtPeriodEnd
               ? `Cancelled. Everything works until ${day(billing.subscription.currentPeriodEnd)}, then changes pause and everything stays readable. Restart it from Manage billing.`
-              : `Paying for ${plural(billing.sites.billed ?? 1, 'site')}. ${billing.subscription.status === 'trialing' ? `The first payment is taken on ${day(billing.trialEndsAt)}.` : `Renews on ${day(billing.subscription.currentPeriodEnd)}.`}`}
+              : `Paying ${billing.subscription.interval === 'year' ? 'yearly' : 'monthly'} for ${plural(billing.sites.billed ?? 1, 'site')}. ${billing.subscription.status === 'trialing' ? `The first payment is taken on ${day(billing.trialEndsAt)}.` : `Renews on ${day(billing.subscription.currentPeriodEnd)}.`}`}
           </p>
         )}
         {billing.standing === 'past_due' && (
@@ -146,11 +149,30 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
 
         {billing.standing !== 'managed' && (
           <>
-            {perSite && <p className="small muted">{perSite}. You have {plural(billing.sites.now, 'site')} set up.</p>}
+            {billing.canSubscribe && chosen && (
+              <>
+                <h3 className="settings-sub">Your price</h3>
+                {billing.quotes?.year && (
+                  <div className="segmented" role="radiogroup" aria-label="Billing period">
+                    <button role="radio" aria-checked={interval === 'month'} className={interval === 'month' ? 'active' : ''} onClick={() => setPeriod('month')}>Monthly</button>
+                    <button role="radio" aria-checked={interval === 'year'} className={interval === 'year' ? 'active' : ''} onClick={() => setPeriod('year')}>
+                      Yearly, {12 - (billing.pricing?.annualMonthsCharged ?? 10)} months free
+                    </button>
+                  </div>
+                )}
+                <Breakdown quote={chosen} />
+                {group && (
+                  <p className="small">
+                    You have {plural(chosen.sites, 'site')}. Groups of more than {billing.pricing?.selfServeMaxSites} sites are on a group plan agreed
+                    with us: email <a href="mailto:hello@preshift.co.uk?subject=Preshift%20group%20plan">hello@preshift.co.uk</a>.
+                  </p>
+                )}
+              </>
+            )}
             <div className="settings-form">
-              {billing.canSubscribe && (
-                <button className="primary" disabled={busy} onClick={() => void goTo('/v1/billing/checkout')}>
-                  {billing.locked ? 'Subscribe and carry on' : 'Subscribe'}
+              {billing.canSubscribe && !group && (
+                <button className="primary" disabled={busy} onClick={() => void goTo('/v1/billing/checkout', { interval })}>
+                  {billing.locked ? 'Subscribe and carry on' : `Subscribe ${interval === 'year' ? 'yearly' : 'monthly'}`}
                 </button>
               )}
               {billing.canManage && (
@@ -187,6 +209,26 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
         {message && <p className={`small ${message.bad ? 'bad-text' : 'muted'}`}>{message.text}</p>}
       </section>
     </div>
+  );
+}
+
+/** The quote band by band, then VAT and the total, as the invoice will show it. */
+function Breakdown({ quote }: { quote: Quote }) {
+  const per = quote.interval === 'year' ? 'a year' : 'a month';
+  return (
+    <table className="billing-quote small">
+      <tbody>
+        {quote.lines.map((l, i) => (
+          <tr key={i}>
+            <td>{plural(l.sites, 'site')} at {formatPence(l.unitPence)} {per}</td>
+            <td>{formatPence(l.amountPence)}</td>
+          </tr>
+        ))}
+        <tr><td>VAT at 20%</td><td>{formatPence(quote.vatPence)}</td></tr>
+        <tr className="total"><td>Total {per}</td><td>{formatPence(quote.grossPence)}</td></tr>
+        <tr><td className="muted" colSpan={2}>Works out at {formatPence(quote.perSitePerMonthPence)} per site a month before VAT. Prices are per site, never per member of staff.</td></tr>
+      </tbody>
+    </table>
   );
 }
 

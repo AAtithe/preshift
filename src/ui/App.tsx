@@ -25,6 +25,7 @@ import { WeekPicker } from './WeekPicker';
 import { GroupView } from './GroupView';
 import { HolidayView } from './HolidayView';
 import { HowToView } from './HowToView';
+import { SupportView } from './SupportView';
 import { AbsenceView } from './AbsenceView';
 import { RequestsView } from './RequestsView';
 import { HrFile, type HrSection } from './HrFile';
@@ -639,6 +640,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
+              {shown === 'support' && <SupportView me={me?.user?.name ?? null} context={{ siteId: single?.id, week }} onOpen={(t) => setTab(t as Tab)} />}
             </main>
 
             <footer className="foot">

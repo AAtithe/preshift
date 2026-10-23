@@ -409,19 +409,89 @@
       <section class="tint" id="pricing">
         <div class="wrap">
           <div class="eyebrow">08 &middot; Pricing</div>
-          <h2 class="h-section">Three ways to <span class="s">get started.</span></h2>
-          <p class="lede">Done for you by Preshift and WS onboarding. No consultancy-led six-month implementation.</p>
+          <h2 class="h-section">Per site. <span class="s">Never per head.</span></h2>
+          <p class="lede">
+            Everything is included at every site: the rota built from your forecast, the compliance engine, clock-in and the staff
+            app, holiday and HR, payroll hours and the labour accrual. Hire for the summer without the bill going up. 14 days free,
+            no card. Prices exclude VAT.
+          </p>
+
+          <div class="card calc reveal" id="price-calc">
+            <div class="calc-inputs">
+              <label>
+                <span class="mono">Sites <output id="o-sites">1 site</output></span>
+                <input type="range" id="i-sites" min="1" max="21" step="1" value="1" />
+              </label>
+              <label class="calc-switch"><input type="checkbox" id="i-yearly" /> Pay yearly, two months free</label>
+              <table class="calc-table" aria-label="Price per site">
+                <tbody>
+                  <tr><td>Sites 1 to 5</td><td><span id="p-band-1">£119</span> per site a month</td></tr>
+                  <tr><td>Sites 6 to 20</td><td><span id="p-band-2">£99</span> per site a month</td></tr>
+                  <tr><td>More than 20 sites</td><td>Group plan</td></tr>
+                </tbody>
+              </table>
+              <p class="fineprint">Each site is charged at the rate of its band, so adding a site never makes the others dearer.</p>
+            </div>
+            <div class="calc-out" aria-live="polite">
+              <div id="price-self">
+                <div class="calc-compare">
+                  <div>
+                    <span class="mono">Per site a month</span>
+                    <div class="calc-big" id="q-per-site">£119</div>
+                  </div>
+                  <div>
+                    <span class="mono" id="q-period-label">Total a month</span>
+                    <div class="calc-big" id="q-net">£119</div>
+                  </div>
+                </div>
+                <table class="calc-table">
+                  <tbody id="q-lines"></tbody>
+                  <tbody>
+                    <tr><td>VAT at 20%</td><td id="q-vat">£23.80</td></tr>
+                    <tr class="total"><td id="q-total-label">Total a month with VAT</td><td id="q-gross">£142.80</td></tr>
+                  </tbody>
+                </table>
+                <p class="calc-verdict" id="q-payback"></p>
+                <a class="btn btn-ink" href="/login#start">Start a 14 day free trial <svg><use href="#arrow" /></svg></a>
+              </div>
+              <div id="price-group" hidden>
+                <span class="mono">More than 20 sites</span>
+                <div class="calc-big">Group plan</div>
+                <p class="calc-verdict">
+                  A group your size wants a contract, a single invoice across companies and onboarding run with you, not a card form.
+                  We agree a per site rate below our published one.
+                </p>
+                <a class="btn btn-ink" href="#contact">Talk to us <svg><use href="#arrow" /></svg></a>
+              </div>
+            </div>
+          </div>
 
           <div class="grid-3">
+            <article class="card top-sage price reveal">
+              <div class="price-head"><h3>Standalone.</h3><svg><use href="#arrow-ne" /></svg></div>
+              <div class="price-body">
+                <p class="lead">From &pound;119 per site a month.</p>
+                <p>Sign up yourself, set up your sites and pay by card or yearly. Month to month after the free trial.</p>
+                <ul>
+                  <li>Everything included, every site</li>
+                  <li>VAT invoices, cancel any time</li>
+                  <li>Two months free paying yearly</li>
+                </ul>
+                <div class="price-foot">
+                  <span class="mono">14 days free, no card</span>
+                  <a href="/login#start">Start a free trial &rarr;</a>
+                </div>
+              </div>
+            </article>
             <article class="card top-coral price reveal">
               <div class="price-head"><h3>Founding sites.</h3><svg><use href="#arrow-ne" /></svg></div>
               <div class="price-body">
-                <p class="lead">Shape the product with us.</p>
+                <p class="lead">30% off for two years.</p>
                 <p>A small group of multi-site operators going live first, with direct access to the people building it.</p>
                 <ul>
                   <li>Set up and onboarded for you</li>
                   <li>Weekly variance review with WS</li>
-                  <li>Founding pricing, locked in</li>
+                  <li>Standalone price less 30% for 24 months</li>
                 </ul>
                 <div class="price-foot">
                   <span class="mono">Limited places</span>
@@ -445,23 +515,11 @@
                 </div>
               </div>
             </article>
-            <article class="card top-sage price reveal">
-              <div class="price-head"><h3>Standalone.</h3><svg><use href="#arrow-ne" /></svg></div>
-              <div class="price-body">
-                <p class="lead">Per site, per month.</p>
-                <p>Through Preshift, alongside Preshift Reports and Core. Exports to the ledger and payroll you already use.</p>
-                <ul>
-                  <li>Forecast from your Preshift data</li>
-                  <li>Xero journal and payroll hours file</li>
-                  <li>Month-to-month</li>
-                </ul>
-                <div class="price-foot">
-                  <span class="mono">Priced per site</span>
-                  <a href="#contact">Get a quote &rarr;</a>
-                </div>
-              </div>
-            </article>
           </div>
+          <p class="fineprint">
+            Payroll runs in your own TeamPay account, billed by TeamPay. The rota assistant uses your own Claude API key, with spending
+            limits you set. Prices exclude VAT at 20%.
+          </p>
         </div>
       </section>
 
@@ -499,6 +557,28 @@
               <p>
                 The labour accrual exports in Xero manual journal format, by role nominal and site tracking category, with an
                 hours file for payroll. Further payroll exports are on the roadmap for the payrolls WS clients run.
+              </p>
+            </details>
+            <details>
+              <summary>Why per site and not per member of staff?</summary>
+              <p>
+                Hospitality hires for the summer, for Christmas and for every new opening, and turns staff over fast. A price per head
+                charges you for exactly the flexibility a rota exists to manage. Per site, your bill follows your estate, not your
+                headcount.
+              </p>
+            </details>
+            <details>
+              <summary>What happens when the free trial ends?</summary>
+              <p>
+                Subscribe at any point in the trial and you are not charged until it ends. If you do not, changes pause and everything
+                stays readable, so your staff records and pay history are never held back. Subscribing picks up exactly where you left off.
+              </p>
+            </details>
+            <details>
+              <summary>Can I cancel?</summary>
+              <p>
+                Yes, from Billing at any time. Monthly plans run to the end of the month you have paid for; yearly plans to the end of
+                the year. After that everything stays readable, so your records are never held back.
               </p>
             </details>
             <details>

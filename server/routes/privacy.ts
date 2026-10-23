@@ -84,6 +84,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         rewards: org.welfare?.rewards?.environment === 'production',
       },
       policyOf(org),
+      org.support?.tickets.length ?? 0,
       welfareHeld(org),
     );
   });
@@ -171,6 +172,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           rewards: org.welfare?.rewards?.environment === 'production',
         },
         policyOf(org),
+        org.support?.tickets.length ?? 0,
         welfareHeld(org),
       );
       const about = (detail?: Record<string, unknown>) => detail?.id === e.id || detail?.employeeId === e.id;
