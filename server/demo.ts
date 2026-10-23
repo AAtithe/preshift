@@ -2,13 +2,15 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { seedHrRecords, seedState } from '../src/engine/seed';
+import { seedHistory, seedLiveDay, tradeLiveDay } from '../src/engine/seedHistory';
+import { londonParts } from '../src/engine/time';
 import { sessionUser } from './auth';
 import { HttpError } from './context';
 import { hashPassword } from './passwords';
 import { isSandbox, londonDate, nextLondonMidnight, sandboxExpired, sandboxId } from './sandbox';
 import { seedUsers } from './seedUsers';
 import { createSession, SESSION_SECONDS, sessionCookie } from './session';
-import { audit, type Store } from './store';
+import { audit, type OrgData, type Store } from './store';
 
 // The public demo, on the live system alongside customers. Anyone who presses "Start the demo" gets
 // a sandbox organisation of their own, seeded with the demo group, and is signed in as its admin
@@ -68,6 +70,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/open-shifts/:id/next': true,
   'GET /v1/hr/records': true,
   'GET /v1/time-entries': true,
+  // Tips and cost of sales: read-only, the sandbox's own.
+  'GET /v1/tronc': true,
+  'GET /v1/prime': true,
+  // The sandbox's own scheme: nothing leaves it, so a visitor can try changing the allocation.
+  'PUT /v1/tronc/schemes/:siteId': true,
+  'POST /v1/tronc/tips/paid': true,
+  'PUT /v1/tronc/tips': true,
   'GET /v1/time-entries/break-check': true,
   'GET /v1/time-entries/compare': true,
   'GET /v1/integrations/payroll': true,
@@ -277,6 +286,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/integrations/epos/locations': false,
   'PUT /v1/integrations/epos/mapping': false,
   'POST /v1/integrations/epos/sync': false,
+  'POST /v1/integrations/epos/resync': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.
@@ -408,6 +418,21 @@ export function sandboxGuard(enabled: boolean) {
   };
 }
 
+/**
+ * Keeps a sandbox's day trading. A sandbox lasts until midnight, but its till takings were written
+ * when it was made, so one opened before the sites opened would show no trade all day and the cut
+ * call would never have a call to make. Each read of the takings adds the hours since traded.
+ * Returns whether anything was added; customers are untouched.
+ */
+export function keepSandboxTrading(org: OrgData, now: Date): boolean {
+  if (!isSandbox(org.orgId) || sandboxExpired(org.orgId, now.getTime())) return false;
+  const live = londonParts(now);
+  const sales = tradeLiveDay(org.state, live.date, live.minute);
+  if (!sales) return false;
+  org.state.sales = sales;
+  return true;
+}
+
 interface DayCounters {
   sandboxes: number;
   addresses: Record<string, number>;
@@ -531,7 +556,11 @@ export function demoRoutes(app: FastifyInstance, store: Store, options: { enable
     const orgId = sandboxId(now, randomBytes(6).toString('hex'));
     if (await store.has(orgId)) throw new HttpError(409, 'conflict', 'Try again.');
     const org = await store.load(orgId);
-    org.state = seedState();
+    // The sample group with its trading history, and today traded up to now so the cut call has a day to read.
+    const live = londonParts(new Date(now));
+    const history = seedHistory(seedState(live.date), live.date);
+    org.state = seedLiveDay(history.state, live.date, live.minute);
+    org.timeEntries = history.timeEntries;
     org.hrRecords = seedHrRecords();
     // The demo's fictional team, so the Access tab has people to show. None of them can sign in:
     // they have no accounts. The visitor has no record, so they hold the sandbox's full access.

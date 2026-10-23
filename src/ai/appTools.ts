@@ -22,7 +22,8 @@ import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil,
 // Kept in step with Tab in src/ui/nav.ts; appTools.test.ts checks they match.
 export const SCREENS = [
   'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
-  'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'billing', 'requests', 'messages',
+  'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'billing', 'requests',
+  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 

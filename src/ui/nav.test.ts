@@ -84,6 +84,21 @@ describe('who sees which sections', () => {
     expect(offered(rota, allowFor(gm), ['b', 'c'])).toBe(false);
   });
 
+  it('offers money worked from clocked hours only with both the hours and the cost', () => {
+    const costed = ['Cut call', 'Clocked vs rota', 'Tronc', 'Prime cost', 'Compliance risk'];
+    // A GM holds both at their site, and only there.
+    const gm = person('general_manager', ['a']);
+    expect(seen(gm)).toEqual(expect.arrayContaining(costed));
+    expect(sitesFor(NAV_ITEMS.find((t) => t.id === 'tronc')!, allowFor(gm), SITES)).toEqual(['a']);
+    // Finance reads the hours through payroll.
+    expect(seen(person('finance_director'))).toEqual(expect.arrayContaining(costed));
+    // Cost without the hours, or the hours without cost: the API would refuse half of it.
+    for (const role of ['viewer', 'supervisor']) for (const label of [...costed, 'Retention']) expect(seen(person(role, role === 'supervisor' ? ['a'] : null))).not.toContain(label);
+    // Retention also reads personnel files.
+    expect(seen(person('area_manager', ['a']))).toContain('Retention');
+    expect(seen(person('finance_director'))).not.toContain('Retention');
+  });
+
   it('withholds what needs an authenticator from someone who has not set one up', () => {
     const owner = { ...person('owner'), mfaEnrolled: false };
     const shown = seen(owner);

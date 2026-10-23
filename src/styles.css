@@ -1293,6 +1293,27 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
   .client-add .form .span2 { grid-column: auto; }
 }
 
+/* Clocked vs rota, cut call, tronc, prime cost, compliance risk and retention. */
+.actuals .intro, .cut-call .intro, .tronc .intro, .prime .intro, .risk .intro, .retention .intro { max-width: 860px; margin: 0 0 12px; }
+.bench-grid, .tronc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+.tronc-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+.bench-grid > .panel, .tronc-grid > .panel { padding: 14px 16px; }
+.grid-wrap.flat { max-height: none; }
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.score-head { min-width: 110px; }
+.score { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.score-bar { display: block; height: 100%; background: var(--muted); }
+.score-bar.bad { background: var(--bad-fill); }
+.score-bar.warn { background: var(--warn-fill); }
+.score-bar.good { background: var(--good-fill); }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tips-taken { padding: 14px 16px; margin-top: 12px; overflow-x: auto; }
+.tips-taken td:first-child { white-space: nowrap; }
+.tips-taken input[type='number'] { width: 110px; text-align: right; }
+.tips-taken .till-mark { display: inline-block; margin-right: 6px; padding: 1px 5px; border-radius: 6px; font: 500 10px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: var(--surface-2); vertical-align: middle; }
+@media (max-width: 900px) {
+  .bench-grid, .tronc-grid { grid-template-columns: minmax(0, 1fr); }
+}
 /* Staff requests: posting an open shift. */
 .requests-post { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
 .requests-post label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
