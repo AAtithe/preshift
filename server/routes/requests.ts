@@ -17,7 +17,7 @@ import { hasScope, requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { managerDigests } from '../digest';
-import { emailNotifications, notify, syncTold } from '../notify';
+import { deliverNotifications, notify, syncTold } from '../notify';
 import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { readsHr } from './hr';
@@ -490,7 +490,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
 
   /** Saves the person's change, emailing anyone it tells, and returns what their phone shows next. */
   async function done(org: OrgData, body: unknown) {
-    await emailNotifications(store, org);
+    await deliverNotifications(store, org);
     await store.save(org);
     return body;
   }

@@ -1072,6 +1072,8 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .section-inline { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .hr-records { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
 .hr-records > li { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.hr-files { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.hr-files label.link { cursor: pointer; }
 .hr-record-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hr-notes { margin: 6px 0 0; white-space: pre-wrap; font-size: 13px; }
 .status-bad { background: var(--bad-bg); color: var(--bad); }
@@ -1456,4 +1458,12 @@ button.cover-cell:hover { filter: brightness(0.88); box-shadow: inset 0 0 0 2px 
   .rest-grid { grid-template-columns: 96px minmax(420px, 1fr) auto; }
   .dot-row { grid-template-columns: 1fr; gap: 2px; }
   .dot-max { display: none; }
+}
+
+/* Held in place of a screen while its chunk arrives: a thin bar, fading in only if the wait is noticeable. */
+.screen-loading { position: relative; height: 3px; max-width: 220px; margin: 48px auto; border-radius: 3px; overflow: hidden; background: var(--rule); animation: screen-loading-in 300ms ease-out both; }
+.screen-loading span { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: var(--ink); animation: splash-slide 1.1s ease-in-out infinite; }
+@keyframes screen-loading-in { 0%, 50% { opacity: 0; } 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .screen-loading, .screen-loading span { animation: none; }
 }

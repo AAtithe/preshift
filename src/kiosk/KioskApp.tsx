@@ -11,12 +11,15 @@ interface Person {
   shift: { start: number; end: number } | null;
   status: Status;
   since: number | null;
+  hasPin: boolean;
 }
 
 interface Board {
   kiosk: { name: string };
   site: { id: string; name: string };
   today: string;
+  /** Signing in by name needs the person's PIN at this site. */
+  pinRequired: boolean;
   people: Person[];
 }
 
@@ -102,6 +105,10 @@ export function KioskApp() {
   const [view, setView] = useState<'loading' | 'unpaired' | 'ready' | 'offline'>('loading');
   const [banner, setBanner] = useState<Banner | null>(null);
   const [picked, setPicked] = useState<Person | null>(null);
+  // With a PIN required, the chosen action waits here for the PIN pad.
+  const [pending, setPending] = useState<{ action: Action; label: string } | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [card, setCard] = useState('');
   const [now, setNow] = useState(new Date());
@@ -152,19 +159,53 @@ export function KioskApp() {
     timers.current.banner = setTimeout(() => setBanner(null), 7000);
   };
 
+  const closeSheet = () => {
+    setPicked(null);
+    setPending(null);
+    setPin('');
+    setPinError(null);
+  };
+
   async function run(fn: () => Promise<Result>) {
     setBusy(true);
     try {
       const res = await fn();
       setBoard(res.board);
       show({ tone: 'good', text: resultText(res) });
+      closeSheet();
     } catch (e) {
-      if (e instanceof Problem && e.status === 401) setView('unpaired');
-      show({ tone: 'bad', text: say(e) });
+      // A wrong PIN keeps the pad open for another go; anything else closes the sheet and says why.
+      if (e instanceof Problem && (e.code === 'wrong_pin' || e.code === 'pin_required')) {
+        setPin('');
+        setPinError(e.message);
+      } else {
+        if (e instanceof Problem && e.code === 'not_paired') setView('unpaired');
+        show({ tone: 'bad', text: say(e) });
+        closeSheet();
+      }
     } finally {
       setBusy(false);
-      setPicked(null);
     }
+  }
+
+  const clockByName = (person: Person, action: Action, withPin?: string) =>
+    run(() => call<Result>('POST', '/v1/kiosk/clock', { employeeId: person.id, action, ...(withPin ? { pin: withPin } : {}) }));
+
+  function choose(person: Person, a: { action: Action; label: string }) {
+    if (!board?.pinRequired) return void clockByName(person, a.action);
+    setPending(a);
+    setPin('');
+    setPinError(null);
+    pick(person);
+  }
+
+  function press(key: string) {
+    if (!picked || !pending || busy) return;
+    // Each key restarts the walk-away timer, so a slow typist is not cut off.
+    pick(picked);
+    if (key === 'back') return setPin((p) => p.slice(0, -1));
+    if (key === 'ok') return pin.length >= 4 ? void clockByName(picked, pending.action, pin) : undefined;
+    setPin((p) => (p.length < 6 ? p + key : p));
   }
 
   const tap = (raw: string) => {
@@ -183,7 +224,7 @@ export function KioskApp() {
     setPicked(person);
     clearTimeout(timers.current.sheet);
     // Walked away mid-choice: the sheet closes itself so the next person starts clean.
-    timers.current.sheet = setTimeout(() => setPicked(null), 20_000);
+    timers.current.sheet = setTimeout(closeSheet, 20_000);
   }
 
   async function startNfc() {
@@ -277,23 +318,52 @@ export function KioskApp() {
       <footer className="kiosk-foot muted">Kiosk: {board.kiosk.name}</footer>
 
       {picked && (
-        <div className="kiosk-sheet-backdrop" onClick={(e) => e.target === e.currentTarget && setPicked(null)}>
+        <div className="kiosk-sheet-backdrop" onClick={(e) => e.target === e.currentTarget && closeSheet()}>
           <div className="kiosk-sheet" role="dialog" aria-modal="true" aria-label={picked.name}>
             <h2>{picked.name}</h2>
-            <p className="muted">{STATUS_TEXT[picked.status](picked)}</p>
-            <div className="kiosk-sheet-actions">
-              {ACTIONS[picked.status].map((a) => (
-                <button
-                  key={a.action}
-                  className={`kiosk-button ${a.primary ? 'primary' : ''}`}
-                  disabled={busy}
-                  onClick={() => void run(() => call<Result>('POST', '/v1/kiosk/clock', { employeeId: picked.id, action: a.action }))}
-                >
-                  {a.label}
-                </button>
-              ))}
-              <button className="kiosk-button ghost" onClick={() => setPicked(null)}>Not me</button>
-            </div>
+            {pending ? (
+              <>
+                <p className="muted">{pending.label}: enter your PIN</p>
+                <div className="kiosk-pin-dots" aria-live="polite" aria-label={`${pin.length} digits entered`}>
+                  {Array.from({ length: Math.max(4, pin.length) }, (_, i) => <span key={i} className={i < pin.length ? 'on' : ''} />)}
+                </div>
+                {pinError && <p className="kiosk-pin-error" role="alert">{pinError}</p>}
+                <div className="kiosk-pad">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'ok'].map((k) => (
+                    <button
+                      key={k}
+                      className={`kiosk-key ${k === 'ok' ? 'primary' : ''}`}
+                      disabled={busy || (k === 'ok' && pin.length < 4)}
+                      onClick={() => press(k)}
+                      aria-label={k === 'back' ? 'Delete' : k === 'ok' ? 'Done' : k}
+                    >
+                      {k === 'back' ? 'Delete' : k === 'ok' ? 'Done' : k}
+                    </button>
+                  ))}
+                </div>
+                <button className="kiosk-button ghost" onClick={closeSheet}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <p className="muted">{STATUS_TEXT[picked.status](picked)}</p>
+                {board.pinRequired && !picked.hasPin && (
+                  <p className="kiosk-pin-error">You need a PIN to sign in by name here. Set one in the staff app, ask a manager, or use your card.</p>
+                )}
+                <div className="kiosk-sheet-actions">
+                  {ACTIONS[picked.status].map((a) => (
+                    <button
+                      key={a.action}
+                      className={`kiosk-button ${a.primary ? 'primary' : ''}`}
+                      disabled={busy || (board.pinRequired && !picked.hasPin)}
+                      onClick={() => choose(picked, a)}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                  <button className="kiosk-button ghost" onClick={closeSheet}>Not me</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

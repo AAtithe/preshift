@@ -39,13 +39,26 @@ describe('absence', () => {
 
   it('scores the Bradford factor on spells squared times days, leaving out protected absence', () => {
     const six = Array.from({ length: 6 }, (_, i) => sick(`2026-0${i + 1}-10`, `2026-0${i + 1}-10`));
-    expect(bradfordFactor(person({ absences: six }), TODAY)).toEqual({ spells: 6, days: 6, score: 216 });
+    expect(bradfordFactor(person({ absences: six }), TODAY)).toEqual({ spells: 6, days: 6, score: 216, basis: 'calendar' });
     expect(bradfordFactor(person({ absences: [sick('2026-03-01', '2026-03-06')] }), TODAY).score).toBe(6);
     const excluded = six.map((a) => ({ ...a, excludeFromTriggers: true }));
     expect(bradfordFactor(person({ absences: excluded }), TODAY).score).toBe(0);
     // Older than 52 weeks and statutory leave never count.
     const other = [sick('2025-01-10', '2025-01-11'), { id: 'f', type: 'family' as const, from: '2026-05-01', to: '2026-08-01' }];
     expect(bradfordFactor(person({ absences: other }), TODAY).score).toBe(0);
+  });
+
+  it('counts working days on the person\'s rota pattern, not calendar days', () => {
+    // Works Thursday to Saturday. Off sick Wednesday 2026-09-02 to Tuesday 2026-09-08: seven calendar days, three working days.
+    const e = person({ absences: [sick('2026-09-02', '2026-09-08')] });
+    const shift = (date: string) => ({ id: date, employeeId: 'p1', roleId: 'server', siteId: 'mar', date, startMinute: 600, endMinute: 900, breakMinutes: 0 });
+    const shifts = ['2026-08-20', '2026-08-21', '2026-08-22', '2026-08-27', '2026-08-28', '2026-08-29'].map(shift);
+    expect(bradfordFactor(e, TODAY)).toMatchObject({ days: 7, score: 7, basis: 'calendar' });
+    expect(bradfordFactor(e, TODAY, shifts)).toEqual({ spells: 1, days: 3, score: 3, basis: 'working' });
+    // Nothing on the rota: Monday to Friday is assumed, so five of the seven days.
+    expect(bradfordFactor(e, TODAY, []).days).toBe(5);
+    expect(hrChecks(person({ absences: Array.from({ length: 4 }, (_, i) => sick(`2026-0${i + 5}-14`, `2026-0${i + 5}-15`)) }), [appraisal], roles, TODAY, [])
+      .find((c) => c.code === 'bradford')?.message).toMatch(/working days/);
   });
 
   it('blocks a shift on an absence day', () => {

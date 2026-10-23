@@ -22,6 +22,24 @@ export interface UkRates {
   holidayAccrualRate: number;
   /** Annual Employment Allowance, offset against the employer NI bill at entity level. */
   employmentAllowance: number;
+  /**
+   * Statutory Sick Pay. From 6 April 2026 (Employment Rights Act 2025) it is paid from the first
+   * qualifying day, with no waiting days and no lower earnings limit, at the lower of the flat
+   * weekly rate and a share of average weekly earnings.
+   */
+  ssp: {
+    weeklyRate: number;
+    /** Share of average weekly earnings paid when that is lower than the flat rate. */
+    aweShare: number;
+    /** Weeks of average earnings looked back over, before the first day of sickness. */
+    aweWeeks: number;
+    /** Most weeks paid in one period of sickness, linked spells included. */
+    maxWeeks: number;
+    /** Spells this many days apart or fewer are one period of sickness. */
+    linkDays: number;
+    /** Spells beginning before this date fall under the old rules and are not estimated here. */
+    newRulesFrom: string;
+  };
 }
 
 export const UK_RATES_2026_27: UkRates = {
@@ -42,6 +60,7 @@ export const UK_RATES_2026_27: UkRates = {
   pensionMaxAge: 66,
   holidayAccrualRate: 0.1207,
   employmentAllowance: 10_500,
+  ssp: { weeklyRate: 123.25, aweShare: 0.8, aweWeeks: 8, maxWeeks: 28, linkDays: 56, newRulesFrom: '2026-04-06' },
 };
 
 export function minimumWageFor(age: number, rates: UkRates = UK_RATES_2026_27) {
