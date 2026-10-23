@@ -199,6 +199,32 @@ test('groups fold away, the one you are in opens, and your choice is remembered'
   await expect(item(page, 'Training')).toHaveAttribute('aria-current', 'page');
 });
 
+test('Go to finds a section by its name, and / reaches it from anywhere', async ({ page }) => {
+  const find = bar(page).getByLabel('Go to a section');
+  await page.locator('main').click();
+  await page.keyboard.press('/');
+  await expect(find).toBeFocused();
+  // A section named for what was typed comes before one whose group heading only mentions it.
+  await page.keyboard.type('pay');
+  await expect(bar(page).locator('.nav-results button').first()).toContainText('Payroll');
+  await page.keyboard.press('Enter');
+  await expect(item(page, 'Payroll')).toHaveAttribute('aria-current', 'page');
+  await expect(find).toHaveValue('');
+
+  await find.fill('nothing like this');
+  await expect(bar(page).locator('.nav-none')).toBeVisible();
+  await find.press('Escape');
+  await expect(find).toHaveValue('');
+});
+
+test('a folded group lists what is inside it', async ({ page }) => {
+  await go(page, 'Absence');
+  const people = toggle(page, 'people');
+  await people.click();
+  await expect(people).toHaveAttribute('aria-expanded', 'false');
+  await expect(people.locator('.nav-preview')).toContainText('Absence');
+});
+
 test('a supervisor sees only their sections, and the API refuses the rest', async ({ page }) => {
   // Acting as a demo person is a development build feature, so this runs against the local server only.
   test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
@@ -239,7 +265,7 @@ test('the organisation picker names where you are and moves only on a deliberate
   await page.route('**/auth/switch', (route) => route.fulfill({ status: 403, json: { message: 'You have no access to that organisation.' } }));
   await page.reload();
 
-  const picker = page.locator('.op-trigger');
+  const picker = page.getByRole('button', { name: /^Organisation:/ });
   await expect(picker).toContainText('3 you work in');
   await picker.click();
   const options = page.getByRole('listbox', { name: 'Organisations' }).getByRole('option');
@@ -251,4 +277,25 @@ test('the organisation picker names where you are and moves only on a deliberate
   await picker.click();
   await options.filter({ hasText: 'Harbour Kitchens Ltd' }).click();
   await expect(page.locator('.op-error')).toHaveText('You have no access to that organisation.');
+});
+
+test('viewing as someone else says so on every screen, and one click returns to yourself', async ({ page }) => {
+  // Acting as a demo person is a development build feature, so this runs against the local server only.
+  test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
+  const card = page.getByRole('button', { name: 'Viewing as' });
+  await expect(card).toContainText('Yourself');
+  await expect(page.locator('.acting-banner')).toHaveCount(0);
+
+  await card.click();
+  const people = page.getByRole('listbox', { name: 'People' }).getByRole('option');
+  await expect(people.first()).toHaveAttribute('aria-selected', 'true');
+  const someone = people.nth(1);
+  const name = (await someone.locator('.op-option-name').textContent())!.trim();
+  await someone.click();
+
+  await expect(page.locator('.acting-banner')).toContainText(`You are viewing the app as ${name}`);
+  await expect(card).toContainText(name);
+  await page.getByRole('button', { name: 'Back to yourself' }).click();
+  await expect(page.locator('.acting-banner')).toHaveCount(0);
+  await expect(card).toContainText('Yourself');
 });

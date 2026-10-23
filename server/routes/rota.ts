@@ -4,6 +4,7 @@ import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
 import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
+import { tradingHour } from '../../src/engine/demand';
 import { missingForecast } from '../../src/engine/setup';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
@@ -13,6 +14,8 @@ import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, isoDate as isoDateSchema, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { notify, notifyPublished, syncTold } from '../notify';
+import { namesOf, shiftLine } from '../../src/engine/requests';
 import { travelIssues } from '../../src/engine/travel';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -251,6 +254,11 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (isWorked(org, shift)) throw workedError(shift, 'it cannot be removed. Record an absence on the timesheet instead.');
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
     audit(org, actorName(g), 'shift.deleted', { id: req.params.id });
+    // A shift the person has been shown is gone from their phone now, so they are told now, not at the next publish.
+    if (shift.published) {
+      notify(org, shift.employeeId, 'shift_cancelled', 'A shift has been cancelled', `${shiftLine(shift, namesOf(org.state))} is no longer on your rota.`, ctx.now());
+      syncTold(org, [shift.employeeId], [shift]);
+    }
     return reply.code(204).send();
   });
 
@@ -518,6 +526,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       org.publications.push({ siteId, weekStart: ws, publishedAt, by: actorName(g) });
     }
     audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
+    // Everyone whose week changed hears about it: the whole week the first time, what moved after that.
+    notifyPublished(org, siteIds, ws, ctx.now());
     return { published };
   });
 
@@ -568,7 +578,12 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       for (const id of siteIds) g.allow('demand.manage', id);
       const dates = weekDates(req.body.weekStart);
       // A day on the typical week alone is set-up's placeholder: its own takings say more, so it is filled like an empty one.
-      const forecast = (siteId: string, date: string) => org.state.forecast.some((f) => f.siteId === siteId && f.date === date && f.sales > 0 && f.source !== 'profile');
+      // Rows are matched to the trading day they belong to: Saturday 01:00 is Friday night at a late site.
+      const dayOf = (f: { siteId: string; date: string; hour: number }) => {
+        const site = org.state.sites.find((x) => x.id === f.siteId);
+        return site ? tradingHour(site, f.date, f.hour).date : f.date;
+      };
+      const forecast = (siteId: string, date: string) => org.state.forecast.some((f) => f.siteId === siteId && dayOf(f) === date && f.sales > 0 && f.source !== 'profile');
       const days: (DayForecast & { filled: boolean })[] = [];
       const rows: HourForecast[] = [];
       for (const siteId of siteIds) {
@@ -577,11 +592,11 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
           // A day with nothing to work from keeps whatever it had.
           const filled = d.basis !== 'none' && (req.body.replace === true || !forecast(siteId, d.date));
           days.push({ ...d, filled });
-          if (filled) rows.push(...worked.rows.filter((r) => r.date === d.date));
+          if (filled) rows.push(...worked.rows.filter((r) => dayOf(r) === d.date));
         }
       }
       const replaced = new Set(days.filter((d) => d.filled).map((d) => `${d.siteId}|${d.date}`));
-      org.state.forecast = [...org.state.forecast.filter((f) => !replaced.has(`${f.siteId}|${f.date}`)), ...rows];
+      org.state.forecast = [...org.state.forecast.filter((f) => !replaced.has(`${f.siteId}|${dayOf(f)}`)), ...rows];
       audit(org, actorName(g), 'forecast.from_takings', { siteIds, weekStart: req.body.weekStart, days: replaced.size, replace: req.body.replace === true });
       return { filled: replaced.size, days };
     },

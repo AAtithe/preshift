@@ -28,7 +28,8 @@ function assertEditable(org: OrgData, entry: Pick<TimeEntry, 'date' | 'status'>)
 }
 
 interface ClockOptions {
-  method: 'card' | 'device' | 'phone';
+  /** 'kiosk' is a person signing in by name on a site's paired kiosk. */
+  method: 'card' | 'device' | 'phone' | 'kiosk';
   at?: string;
   roleId?: string;
   breakMinutes?: number;
@@ -72,7 +73,8 @@ function locate(org: OrgData, siteId: string, opts: ClockOptions): ClockLocation
   const site = org.state.sites.find((s) => s.id === siteId);
   if (!site) throw notFound(`Site ${siteId}`);
   const fix = opts.location;
-  const reader = opts.method === 'card' && opts.fixedReader;
+  // A paired kiosk is fixed at the site like a reader: a manager paired it there, in person.
+  const reader = (opts.method === 'card' && opts.fixedReader) || opts.method === 'kiosk';
   if (!site.geofence) return fix && { ...fix };
   if (!fix) {
     if (reader) return undefined;

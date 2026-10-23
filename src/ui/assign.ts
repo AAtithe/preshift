@@ -81,7 +81,7 @@ export function openingForGap(state: RotaState, siteId: string, date: string, ho
   if (!roleId) return null;
   const rows = dayDemand(state, siteId, roleId, date);
   let end = hour;
-  while (end < 24 && rows[end].gap > 0 && (end + 1 - hour) * 60 <= MAX_GAP_SHIFT) end++;
+  while (end < rows.length && rows[end].gap > 0 && (end + 1 - hour) * 60 <= MAX_GAP_SHIFT) end++;
   const length = Math.min(MAX_GAP_SHIFT, Math.max(DEFAULT_LENGTH, (end - hour) * 60));
   return { siteId, roleId, date, startMinute: hour * 60, endMinute: hour * 60 + length };
 }

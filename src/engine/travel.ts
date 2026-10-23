@@ -66,11 +66,32 @@ export function journeyBetween(sites: Site[], fromId: string, toId: string): Jou
  */
 export function travelMinutesInto(shifts: Shift[], sites: Site[]): Map<string, number> {
   const out = new Map<string, number>();
-  if (shifts.length < 2 || sites.length === 0) return out;
+  if (sites.length === 0) return out;
+  for (const { prev, next } of sameDayMoves(shifts)) {
+    const journey = journeyBetween(sites, prev.siteId, next.siteId);
+    if (journey) out.set(next.id, (out.get(next.id) ?? 0) + journey.minutes);
+  }
+  return out;
+}
+
+/**
+ * Same-day moves between sites with no journey time, because a site has no postcode: they are
+ * paid in fact but cost nothing here until a time is held, so the P&L says how many there are.
+ */
+export function unpricedMoves(shifts: Shift[], sites: Site[]): { shiftId: string; fromId: string; toId: string }[] {
+  return sameDayMoves(shifts)
+    .filter(({ prev, next }) => !journeyBetween(sites, prev.siteId, next.siteId))
+    .map(({ prev, next }) => ({ shiftId: next.id, fromId: prev.siteId, toId: next.siteId }));
+}
+
+/** Each person's moves from one site to another within a working day, in order. */
+function sameDayMoves(shifts: Shift[]): { prev: Shift; next: Shift }[] {
+  if (shifts.length < 2) return [];
   const anchor = shifts.reduce((min, s) => (s.date < min ? s.date : min), shifts[0].date);
   const at = (s: Shift) => ({ start: absoluteMinute(anchor, s.date, s.startMinute), end: absoluteMinute(anchor, s.date, s.endMinute) });
   const byPerson = new Map<string, Shift[]>();
   for (const s of shifts) byPerson.set(s.employeeId, [...(byPerson.get(s.employeeId) ?? []), s]);
+  const moves: { prev: Shift; next: Shift }[] = [];
   for (const mine of byPerson.values()) {
     const ordered = [...mine].sort((a, b) => at(a).start - at(b).start);
     for (let i = 1; i < ordered.length; i++) {
@@ -79,26 +100,53 @@ export function travelMinutesInto(shifts: Shift[], sites: Site[]): Map<string, n
       if (prev.siteId === next.siteId) continue;
       const gap = at(next).start - at(prev).end;
       if (gap < 0 || gap > SAME_TRIP_MINUTES) continue;
-      const journey = journeyBetween(sites, prev.siteId, next.siteId);
-      if (journey) out.set(next.id, (out.get(next.id) ?? 0) + journey.minutes);
+      moves.push({ prev, next });
     }
   }
-  return out;
+  return moves;
 }
 
 /**
  * The hourly rate a person is paid for travel between sites, under their employer's policy. A
- * fixed rate is lifted to the minimum wage for their age on `date`: the minimum wage can be met
- * by averaging over the pay period, but paying travel at no less keeps every hour safe without
- * relying on the rest of the week. Salaried pay does not change with travel, so their rate is
- * returned as is.
+ * fixed rate is lifted to the minimum wage for their age on `date`, so every hour of travel is
+ * safe on its own, unless the company averages: then the rate stands and travelPay tops up the
+ * pay period instead. Salaried pay does not change with travel, so their rate is returned as is.
  */
 export function travelRate(employee: Employee, entities: Entity[], date: string, rates: UkRates = UK_RATES_2026_27): number {
-  const policy = entities.find((e) => e.id === employee.entityId)?.travelPay;
+  const policy = travelPolicy(employee, entities);
   // Withheld pay reads as nought; costs for that reader stay nought rather than show a policy rate.
   if (!policy || policy.basis === 'normal' || employee.payBasis === 'salaried' || employee.payHidden) return employee.hourlyRate;
-  const minimum = minimumWageFor(ageOn(employee.dateOfBirth, date), rates)?.hourly ?? 0;
-  return policy.basis === 'minimum' ? minimum : Math.max(policy.hourly, minimum);
+  const minimum = minimumWageOn(employee, date, rates);
+  if (policy.basis === 'minimum') return minimum;
+  return policy.averaging ? policy.hourly : Math.max(policy.hourly, minimum);
+}
+
+/**
+ * What a pay period's travel pays: its hours at the travel rate, plus any top-up needed for the
+ * period's pay over work and travel to average the minimum wage. Only an averaging company can
+ * need a top-up; every other policy pays at least the minimum on each hour.
+ */
+export function travelPay(
+  employee: Employee,
+  entities: Entity[],
+  date: string,
+  period: { workHours: number; workPay: number; travelHours: number },
+  rates: UkRates = UK_RATES_2026_27,
+): { pay: number; topUp: number } {
+  if (period.travelHours <= 0) return { pay: 0, topUp: 0 };
+  const pay = period.travelHours * travelRate(employee, entities, date, rates);
+  const policy = travelPolicy(employee, entities);
+  if (policy?.basis !== 'fixed' || !policy.averaging || employee.payBasis === 'salaried' || employee.payHidden) return { pay, topUp: 0 };
+  const minimum = minimumWageOn(employee, date, rates) * (period.workHours + period.travelHours);
+  return { pay, topUp: Math.max(0, minimum - period.workPay - pay) };
+}
+
+function travelPolicy(employee: Employee, entities: Entity[]) {
+  return entities.find((e) => e.id === employee.entityId)?.travelPay;
+}
+
+function minimumWageOn(employee: Employee, date: string, rates: UkRates) {
+  return minimumWageFor(ageOn(employee.dateOfBirth, date), rates)?.hourly ?? 0;
 }
 
 /**
