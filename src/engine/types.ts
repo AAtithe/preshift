@@ -230,6 +230,11 @@ export interface Employee {
   payrollId?: string;
   /** The payroll employer (PAYE scheme) that `payrollId` belongs to. */
   payrollEmployerId?: string;
+  /**
+   * Set when the person was linked to a record already in payroll and the two disagree. Nothing is
+   * sent to payroll for them until someone decides which side is right.
+   */
+  payrollReview?: PayrollReview;
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
@@ -706,6 +711,25 @@ export interface StockCount {
   date: string;
   category: SalesCategory;
   value: number;
+}
+
+/** A field where Preshift and the payroll record disagree. */
+export interface PayrollDifference {
+  field: 'name' | 'dateOfBirth' | 'payBasis' | 'hourlyRate' | 'annualSalary' | 'contractedHours';
+  label: string;
+  preshift: string | number;
+  payroll: string | number;
+  /** A pay rate or salary: deciding it needs the right to change pay. */
+  pay: boolean;
+}
+
+export interface PayrollReview {
+  linkedAt: string;
+  /** 'auto' when a starter matched an existing record on name and date of birth. */
+  how: 'auto' | 'manual';
+  differences: PayrollDifference[];
+  /** The pay proposal raised to take payroll's pay, waiting for finance. */
+  payChangeId?: string;
 }
 
 /** A school holiday. Estimates are the usual pattern; council dates replace them. */

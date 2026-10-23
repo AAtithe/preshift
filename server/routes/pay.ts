@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { heldPermissions } from '../../src/engine/access';
 import { reviewEmployee } from '../../src/engine/employees';
 import { payTermsOf, sameTerms } from '../../src/engine/payChanges';
+import { refreshReview } from '../../src/engine/payrollMatch';
 import type { Employee, PayChange, PayChangeStatus, PayChangeSummary, PayTerms } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -188,6 +189,8 @@ export function payRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       const before = { ...e };
       Object.assign(e, c.after);
+      // Linked to TeamPay with pay that differed: once Preshift's pay matches payroll's, nothing is left to decide.
+      if (e.payrollReview) e.payrollReview = refreshReview(e, e.payrollReview);
       Object.assign(c, { status: 'approved', decidedBy: actorName(g), ...(g.user ? { decidedById: g.user.id } : {}), decidedAt: new Date().toISOString(), ...(req.body?.note ? { note: req.body.note } : {}) });
       if (PAYROLL_FIELDS.some((f) => before[f] !== e[f])) queueUpsert(org, e);
       audit(org, actorName(g), 'pay.change_approved', { id: c.id, employeeId: e.id });

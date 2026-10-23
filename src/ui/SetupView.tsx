@@ -263,8 +263,16 @@ function SitesStep({ draft, setDraft }: StepProps) {
             </select>
           </Field>
           <Field label="Opens"><input type="time" value={formatMinute(site.openMinute)} onChange={(e) => update(site.id, { openMinute: parseClock(e.target.value) })} /></Field>
-          <Field label="Closes" hint="Midnight at the latest">
-            <input type="time" value={formatMinute(site.closeMinute)} onChange={(e) => update(site.id, { closeMinute: parseClock(e.target.value) || 1440 })} />
+          <Field label="Closes" hint={site.closeMinute > 1440 ? 'The next morning' : 'After midnight is fine, up to 04:00'}>
+            <input
+              type="time"
+              value={formatMinute(site.closeMinute)}
+              // A closing time at or before opening is after midnight: 02:00 for a site opening at noon.
+              onChange={(e) => {
+                const at = parseClock(e.target.value);
+                update(site.id, { closeMinute: at <= site.openMinute ? at + 1440 : at });
+              }}
+            />
           </Field>
           <Field label="Labour target %">
             <Num label="Labour target percent" step={0.5} width={80} value={Math.round(site.labourTargetPct * 1000) / 10} onChange={(n) => update(site.id, { labourTargetPct: n / 100 })} />
@@ -506,8 +514,10 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
         with the evidence seen. Availability and the rest of each record are completed in People.
       </p>
       <div className="notice">
-        Everyone added here is set up in TeamPay as a starter, exactly as when you add someone in People. If your payroll already
-        runs in TeamPay with these people on it, talk to your WS lead before adding them, or they will be on payroll twice.
+        If your payroll already runs in TeamPay, people already there are linked to their existing record, not set up twice:
+        automatically where TeamPay holds exactly one person with the same name and date of birth, and by hand in Payroll, under
+        "Link existing TeamPay people", for anyone else. Where the two disagree on pay or hours, nothing is overwritten until
+        someone decides which is right.
       </div>
       <div className="setup-row">
         <Field label="Site">
