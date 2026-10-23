@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { PayChange } from '../src/engine/types';
+import { emailSetting } from './mail';
+import { applyDuePayChanges, remindApprovers } from './routes/pay';
 import { kit, type Kit } from './testkit';
 
 const person = (key: string, userId: string) => ({ key, orgId: 'demo', name: `${key} key`, scopes: ['*' as const], userId, mfa: true });
@@ -12,12 +15,12 @@ const KEYS = [
 
 let k: Kit;
 
-/** The demo's finance director has no authenticator yet; most tests give her one. */
+/** The demo's finance director has an authenticator; one test takes it away. */
 async function setup(options: { fdAuthenticator?: boolean } = {}) {
   k = await kit({ keys: KEYS as never });
-  if (options.fdAuthenticator !== false) {
+  if (options.fdAuthenticator === false) {
     const org = await k.store.load('demo');
-    org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = true;
+    org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = false;
   }
   return (method: string, url: string, body?: unknown, key = 'kate') => k.call(method, url, { key }, body);
 }
@@ -142,3 +145,120 @@ describe('pay changes need finance approval', () => {
     expect((await call('GET', '/v1/employees/mar-8')).body.hourlyRate).toBe(13.75);
   });
 });
+
+describe('pay changes from an agreed date', () => {
+  it('takes effect on its date when approved ahead of it, and finance can take it back until then', async () => {
+    const call = await setup();
+    const change = (await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 13.5, effectiveFrom: '2026-11-02', reason: 'Bar training' })).body;
+    expect(change.effectiveFrom).toBe('2026-11-02');
+    const approved = (await call('POST', `/v1/pay-changes/${change.id}/approve`, {}, 'nadia')).body;
+    expect(approved).toMatchObject({ status: 'approved' });
+    expect(approved.appliedOn).toBeUndefined();
+    expect((await call('GET', '/v1/employees/mar-8')).body.hourlyRate).toBe(12.85);
+    // Nothing more for them until it applies.
+    expect((await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 14 })).body.error).toBe('scheduled');
+
+    const org = await k.store.load('demo');
+    expect(applyDuePayChanges(org, '2026-11-01')).toBe(0);
+    expect(applyDuePayChanges(org, '2026-11-02')).toBe(1);
+    expect(org.state.employees.find((e) => e.id === 'mar-8')!.hourlyRate).toBe(13.5);
+    expect(org.payChanges.find((c) => c.id === change.id)).toMatchObject({ appliedOn: '2026-11-02' });
+    expect(org.payChanges.find((c) => c.id === change.id)!.backPay).toBeUndefined();
+
+    // A second one, taken back by finance before its date.
+    const next = (await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 14, effectiveFrom: '2027-01-04' })).body;
+    await call('POST', `/v1/pay-changes/${next.id}/approve`, {}, 'nadia');
+    expect((await call('POST', `/v1/pay-changes/${next.id}/withdraw`)).status).toBe(403);
+    expect((await call('POST', `/v1/pay-changes/${next.id}/withdraw`, undefined, 'nadia')).body.status).toBe('withdrawn');
+  });
+
+  it('applies a change approved after its date at once, with back pay for the hours worked in between', async () => {
+    const call = await setup();
+    const entry = (await call('POST', '/v1/time-entries', { employeeId: 'mar-8', siteId: 'mar', roleId: 'server', date: '2026-10-13', clockIn: 600, clockOut: 960, breakMinutes: 20 }, 'system')).body;
+    await call('POST', '/v1/time-entries/approve', { ids: [entry.id] }, 'system');
+    const change = (await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 13.5, effectiveFrom: '2026-10-12' })).body;
+    const approved = (await call('POST', `/v1/pay-changes/${change.id}/approve`, {}, 'nadia')).body;
+    const hours = Math.round((340 / 60) * 100) / 100;
+    expect(approved).toMatchObject({ appliedOn: '2026-10-21', backPay: { from: '2026-10-12', to: '2026-10-20', hours, basis: 'clocked' } });
+    expect(approved.backPay.amount).toBeCloseTo(hours * 0.65, 2);
+    const org = await k.store.load('demo');
+    expect(org.audit.some((a) => a.action === 'pay.back_pay_due' && a.detail?.id === change.id)).toBe(true);
+    expect((await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 14, effectiveFrom: '2025-01-01' })).body.error).toBe('invalid_dates');
+  });
+
+  it('does not apply over pay that moved after approval, and marks it replaced', async () => {
+    const call = await setup();
+    const change = (await call('POST', '/v1/employees/mar-8/pay-changes', { hourlyRate: 13.5, effectiveFrom: '2026-11-02' })).body;
+    await call('POST', `/v1/pay-changes/${change.id}/approve`, {}, 'nadia');
+    await call('PATCH', '/v1/employees/mar-8', { hourlyRate: 14 }, 'system');
+    const org = await k.store.load('demo');
+    expect(applyDuePayChanges(org, '2026-11-02')).toBe(0);
+    expect(org.payChanges.find((c) => c.id === change.id)).toMatchObject({ status: 'superseded' });
+    expect(org.state.employees.find((e) => e.id === 'mar-8')!.hourlyRate).toBe(14);
+  });
+});
+
+describe('one pay history, however pay was set', () => {
+  it('records pay set by a system key, and by a person with nobody to approve', async () => {
+    const call = await setup();
+    await call('PATCH', '/v1/employees/mar-8', { hourlyRate: 14 }, 'system');
+    const history = (await call('GET', '/v1/pay-changes?employeeId=mar-8', undefined, 'nadia')).body as PayChangeView[];
+    expect(history[0]).toMatchObject({ status: 'approved', direct: 'system', before: { hourlyRate: 12.85 }, after: { hourlyRate: 14 }, appliedOn: '2026-10-21' });
+    const starter = (await call('POST', '/v1/employees', { name: 'Direct Starter', siteId: 'mar', roleIds: ['server'], payBasis: 'hourly', dateOfBirth: '2000-01-01', hourlyRate: 13 }, 'system')).body;
+    expect((await call('GET', `/v1/pay-changes?employeeId=${starter.id}`, undefined, 'nadia')).body[0]).toMatchObject({ direct: 'system', after: { hourlyRate: 13 } });
+
+    const org = await k.store.load('demo');
+    org.users.find((u) => u.id === 'usr_fd')!.status = 'suspended';
+    await call('PATCH', '/v1/employees/mar-8', { hourlyRate: 14.25 });
+    const latest = (await call('GET', '/v1/pay-changes?employeeId=mar-8')).body[0];
+    expect(latest).toMatchObject({ direct: 'no_approver', decidedBy: 'Kate Morgan', after: { hourlyRate: 14.25 } });
+    expect(org.audit.filter((a) => a.action === 'pay.change_direct')).toHaveLength(3);
+  });
+});
+
+describe('the rule for pay approvals', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('says who can approve, keeps the turnaround and cut-off, and shows where each change stands', async () => {
+    const call = await setup({ fdAuthenticator: false });
+    const policy = (await call('GET', '/v1/pay-policy')).body;
+    expect(policy).toMatchObject({ policy: { turnaroundDays: 2, cutoffWeekday: 0 }, nextCutoff: '2026-10-26', canApprove: false });
+    expect(policy.approvers).toEqual([{ id: 'usr_fd', name: 'Nadia Rahman', ready: false }]);
+    // Kate sets pay, so she reads the rule, but finance or the owner sets it.
+    expect((await call('PUT', '/v1/pay-policy', { turnaroundDays: 3 })).status).toBe(403);
+    expect((await call('PUT', '/v1/pay-policy', { turnaroundDays: 3, cutoffWeekday: 2 }, 'owner')).body).toEqual({ turnaroundDays: 3, cutoffWeekday: 2 });
+    expect((await call('GET', '/v1/pay-policy', undefined, 'priya')).status).toBe(403);
+
+    const waiting = (await call('GET', '/v1/pay-changes?status=pending')).body as PayChangeView[];
+    expect(waiting[0].standing).toMatchObject({ cutoff: '2026-10-21', daysToCutoff: 0 });
+  });
+
+  it('reminds finance by email, and copies the owner in once a change is overdue', async () => {
+    const call = await setup();
+    const sent: { to: string[]; subject: string; text: string }[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ id: `m_${sent.length}` }), { status: 200 });
+    });
+    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test_1234567890abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
+    const org = await k.store.load('demo');
+    // The demo's waiting change was proposed today: inside the turnaround, but the cut-off is days away.
+    let done = await remindApprovers(k.store, org, '2026-10-21');
+    expect(done).toEqual({ sent: 1, escalated: false });
+    expect(sent[0].to).toEqual(['nadia@marylebonegroup.example']);
+    expect(sent[0].text).toContain('https://rota.ws.example/app/?view=pay');
+    expect(sent[0].text).not.toContain('Lukas');
+    expect(sent[0].text).not.toMatch(/£/);
+
+    sent.length = 0;
+    done = await remindApprovers(k.store, org, '2026-10-29');
+    expect(done?.escalated).toBe(true);
+    expect(sent.map((m) => m.to[0]).sort()).toEqual(['nadia@marylebonegroup.example', 'olivia@marylebonegroup.example']);
+    expect(sent.find((m) => m.to[0].startsWith('olivia'))!.subject).toMatch(/^Overdue/);
+
+    expect((await call('POST', '/v1/pay-changes/remind', undefined, 'nadia')).status).toBe(200);
+    expect((await call('POST', '/v1/pay-changes/remind', undefined, 'priya')).status).toBe(403);
+  });
+});
+
+type PayChangeView = PayChange & { standing?: { cutoff: string; daysToCutoff: number } };

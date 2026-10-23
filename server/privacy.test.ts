@@ -155,3 +155,27 @@ describe('GDPR', () => {
     expect((await t.call('GET', '/v1/privacy/retention')).body.policy.locationMonths).toBe(1);
   });
 });
+
+describe('the appropriate policy document', () => {
+  it('flags each company holding sickness with no signed document, and records review and signature', async () => {
+    const t = await boot();
+    const before = (await t.call('GET', '/v1/privacy/policy-documents', undefined, { key: 'gm' })).body;
+    expect(before.documents).toEqual([]);
+    // The demo holds sickness records, so a missing document blocks.
+    expect(before.checks.map((c: { severity: string }) => c.severity)).toContain('block');
+
+    const draft = { title: 'Appropriate policy document: sickness and health data', url: 'https://claude.ai/artifact/policy' };
+    // Only those who handle staff data record it.
+    expect((await t.call('PUT', '/v1/privacy/policy-documents/wdl', draft, { key: 'gm' })).status).toBe(403);
+    expect((await t.call('PUT', '/v1/privacy/policy-documents/wdl', draft)).status).toBe(200);
+    let wdl = (await t.call('GET', '/v1/privacy/policy-documents')).body.checks.find((c: { entityId: string }) => c.entityId === 'wdl');
+    expect(wdl.message).toMatch(/not been reviewed by counsel/);
+
+    expect((await t.call('PUT', '/v1/privacy/policy-documents/wdl', { ...draft, signedBy: 'Olivia Grant' })).body.error).toBe('signature');
+    expect((await t.call('PUT', '/v1/privacy/policy-documents/wdl', { ...draft, reviewedOn: '2026-09-10', signedBy: 'Olivia Grant', signedOn: '2026-09-01' })).body.error).toBe('invalid_dates');
+    const signed = { ...draft, reviewedBy: 'Employment counsel', reviewedOn: '2026-09-01', signedBy: 'Olivia Grant', signedOn: '2026-09-10' };
+    expect((await t.call('PUT', '/v1/privacy/policy-documents/wdl', signed)).status).toBe(200);
+    wdl = (await t.call('GET', '/v1/privacy/policy-documents')).body.checks.find((c: { entityId: string }) => c.entityId === 'wdl');
+    expect(wdl).toMatchObject({ severity: 'ok', message: 'Signed by Olivia Grant on 2026-09-10. Next review 2027-09-10.' });
+  });
+});
