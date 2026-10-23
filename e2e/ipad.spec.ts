@@ -1,4 +1,4 @@
-import { devices, expect, test, type Page } from '@playwright/test';
+import { devices, expect, test, type Locator, type Page } from '@playwright/test';
 import { NAV } from '../src/ui/nav';
 
 // The rota on an iPad-sized touch screen. Chromium stands in for Safari here, so this catches
@@ -35,8 +35,12 @@ async function openTimeline(page: Page) {
   await page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText('Marylebone', { exact: true }) }).click();
   await go(page, 'Rota');
   await page.getByRole('tab', { name: 'Service timeline' }).click();
+  // Next week, where every day is still to come. The server will not move a shift that has
+  // started, and in this week a slide that strayed onto an earlier day was refused for that.
+  await page.getByRole('button', { name: 'Next week' }).click();
+  await expect(page.getByRole('button', { name: 'Choose week' })).toContainText('Next week');
   await expect(page.locator('.tl-lane').first()).toBeVisible();
-  // A fresh server may have no rota this week yet: build one from the forecast to work with.
+  // A fresh server has no rota next week yet: build one from the forecast to work with.
   if ((await page.locator('.tl-bar').count()) === 0) await page.getByRole('button', { name: 'Build from forecast' }).click();
   await expect(page.locator('.tl-bar').first()).toBeVisible();
 }
@@ -60,16 +64,35 @@ async function touch(page: Page) {
   };
 }
 
-/** The centre of an element, scrolled into view first: a touch outside the screen lands on nothing. */
+/**
+ * Scrolls an element to the middle of the screen. Just in view is not enough: a lifted shift held
+ * near the timeline's edge scrolls it, so a sideways slide there would also move the shift a day.
+ */
+const toMiddle = (el: Locator) => el.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'center' }));
+
+/** The centre of an element, in the middle of the screen: a touch outside the screen lands on nothing. */
 async function centre(page: Page, selector: string, index = 0) {
   const el = page.locator(selector).nth(index);
-  await el.scrollIntoViewIfNeeded();
+  await toMiddle(el);
   const box = (await el.boundingBox())!;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2, width: box.width };
 }
 
 /** What a touch at a point actually lands on, so a test cannot pass by touching nothing. */
 const hit = (page: Page, p: { x: number; y: number }) => page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('.tl-bar') !== null, p);
+
+/**
+ * The next save of a shift, and the server's answer. A refused save fails here with the server's
+ * reason, rather than later as a shift that did not move.
+ */
+async function saved(page: Page, act: () => Promise<void>) {
+  const answer = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().includes('/v1/shifts/'));
+  await act();
+  const res = await answer;
+  const body = await res.json();
+  expect(res.status(), body.message).toBe(200);
+  return body.shift as { date: string; startMinute: number };
+}
 
 /** Bars re-sort after a drop, so a shift is followed by its title: name, role and hours. */
 const titleOf = (page: Page, index = 0) => page.locator('.tl-bar').nth(index).getAttribute('title');
@@ -106,7 +129,7 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
   const hour = (await page.locator('.tl-hour').nth(1).boundingBox())!.x - (await page.locator('.tl-hour').nth(0).boundingBox())!.x;
   const finger = await touch(page);
 
-  await finger.drag(from, { x: from.x + hour, y: from.y }, 450);
+  const there = await saved(page, () => finger.drag(from, { x: from.x + hour, y: from.y }, 450));
   await expect.poll(() => withTitle(page, title)).toBe(count - 1);
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
@@ -114,16 +137,20 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
   const later = (title ?? '').replace(/(\d\d):00-(\d\d):00/, (_m, a: string, b: string) => `${String(Number(a) + 1).padStart(2, '0')}:00-${String(Number(b) + 1).padStart(2, '0')}:00`);
   const moved = page.locator(`.tl-bar[title="${later}"]`).first();
   await expect(moved).toHaveCount(1);
-  await moved.scrollIntoViewIfNeeded();
+  await toMiddle(moved);
   const box = (await moved.boundingBox())!;
   const back = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await finger.drag(back, { x: back.x - hour, y: back.y }, 450);
+  expect(await hit(page, back)).toBe(true);
+  const home = await saved(page, () => finger.drag(back, { x: back.x - hour, y: back.y }, 450));
+  // A sideways slide changes the hours, never the day.
+  expect(home.date).toBe(there.date);
+  expect(home.startMinute).toBe(there.startMinute - 60);
   await expect.poll(() => withTitle(page, title)).toBe(count);
 });
 
 test('dragging the end of a shift changes its hours, and dragging it back restores them', async ({ page }) => {
   const bar = page.locator('.tl-bar').first();
-  await bar.scrollIntoViewIfNeeded();
+  await toMiddle(bar);
   const title = await titleOf(page);
   const count = await withTitle(page, title);
   const hour = (await page.locator('.tl-hour').nth(1).boundingBox())!.x - (await page.locator('.tl-hour').nth(0).boundingBox())!.x;
@@ -136,7 +163,7 @@ test('dragging the end of a shift changes its hours, and dragging it back restor
   const longer = (title ?? '').replace(/-(\d\d):00/, (_m, b: string) => `-${String(Number(b) + 1).padStart(2, '0')}:00`);
   const stretched = page.locator(`.tl-bar[title="${longer}"]`).first();
   await expect(stretched).toHaveCount(1);
-  await stretched.scrollIntoViewIfNeeded();
+  await toMiddle(stretched);
   const end = (await stretched.locator('.tl-edge.end').boundingBox())!;
   await finger.drag({ x: end.x + end.width / 2, y: end.y + end.height / 2 }, { x: end.x + end.width / 2 - hour, y: end.y + end.height / 2 }, 0);
   await expect.poll(() => withTitle(page, title)).toBe(count);
