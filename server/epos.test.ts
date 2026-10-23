@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SQUARE_VERSION, SquareProvider, squareNetSales } from './integrations/epos/square';
+import { SQUARE_VERSION, SquareProvider, squareNetSales, squareServiceCharge, squareTips } from './integrations/epos/square';
 import { MemoryStore } from './store';
 import { enrol, kit, TODAY } from './testkit';
 
@@ -93,6 +93,241 @@ describe('Square takings', () => {
   });
 });
 
+describe('card tips from Square', () => {
+  it('takes each order’s card tips, less any refunded, apart from takings', () => {
+    expect(squareTips({ id: 'a', location_id: 'L', total_money: { amount: 6000 }, total_tip_money: { amount: 500 } })).toBe(5);
+    expect(squareTips({ id: 'b', location_id: 'L', net_amounts: { total_money: { amount: 4800 }, tip_money: { amount: 300 } } })).toBe(3);
+    expect(squareTips({ id: 'c', location_id: 'L', total_money: { amount: 1000 } })).toBe(0);
+  });
+
+  it('never touches a figure payroll has paid, and says where the till now disagrees', async () => {
+    const square = fakeSquare({
+      orders: [
+        order('1', 'LMAR', '2026-10-19T11:30:00Z', 1000, { total_tip_money: { amount: 4500, currency: 'GBP' } }),
+        order('2', 'LMAR', '2026-10-19T23:30:00Z', 200, { total_tip_money: { amount: 1250, currency: 'GBP' } }), // Monday night
+        order('3', 'LMAR', '2026-10-20T18:00:00Z', 800, { total_tip_money: { amount: 3000, currency: 'GBP' } }),
+        order('4', 'LMAR', '2026-10-21T18:00:00Z', 500, { total_tip_money: { amount: 2000, currency: 'GBP' } }),
+        order('5', 'LMAR', '2026-10-22T08:30:00Z', 50, { total_tip_money: { amount: 500, currency: 'GBP' } }), // today
+      ],
+    });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR' } });
+    // Tuesday was cashed up by hand; Wednesday's card tips were already paid.
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-20', source: 'card-tip', amount: 31 }, 'key');
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-21', source: 'card-tip', amount: 18 }, 'key');
+    await call('POST', '/v1/tronc/tips/paid', { siteId: 'mar', weekStart: '2026-10-19', paidOn: '2026-10-21' }, 'key');
+
+    const res = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-22' }, 'key');
+    expect(res.body.tips).toMatchObject({
+      written: 1,
+      kept: [],
+      paidDiffers: [
+        { siteId: 'mar', date: '2026-10-20', paid: 31, till: 30 },
+        { siteId: 'mar', date: '2026-10-21', paid: 18, till: 20 },
+      ],
+    });
+    // Monday had no figure when payroll paid, so nothing of it was paid: the till fills it in, unpaid.
+    const tips = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number; fromTill?: boolean; paidOn?: string }[];
+    const card = (d: string) => tips.find((t) => t.date === d && t.source === 'card-tip');
+    expect(card('2026-10-19')).toMatchObject({ amount: 57.5, fromTill: true });
+    expect(card('2026-10-19')?.paidOn).toBeUndefined();
+    // The paid days stand as paid.
+    expect(card('2026-10-20')).toMatchObject({ amount: 31, paidOn: '2026-10-21' });
+    expect(card('2026-10-21')).toMatchObject({ amount: 18, paidOn: '2026-10-21' });
+  });
+
+  it('fills in days nobody has cashed up, follows its own figures, and leaves a hand-keyed one', async () => {
+    const square = fakeSquare({
+      orders: [
+        order('1', 'LMAR', '2026-10-19T11:30:00Z', 1000, { total_tip_money: { amount: 4500, currency: 'GBP' } }),
+        order('2', 'LMAR', '2026-10-19T23:30:00Z', 200, { total_tip_money: { amount: 1250, currency: 'GBP' } }),
+        order('3', 'LMAR', '2026-10-20T18:00:00Z', 800, { total_tip_money: { amount: 3000, currency: 'GBP' } }),
+        order('4', 'LMAR', '2026-10-22T08:30:00Z', 50, { total_tip_money: { amount: 500, currency: 'GBP' } }), // today
+      ],
+    });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR' } });
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-20', source: 'card-tip', amount: 31 }, 'key');
+
+    const res = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-22' }, 'key');
+    expect(res.body.tips).toMatchObject({ written: 1, kept: [{ siteId: 'mar', date: '2026-10-20' }], paidDiffers: [], total: 87.5 });
+    const tips = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number; fromTill?: boolean }[];
+    const card = (d: string) => tips.find((t) => t.date === d && t.source === 'card-tip');
+    // Monday's lunch and its night after midnight, as one trading day.
+    expect(card('2026-10-19')).toMatchObject({ amount: 57.5, fromTill: true });
+    expect(card('2026-10-20')).toMatchObject({ amount: 31 });
+    expect(card('2026-10-20')?.fromTill).toBeUndefined();
+    expect(card('2026-10-22')).toBeUndefined();
+
+    // A manager correcting the till's figure makes it theirs: the next sync leaves it.
+    await call('PUT', '/v1/tronc/tips', { siteId: 'mar', date: '2026-10-19', source: 'card-tip', amount: 60 }, 'key');
+    const again = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-21' }, 'key');
+    expect(again.body.tips.kept).toEqual(expect.arrayContaining([{ siteId: 'mar', date: '2026-10-19' }]));
+    const after = (await call('GET', '/v1/tronc')).body.tips as { date: string; source: string; amount: number }[];
+    expect(after.find((t) => t.date === '2026-10-19' && t.source === 'card-tip')?.amount).toBe(60);
+  });
+});
+
+describe('VAT on a taxable service charge', () => {
+  // £100 of food with VAT inside it (£16.67), and a mandatory 12.5% charge, taxable, VAT inside it too (£2.08).
+  const inclusive = {
+    id: 'inc',
+    location_id: 'L',
+    total_money: { amount: 11250 },
+    total_tax_money: { amount: 1875 },
+    total_service_charge_money: { amount: 1250 },
+    service_charges: [{ applied_money: { amount: 1250 }, total_tax_money: { amount: 208 }, total_money: { amount: 1250 } }],
+  };
+
+  it('takes the VAT inside a service charge off takings once, not twice', () => {
+    // £100 of food is £83.33 net of VAT. Before, the charge's £2.08 of VAT came off again: £81.25.
+    expect(squareNetSales(inclusive)).toBe(83.33);
+    // The team's charge is the £12.50 the guest paid, VAT and all.
+    expect(squareServiceCharge(inclusive)).toBe(12.5);
+  });
+
+  it('takes VAT added on top of a charge off once, and counts it in the charge the guest paid', () => {
+    const additive = {
+      id: 'add',
+      location_id: 'L',
+      total_money: { amount: 13200 },
+      total_tax_money: { amount: 2200 },
+      total_service_charge_money: { amount: 1000 },
+      service_charges: [{ applied_money: { amount: 1000 }, total_tax_money: { amount: 200 }, total_money: { amount: 1200 } }],
+    };
+    expect(squareNetSales(additive)).toBe(100);
+    expect(squareServiceCharge(additive)).toBe(12);
+  });
+
+  it('leaves a discretionary charge outside VAT as it was', () => {
+    const outside = {
+      id: 'out',
+      location_id: 'L',
+      total_money: { amount: 11250 },
+      total_tax_money: { amount: 1667 },
+      total_service_charge_money: { amount: 1250 },
+      service_charges: [{ applied_money: { amount: 1250 }, total_tax_money: { amount: 0 }, total_money: { amount: 1250 } }],
+    };
+    expect(squareNetSales(outside)).toBe(83.33);
+    expect(squareServiceCharge(outside)).toBe(12.5);
+  });
+
+  it('puts back only the VAT on what was kept when half the charge was refunded', () => {
+    const refunded = {
+      ...inclusive,
+      // Half the charge refunded, with its £1.04 of VAT.
+      net_amounts: { total_money: { amount: 10625 }, tax_money: { amount: 1771 }, service_charge_money: { amount: 625 } },
+    };
+    expect(squareNetSales(refunded)).toBe(83.33);
+    expect(squareServiceCharge(refunded)).toBe(6.25);
+  });
+});
+
+describe('re-syncing past takings', () => {
+  // A dinner for £100 with VAT inside it, a 12.5% taxable service charge and a £5 card tip, all in Square's total:
+  // £83.33 of takings, read as £81.25 before the fix.
+  const taxableDinner = (id: string, closedAt: string) =>
+    order(id, 'LMAR', closedAt, 0, {
+      total_money: { amount: 11750, currency: 'GBP' },
+      total_tax_money: { amount: 1875, currency: 'GBP' },
+      total_service_charge_money: { amount: 1250, currency: 'GBP' },
+      total_tip_money: { amount: 500, currency: 'GBP' },
+      service_charges: [{ applied_money: { amount: 1250 }, total_tax_money: { amount: 208 }, total_money: { amount: 1250 } }],
+    });
+
+  async function withHistory(orders: unknown[]) {
+    const square = fakeSquare({ orders });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR' } });
+    return { call, square };
+  }
+
+  it('restates the days the till wrote, and leaves hand-keyed and imported days, and tips, alone', async () => {
+    const { call } = await withHistory([
+      taxableDinner('1', '2026-10-12T19:00:00Z'),
+      taxableDinner('2', '2026-10-13T19:00:00Z'),
+      taxableDinner('3', '2026-10-14T19:00:00Z'),
+      taxableDinner('4', '2026-10-15T19:00:00Z'),
+    ]);
+    // What the old code wrote from the till on Monday and Tuesday, a manager's Wednesday and a file's Thursday.
+    await call('PUT', '/v1/sales', {
+      rows: [
+        { siteId: 'mar', date: '2026-10-12', netSales: 81.25, source: 'till' },
+        { siteId: 'mar', date: '2026-10-13', netSales: 81.25, source: 'till' },
+        { siteId: 'mar', date: '2026-10-14', netSales: 90, source: 'manual' },
+        { siteId: 'mar', date: '2026-10-15', netSales: 95, source: 'import' },
+      ],
+    });
+
+    const res = await call('POST', '/v1/integrations/epos/resync', {});
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, from: '2026-10-12', read: 2, changed: 2, sites: [{ siteId: 'mar', changed: 2, before: 162.5, after: 166.66 }] });
+    // The sample's own takings are marked till too, but this till has no orders for them: left, not zeroed.
+    expect(res.body.unmatched).toBeGreaterThan(0);
+    const sample = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-19&to=2026-10-20')).body as { netSales: number }[];
+    expect(sample.every((s) => s.netSales > 1000)).toBe(true);
+
+    const sales = (await call('GET', '/v1/sales?siteId=mar&from=2026-10-12&to=2026-10-15')).body as { date: string; netSales: number; source: string }[];
+    const day = (d: string) => sales.find((s) => s.date === d);
+    expect(day('2026-10-12')).toMatchObject({ netSales: 83.33, source: 'till' });
+    expect(day('2026-10-13')).toMatchObject({ netSales: 83.33, source: 'till' });
+    expect(day('2026-10-14')).toMatchObject({ netSales: 90, source: 'manual' });
+    expect(day('2026-10-15')).toMatchObject({ netSales: 95, source: 'import' });
+    // The orders carried tips and service charge, but a re-sync rewrites takings only.
+    expect((await call('GET', '/v1/tronc')).body.tips).toEqual([]);
+    expect((await call('GET', '/v1/integrations/epos')).body.connection.lastResync).toMatchObject({ read: 2, changed: 2 });
+
+    // Run again, nothing changes.
+    expect((await call('POST', '/v1/integrations/epos/resync', {})).body).toMatchObject({ read: 2, changed: 0, sites: [] });
+  });
+
+  it('reads a long history a quarter at a time, and refuses more than two years', async () => {
+    const { call, square } = await withHistory([taxableDinner('1', '2026-04-01T19:00:00Z')]);
+    await call('PUT', '/v1/sales', { rows: [{ siteId: 'mar', date: '2026-04-01', netSales: 81.25, source: 'till' }, { siteId: 'mar', date: '2026-10-20', netSales: 0, source: 'till' }] });
+    const res = await call('POST', '/v1/integrations/epos/resync', {});
+    expect(res.body).toMatchObject({ ok: true, from: '2026-04-01', read: 1, changed: 1 });
+    // April to October is three quarters; the one with no till days in it is not fetched.
+    expect(square.calls.filter((c) => c.url.endsWith('/v2/orders/search')).length).toBe(2);
+    expect((await call('POST', '/v1/integrations/epos/resync', { from: '2024-01-01', to: '2026-10-20' })).status).toBe(400);
+  });
+});
+
+describe('service charge from Square', () => {
+  it('takes what was collected: nothing for a charge taken off the bill, net of one refunded after', () => {
+    expect(squareServiceCharge({ id: 'a', location_id: 'L', total_money: { amount: 6750 }, total_service_charge_money: { amount: 750 } })).toBe(7.5);
+    expect(squareServiceCharge({ id: 'b', location_id: 'L', total_money: { amount: 6000 } })).toBe(0);
+    expect(squareServiceCharge({ id: 'c', location_id: 'L', net_amounts: { total_money: { amount: 6000 }, service_charge_money: { amount: 0 } }, total_service_charge_money: { amount: 750 } })).toBe(0);
+  });
+
+  it('brings each finished day’s service charge in beside the card tips, even one the scheme does not expect', async () => {
+    const charge = (pounds: number) => ({ total_service_charge_money: { amount: Math.round(pounds * 100), currency: 'GBP' } });
+    const square = fakeSquare({
+      orders: [
+        order('1', 'LMAR', '2026-10-19T11:30:00Z', 1000, { ...charge(125), total_tip_money: { amount: 1000, currency: 'GBP' } }),
+        order('2', 'LMAR', '2026-10-20T18:00:00Z', 800, charge(100)),
+        order('3', 'LFITZ', '2026-10-20T18:00:00Z', 400, charge(50)),
+      ],
+    });
+    const { call } = await boot(square.impl);
+    await call('PUT', '/v1/integrations/epos', { environment: 'production', accessToken: 'EAAA-good-token-1234' });
+    await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: 'LMAR', fitz: 'LFITZ' } });
+    await call('PUT', '/v1/tronc/schemes/fitz', { troncmaster: 'Rachel Adams', independent: true, pointsPerHour: { server: 10 }, serviceCharge: 'none' }, 'key');
+
+    const res = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-21' }, 'key');
+    expect(res.body.serviceCharge).toMatchObject({ written: 3, kept: [], paidDiffers: [], total: 275 });
+    expect(res.body.tips).toMatchObject({ written: 1, total: 10 });
+    const tips = (await call('GET', '/v1/tronc')).body.tips as { siteId: string; date: string; source: string; amount: number; fromTill?: boolean }[];
+    const sc = (site: string, d: string) => tips.find((t) => t.siteId === site && t.date === d && t.source === 'service-charge');
+    expect(sc('mar', '2026-10-19')).toMatchObject({ amount: 125, fromTill: true });
+    expect(sc('mar', '2026-10-20')).toMatchObject({ amount: 100, fromTill: true });
+    // Fitzrovia's scheme says no service charge, but the till took one: it is written, not dropped.
+    expect(sc('fitz', '2026-10-20')).toMatchObject({ amount: 50, fromTill: true });
+  });
+});
+
 describe('connecting a till', () => {
   it('checks the token with Square before saving it, and never returns it', async () => {
     const { call } = await boot();
@@ -175,6 +410,9 @@ describe('syncing takings', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.written).toBe(9); // three sites, three finished days
     expect(res.body.sites.every((s: { netSales: number }) => s.netSales > 0)).toBe(true);
+    // The simulated till carries card tips too, for the tronc.
+    expect(res.body.tips.total).toBeGreaterThan(0);
+    expect(res.body.tips.written).toBeGreaterThan(0);
     expect((await call('DELETE', '/v1/integrations/epos')).status).toBe(200);
     const sales = (await call('GET', '/v1/sales?from=2026-10-19&to=2026-10-21')).body as { source: string }[];
     expect(sales.filter((s) => s.source === 'till')).toHaveLength(9);
