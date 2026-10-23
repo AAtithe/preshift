@@ -22,6 +22,7 @@ import type { ToolDefinition } from './rotaTools';
 export const SCREENS = [
   'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
   'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'billing', 'requests', 'cash',
+  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 

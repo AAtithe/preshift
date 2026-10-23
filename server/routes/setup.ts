@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { SAMPLE_ENTITY_IDS, SAMPLE_SITE_IDS } from '../../src/engine/seed';
+import { isSampleEntry } from '../../src/engine/seedHistory';
 import { applySetup, removalBlocks, validateSetup, type SetupDraft } from '../../src/engine/setup';
 import type { Entity, RotaState, Site } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -28,7 +29,7 @@ async function startFreshBlocks(ctx: AppContext, org: OrgData): Promise<string[]
   }
   if (state.employees.some((e) => !SAMPLE_EMPLOYEE.test(e.id))) reasons.push('People of your own have been added.');
   if (state.employees.some((e) => e.payrollId)) reasons.push('Someone has been set up in payroll.');
-  if (org.timeEntries.length) reasons.push('Time has been clocked or entered.');
+  if (org.timeEntries.some((e) => !isSampleEntry(e))) reasons.push('Time has been clocked or entered.');
   if (org.submissions.length || org.payRuns.length) reasons.push('Hours have been sent to payroll or a pay run has come back.');
   if (org.outbox.length) reasons.push('Changes have been queued for payroll.');
   if (org.hrRecords.some((r) => r.createdBy !== SAMPLE_HR_AUTHOR)) reasons.push('HR records have been added.');
@@ -120,6 +121,8 @@ export function setupRoutes(app: FastifyInstance, ctx: AppContext) {
       if (blocks.length) throw new HttpError(409, 'not_sample', 'This organisation holds more than sample data, so it cannot be cleared', blocks);
       org.state = { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [] };
       org.hrRecords = [];
+      // Only the sample's own clocking can be here: anything real refused the clear above.
+      org.timeEntries = [];
       // The sample's fictional people go with it: left behind they would hold roles at sites that no longer exist.
       const samples = sampleUserIds(ctx.store.todayISO());
       org.users = org.users.filter((u) => !samples.has(u.id));

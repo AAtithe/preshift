@@ -40,6 +40,7 @@ function prefetchScreens(tab?: Tab) {
 
 const AbsenceView = screen(() => import('./AbsenceView'), 'AbsenceView', ['absence']);
 const AccessView = screen(() => import('./access/AccessView'), 'AccessView', ['access']);
+const ActualsView = screen(() => import('./ActualsView'), 'ActualsView', ['actuals']);
 const AssignPanel = screen(() => import('./AssignPanel'), 'AssignPanel');
 const BillingView = screen(() => import('./BillingView'), 'BillingView', ['billing']);
 const CalendarView = screen(() => import('./CalendarView'), 'CalendarView', ['calendar']);
@@ -48,6 +49,7 @@ const ClientsView = screen(() => import('./ClientsView'), 'ClientsView', ['clien
 const ClockView = screen(() => import('./ClockView'), 'ClockView', ['clock']);
 const CloseView = screen(() => import('./CloseView'), 'CloseView', ['close']);
 const CoachView = screen(() => import('./CoachView'), 'CoachView', ['coach']);
+const CutCallView = screen(() => import('./CutCallView'), 'CutCallView', ['cutcall']);
 const DemandView = screen(() => import('./DemandView'), 'DemandView', ['demand']);
 const EmployeeEditor = screen(() => import('./EmployeeEditor'), 'EmployeeEditor');
 const ForecastView = screen(() => import('./ForecastView'), 'ForecastView', ['forecast']);
@@ -61,13 +63,22 @@ const OnboardingView = screen(() => import('./OnboardingView'), 'OnboardingView'
 const PayApprovalsView = screen(() => import('./PayApprovalsView'), 'PayApprovalsView', ['pay']);
 const PayrollView = screen(() => import('./PayrollView'), 'PayrollView', ['payroll']);
 const PeopleView = screen(() => import('./PeopleView'), 'PeopleView', ['people']);
+const PrimeView = screen(() => import('./PrimeView'), 'PrimeView', ['prime']);
 const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['privacy']);
 const ProfileView = screen(() => import('./ProfileView'), 'ProfileView', ['profile']);
 const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', ['programme']);
 const RequestsView = screen(() => import('./RequestsView'), 'RequestsView', ['requests']);
 const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
+const RetentionView = screen(() => import('./RetentionView'), 'RetentionView', ['retention']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
+const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
+const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']);
+const CostView = screen(() => import('./RotaLenses'), 'CostView', ['rota']);
+const CoverMap = screen(() => import('./RotaLenses'), 'CoverMap', ['rota']);
+const FairnessView = screen(() => import('./RotaLenses'), 'FairnessView', ['rota']);
+const RestView = screen(() => import('./RotaLenses'), 'RestView', ['rota']);
+const StationView = screen(() => import('./RotaLenses'), 'StationView', ['rota']);
 const SettingsView = screen(() => import('./SettingsView'), 'SettingsView', ['settings']);
 const SetupView = screen(() => import('./SetupView'), 'SetupView', ['setup']);
 const ShiftEditor = screen(() => import('./ShiftEditor'), 'ShiftEditor');
@@ -76,6 +87,7 @@ const TeamView = screen(() => import('./TeamView'), 'TeamView', ['team']);
 const Timeline = screen(() => import('./Timeline'), 'Timeline', ['rota']);
 const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['training']);
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
+const TroncView = screen(() => import('./TroncView'), 'TroncView', ['tronc']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
 const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 
@@ -84,12 +96,25 @@ const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ defa
 const Shifty = lazy(() => import('./Shifty').then((m) => ({ default: m.Shifty })));
 const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.CommandBar })));
 
-type RotaView = 'timeline' | 'people';
+type RotaView = 'timeline' | 'people' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
 const VIEW_KEY = 'preshift.rota.view';
+
+/** Every way of looking at the week, with what each is for. Cost is offered only to those who may see pay. */
+const ROTA_VIEWS: { id: RotaView; label: string; help: string; cost?: boolean }[] = [
+  { id: 'timeline', label: 'Service timeline', help: 'Each day over its sales curve, with hours short or over in the strip beneath. Drag a bar to move it or its ends to change the hours. Drag across a day, or click a red hour, to add a shift.' },
+  { id: 'people', label: 'By person', help: 'Every person across the week. Drag a shift to another person or day.' },
+  { id: 'cover', label: 'Cover map', help: 'The whole week against demand in one grid: where to add or cut the next hour. Click a short hour to fill it.' },
+  { id: 'rest', label: 'Rest', help: 'Last week and this as one line per person, so a close before an open, or a long run of days, shows before it becomes a breach.' },
+  { id: 'stations', label: 'Positions', help: 'One day by position: who is on the bar, the pass, the door, hour by hour, and where a needed position is empty.' },
+  { id: 'cost', label: 'Shift cost', help: 'Each shift at its loaded cost against the day target: which shift to cut when labour runs over.', cost: true },
+  { id: 'changes', label: 'Changes', help: 'Who the next publish will tell, and what, before anyone is told.' },
+  { id: 'fairness', label: 'Fairness', help: 'Four weeks of weekends, closes, late finishes and hours under contract: who keeps getting the hard shifts.' },
+];
 
 function savedView(): RotaView {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'people' ? 'people' : 'timeline';
+    const v = localStorage.getItem(VIEW_KEY);
+    return ROTA_VIEWS.find((x) => x.id === v)?.id ?? 'timeline';
   } catch {
     return 'timeline';
   }
@@ -365,6 +390,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     setLastChange(null);
   }
 
+  const views = ROTA_VIEWS.filter((v) => !v.cost || showCost);
+  // A saved choice of a view this person is not offered falls back to the timeline.
+  const shownView = views.some((v) => v.id === rotaView) ? rotaView : 'timeline';
+
   const status = blocks > 0 ? 'blocked' : published ? 'published' : 'draft';
   const statusLabel = blocks > 0 ? `${blocks} blocking issue${blocks > 1 ? 's' : ''}` : published ? 'Published to team' : weekShifts.length ? 'Draft' : 'Not started';
   const gapGroups = unfilled
@@ -549,22 +578,25 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               )}
               {shown === 'rota' && single && (
                 <div className="view-bar">
-                  <div className="toggle" role="tablist" aria-label="Rota view">
-                    <button role="tab" aria-selected={rotaView === 'timeline'} className={rotaView === 'timeline' ? 'active' : ''} onClick={() => chooseView('timeline')}>
-                      Service timeline
-                    </button>
-                    <button role="tab" aria-selected={rotaView === 'people'} className={rotaView === 'people' ? 'active' : ''} onClick={() => chooseView('people')}>
-                      By person
-                    </button>
+                  <div className="toggle rota-views" role="tablist" aria-label="Rota view">
+                    {views.map((v) => (
+                      <button key={v.id} role="tab" aria-selected={shownView === v.id} className={shownView === v.id ? 'active' : ''} onClick={() => chooseView(v.id)}>
+                        {v.label}
+                      </button>
+                    ))}
                   </div>
-                  <span className="muted small">
-                    {rotaView === 'timeline'
-                      ? 'Each day over its sales curve, with hours short or over in the strip beneath. Drag a bar to move it or its ends to change the hours. Drag across a day, or click a red hour, to add a shift.'
-                      : 'Every person across the week. Drag a shift to another person or day.'}
-                  </span>
+                  <span className="muted small">{views.find((v) => v.id === shownView)?.help}</span>
                 </div>
               )}
-              {shown === 'rota' && single && rotaView === 'timeline' && (
+              {shown === 'rota' && single && shownView === 'cover' && (
+                <CoverMap state={view} site={single} dates={dates} onOpen={canEdit ? setOpening : undefined} />
+              )}
+              {shown === 'rota' && single && shownView === 'rest' && <RestView state={view} site={single} week={week} />}
+              {shown === 'rota' && single && shownView === 'stations' && <StationView state={view} site={single} dates={dates} />}
+              {shown === 'rota' && single && shownView === 'cost' && <CostView state={view} site={single} dates={dates} metrics={metrics} />}
+              {shown === 'rota' && single && shownView === 'changes' && <ChangesView state={state} site={single} week={week} />}
+              {shown === 'rota' && single && shownView === 'fairness' && <FairnessView state={view} site={single} week={week} />}
+              {shown === 'rota' && single && shownView === 'timeline' && (
                 <Timeline
                   state={view}
                   base={state}
@@ -581,7 +613,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
-              {shown === 'rota' && single && rotaView === 'people' && (
+              {shown === 'rota' && single && shownView === 'people' && (
                 <RotaGrid
                   state={view}
                   site={single}
@@ -663,6 +695,20 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {shown === 'actuals' && single && <ActualsView state={state} siteId={single.id} week={week} asOf={today} onOpenPayroll={() => setTab('payroll')} />}
+              {shown === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} canEdit={allow('payroll.send') || allow('pay.approve')} canRecord={(allow('time.approve', single.id) && allow('costs.view', single.id)) || allow('payroll.send') || allow('pay.approve')} />}
+              {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
+              {shown === 'risk' && single && <RiskView state={state} siteId={single.id} week={week} asOf={today} />}
+              {shown === 'retention' && single && <RetentionView state={state} siteId={single.id} asOf={today} />}
+              {shown === 'cutcall' && single && (
+                <CutCallView
+                  state={state}
+                  site={single}
+                  today={londonParts(new Date()).date}
+                  now={londonParts(new Date()).minute}
+                  onApply={allow('rota.edit', single.id) ? (shift) => actions.saveShift(shift, false) : undefined}
+                />
+              )}
               {shown === 'pay' && (
                 <PayApprovalsView
                   state={state}
