@@ -3,7 +3,9 @@ import { answersGuide } from './answers';
 import { assistantGuide } from './assistant';
 import { breaksGuide } from './breaks';
 import { kioskGuide } from './kiosk';
+import { requestsGuide } from './requests';
 import { shiftyGuide } from './shifty';
+import { staffAppGuide } from './staffApp';
 
 export interface Guide {
   id: string;
@@ -13,4 +15,4 @@ export interface Guide {
 }
 
 /** Everything in How to, in the order it is listed. Add a guide here and it appears in the app. */
-export const GUIDES: Guide[] = [shiftyGuide, assistantGuide, breaksGuide, kioskGuide, answersGuide];
+export const GUIDES: Guide[] = [shiftyGuide, assistantGuide, requestsGuide, staffAppGuide, breaksGuide, kioskGuide, answersGuide];
