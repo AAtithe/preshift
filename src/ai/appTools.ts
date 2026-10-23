@@ -21,7 +21,7 @@ import type { ToolDefinition } from './rotaTools';
 // Kept in step with Tab in src/ui/nav.ts; appTools.test.ts checks they match.
 export const SCREENS = [
   'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
-  'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'billing', 'requests',
+  'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'billing', 'requests', 'adoption',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 

@@ -513,9 +513,11 @@ function PushCard({ call, say }: { call: Call; say: Say }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
   const [others, setOthers] = useState(0);
+  const [reminders, setReminders] = useState(true);
   const check = useCallback(async () => {
     try {
-      const info = await call<{ devices: { endpoint: string }[] }>('GET', '/v1/staff/push');
+      const info = await call<{ devices: { endpoint: string }[]; reminders: boolean }>('GET', '/v1/staff/push');
+      setReminders(info.reminders);
       const now = await pushState(info.devices.map((d) => d.endpoint));
       setState(now);
       setOthers(info.devices.filter((d) => now.kind !== 'on' || d.endpoint !== now.endpoint).length);
@@ -569,6 +571,15 @@ function PushCard({ call, say }: { call: Call; say: Say }) {
       {state.kind === 'on' && (
         <>
           <p className="good-text small">On for this phone.{others ? ` Also on for ${others} other phone${others === 1 ? '' : 's'} or browser${others === 1 ? '' : 's'}.` : ''}</p>
+          <label className="staff-check">
+            <input
+              type="checkbox"
+              checked={reminders}
+              disabled={busy}
+              onChange={(e) => { const on = e.target.checked; void act(async () => { await call('PUT', '/v1/staff/reminders', { on }); setReminders(on); }, on ? 'Reminders on.' : 'Reminders off. You will still be told if you have not clocked in.'); }}
+            />
+            Remind me the evening before and two hours before each shift
+          </label>
           <div className="staff-buttons">
             <button disabled={busy} onClick={() => void act(async () => {
               const r = await call<{ sent: number }>('POST', '/v1/staff/push/test');
