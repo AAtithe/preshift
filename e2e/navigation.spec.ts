@@ -199,6 +199,32 @@ test('groups fold away, the one you are in opens, and your choice is remembered'
   await expect(item(page, 'Training')).toHaveAttribute('aria-current', 'page');
 });
 
+test('Go to finds a section by its name, and / reaches it from anywhere', async ({ page }) => {
+  const find = bar(page).getByLabel('Go to a section');
+  await page.locator('main').click();
+  await page.keyboard.press('/');
+  await expect(find).toBeFocused();
+  // A section named for what was typed comes before one whose group heading only mentions it.
+  await page.keyboard.type('pay');
+  await expect(bar(page).locator('.nav-results button').first()).toContainText('Payroll');
+  await page.keyboard.press('Enter');
+  await expect(item(page, 'Payroll')).toHaveAttribute('aria-current', 'page');
+  await expect(find).toHaveValue('');
+
+  await find.fill('nothing like this');
+  await expect(bar(page).locator('.nav-none')).toBeVisible();
+  await find.press('Escape');
+  await expect(find).toHaveValue('');
+});
+
+test('a folded group lists what is inside it', async ({ page }) => {
+  await go(page, 'Absence');
+  const people = toggle(page, 'people');
+  await people.click();
+  await expect(people).toHaveAttribute('aria-expanded', 'false');
+  await expect(people.locator('.nav-preview')).toContainText('Absence');
+});
+
 test('a supervisor sees only their sections, and the API refuses the rest', async ({ page }) => {
   // Acting as a demo person is a development build feature, so this runs against the local server only.
   test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
