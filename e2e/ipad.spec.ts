@@ -39,6 +39,41 @@ async function openTimeline(page: Page) {
   // A fresh server may have no rota this week yet: build one from the forecast to work with.
   if ((await page.locator('.tl-bar').count()) === 0) await page.getByRole('button', { name: 'Build from forecast' }).click();
   await expect(page.locator('.tl-bar').first()).toBeVisible();
+  await settled(page);
+}
+
+/** API requests each page has waiting: a save or a banner still loading means the screen is about to change. */
+const inFlight = new WeakMap<Page, Set<unknown>>();
+
+/**
+ * Waits until the timeline stops moving. Banners above it (what is coming up, gaps the build could not
+ * fill) arrive after the rota does and push it down, a re-render puts the timeline's sideways scroll back
+ * to the start, and a drop is saved and drawn again after the finger lifts. A touch aimed before that
+ * lands on whatever moved into its place, so every test measures only once no API request is waiting
+ * and the first lane and bar have held still for a few frames in a row.
+ */
+async function settled(page: Page) {
+  const where = () =>
+    page.evaluate(() =>
+      ['.tl-plot', '.tl-bar']
+        .map((s) => document.querySelector(s)?.getBoundingClientRect())
+        .map((r) => (r ? `${Math.round(r.x)},${Math.round(r.y)}` : '-'))
+        .join(' '),
+    );
+  let last = '';
+  let still = 0;
+  await expect
+    .poll(
+      async () => {
+        if (inFlight.get(page)?.size) return (still = 0);
+        const now = await where();
+        still = now === last ? still + 1 : 0;
+        last = now;
+        return still;
+      },
+      { intervals: [100], timeout: 10_000 },
+    )
+    .toBeGreaterThanOrEqual(4);
 }
 
 /** Real touch events, so the browser runs its own touch-to-pointer handling as a tablet does. */
@@ -64,6 +99,7 @@ async function touch(page: Page) {
 async function centre(page: Page, selector: string, index = 0) {
   const el = page.locator(selector).nth(index);
   await el.scrollIntoViewIfNeeded();
+  await settled(page);
   const box = (await el.boundingBox())!;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2, width: box.width };
 }
@@ -80,6 +116,11 @@ test.beforeEach(async ({ page }) => {
   const list: string[] = [];
   errors.set(page, list);
   page.on('pageerror', (e) => list.push(e.message));
+  const waiting = new Set<unknown>();
+  inFlight.set(page, waiting);
+  page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/v1/')) waiting.add(r); });
+  page.on('requestfinished', (r) => waiting.delete(r));
+  page.on('requestfailed', (r) => waiting.delete(r));
   await openTimeline(page);
 });
 test.afterEach(async ({ page }) => {
@@ -98,13 +139,14 @@ test('a quick swipe over a shift scrolls and leaves it where it was', async ({ p
 });
 
 test('press and hold lifts a shift, a slide moves it, and sliding back puts it back', async ({ page }) => {
-  const from = await centre(page, '.tl-bar');
-  expect(await hit(page, from)).toBe(true);
   const title = await titleOf(page);
   const count = await withTitle(page, title);
   // An hour's width on the axis.
   const hour = (await page.locator('.tl-hour').nth(1).boundingBox())!.x - (await page.locator('.tl-hour').nth(0).boundingBox())!.x;
   const finger = await touch(page);
+  // Aimed last, straight before the finger goes down, so nothing has moved under it.
+  const from = await centre(page, '.tl-bar');
+  expect(await hit(page, from)).toBe(true);
 
   await finger.drag(from, { x: from.x + hour, y: from.y }, 450);
   await expect.poll(() => withTitle(page, title)).toBe(count - 1);
@@ -114,9 +156,12 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
   const later = (title ?? '').replace(/(\d\d):00-(\d\d):00/, (_m, a: string, b: string) => `${String(Number(a) + 1).padStart(2, '0')}:00-${String(Number(b) + 1).padStart(2, '0')}:00`);
   const moved = page.locator(`.tl-bar[title="${later}"]`).first();
   await expect(moved).toHaveCount(1);
+  // The drop saves and re-renders, which moves things again: settle before aiming at the moved shift.
   await moved.scrollIntoViewIfNeeded();
+  await settled(page);
   const box = (await moved.boundingBox())!;
   const back = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  expect(await hit(page, back)).toBe(true);
   await finger.drag(back, { x: back.x - hour, y: back.y }, 450);
   await expect.poll(() => withTitle(page, title)).toBe(count);
 });
@@ -124,6 +169,7 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
 test('dragging the end of a shift changes its hours, and dragging it back restores them', async ({ page }) => {
   const bar = page.locator('.tl-bar').first();
   await bar.scrollIntoViewIfNeeded();
+  await settled(page);
   const title = await titleOf(page);
   const count = await withTitle(page, title);
   const hour = (await page.locator('.tl-hour').nth(1).boundingBox())!.x - (await page.locator('.tl-hour').nth(0).boundingBox())!.x;
@@ -137,6 +183,7 @@ test('dragging the end of a shift changes its hours, and dragging it back restor
   const stretched = page.locator(`.tl-bar[title="${longer}"]`).first();
   await expect(stretched).toHaveCount(1);
   await stretched.scrollIntoViewIfNeeded();
+  await settled(page);
   const end = (await stretched.locator('.tl-edge.end').boundingBox())!;
   await finger.drag({ x: end.x + end.width / 2, y: end.y + end.height / 2 }, { x: end.x + end.width / 2 - hour, y: end.y + end.height / 2 }, 0);
   await expect.poll(() => withTitle(page, title)).toBe(count);
@@ -146,9 +193,20 @@ test('a tap on an empty stretch of the day opens the picker without adding anyon
   const bars = await page.locator('.tl-bar').count();
   const plot = page.locator('.tl-plot').first();
   await plot.scrollIntoViewIfNeeded();
-  const box = (await plot.boundingBox())!;
-  // Early in the day, well clear of the bars and the gap strip.
-  await page.touchscreen.tap(box.x + box.width * 0.05, box.y + 12);
+  await settled(page);
+  // Early in the day, well clear of the bars and the gap strip, on a point the plot itself receives:
+  // the timeline scrolls sideways, so part of the plot can sit under the day's name or off screen.
+  const point = await plot.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const y = box.y + 12;
+    for (let x = box.x + 4; x < box.x + box.width / 2; x += 8) {
+      const at = document.elementFromPoint(x, y);
+      if (at && el.contains(at) && !at.closest('.tl-cell, .tl-bar')) return { x, y };
+    }
+    return null;
+  });
+  expect(point, 'an empty, uncovered point on the first day').not.toBeNull();
+  await page.touchscreen.tap(point!.x, point!.y);
   const dialog = page.getByRole('dialog', { name: 'Add a shift' });
   await expect(dialog).toBeVisible();
   // The click that follows the tap must not land on a name and add them.

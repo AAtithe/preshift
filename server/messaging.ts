@@ -442,7 +442,7 @@ export async function reachOf(store: Store, org: OrgData) {
  * Staff notices (the rota published or changed, a swap, an open shift, a request decided) show in
  * the staff app and are emailed (server/notify.ts). Someone who chose WhatsApp or text gets them
  * there instead: one message for everything waiting, kept in their thread so quiet hours can hold
- * it, and the email is then not sent. Run before emailNotifications, inside the same request.
+ * it, and the email is then not sent. Run before deliverNotifications, inside the same request; carried notices are neither pushed nor emailed, so one notice is one buzz.
  */
 export async function carryNotifications(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>, org: OrgData) {
   const pending = (org.notifications ?? []).filter((n) => n.email === 'pending');

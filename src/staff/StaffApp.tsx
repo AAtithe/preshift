@@ -5,6 +5,7 @@ import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
 import { call, Problem, say } from './http';
 import { StaffCover, StaffMessages, StaffReach } from './StaffMessages';
+import { registerWorker, turnOff } from './push';
 import { InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
 interface Entry {
@@ -60,6 +61,7 @@ function readInvite() {
 
 /** Read when the app loads, once, before anything can render twice. */
 const INVITE = readInvite();
+registerWorker();
 
 /** The staff app: a person's own login on their own phone, to clock in and out and see their shifts. */
 export function StaffApp() {
@@ -95,7 +97,17 @@ export function StaffApp() {
           {data && view === 'home' ? <div className="brand-sub">{data.employee.name}</div> : <div className="brand-sub">For staff</div>}
         </div>
         {view === 'home' && (
-          <button className="link" onClick={() => void call('POST', '/v1/staff/logout').then(() => { setData(null); setView('login'); })}>Sign out</button>
+          <button
+            className="link"
+            onClick={() =>
+              // A shared phone stops getting this person's notifications when they sign out of it.
+              void turnOff((body) => call('POST', '/v1/staff/push/unsubscribe', body))
+                .then(() => call('POST', '/v1/staff/logout'))
+                .then(() => { setData(null); setView('login'); })
+            }
+          >
+            Sign out
+          </button>
         )}
       </header>
       {error && <p className="staff-msg bad" role="alert">{error}</p>}
@@ -118,7 +130,14 @@ type Tab = 'today' | 'rota' | 'requests' | 'inbox';
 
 /** Signed in: four tabs along the bottom, where a thumb reaches. */
 function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
-  const [tab, setTab] = useState<Tab>('today');
+  // A tapped notification opens the inbox, whether the app was closed or already open.
+  const [tab, setTab] = useState<Tab>(() => (window.location.hash === '#inbox' ? 'inbox' : 'today'));
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const open = (e: MessageEvent) => { if (e.data?.type === 'open') setTab('inbox'); };
+    navigator.serviceWorker.addEventListener('message', open);
+    return () => navigator.serviceWorker.removeEventListener('message', open);
+  }, []);
   const refresh = useCallback(async () => {
     try {
       onChange(await call<Overview>('GET', '/v1/staff/me'));
@@ -136,7 +155,7 @@ function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o:
       {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
       {tab === 'inbox' && (
         <>
-          <InboxTab call={call} refresh={reload} />
+          <InboxTab call={call} say={say} refresh={reload} />
           {/* Messages with their managers, and how work reaches them beyond the app. */}
           <StaffMessages onSignedOut={onSignedOut} />
           <StaffReach onSignedOut={onSignedOut} />

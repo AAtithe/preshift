@@ -429,6 +429,8 @@ export interface StaffNotification {
   via?: 'whatsapp' | 'sms';
   /** Goes through quiet hours: a shift put out as urgent. */
   urgent?: boolean;
+  /** Pushed to the person's phones: sent to at least one, none (not turned on), or failed on every one. */
+  push?: 'sent' | 'none' | 'failed';
 }
 
 export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';

@@ -46,7 +46,7 @@ import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './rout
 import { askDueRounds } from './cover';
 import { carryNotifications, releaseHeld } from './messaging';
 import { requestRoutes } from './routes/requests';
-import { emailNotifications } from './notify';
+import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
@@ -329,7 +329,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         const asked = askDueRounds(org, ctx.now());
         if (asked) {
           await carryNotifications(ctx, org);
-          await emailNotifications(store, org);
+          await deliverNotifications(store, org);
         }
         if (released || asked) await store.save(org);
       } catch (err) {
@@ -425,7 +425,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
         await carryNotifications(ctx, req.org);
-        await emailNotifications(store, req.org);
+        await deliverNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {

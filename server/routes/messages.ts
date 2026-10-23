@@ -11,7 +11,7 @@ import {
 import { audit, type OrgData } from '../store';
 import { requireStaff } from './staff';
 import { afterYes, askDueRounds, shiftsGoingFor, takeOpenShift, type Taken } from '../cover';
-import { emailNotifications, notify } from '../notify';
+import { deliverNotifications, notify } from '../notify';
 import { isYes } from '../../src/engine/cover';
 import {
   bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS,
@@ -468,7 +468,7 @@ export function whatsappWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
       notify(org, employee.id, 'open_shift', 'Which shift?', `You have ${count} shifts going that you could take, so YES could mean any of them. Take the one you want in the Preshift app.`, ctx.now());
     }
     await carryNotifications(ctx, org);
-    await emailNotifications(store, org);
+    await deliverNotifications(store, org);
     try {
       await store.save(org);
     } catch (err) {
