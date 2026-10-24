@@ -41,6 +41,7 @@ simulator, which is safe, and a real client cannot be paid through Preshift.
 | 16 | Sending a batch again for the same period replaces the earlier one rather than adding to it | Preshift supersedes a batch when hours are corrected. If TeamPay adds, people are paid twice | |
 | 17 | Pay frequency: Preshift periods are weekly. Which schedules do clients run (weekly, fortnightly, four-weekly, monthly)? | Batches must match the client's pay schedule | |
 | 18 | `GET /pay-runs/:id` returns per employee `employee_id`, `external_ref`, `gross`, `holiday_pay`, `employer_ni`, `employer_pension` | The pay run is reconciled to the accrual | |
+| 22 | Premium lines are accepted on `POST /hours`: `pay_element: 'premium'` with `premium_code`, `hours` that qualified and `rate` as the uplift per hour, paid on top of the same hours' normal line and not counted as extra hours | Sunday, bank holiday, night and overtime premiums are paid as costed, and show on the payslip as their own element | |
 
 ## Webhooks
 
@@ -56,7 +57,7 @@ simulator, which is safe, and a real client cannot be paid through Preshift.
 2. In a test organisation, put two people on the TeamPay sandbox by hand, one with a different rate.
 3. Add the same two in Preshift. Expect one linked automatically and one held under "Needs a decision" in Payroll. No new TeamPay records.
 4. Add a third person not on TeamPay. Expect one new TeamPay record carrying their `external_ref`.
-5. Clock, approve and send hours. Expect one batch in TeamPay, with cost centres and roles.
+5. Clock, approve and send hours. Expect one batch in TeamPay, with cost centres and roles. With a Sunday premium set on the company and a Sunday shift worked, expect a premium line on top of the hours, paid at the uplift.
 6. Send again after a correction. Expect the batch replaced, not added to (line 16).
 7. Run payroll in the sandbox. Expect the webhook to arrive, verify, and the pay run to reconcile in Preshift.
 8. Mark a leaver. Expect the leave date in TeamPay.

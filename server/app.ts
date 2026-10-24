@@ -10,15 +10,15 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { demoRoutes, keepSandboxTrading, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
-import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
+import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { eposRoutes, syncAllTills } from './routes/epos';
-import { payRoutes } from './routes/pay';
+import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { payrollLinkRoutes } from './routes/payrollLink';
@@ -26,6 +26,7 @@ import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
+import { labourRoutes } from './routes/labour';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clientRoutes } from './routes/clients';
@@ -43,10 +44,12 @@ import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
-import { emailNotifications } from './notify';
+import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
+import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
+import { cashRoutes } from './routes/cash';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -226,6 +229,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
       documents: documents.status,
+      // Which build is live, so a check run after a deploy can wait for it. Vercel sets this on git deployments.
+      ...(env.VERCEL_GIT_COMMIT_SHA ? { commit: env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) } : {}),
     });
   });
 
@@ -243,6 +248,30 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // never stops the rest.
     const today = londonToday(ctx);
     const started = Date.now();
+    // Once a day per organisation: approved pay changes dated today take effect, and finance hears
+    // what waits. Kept apart from the refresh below, which skips organisations with nothing to fetch.
+    let payRuns = 0;
+    for (const orgId of await store.orgIds()) {
+      if (Date.now() - started > 20_000) break;
+      try {
+        const org = await store.load(orgId);
+        if (org.payDailyOn === today || (!org.payChanges.some((c) => c.status === 'pending' || (c.status === 'approved' && !c.appliedOn)))) continue;
+        await payDaily(store, org, today);
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          // Someone saved meanwhile. Apply again over their copy, and mark the day done so the reminder is not sent twice.
+          const fresh = await store.load(orgId);
+          applyDuePayChanges(fresh, today);
+          fresh.payDailyOn = today;
+          await store.save(fresh);
+        }
+        payRuns++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'daily pay run failed');
+      }
+    }
     const due: { orgId: string; last: string }[] = [];
     for (const orgId of await store.orgIds()) {
       // Demo sandboxes last a day and fetch nothing from outside.
@@ -285,7 +314,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // Journey times between sites drift as routes and timetables change: plan any out of date
     // ones again with what time is left. Sandboxes keep their seeded times.
     const journeys = Date.now() - started < 40_000 ? await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey, today, { skip: isSandbox, deadline: started + 50_000 }) : 0;
-    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys };
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys, payRuns };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
@@ -301,6 +330,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
+  });
+
+  // Every five minutes: shift reminders, and an alert when someone has not clocked in for a shift
+  // that has started. Each is sent once, however often this runs.
+  app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
@@ -353,6 +389,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
+    // A demo sandbox's takings move on with the clock, so the cut call has a day to read whenever it is opened.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' && req.routeOptions.url === '/v1/sales' && req.org && keepSandboxTrading(req.org, ctx.now())) req.orgTouched = true;
+    });
     // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
     // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.
     api.addHook('preHandler', async (req) => {
@@ -370,7 +410,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
-        await emailNotifications(store, req.org);
+        await deliverNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -407,7 +447,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
+    hrFileRoutes(api, ctx);
     timeRoutes(api, ctx);
+    labourRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
@@ -416,6 +458,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
+    cashRoutes(api, ctx);
     welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);

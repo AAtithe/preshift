@@ -42,3 +42,11 @@ body { background: var(--page-wash, var(--bg)); }
   .kiosk-site { font-size: 26px; }
   .kiosk-time { font-size: 38px; }
 }
+.kiosk-pin-dots { display: flex; gap: 14px; justify-content: center; margin: 6px 0; }
+.kiosk-pin-dots span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--ink); }
+.kiosk-pin-dots span.on { background: var(--ink); }
+.kiosk-pin-error { margin: 0; color: var(--bad); font-weight: 600; text-align: center; }
+.kiosk-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px 0; }
+.kiosk-key { font-size: 26px; font-weight: 650; padding: 18px 0; border-radius: 12px; border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink); cursor: pointer; }
+.kiosk-key.primary { background: var(--ink); color: #fff; border-color: var(--ink); font-size: 20px; }
+.kiosk-key:disabled { opacity: 0.4; }

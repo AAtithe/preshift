@@ -319,6 +319,21 @@ export function checkEmployeeWeek(
     push({ code: 'max-hours', severity: 'warn', message: `${rostered}, over their ${employee.maxWeeklyHours}h maximum.` });
   }
   const fullWeek = dates.every((d) => isEmployedOn(employee, d));
+  // A salary is a fixed sum for however many hours are worked, so a long rota can take it below the minimum wage.
+  // Paid travel between sites is working time here too. A warning, not a block: salaried pay is judged over the
+  // pay period, where on monthly pay a lighter week can make up for this one. Withheld pay or age would read as a
+  // guess, so as for hourly pay the API, which holds both, makes this check for that reader.
+  if (fullWeek && employee.payBasis === 'salaried' && !employee.payHidden && !employee.personalHidden && hours > 0) {
+    const band = minimumWageFor(ruleAge(employee, weekStartDate), rates);
+    const weekly = employee.annualSalary / 52 - (employee.nmwReducingDeductionsWeekly ?? 0);
+    if (band && weekly < band.hourly * hours) {
+      push({
+        code: 'salaried-minimum-wage',
+        severity: 'warn',
+        message: `£${weekly.toFixed(2)} a week over ${rostered} is £${(weekly / hours).toFixed(2)}/h, below the ${band.label} of £${band.hourly.toFixed(2)}. The salary covers ${(weekly / band.hourly).toFixed(1)}h a week; on monthly pay a lighter week can make up for this one.`,
+      });
+    }
+  }
   if (fullWeek && employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
     push({ code: 'under-contract', severity: 'warn', message: `${hours.toFixed(1)}h is below ${employee.contractedHours} contracted hours. You pay the gap either way.` });
   }

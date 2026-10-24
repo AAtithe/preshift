@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import { COOKIE, createSession, readSession, safeNext, SESSION_SECONDS } from './session';
@@ -303,12 +304,14 @@ describe('the hosted app', () => {
     await mkdir(path.join(dir, 'assets'), { recursive: true });
     await writeFile(path.join(dir, 'index.html'), '<html>app</html>');
     await writeFile(path.join(dir, 'assets', 'index-abc.js'), 'console.log(1)');
+    await writeFile(path.join(dir, 'assets', 'big-abc.js'), 'console.log("preshift");\n'.repeat(400));
     await writeFile(path.join(root, 'secret.txt'), 'outside');
     const { buildApp } = await import('./app');
     const { TeamPaySimulator } = await import('./integrations/payroll/simulator');
     const store = new MemoryStore([], TODAY);
     const { app } = await buildApp({ apiKeys: [], store, provider: new TeamPaySimulator(), autoDispatch: false, appDir: dir });
-    const get = (url: string, cookie?: string) => app.inject({ method: 'GET', url, headers: cookie ? { cookie } : {} });
+    const get = (url: string, cookie?: string, encoding?: string) =>
+      app.inject({ method: 'GET', url, headers: { ...(cookie ? { cookie } : {}), ...(encoding ? { 'accept-encoding': encoding } : {}) } });
     const owner = async () => {
       const res = await app.inject({ method: 'POST', url: '/auth/setup', headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: new URLSearchParams({ email: OWNER.email, password: OWNER.password, confirm: OWNER.password }).toString() });
       return String(res.headers['set-cookie']).split(';')[0];
@@ -332,6 +335,24 @@ describe('the hosted app', () => {
     expect(page.headers['cache-control']).toBe('private, no-store');
     expect((await t.get('/app/assets/index-abc.js', cookie)).headers['content-type']).toMatch(/javascript/);
     expect((await t.get('/app', cookie)).statusCode).toBe(308);
+  });
+
+  it('sends the app compressed to a browser that takes it, and plain to one that does not', async () => {
+    const t = await withApp();
+    const cookie = await t.owner();
+    const plain = 'console.log("preshift");\n'.repeat(400);
+    const br = await t.get('/app/assets/big-abc.js', cookie, 'gzip, deflate, br');
+    expect(br.headers['content-encoding']).toBe('br');
+    expect(br.headers.vary).toBe('accept-encoding');
+    expect(brotliDecompressSync(br.rawPayload).toString()).toBe(plain);
+    const gz = await t.get('/app/assets/big-abc.js', cookie, 'gzip');
+    expect(gz.headers['content-encoding']).toBe('gzip');
+    expect(gunzipSync(gz.rawPayload).toString()).toBe(plain);
+    const none = await t.get('/app/assets/big-abc.js', cookie);
+    expect(none.headers['content-encoding']).toBeUndefined();
+    expect(none.body).toBe(plain);
+    // Too small to be worth it.
+    expect((await t.get('/app/assets/index-abc.js', cookie, 'br')).headers['content-encoding']).toBeUndefined();
   });
 
   it('cannot be walked out of the app folder', async () => {
