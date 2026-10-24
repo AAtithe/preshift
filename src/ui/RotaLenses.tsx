@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { forecastSalesForDay } from '../engine/demand';
 import type { WeekMetrics } from '../engine/metrics';
 import {
   costBricks,
@@ -248,7 +249,7 @@ export function StationView({ state, site, dates }: { state: RotaState; site: Si
   );
 }
 
-const salesOn = (state: RotaState, siteId: string, date: string) => state.forecast.filter((f) => f.siteId === siteId && f.date === date).reduce((a, f) => a + f.sales, 0);
+const salesOn = forecastSalesForDay;
 
 // Cost bricks ---------------------------------------------------------------------------------
 

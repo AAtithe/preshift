@@ -89,8 +89,40 @@ export function dayDemand(state: RotaState, siteId: string, roleId: string, date
   });
 }
 
+/**
+ * The trading day an hourly row counts towards: its own date, or the evening before for an hour after
+ * midnight at a site still open from the night before. Without the site, the calendar date.
+ */
+export function tradingDate(site: Pick<Site, 'openMinute' | 'closeMinute'> | undefined, row: { date: string; hour: number }): string {
+  return site ? tradingHour(site, row.date, row.hour).date : row.date;
+}
+
+/**
+ * Hourly rows (forecast or till) for one trading day at one site, each with its hour of that day: a
+ * bar's Friday night includes 01:00 stored against Saturday, as hour 25, and Saturday leaves it out.
+ */
+export function tradingDayRows<R extends { siteId: string; date: string; hour: number }>(
+  rows: readonly R[],
+  site: Pick<Site, 'openMinute' | 'closeMinute'> | undefined,
+  siteId: string,
+  date: string,
+): R[] {
+  const next = addDays(date, 1);
+  return rows
+    .filter((r) => r.siteId === siteId && (r.date === date || r.date === next) && tradingDate(site, r) === date)
+    .map((r) => (r.date === date ? r : { ...r, hour: r.hour + 24 }));
+}
+
+/** Sales in hourly rows for one trading day at one site. */
+export function salesForTradingDay(
+  rows: readonly { siteId: string; date: string; hour: number; sales: number }[],
+  site: Pick<Site, 'openMinute' | 'closeMinute'> | undefined,
+  siteId: string,
+  date: string,
+): number {
+  return tradingDayRows(rows, site, siteId, date).reduce((sum, r) => sum + r.sales, 0);
+}
+
 export function forecastSalesForDay(state: RotaState, siteId: string, date: string): number {
-  return state.forecast
-    .filter((f) => f.date === date && f.siteId === siteId)
-    .reduce((sum, f) => sum + f.sales, 0);
+  return salesForTradingDay(state.forecast, state.sites.find((s) => s.id === siteId), siteId, date);
 }

@@ -2,6 +2,7 @@
 // reads one site's week by the hour; this reads the estate over a quarter by the day, so a site
 // that only keys in its daily takings is measured too.
 
+import { tradingDate } from './demand';
 import { forecastAccuracy } from './forecast';
 import { DEFAULT_THRESHOLDS } from './scorecard';
 import { addDays, weekDates, weekday } from './time';
@@ -105,12 +106,16 @@ export function accuracyReport(state: RotaState, actuals: HourActual[], siteIds:
   const from = starts[0];
   const to = addDays(endWeek, 6);
   const inRange = (r: { date: string }) => r.date >= from && r.date <= to && r.date < today;
+  // Hourly rows count towards their trading day: 01:00 on Saturday at a bar open late is Friday night.
+  const site = new Map(state.sites.map((s) => [s.id, s]));
+  const ofDay = (r: { siteId: string; date: string; hour: number }) => ({ date: tradingDate(site.get(r.siteId), r) });
 
   // One pass over each source, keyed by site and day.
   const forecastBy = new Map<string, { sales: number; typical: boolean }>();
   for (const f of state.forecast) {
-    if (!siteIds.includes(f.siteId) || !inRange(f)) continue;
-    const k = `${f.siteId}|${f.date}`;
+    const { date } = ofDay(f);
+    if (!siteIds.includes(f.siteId) || !inRange({ date })) continue;
+    const k = `${f.siteId}|${date}`;
     const d = forecastBy.get(k) ?? { sales: 0, typical: true };
     d.sales += f.sales;
     d.typical &&= f.source === 'profile';
@@ -119,8 +124,9 @@ export function accuracyReport(state: RotaState, actuals: HourActual[], siteIds:
   const takings = new Map((state.sales ?? []).filter((s) => siteIds.includes(s.siteId) && inRange(s)).map((s) => [`${s.siteId}|${s.date}`, s.netSales]));
   const hourly = new Map<string, number>();
   for (const a of actuals) {
-    if (!siteIds.includes(a.siteId) || !inRange(a)) continue;
-    const k = `${a.siteId}|${a.date}`;
+    const { date } = ofDay(a);
+    if (!siteIds.includes(a.siteId) || !inRange({ date })) continue;
+    const k = `${a.siteId}|${date}`;
     hourly.set(k, (hourly.get(k) ?? 0) + a.sales);
   }
 

@@ -275,7 +275,7 @@ of the shift worked short of rest, a weekly one at the person's home site. Route
 | Storage | Postgres (Neon) via `PRESHIFT_DATABASE_URL`; in memory without it. Never reads `DATABASE_URL`. |
 | Payroll | TeamPay, through an idempotent, retrying outbox; daily Vercel Cron retry. |
 | Hosting | Vercel Build Output API: marketing site, one Node API function, app served to signed-in people only. |
-| Quality | 1306 tests across 131 files (night workers and their health assessment offers, trading round the clock and the cut call past midnight, open shifts kept out of locked pay periods, pay calendars and the pay period close, customers, Xero journal posting, open shifts offered cheapest first and approved automatically, shifts going in rounds, messaging and channels, under 18s at night, message retention, signing the written statement and handbook in the staff app, tips and payslips in the staff app, tips through payroll, pay premiums, escalation and Seen it, shift reminders, no-shows and adoption, labour cash calendar, phone push, wellbeing and Hospitality Rewards, pricing, support desk, staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, clocked against rota, cut call, compliance pricing, tronc, prime cost, retention, demo trading history, clients and onboarding, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
+| Quality | 1317 tests across 132 files (day totals by trading day, night workers and their health assessment offers, trading round the clock and the cut call past midnight, open shifts kept out of locked pay periods, pay calendars and the pay period close, customers, Xero journal posting, open shifts offered cheapest first and approved automatically, shifts going in rounds, messaging and channels, under 18s at night, message retention, signing the written statement and handbook in the staff app, tips and payslips in the staff app, tips through payroll, pay premiums, escalation and Seen it, shift reminders, no-shows and adoption, labour cash calendar, phone push, wellbeing and Hospitality Rewards, pricing, support desk, staff requests, swaps, open shifts, notifications and the managers' morning email, engine, sign-up and billing, staff login close review, forecasting from takings, forecast accuracy, staff app invitation emails, clocked against rota, cut call, compliance pricing, tronc, prime cost, retention, demo trading history, clients and onboarding, access and permissions, rota assistant and chat, travel, reports, right to work documents, HR, GDPR, UI rules, assistant, API, clocking, breaks, staff, payroll, privacy, demo, Postgres store, reset, MCP connector). CI typechecks and tests every pull request and every push to main. |
 
 ## Running it
 
@@ -450,8 +450,10 @@ Sites can trade past midnight, closing as late as opening time the next day, or 
 to 02:00 has Friday's demand, staffing and forecast run to 02:00, with the hours after midnight
 stored against Saturday's date (as a till or sales feed reports them) and read back as Friday night.
 The auto-build rosters shifts that finish at close, and each night's forecast still adds back to the
-day. Known limit: daily labour % and the forecast accuracy report still total by calendar date, so
-the after-midnight trade counts towards the next day there.
+day. Every daily total does the same: labour % by day, the rota's day P&L, the timeline's sales
+curve, takings entry, scorecards and forecast accuracy count the hours after midnight to the night they
+belong to, as the shifts already are. A day's takings keyed in or sent by the till are taken as the
+till's trading day; only hourly till figures are moved.
 
 ## Self sign-up and billing
 

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { autoSchedule } from './autoschedule';
-import { dayDemand, tradingHour } from './demand';
+import { actualSalesForDay } from './actuals';
+import { dayDemand, forecastSalesForDay, tradingHour } from './demand';
+import { accuracyReport } from './forecastreport';
+import { weekMetrics } from './metrics';
 import { forecastFromTakings } from './forecasting';
 import { seedState } from './seed';
 import { applySetup, emptyDraft, forecastForWeek, missingForecast, validateSetup, type SetupDraft } from './setup';
 import { addDays, weekDates } from './time';
-import type { RotaState } from './types';
+import type { HourActual, RotaState } from './types';
 
 const TODAY = '2026-10-21';
 const WEEK = '2026-10-19';
@@ -94,5 +97,38 @@ describe('trading past midnight', () => {
     const night = rows.filter((r) => tradingHour(site, r.date, r.hour).date === fri.date);
     expect(night.some((r) => r.date === addDays(fri.date, 1))).toBe(true);
     expect(night.reduce((s, r) => s + r.sales, 0)).toBe(Math.round(fri.sales));
+  });
+});
+
+describe('day totals by trading day', () => {
+  // The bar open 16:00 to 02:00, with Friday's £6,000 night running on into Saturday's early hours.
+  const state = () => applySetup(EMPTY, bar(), TODAY);
+  const siteOf = (s: RotaState) => s.sites[0].id;
+  /** Till hours matching the forecast, so a day that is right reads as right. */
+  const asTill = (s: RotaState) => s.forecast.map((f) => ({ siteId: f.siteId, date: f.date, hour: f.hour, sales: f.sales, covers: f.covers }));
+
+  it("puts Friday night's hours after midnight in Friday's labour %, not Saturday's", () => {
+    const s = state();
+    const night = s.forecast.filter((f) => f.date === SATURDAY && f.hour < 2).reduce((t, f) => t + f.sales, 0);
+    expect(night).toBeGreaterThan(0);
+    const days = weekMetrics(s, siteOf(s), WEEK).days;
+    expect(days.find((d) => d.date === FRIDAY)!.forecastSales).toBe(6000);
+    expect(days.find((d) => d.date === SATURDAY)!.forecastSales).toBe(7000);
+    expect(forecastSalesForDay(s, siteOf(s), FRIDAY)).toBe(6000);
+  });
+
+  it("sums the till's hours by trading day where no day's takings are keyed in", () => {
+    const s = { ...state(), actuals: [] as HourActual[] };
+    s.actuals = asTill(s);
+    expect(actualSalesForDay(s, siteOf(s), FRIDAY)).toBe(6000);
+    expect(actualSalesForDay(s, siteOf(s), SATURDAY)).toBe(7000);
+  });
+
+  it('measures forecast accuracy by trading day, so a night forecast right reads as right', () => {
+    const s = state();
+    const report = accuracyReport(s, asTill(s), [siteOf(s)], WEEK, 1, addDays(WEEK, 7));
+    expect(report.total.measuredDays).toBe(7);
+    expect(report.total.forecast).toBe(25000);
+    expect(report.total.dayWape).toBe(0);
   });
 });

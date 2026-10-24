@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Issue } from '../engine/compliance';
-import { dayDemand } from '../engine/demand';
+import { dayDemand, tradingDayRows } from '../engine/demand';
 import type { WeekMetrics } from '../engine/metrics';
 import { formatMinute, toISODate } from '../engine/time';
 import type { Department, RotaState, Shift, Site } from '../engine/types';
@@ -221,7 +221,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
     else onCommit(change.next, shift);
   }
 
-  const forecastMax = Math.max(1, ...state.forecast.filter((f) => f.siteId === site.id && dates.includes(f.date)).map((f) => f.sales));
+  const forecastMax = Math.max(1, ...dates.flatMap((d) => tradingDayRows(state.forecast, site, site.id, d)).map((f) => f.sales));
   const today = toISODate(new Date());
   const name = (id: string) => state.employees.find((p) => p.id === id)?.name ?? '';
   const homeOf = (id: string) => state.employees.find((p) => p.id === id)?.siteId ?? site.id;
@@ -254,7 +254,8 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
           const m = metrics.days[i];
           const over = m.labourPct > metrics.targetPct;
           const pts = (m.labourPct - metrics.targetPct) * 100;
-          const forecast = state.forecast.filter((f) => f.siteId === site.id && f.date === lane.date);
+          // The trading day's hours, those after midnight drawn on past the day's end.
+          const forecast = tradingDayRows(state.forecast, site, site.id, lane.date);
           const coverage = coverageFor(state, site.id, lane.date);
           const plotH = lane.height - PAD * 2 - STRIP;
           const target = dragging?.mode === 'move' && dragging.current.date === lane.date && dragging.original.date !== lane.date;
