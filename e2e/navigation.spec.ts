@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 import { NAV, NAV_ITEMS, type NavItem } from '../src/ui/nav';
 
 // The management bar: every section opens in every scope, the header only offers controls that

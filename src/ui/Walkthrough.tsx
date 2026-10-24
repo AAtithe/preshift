@@ -1,19 +1,36 @@
 import { useEffect, useState } from 'react';
+import { HelpModal } from './HelpModal';
 import type { Tab } from './nav';
 import { releaseLabel, stepsFor, type Release, type WalkStep } from './walkthrough';
 
-/** The line at the top of the screen in a week with something new the person has not seen. */
-export function WhatsNewNotice({ count, onStart, onDismiss }: { count: number; onStart: () => void; onDismiss: () => void }) {
+/**
+ * What pops up at a person's first sign-in of a week with something new for them: what changed,
+ * for whom, and the choice to be shown it now. Not now, Escape or a click outside counts as seen;
+ * What's new in the left-hand bar brings it back.
+ */
+export function WhatsNewIntro({ release, steps, onStart, onDismiss }: { release: Release; steps: WalkStep[]; onStart: () => void; onDismiss: () => void }) {
   return (
-    <div className="notice whatsnew-notice" role="status">
-      <span>
-        <strong>New this week.</strong> {count} {count === 1 ? 'change' : 'changes'} for you. Two minutes, each on its own screen.
-      </span>
-      <span className="whatsnew-actions">
-        <button className="link" onClick={onDismiss}>Not now</button>
-        <button className="primary" onClick={onStart}>Take the walkthrough</button>
-      </span>
-    </div>
+    <HelpModal
+      title="What's new this week"
+      onClose={onDismiss}
+      actions={
+        <>
+          <button onClick={onDismiss}>Not now</button>
+          <button className="primary" onClick={onStart} autoFocus>Show me</button>
+        </>
+      }
+    >
+      <p className="muted">
+        {releaseLabel(release.week)}. {steps.length} {steps.length === 1 ? 'change' : 'changes'} for you, two minutes, each shown on the screen it changed.
+      </p>
+      <ol className="whatsnew-list">
+        {steps.map((s) => (
+          <li key={s.title}>
+            <span className="badge">{s.for}</span> <span className="strong">{s.title}</span>
+          </li>
+        ))}
+      </ol>
+    </HelpModal>
   );
 }
 
