@@ -4,6 +4,7 @@ import { namesOf, shiftLine } from '../src/engine/requests';
 import { formatMinute, londonParts } from '../src/engine/time';
 import { emailSetting, lateAlertEmail, linkFor, parseEmailSettings, sendMail } from './mail';
 import { deliverNotifications, notify } from './notify';
+import { releaseDueWaves } from './routes/requests';
 import { isSandbox } from './sandbox';
 import { audit, type OrgData, type Store } from './store';
 
@@ -72,18 +73,23 @@ export async function runShiftAlerts(store: Store, at = new Date(), log: (msg: s
   const started = Date.now();
   let reminders = 0;
   let late = 0;
+  let offers = 0;
   for (const orgId of await store.orgIds()) {
     if (isSandbox(orgId) || Date.now() - started > 40_000) continue;
     try {
       const org = await store.load(orgId);
-      const before = JSON.stringify(org.shiftAlerts ?? {});
+      const before = JSON.stringify([org.shiftAlerts ?? {}, (org.openShifts ?? []).map((o) => o.offer)]);
+      // Open shifts whose cheaper wave has had its time go to the next.
+      const offered = releaseDueWaves(org, at);
       const result = await shiftAlerts(store, org, at);
-      if (result || JSON.stringify(org.shiftAlerts ?? {}) !== before) await store.save(org);
+      if (offered && !result) await deliverNotifications(store, org);
+      offers += offered;
+      if (result || JSON.stringify([org.shiftAlerts ?? {}, (org.openShifts ?? []).map((o) => o.offer)]) !== before) await store.save(org);
       reminders += result?.reminders ?? 0;
       late += result?.late ?? 0;
     } catch (err) {
       log('shift alerts failed', { orgId, err: (err as Error).message });
     }
   }
-  return { reminders, late };
+  return { reminders, late, offers };
 }

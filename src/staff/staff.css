@@ -83,6 +83,10 @@
 .staff-confirm { display: grid; gap: 10px; border-color: var(--warn-line, var(--border)); background: var(--warn-bg, var(--surface)); }
 .staff-confirm-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
 .staff-confirm-row button { flex: none; padding: 10px 14px; }
+.staff-sign { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.staff-sign:first-of-type { border-top: 0; padding-top: 0; }
+.staff-sign label:not(.check) { display: grid; gap: 4px; font-size: 14px; }
+.staff-sign input:not([type=checkbox]) { padding: 10px; font-size: 16px; }
 
 .staff-tabs button { font-size: 13px; padding: 10px 2px; }
 .staff-buttons a.button { display: inline-block; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; text-decoration: none; color: var(--ink); }
