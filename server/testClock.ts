@@ -13,3 +13,13 @@ export function holdClock(day = '2026-10-21') {
   });
   afterEach(() => vi.useRealTimers());
 }
+
+/**
+ * Stops the clock dead at one instant, for a test that needs every timestamp to tie. Inside a file
+ * that holds the clock, a second useFakeTimers is ignored while the running one keeps ticking, so
+ * the running one is put back first. The file's afterEach, or the test's own useRealTimers, ends it.
+ */
+export function freezeClock(at: string) {
+  vi.useRealTimers();
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date(at) });
+}
