@@ -81,7 +81,7 @@ await writeFile(
       version: 3,
       routes: [
         {
-          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|\\.well-known/oauth-(?:protected-resource|authorization-server)(?:/mcp)?|oauth/.*|internal/(?:dispatch|webhooks|demo-reset|digest)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|kiosk(?:/.*)?|api/anthropic/.*)$',
+          src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|\\.well-known/oauth-(?:protected-resource|authorization-server)(?:/mcp)?|oauth/.*|internal/(?:dispatch|webhooks|demo-reset|digest|reminders)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|kiosk(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
         { handle: 'filesystem' },
@@ -96,6 +96,8 @@ await writeFile(
         { path: '/internal/demo-reset?run=summer', schedule: '5 23 * * *' },
         { path: '/internal/demo-reset?run=winter', schedule: '5 0 * * *' },
         { path: '/internal/digest', schedule: '35 6 * * *' },
+        // Shift reminders and not-clocked-in alerts; like the webhook retries, needs a plan that runs crons more than daily.
+        { path: '/internal/reminders', schedule: '*/5 * * * *' },
       ],
     },
     null,
