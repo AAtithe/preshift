@@ -79,3 +79,7 @@
 .crew-more { justify-self: start; }
 .crew p { margin: 0; }
 .staff-effect { display: block; margin-top: 4px; color: var(--ink-2); }
+/* Seen it: the published week to confirm. */
+.staff-confirm { display: grid; gap: 10px; border-color: var(--warn-line, var(--border)); background: var(--warn-bg, var(--surface)); }
+.staff-confirm-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.staff-confirm-row button { flex: none; padding: 10px 14px; }
