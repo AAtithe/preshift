@@ -705,6 +705,8 @@ export interface TipsTaken {
   amount: number;
   /** Date the money reached staff through payroll. */
   paidOn?: string;
+  /** The payroll submission that carried it. Sent again if that submission is replaced. */
+  sentIn?: string;
   /** Written by the till feed. A figure keyed in by hand has none, and the till never overwrites it. */
   fromTill?: boolean;
 }
