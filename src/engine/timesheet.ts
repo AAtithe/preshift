@@ -1,6 +1,7 @@
 import type { Employee, Entity, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours } from './cost';
 import { travelMinutesInto, travelPay, travelRate } from './travel';
+import { rulesFor, weekPremiums } from './premiums';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -37,6 +38,11 @@ export interface PayrollHoursLine {
   /** All travel, paid at the company's travel rate where it differs from the person's normal rate. */
   travel?: boolean;
   rate: number;
+  /**
+   * Set on a premium line: `hours` qualified for this premium and `rate` is the uplift on each, paid on
+   * top of the same hours' normal line. Premium hours are not extra hours, so totals leave them out.
+   */
+  premium?: { ruleId: string; name: string };
   /** Entries that make up this line, for audit back to the clock. */
   entryIds: string[];
 }
@@ -63,6 +69,21 @@ export interface PayrollAdjustment {
   reference: string;
 }
 
+/**
+ * A person's share of a week's tips at a site, paid through payroll. Through an independent tronc it
+ * is free of Class 1 NI; allocated by the employer it is not. Income tax is due either way.
+ */
+export interface PayrollTroncLine {
+  employeeId: string;
+  payrollId?: string;
+  siteId: string;
+  weekStart: string;
+  amount: number;
+  niable: boolean;
+  /** Site and week, so payroll never pays the same week's tips twice. */
+  reference: string;
+}
+
 export interface PayrollHoursBatch {
   periodStart: string;
   periodEnd: string;
@@ -71,6 +92,8 @@ export interface PayrollHoursBatch {
   sickness?: PayrollSicknessLine[];
   /** Back pay and other one-off sums. Absent on batches sent before back pay was carried. */
   adjustments?: PayrollAdjustment[];
+  /** Tips allocated by the site's tronc scheme. Absent on batches sent before tips went with the hours. */
+  tronc?: PayrollTroncLine[];
   /** Approved entries skipped because their person is salaried (paid by salary, not hours). */
   salariedEntryIds: string[];
   totalHours: number;
@@ -132,16 +155,42 @@ export function payrollHours(
       line.travelHours = (line.travelHours ?? 0) + travelled;
     }
   }
+  // Premiums on each person's approved time, priced as the cost engine prices them, one line per
+  // premium, site and role.
+  for (const employee of employees) {
+    const rules = rulesFor(employee, entities);
+    if (rules.length === 0) continue;
+    const mine = entries.filter((e) => e.employeeId === employee.id && e.status === 'approved' && e.date >= periodStart && e.date <= periodEnd);
+    const byShift = new Map(mine.map((e) => [`te:${e.id}`, e]));
+    for (const p of weekPremiums(employee, entriesAsShifts(mine), rules)) {
+      const entry = byShift.get(p.shiftId)!;
+      const key = `${employee.id}|${entry.siteId}|${entry.roleId}|premium:${p.ruleId}|${p.uplift}`;
+      const line = lines.get(key) ?? {
+        employeeId: employee.id,
+        payrollId: employee.payrollId,
+        siteId: entry.siteId,
+        roleId: entry.roleId,
+        hours: 0,
+        travelHours: 0,
+        rate: p.uplift,
+        premium: { ruleId: p.ruleId, name: p.name },
+        entryIds: [],
+      };
+      line.hours += p.hours;
+      if (!line.entryIds.includes(entry.id)) line.entryIds.push(entry.id);
+      lines.set(key, line);
+    }
+  }
   const out = [...lines.values()].map((l) => ({ ...l, hours: round2(l.hours), travelHours: round2(l.travelHours ?? 0) }));
   // A company averaging travel below the minimum wage tops the period up on the travel line itself,
   // so payroll pays exactly what keeps the period's average pay legal. Worked on the rounded hours
   // payroll pays, so rounding cannot leave the period short.
   for (const employee of employees) {
     const mine = out.filter((l) => l.employeeId === employee.id);
-    const travelLines = mine.filter((l) => l.travel);
+    const travelLines = mine.filter((l) => l.travel && !l.premium);
     const travelHours = travelLines.reduce((sum, l) => sum + l.hours, 0);
     if (travelHours <= 0) continue;
-    const work = mine.filter((l) => !l.travel);
+    const work = mine.filter((l) => !l.travel && !l.premium);
     const { pay, topUp } = travelPay(
       employee,
       entities,
@@ -158,7 +207,7 @@ export function payrollHours(
     periodEnd,
     lines: out,
     salariedEntryIds,
-    totalHours: round2(out.reduce((s, l) => s + l.hours, 0)),
+    totalHours: round2(out.filter((l) => !l.premium).reduce((s, l) => s + l.hours, 0)),
   };
 }
 

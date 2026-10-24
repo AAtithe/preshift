@@ -47,6 +47,8 @@ export interface Entity {
   travelPay?: TravelPay;
   /** When this company pays its people. Weekly, paid the Friday after the week, when absent. */
   paySchedule?: PaySchedule;
+  /** Enhanced rates this company's contracts pay hourly staff: Sundays, bank holidays, nights, overtime. */
+  premiums?: PremiumRule[];
 }
 
 /**
@@ -60,6 +62,27 @@ export interface PaySchedule {
   anchor?: string;
   payLagDays?: number;
   monthlyPayDay?: number | 'last-working';
+}
+
+/**
+ * One pay premium. Qualifying hours are paid at the person's rate times `multiplier` (1.5 is time and
+ * a half), or with `perHour` added. Where several apply to the same hour, only the highest is paid.
+ */
+export interface PremiumRule {
+  id: string;
+  name: string;
+  kind: 'day' | 'bank_holiday' | 'night' | 'overtime';
+  multiplier?: number;
+  perHour?: number;
+  /** For `day`: 0 = Monday ... 6 = Sunday. */
+  weekdays?: number[];
+  /** For `night`: the window, in minutes from midnight; it may run past midnight (1320 to 360). */
+  fromMinute?: number;
+  toMinute?: number;
+  /** For `overtime`: weekly paid hours after which it pays. Absent means after the person's contracted hours. */
+  afterHours?: number;
+  /** Only for these roles. Absent or empty means every role. */
+  roleIds?: string[];
 }
 
 /**
@@ -680,6 +703,8 @@ export interface TipsTaken {
   amount: number;
   /** Date the money reached staff through payroll. */
   paidOn?: string;
+  /** The payroll submission that carried it. Sent again if that submission is replaced. */
+  sentIn?: string;
   /** Written by the till feed. A figure keyed in by hand has none, and the till never overwrites it. */
   fromTill?: boolean;
 }
@@ -695,6 +720,11 @@ export interface TroncScheme {
   /** Optional split of the pool by department before points are applied. */
   departmentShares?: Partial<Record<Department, number>>;
   serviceCharge: 'none' | 'discretionary' | 'mandatory';
+  /**
+   * When tronc reaches staff. A day of the month: each month's tips are paid on that day of the month
+   * after. Absent: in each pay run, with the pay for the days the tips were taken.
+   */
+  payoutDay?: number;
   /** Date the written tipping policy was made available to staff. */
   policyPublishedOn?: string;
   /** Date staff were last consulted on whether the allocation is fair. */

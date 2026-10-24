@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { account, kit, type Kit } from './testkit';
+import { MemoryStore } from './store';
+import { account, kit, TODAY, type Kit } from './testkit';
 
 // Sign in with Preshift for claude.ai: discovery, registration, consent, tokens, and every way a
 // connection ends. A token acts as its person, so their sites and roles decide what it can do.
@@ -22,12 +23,12 @@ const form = (k: Kit, url: string, fields: Record<string, string>, headers: Reco
   k.app.inject({ method: 'POST', url, headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, payload: new URLSearchParams(fields).toString() });
 
 /** Registers, approves as the person with the boxes given, and swaps the code for tokens. */
-async function connect(k: Kit, email = PRIYA, ticks: string[] = ['rota:read', 'rota:write']) {
+async function connect(k: Kit, email = PRIYA, ticks: string[] = ['rota:read', 'rota:write'], orgs: string[] = ['demo']) {
   const clientId = (await register(k)).json().client_id as string;
   const { verifier, challenge } = pkce();
   const cookie = await k.as(email);
   const params = { response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state: 'xyz' };
-  const approved = await form(k, '/oauth/authorize', { ...params, decision: 'allow', ...Object.fromEntries(ticks.map((t) => [`tick:${t}`, '1'])) }, { cookie });
+  const approved = await form(k, '/oauth/authorize', { ...params, decision: 'allow', ...Object.fromEntries(ticks.map((t) => [`tick:${t}`, '1'])), ...Object.fromEntries(orgs.map((o) => [`org:${o}`, '1'])) }, { cookie });
   const back = new URL(approved.headers.location as string);
   const code = back.searchParams.get('code')!;
   const exchange = await form(k, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: CALLBACK, client_id: clientId, code_verifier: verifier });
@@ -117,7 +118,7 @@ describe('Sign in with Preshift', () => {
 
     const clientId = (await register(k)).json().client_id;
     const { challenge } = pkce();
-    const approved = await form(k, '/oauth/authorize', { response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', decision: 'allow', 'tick:rota:read': '1' }, { cookie: c.cookie });
+    const approved = await form(k, '/oauth/authorize', { response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', decision: 'allow', 'tick:rota:read': '1', 'org:demo': '1' }, { cookie: c.cookie });
     const code = new URL(approved.headers.location as string).searchParams.get('code')!;
     const wrong = await form(k, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: CALLBACK, client_id: clientId, code_verifier: pkce().verifier });
     expect(wrong.json().error).toBe('invalid_grant');
@@ -127,7 +128,7 @@ describe('Sign in with Preshift', () => {
     const k = await kit();
     const clientId = (await register(k)).json().client_id;
     const { challenge } = pkce();
-    const fields = { response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', decision: 'allow', 'tick:rota:read': '1' };
+    const fields = { response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', decision: 'allow', 'tick:rota:read': '1', 'org:demo': '1' };
     const cookie = await k.as(PRIYA);
     expect((await form(k, '/oauth/authorize', fields, { cookie, origin: 'https://evil.example', host: 'rota.example' })).statusCode).toBe(403);
     const { 'tick:rota:read': _, ...none } = fields;
@@ -197,5 +198,106 @@ describe('Sign in with Preshift', () => {
     expect(me.permissions).toContain('rota.view');
     expect(me.permissions).not.toContain('settings.manage');
     expect(me.permissions).not.toContain('pay.approve');
+  });
+
+  describe('across several organisations', () => {
+    /** Priya works for two clients, and has an account but no access record at a third. */
+    async function twoClients() {
+      const k = await kit({ store: new MemoryStore(['demo', 'acme'], TODAY) });
+      const acme = await k.store.load('acme');
+      acme.state.entities = acme.state.entities.map((e, i) => ({ ...e, name: i === 0 ? 'Acme Hospitality Ltd' : e.name }));
+      await k.store.save(acme);
+      await k.store.save(await k.store.load('ghost'));
+      await k.store.updateUser(PRIYA, { orgs: ['demo', 'acme', 'ghost'] });
+      return k;
+    }
+    const call = (k: Kit, bearer: string, name: string, args: Record<string, unknown> = {}) =>
+      mcp(k, bearer, 'tools/call', { name, arguments: args }).then((r) => r.json().result);
+
+    it('offers every organisation the person works in, ticked, and says which are left out and why', async () => {
+      const k = await twoClients();
+      const clientId = (await register(k)).json().client_id;
+      const page = await k.app.inject({
+        method: 'GET',
+        url: `/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, code_challenge: pkce().challenge, code_challenge_method: 'S256' })}`,
+        headers: { cookie: await k.as(PRIYA) },
+      });
+      expect(page.body).toContain('name="org:demo" value="1" checked');
+      expect(page.body).toContain('name="org:acme" value="1" checked');
+      expect(page.body).not.toContain('name="org:ghost"');
+      expect(page.body).toContain('ghost (no access record)');
+    });
+
+    it('reaches each ticked organisation by name, and never guesses between them', async () => {
+      const k = await twoClients();
+      const { tokens } = await connect(k, PRIYA, ['rota:read'], ['demo', 'acme']);
+      const listed = await call(k, tokens.access_token, 'list_organisations');
+      expect(listed.structuredContent.organisations.map((o: { id: string }) => o.id)).toEqual(['demo', 'acme']);
+      expect(listed.structuredContent.organisations[1].name).toContain('Acme Hospitality Ltd');
+
+      const unnamed = await call(k, tokens.access_token, 'list_sites');
+      expect(unnamed.isError).toBe(true);
+      expect(unnamed.content[0].text).toContain('reaches 2 organisations');
+
+      const atAcme = await call(k, tokens.access_token, 'list_sites', { organisation: 'acme' });
+      expect(atAcme.isError).toBe(false);
+      // Her own sites at that client, as her access record there says.
+      expect(JSON.parse(atAcme.content[0].text).map((s: { id: string }) => s.id)).toEqual(['mar']);
+      expect((await call(k, tokens.access_token, 'list_sites', { organisation: 'ghost' })).content[0].text).toContain('does not reach');
+
+      // Each organisation's own audit trail records the connection.
+      for (const orgId of ['demo', 'acme']) expect((await k.store.load(orgId)).audit.some((a) => a.action === 'oauth.connected')).toBe(true);
+    });
+
+    it('acts in the one organisation ticked without being told', async () => {
+      const k = await twoClients();
+      const { tokens } = await connect(k, PRIYA, ['rota:read'], ['acme']);
+      expect((await call(k, tokens.access_token, 'list_organisations')).structuredContent.organisations.map((o: { id: string }) => o.id)).toEqual(['acme']);
+      expect((await call(k, tokens.access_token, 'list_sites')).isError).toBe(false);
+      expect((await call(k, tokens.access_token, 'list_sites', { organisation: 'demo' })).content[0].text).toContain('does not reach');
+    });
+
+    it('drops an organisation the person leaves, at once, and keeps the rest', async () => {
+      const k = await twoClients();
+      const { tokens } = await connect(k, PRIYA, ['rota:read'], ['demo', 'acme']);
+      await k.store.updateUser(PRIYA, { orgs: ['demo'] });
+      expect((await call(k, tokens.access_token, 'list_organisations')).structuredContent.organisations.map((o: { id: string }) => o.id)).toEqual(['demo']);
+      expect((await call(k, tokens.access_token, 'list_sites', { organisation: 'acme' })).content[0].text).toContain('does not reach');
+      expect((await call(k, tokens.access_token, 'list_sites')).isError).toBe(false);
+    });
+
+    it('keeps connections made before they reached several organisations working', async () => {
+      const k = await twoClients();
+      const c = await connect(k, PRIYA, ['rota:read'], ['acme']);
+      const page = await k.app.inject({ method: 'GET', url: '/oauth/connections', headers: { cookie: c.cookie } });
+      const id = page.body.match(/\/oauth\/connections\/(grant_[^/]+)\/revoke/)![1];
+      const stored = JSON.parse((await k.store.getSetting(`oauth:grant:${id}`))!);
+      const { orgs, ...legacy } = stored;
+      await k.store.setSetting(`oauth:grant:${id}`, JSON.stringify({ ...legacy, orgId: orgs[0].orgId, userId: orgs[0].userId }));
+      expect((await call(k, c.tokens.access_token, 'list_organisations')).structuredContent.organisations.map((o: { id: string }) => o.id)).toEqual(['acme']);
+      expect((await call(k, c.tokens.access_token, 'list_sites')).isError).toBe(false);
+    });
+
+    it('makes a direct API call name its organisation', async () => {
+      const k = await twoClients();
+      const { tokens } = await connect(k, PRIYA, ['rota:read'], ['demo', 'acme']);
+      const auth = { authorization: `Bearer ${tokens.access_token}` };
+      const unnamed = await k.app.inject({ method: 'GET', url: '/v1/sites', headers: auth });
+      expect(unnamed.statusCode).toBe(400);
+      expect(unnamed.json().error).toBe('organisation_required');
+      expect((await k.app.inject({ method: 'GET', url: '/v1/sites', headers: { ...auth, 'x-preshift-organisation': 'acme' } })).statusCode).toBe(200);
+      expect((await k.app.inject({ method: 'GET', url: '/v1/sites', headers: { ...auth, 'x-preshift-organisation': 'ghost' } })).statusCode).toBe(403);
+    });
+
+    it('lists every connection with its organisations, and one disconnect ends it everywhere', async () => {
+      const k = await twoClients();
+      const c = await connect(k, PRIYA, ['rota:read'], ['demo', 'acme']);
+      const page = await k.app.inject({ method: 'GET', url: '/oauth/connections', headers: { cookie: c.cookie } });
+      expect(page.body).toContain('Acme Hospitality Ltd');
+      const id = page.body.match(/\/oauth\/connections\/(grant_[^/]+)\/revoke/)![1];
+      await k.app.inject({ method: 'POST', url: `/oauth/connections/${id}/revoke`, headers: { cookie: c.cookie } });
+      expect((await mcp(k, c.tokens.access_token, 'ping')).statusCode).toBe(401);
+      for (const orgId of ['demo', 'acme']) expect((await k.store.load(orgId)).audit.some((a) => a.action === 'oauth.revoked')).toBe(true);
+    });
   });
 });

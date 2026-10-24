@@ -3,7 +3,9 @@ import { UK_RATES_2026_27 } from '../../../src/engine/ukRates';
 import { weekOnCosts } from '../../../src/engine/cost';
 import type { Employee } from '../../../src/engine/types';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
-import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
+import { PayrollError, type PayDocument, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
+import { employeeNi } from '../../../src/engine/tronc';
+import { addDays } from '../../../src/engine/time';
 import { signHmac, verifyHmac } from './teampay';
 
 /**
@@ -109,6 +111,28 @@ export class TeamPaySimulator implements PayrollProvider {
     return run;
   }
 
+  /**
+   * Payslips from the pay runs it has made: gross as run, with tax and NI worked roughly the way a
+   * week-1 basis would. Marked as samples, so nobody mistakes them for a real payslip.
+   */
+  async listPayDocuments(employerId: string, payrollId: string): Promise<PayDocument[]> {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    return [...this.payRuns.values()]
+      .filter((run) => run.employerId === employerId && run.status === 'completed')
+      .flatMap((run) => run.employees.filter((e) => e.payrollId === payrollId).map((e) => ({ run, e })))
+      .map(({ run, e }) => {
+        const gross = r2(e.gross + e.holidayPay + (e.ssp ?? 0));
+        const tax = r2(Math.max(0, gross - 12_570 / 52) * 0.2);
+        const ni = r2(employeeNi(gross));
+        const pension = r2(Math.max(0, gross - 6_240 / 52) * 0.05);
+        return {
+          id: `slip_${run.id}`, kind: 'payslip' as const, periodStart: run.periodStart, periodEnd: run.periodEnd, payDate: addDays(run.periodEnd, 5),
+          gross, tax, employeeNi: ni, pension, net: r2(gross - tax - ni - pension), hasPdf: false, sample: true,
+        };
+      })
+      .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+  }
+
   verifyWebhook(rawBody: string, signature: string | undefined) {
     return verifyHmac(this.webhookSecret, rawBody, signature);
   }
@@ -123,7 +147,13 @@ export class TeamPaySimulator implements PayrollProvider {
     // TeamPay pays each line at the rate it was sent with, so travel at its own rate is paid at that rate.
     const hoursByEmployee = new Map<string, number>();
     const payByEmployee = new Map<string, number>();
+    // Premium lines are paid on top, after any guaranteed hours top-up, and are not extra hours.
+    const premiumByEmployee = new Map<string, number>();
     for (const l of batch.lines) {
+      if (l.premium) {
+        premiumByEmployee.set(l.employeeId, (premiumByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
+        continue;
+      }
       hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
       payByEmployee.set(l.employeeId, (payByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
     }
@@ -144,7 +174,8 @@ export class TeamPaySimulator implements PayrollProvider {
       const gross =
         (person.payBasis === 'salaried'
           ? person.annualSalary / 52
-          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate)) + (extra.get(person.id) ?? 0);
+          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate) + (premiumByEmployee.get(person.id) ?? 0)) +
+        (extra.get(person.id) ?? 0);
       // Price on-costs with the same statutory model; a real payroll's rounding differs slightly.
       const cost = weekOnCosts(person, gross);
       employees.push({

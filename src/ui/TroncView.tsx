@@ -21,6 +21,8 @@ interface Props {
 }
 
 const SOURCE_LABEL = { 'service-charge': 'Service charge', 'card-tip': 'Card tips', 'cash-pooled': 'Cash into the pool' };
+/** 1st, 2nd, 3rd, 25th. */
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
 
 export function TroncView(props: Props) {
   const [feed, setFeed] = useState<{ tips: TipsTaken[]; troncSchemes: TroncScheme[] } | null>(null);
@@ -192,6 +194,8 @@ function Tronc({ state, siteId, week, asOf, entries, canEdit, canRecord, onSaved
             <dd>{scheme.independent ? 'The troncmaster, independently of the business' : <span className="bad-text">The business</span>}</dd>
             <dt>Service charge</dt>
             <dd>{scheme.serviceCharge === 'none' ? 'None' : scheme.serviceCharge === 'mandatory' ? 'Mandatory' : 'Discretionary'}</dd>
+            <dt>Paid out</dt>
+            <dd>{scheme.payoutDay ? `On the ${ordinal(scheme.payoutDay)} of the month after the tips were taken` : 'In each pay run, with the pay for the days the tips were taken'}</dd>
             <dt>Written policy</dt>
             <dd>{scheme.policyPublishedOn ?? <span className="bad-text">None</span>}</dd>
             <dt>Last reviewed with staff</dt>

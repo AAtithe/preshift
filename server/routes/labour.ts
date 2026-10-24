@@ -39,7 +39,7 @@ const TIP_SOURCES = ['service-charge', 'card-tip', 'cash-pooled'] as const;
 
 const DEPARTMENT_SHARE = { type: 'number', minimum: 0, maximum: 1 } as const;
 const ISO_DATE = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } as const;
-const SCHEME_FIELDS = ['troncmaster', 'independent', 'pointsPerHour', 'departmentShares', 'serviceCharge', 'policyPublishedOn', 'lastReviewedOn'] as const;
+const SCHEME_FIELDS = ['troncmaster', 'independent', 'pointsPerHour', 'departmentShares', 'serviceCharge', 'payoutDay', 'policyPublishedOn', 'lastReviewedOn'] as const;
 
 export function labourRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
@@ -72,6 +72,7 @@ export function labourRoutes(app: FastifyInstance, ctx: AppContext) {
             pointsPerHour: { type: 'object', additionalProperties: { type: 'number', minimum: 0, maximum: 1000 } },
             departmentShares: { type: 'object', additionalProperties: false, properties: { FOH: DEPARTMENT_SHARE, BAR: DEPARTMENT_SHARE, BOH: DEPARTMENT_SHARE, MGMT: DEPARTMENT_SHARE } },
             serviceCharge: { type: 'string', enum: ['none', 'discretionary', 'mandatory'] },
+            payoutDay: { type: 'integer' },
             policyPublishedOn: ISO_DATE,
             lastReviewedOn: ISO_DATE,
           },
@@ -94,6 +95,7 @@ export function labourRoutes(app: FastifyInstance, ctx: AppContext) {
         pointsPerHour: body.pointsPerHour,
         ...(departmentShares ? { departmentShares } : {}),
         serviceCharge: body.serviceCharge,
+        ...(body.payoutDay !== undefined ? { payoutDay: body.payoutDay } : {}),
         ...(body.policyPublishedOn ? { policyPublishedOn: body.policyPublishedOn } : {}),
         ...(body.lastReviewedOn ? { lastReviewedOn: body.lastReviewedOn } : {}),
         updatedBy: actorName(g),

@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
-import { PayrollError, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
+import { PayrollError, type PayDocument, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
 
 export interface TeamPayConfig {
   baseUrl: string; // e.g. https://api.team-pay.co.uk/v1 (sandbox and production keys come from the TeamPay dashboard)
@@ -107,9 +107,15 @@ export class TeamPayProvider implements PayrollProvider {
           role: l.roleId,
           hours: l.hours,
           rate: l.rate,
-          // Travel at its own rate is a line of its own; the reference names it so the payslip and
-          // the payroll team can tell it from the hours worked in the same role.
-          reference: l.travel ? `Travel between sites: ${l.entryIds.join(',')}` : l.entryIds.join(','),
+          // A premium is an uplift paid on top of hours already on a normal line, as its own pay element.
+          ...(l.premium ? { pay_element: 'premium', premium_code: l.premium.ruleId } : {}),
+          // Travel and premiums at their own rates are lines of their own; the reference names them so the
+          // payslip and the payroll team can tell them from the hours worked in the same role.
+          reference: l.premium
+            ? `${l.premium.name} premium: ${l.entryIds.join(',')}`
+            : l.travel
+              ? `Travel between sites: ${l.entryIds.join(',')}`
+              : l.entryIds.join(','),
         })),
         // Sick days go only for people TeamPay knows; SSP is TeamPay's to pay, our estimate is for its checks.
         sickness: (batch.sickness ?? []).filter((s) => s.payrollId).map((s) => ({
@@ -117,6 +123,15 @@ export class TeamPayProvider implements PayrollProvider {
           dates: s.dates,
           qualifying_days_per_week: s.qualifyingDaysPerWeek,
           ssp_estimate: s.sspEstimate,
+        })),
+        // Tips through the tronc: free of Class 1 NI when an independent troncmaster allocated them, never of tax.
+        tronc: (batch.tronc ?? []).filter((t) => t.payrollId).map((t) => ({
+          employee_id: t.payrollId,
+          amount: t.amount,
+          ni_able: t.niable,
+          cost_centre: t.siteId,
+          description: `Tips, week of ${t.weekStart}`,
+          reference: t.reference,
         })),
         adjustments: (batch.adjustments ?? []).filter((a) => a.payrollId).map((a) => ({
           employee_id: a.payrollId,
@@ -166,6 +181,36 @@ export class TeamPayProvider implements PayrollProvider {
 
   verifyWebhook(rawBody: string, signature: string | undefined): boolean {
     return verifyHmac(this.config.webhookSecret, rawBody, signature);
+  }
+
+  // To confirm with TeamPay: the payslip and P60 endpoints and their fields (docs/TEAMPAY_CONFIRMATION.md).
+  async listPayDocuments(employerId: string, payrollId: string): Promise<PayDocument[]> {
+    type Raw = { id: string; period_start?: string; period_end?: string; pay_date?: string; tax_year?: string; gross_pay: number; tax: number; employee_ni: number; pension?: number; net_pay?: number; pdf_available?: boolean };
+    const id = encodeURIComponent(payrollId);
+    const [slips, p60s] = await Promise.all([
+      this.request<{ data: Raw[] }>(employerId, 'GET', `/employees/${id}/payslips`),
+      this.request<{ data: Raw[] }>(employerId, 'GET', `/employees/${id}/p60s`),
+    ]);
+    const map = (kind: PayDocument['kind']) => (r: Raw): PayDocument => ({
+      id: r.id, kind, periodStart: r.period_start, periodEnd: r.period_end, payDate: r.pay_date, taxYear: r.tax_year,
+      gross: r.gross_pay, tax: r.tax, employeeNi: r.employee_ni, pension: r.pension, net: r.net_pay, hasPdf: r.pdf_available !== false,
+    });
+    return [...(slips?.data ?? []).map(map('payslip')), ...(p60s?.data ?? []).map(map('p60'))];
+  }
+
+  async payDocumentPdf(employerId: string, payrollId: string, document: PayDocument): Promise<Buffer | null> {
+    const kind = document.kind === 'p60' ? 'p60s' : 'payslips';
+    let res: Response;
+    try {
+      res = await this.fetch(`${this.config.baseUrl}/employees/${encodeURIComponent(payrollId)}/${kind}/${encodeURIComponent(document.id)}/pdf`, {
+        headers: { authorization: `Bearer ${this.config.apiKey}`, 'x-teampay-employer': employerId, accept: 'application/pdf' },
+      });
+    } catch (err) {
+      throw new PayrollError(`TeamPay unreachable: ${(err as Error).message}`, true);
+    }
+    if (res.status === 404) return null;
+    if (!res.ok) throw new PayrollError(`TeamPay payslip PDF failed (${res.status})`, res.status >= 500, res.status);
+    return Buffer.from(await res.arrayBuffer());
   }
 
   private async request<T = unknown>(employerId: string, method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {

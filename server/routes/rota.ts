@@ -34,6 +34,7 @@ export function serialiseMetrics(m: WeekMetrics, byPerson = true) {
     cost: {
       total: cost.total,
       unallocated: cost.unallocated,
+      premium: cost.premium,
       employees: byPerson ? Object.fromEntries(cost.employees) : {},
       shifts: byPerson ? Object.fromEntries(cost.shifts) : {},
     },

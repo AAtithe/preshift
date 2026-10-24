@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { isSandbox, sandboxExpired } from './sandbox';
-import { ACCESS_PREFIX, oauthPrincipal } from './oauth';
+import { ACCESS_PREFIX, oauthPrincipal, ORG_HEADER } from './oauth';
 import { DEMO_OWNER_ID, seedUsers } from './seedUsers';
 import { cookieFrom, readSession, type SessionClaims } from './session';
 import { orgsOfAccount, type ApiKeyStore, type UserRecord, type UserStore } from './store';
@@ -73,6 +73,10 @@ export interface ApiKey {
    * Keys are long-lived secrets, not people at a keyboard, so the default is no.
    */
   mfa?: boolean;
+  /** A Sign in with Preshift connection: every organisation it reaches, of which orgId is the one this call acts in. */
+  orgs?: string[];
+  /** Set when a connection reaching several organisations was not told which one: only /mcp may go on without. */
+  orgUnchosen?: boolean;
 }
 
 declare module 'fastify' {
@@ -203,8 +207,15 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
     }
     if (!keyed && token.startsWith(ACCESS_PREFIX)) {
       // A connection a person approved through Sign in with Preshift (server/oauth.ts).
-      keyed = (await oauthPrincipal(token, users)) ?? undefined;
-      if (!keyed) return reply.code(401).send({ error: 'unauthorised', message: 'That connection has expired or been disconnected. Connect to Preshift again.' });
+      const asked = req.headers[ORG_HEADER];
+      const found = await oauthPrincipal(token, users, typeof asked === 'string' && asked ? asked : undefined);
+      if (!found) return reply.code(401).send({ error: 'unauthorised', message: 'That connection has expired or been disconnected. Connect to Preshift again.' });
+      if ('refused' in found) return reply.code(403).send({ error: 'forbidden', message: found.refused });
+      // A connection across several organisations says which one each call is for; the connector itself lists them.
+      if (found.orgUnchosen && req.url.split('?')[0] !== '/mcp') {
+        return reply.code(400).send({ error: 'organisation_required', message: `This connection reaches several organisations. Name one in the ${ORG_HEADER} header.`, details: { organisations: found.orgs } });
+      }
+      keyed = found;
     }
     if (keyed) {
       req.apiCall = { orgId: keyed.orgId, keyId: keyed.keyId ?? `env:${keyed.name}`, started: Date.now() };

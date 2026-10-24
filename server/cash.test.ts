@@ -59,6 +59,23 @@ describe('the labour cash calendar', () => {
     expect((await t.store.load('demo')).audit.some((a) => a.action === 'entity.pay_schedule_changed')).toBe(true);
   });
 
+  it('pays tronc on the scheme’s payout day, and HMRC on it with the tax month', async () => {
+    const t = await boot();
+    const org = await t.store.load('demo');
+    const priya = org.state.employees.find((e) => e.siteId === 'mar' && e.payBasis === 'salaried')!;
+    org.state.troncSchemes = [{ siteId: 'mar', troncmaster: 'Head server', independent: true, pointsPerHour: Object.fromEntries(priya.roleIds.map((r) => [r, 10])), serviceCharge: 'discretionary', payoutDay: 25 }];
+    org.state.tips = [{ id: 'tip1', siteId: 'mar', date: '2026-09-14', source: 'service-charge', amount: 500 }];
+    org.timeEntries.push({ id: 'te-tronc', employeeId: priya.id, siteId: 'mar', roleId: priya.roleIds[0], date: '2026-09-14', clockIn: 720, clockOut: 1200, breakMinutes: 0, status: 'approved', source: 'clock' });
+    const cal = await t.fd('GET', `/v1/finance/cash-calendar?entityIds=${priya.entityId}`);
+    // September's tips on 25 October, a Sunday, so Friday the 23rd.
+    const tronc = cal.body.items.find((i: { kind: string }) => i.kind === 'tronc');
+    expect(tronc).toMatchObject({ date: '2026-10-23', covers: { from: '2026-09-14', to: '2026-09-14' }, people: 1 });
+    expect(tronc.amount).toBeLessThan(500);
+    const hmrc = cal.body.items.find((i: { kind: string; covers: { from: string } }) => i.kind === 'hmrc' && i.covers.from === '2026-10-06');
+    expect(hmrc.parts.tronc).toBe(Math.round((500 - tronc.amount) * 100) / 100);
+    expect(cal.body.totals.tronc).toBe(tronc.amount);
+  });
+
   it('downloads the calendar as a CSV', async () => {
     const t = await boot();
     const csv = await t.fd('GET', '/v1/finance/cash-calendar.csv');
