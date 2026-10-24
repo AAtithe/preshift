@@ -81,6 +81,12 @@ export const RELEASES: Release[] = [
         tab: 'payroll',
       },
       {
+        for: 'WS',
+        title: 'One Claude connection for every client',
+        body: 'Connecting Claude to Preshift now offers every client you work in, all ticked, and says which are left out and why. Claude acts as you in each one, with your access there, so a client partner asks across their whole book from one place. Connected apps lists every connection and its clients.',
+        tab: 'clients',
+      },
+      {
         for: 'Everyone',
         title: 'A calmer look',
         body: 'Labels read as words instead of small capitals, notices are quiet cards marked by a coloured dot, cards and controls are rounder, and Shifty sits at the end of the command bar instead of over the P&L. Same screens, easier to read on a busy shift.',
