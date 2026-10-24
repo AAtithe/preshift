@@ -3,6 +3,9 @@ import { addDays, weekStart } from '../src/engine/time';
 import { managerDigests, sendManagerDigests } from './digest';
 import { emailSetting } from './mail';
 import { kit, type Kit } from './testkit';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const PASSWORD = 'pint of best bitter';
 const KEY = { key: 'manager' };
@@ -21,9 +24,12 @@ async function boot() {
   return { k, join, me };
 }
 
-/** A clear day for the tests' own shifts: next-but-one week, away from the seeded rota. */
-async function clearDay(k: Kit, today: string, offset = 9) {
-  const day = addDays(weekStart(today), 7 + offset);
+/**
+ * A clear day for the tests' own shifts, ten days out: inside the fortnight the staff app shows
+ * (today to today + 13) whatever day of the week the tests run, with the days around it cleared.
+ */
+async function clearDay(k: Kit, today: string) {
+  const day = addDays(today, 10);
   const org = await k.store.load('demo');
   org.state.shifts = org.state.shifts.filter((s) => s.date < addDays(day, -2) || s.date > addDays(day, 9));
   return day;

@@ -66,9 +66,15 @@ describe('short notice changes', () => {
     expect(lostMinutes(shift(TUESDAY, 12, 18, 30), shift(TUESDAY, 12, 15))).toBe(165);
   });
 
-  it('owes nothing with enough notice, once a shift has started, or for people on enough hours', () => {
+  it('counts sending someone home mid-shift, measured to the new finish', () => {
+    // 09:00 to 17:00 today, cut at 10:00 to finish at 13:00: four hours lost with three hours' notice.
+    expect(assessShortNotice(shift('2026-11-02', 9, 17), shift('2026-11-02', 9, 13), person(), NOW)).toMatchObject({ change: 'cut', minutesLost: 240, noticeHours: 3 });
+  });
+
+  it('owes nothing with enough notice, for time already gone, or for people on enough hours', () => {
     expect(assessShortNotice(shift('2026-11-05', 12, 18), null, person(), NOW)).toBeNull();
     expect(assessShortNotice(shift('2026-11-02', 9, 17), null, person(), NOW)).toBeNull();
+    expect(assessShortNotice(shift('2026-11-02', 6, 12), shift('2026-11-02', 6, 9), person(), NOW)).toBeNull();
     expect(assessShortNotice(shift(TUESDAY, 12, 18), null, person({ contractedHours: 20 }), NOW)).toBeNull();
     expect(assessShortNotice(shift(TUESDAY, 12, 18), null, person({ payBasis: 'salaried', annualSalary: 30000 }), NOW)).toBeNull();
   });

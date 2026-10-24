@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { putBilling, type BillingRecord } from './billing';
 import { kit, type Kit } from './testkit';
+import { holdClock } from './testClock';
+
+holdClock();
 
 // Customers: every self sign-up's trial, subscription and revenue on one page, for WS customer
 // operations alone, only in the organisation that runs Preshift, counts and billing standing only.

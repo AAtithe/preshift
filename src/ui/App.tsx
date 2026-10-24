@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
+import { hiddenTabs } from '../engine/features';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
 import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
@@ -96,6 +97,7 @@ const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['tr
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
 const TroncView = screen(() => import('./TroncView'), 'TroncView', ['tronc']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
+const FeaturesView = screen(() => import('./FeaturesView'), 'FeaturesView', ['features']);
 const EmploymentRightsView = screen(() => import('./EmploymentRightsView'), 'EmploymentRightsView', ['rights']);
 const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 
@@ -303,11 +305,14 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const canPublish = atAll('rota.publish');
   // The bar is worked out over every site the person can see, so it keeps its shape as the scope changes.
   const allSiteIds = useMemo(() => state.sites.map((s) => s.id), [state.sites]);
-  const nav = visibleNav(allow, allSiteIds, me?.user?.audience);
+  // Sections of features the organisation has switched off are offered to nobody, so they leave the bar,
+  // the address, Go to and the walkthrough alike.
+  const hidden = useMemo(() => hiddenTabs(me?.featuresOff), [me?.featuresOff]);
+  const nav = visibleNav(allow, allSiteIds, me?.user?.audience, hidden);
   const fallback = nav[0]?.items[0]?.id ?? 'profile';
-  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience)) ? tab : fallback;
+  const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience, hidden)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
-  const offeredTab = (t: Tab) => NAV_ITEMS.some((i) => i.id === t && offered(i, allow, allSiteIds, me?.user?.audience));
+  const offeredTab = (t: Tab) => NAV_ITEMS.some((i) => i.id === t && offered(i, allow, allSiteIds, me?.user?.audience, hidden));
 
   // What's new: this week's release pops up at each person's first sign-in of the week, and can be
   // walked again from the bar.
@@ -336,7 +341,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   }
   // Within the scope, the section reaches only the sites it is offered at.
   const sectionSites = sitesFor(section, allow, siteIds);
-  const notHere = section.access !== 'everyone' && !offered(section, allow, siteIds, me?.user?.audience);
+  const notHere = section.access !== 'everyone' && !offered(section, allow, siteIds, me?.user?.audience, hidden);
   // A site-only section opened across several sites shows the site chooser instead.
   const needsSite = !notHere && !!section.siteOnly && !single;
   const shown = notHere || needsSite ? null : activeTab;
@@ -779,13 +784,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 <EmploymentRightsView state={state} siteId={single.id} showCost={allow('costs.view', single.id)} onChanged={() => void actions.reload()} />
               )}
               {shown === 'cutcall' && single && (
-                <CutCallView
-                  state={state}
-                  site={single}
-                  today={londonParts(new Date()).date}
-                  now={londonParts(new Date()).minute}
-                  onApply={allow('rota.edit', single.id) ? (shift) => actions.saveShift(shift, false) : undefined}
-                />
+                <CutCallView state={state} site={single} canApply={allow('rota.edit', single.id)} onApplied={() => void actions.refreshShifts()} />
               )}
               {shown === 'pay' && (
                 <PayApprovalsView
@@ -828,6 +827,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'clients' && <ClientsView />}
               {shown === 'customers' && <CustomersView />}
               {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
+              {shown === 'features' && <FeaturesView state={state} onChanged={actions.reload} onOpen={setTab} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} sites={state.sites} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}

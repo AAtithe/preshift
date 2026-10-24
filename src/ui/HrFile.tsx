@@ -72,7 +72,12 @@ export function HrFile({ state, employee, hr, today, isAdmin, initialSection = '
         {section === 'profile' && <ProfileForm state={state} employee={employee} today={today} onSave={(p) => onSaveProfile(employee.id, p)} />}
         {section === 'absence' && <AbsenceSection employee={employee} today={today} onSave={(a, isNew) => onSaveAbsence(employee.id, a, isNew)} onDelete={(id) => onDeleteAbsence(employee.id, id)} />}
         {section === 'training' && <TrainingSection state={state} employee={employee} records={records} hr={hr} today={today} />}
-        {section === 'reviews' && <RecordSection kind="review" employee={employee} records={records} hr={hr} today={today} />}
+        {section === 'reviews' && (
+          <>
+            <RecordSection kind="review" employee={employee} records={records} hr={hr} today={today} />
+            <RecordSection kind="health_assessment" employee={employee} records={records} hr={hr} today={today} />
+          </>
+        )}
         {section === 'cases' && isAdmin && <RecordSection kind="case" employee={employee} records={records} hr={hr} today={today} />}
         {section === 'documents' && (
           <>
@@ -410,6 +415,7 @@ const KIND_HEADING: Record<HrRecordKind, string> = {
   case: 'Disciplinary, grievance and capability',
   document: 'Documents on file',
   note: 'Notes',
+  health_assessment: 'Night work health assessments',
 };
 
 const KIND_ADD: Record<HrRecordKind, string> = {
@@ -418,12 +424,14 @@ const KIND_ADD: Record<HrRecordKind, string> = {
   case: 'Open a case',
   document: 'Add document',
   note: 'Add note',
+  health_assessment: 'Record an offer',
 };
 
 export function newRecord(kind: HrRecordKind, employeeId: string, today: string, extra: Partial<HrRecord> = {}): HrRecord {
   const base: HrRecord = { id: '', employeeId, kind, date: today, title: '', createdBy: '', createdAt: '' };
   if (kind === 'review') return { ...base, reviewType: 'one-to-one', title: 'One to one', nextDue: addDays(today, 90), ...extra };
   if (kind === 'case') return { ...base, caseType: 'investigation', caseStatus: 'open', ...extra };
+  if (kind === 'health_assessment') return { ...base, title: 'Night work health assessment', outcome: 'Offered', nextDue: addDays(today, 365), ...extra };
   return { ...base, ...extra };
 }
 
@@ -624,6 +632,23 @@ export function RecordForm({ record, hr, onDone }: { record: HrRecord; hr: HrRec
               Next review due
               <input type="date" value={d.nextDue ?? ''} onChange={(e) => set('nextDue', orUndefined(e.target.value))} />
             </label>
+          </>
+        )}
+        {d.kind === 'health_assessment' && (
+          <>
+            <label>
+              Outcome
+              <select value={d.outcome ?? 'Offered'} onChange={(e) => set('outcome', e.target.value)}>
+                <option>Offered</option>
+                <option>Taken</option>
+                <option>Declined</option>
+              </select>
+            </label>
+            <label>
+              Offer again by
+              <input type="date" value={d.nextDue ?? ''} onChange={(e) => set('nextDue', orUndefined(e.target.value))} />
+            </label>
+            <p className="hint span2">Record that it was offered and whether it was taken, never what it found: that stays between the person and the assessor.</p>
           </>
         )}
         {d.kind === 'case' && (

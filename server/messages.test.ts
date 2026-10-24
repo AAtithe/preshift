@@ -4,6 +4,9 @@ import { DEMO_TOTP_SECRET } from './seedUsers';
 import { enterCode, kit, TODAY } from './testkit';
 import { MemoryStore } from './store';
 import { releaseHeld } from './messaging';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const WEEK = '2026-10-19';
 const PASSWORD = 'pint of best bitter';

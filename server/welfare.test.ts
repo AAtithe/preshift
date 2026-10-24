@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { addDays } from '../src/engine/time';
 import { MemoryStore } from './store';
 import { enrol, kit, TODAY } from './testkit';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 const NOW = new Date(`${TODAY}T09:00:00Z`);
