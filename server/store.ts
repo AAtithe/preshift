@@ -1,4 +1,5 @@
 import type { PayPolicy } from '../src/engine/payPolicy';
+import type { EraSettings, HoursOffer, ShortNoticeRecord } from '../src/engine/employmentRights';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
@@ -111,6 +112,13 @@ export interface Kiosk {
   lastSeenAt?: string;
 }
 
+export interface EraData {
+  /** Absent means the assumptions in DEFAULT_ERA_SETTINGS, with neither measure started. */
+  settings?: EraSettings;
+  shortNotice: ShortNoticeRecord[];
+  offers: HoursOffer[];
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -169,6 +177,8 @@ export interface OrgData {
   payChanges: PayChange[];
   /** How fast finance decides pay changes, and the day hours go to payroll. Defaults apply when absent. */
   payPolicy?: PayPolicy;
+  /** Employment Rights Act settings, short notice changes and guaranteed hours offers. Absent until first used. */
+  era?: EraData;
   /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
   payDailyOn?: string;
   /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */

@@ -93,6 +93,7 @@ const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['tr
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
 const TroncView = screen(() => import('./TroncView'), 'TroncView', ['tronc']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
+const EmploymentRightsView = screen(() => import('./EmploymentRightsView'), 'EmploymentRightsView', ['rights']);
 const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
@@ -736,6 +737,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
               {shown === 'risk' && single && <RiskView state={state} siteId={single.id} week={week} asOf={today} />}
               {shown === 'retention' && single && <RetentionView state={state} siteId={single.id} asOf={today} />}
+              {shown === 'rights' && single && (
+                <EmploymentRightsView state={state} siteId={single.id} showCost={allow('costs.view', single.id)} onChanged={() => void actions.reload()} />
+              )}
               {shown === 'cutcall' && single && (
                 <CutCallView
                   state={state}
