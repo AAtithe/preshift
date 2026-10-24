@@ -45,6 +45,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
         travelHours: withShift.travelHours - without.travelHours,
         total: withShift.total - without.total,
         ni: withShift.employerNi - without.employerNi,
+        premium: withShift.premium - without.premium,
         parts: {
           gross: Math.max(0, withShift.gross - without.gross),
           holiday: Math.max(0, withShift.holiday - without.holiday),
@@ -147,7 +148,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
               ? 'Salaried: no extra cost, but it uses their hours.'
               : marginal.total === 0
                 ? 'Covered by guaranteed hours you already pay for.'
-                : `Includes ${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
+                : `Includes ${marginal.premium > 0.005 ? `${money2(marginal.premium)} in pay premiums and ` : ''}${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
             {marginal.travelHours > 0.005 &&
               ` It also pays ${Math.round(marginal.travelHours * 60)} minutes of travel from another site that day, which is working time.`}
           </div>

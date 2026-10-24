@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'messages';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'messages';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -45,7 +45,11 @@ export const NAV: NavGroup[] = [
     id: 'overview',
     heading: 'Overview',
     // Side by side labour cost by site: for those who see cost everywhere in scope.
-    items: [{ id: 'sites', label: 'Sites', scope: 'week', plans: true, access: { scope: ['costs.view'] } }],
+    items: [
+      { id: 'sites', label: 'Sites', scope: 'week', plans: true, access: { scope: ['costs.view'] } },
+      // Whether each site's team is on the staff app, hears about changes, and gets answers: for whoever runs a site.
+      { id: 'adoption', label: 'Staff app adoption', scope: 'people', access: { scope: ['rota.publish', 'team.manage'] } },
+    ],
   },
   {
     id: 'planning',
@@ -115,6 +119,8 @@ export const NAV: NavGroup[] = [
       { id: 'prime', label: 'Prime cost', scope: 'week', siteOnly: true, access: COSTED_TIME },
       // Minimum wage, right to work, Working Time and tips, priced as a regulator would.
       { id: 'risk', label: 'Compliance risk', scope: 'week', siteOnly: true, access: COSTED_TIME },
+      // Net pay, HMRC and pensions by date and company: pay totals for the business, so payroll and the close.
+      { id: 'cash', label: 'Labour cash', scope: 'org', title: 'Finance', access: { org: ['payroll.view', 'close.export'] } },
     ],
   },
   {

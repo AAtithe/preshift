@@ -131,6 +131,8 @@ async function overview(staff: Staff, store: Store) {
     email: login.email,
     /** How many phones have notifications on. */
     pushDevices: login.push?.length ?? 0,
+    /** Shift reminders: on unless the person turned them off. */
+    reminders: login.reminders !== false,
     today,
     sites: clockableSites(org, employee, new Date()).map(siteView),
     open: open ? entryView(open) : null,
@@ -682,7 +684,7 @@ const pushBody = {
 function pushRoutes(app: FastifyInstance, store: Store) {
   app.get('/v1/staff/push', { schema: { hide: true } }, async (req) => {
     const { login } = await requireStaff(req, store);
-    return { publicKey: (await vapidKeys(store)).publicKey, devices: (login.push ?? []).map(({ endpoint, label, addedAt }) => ({ endpoint, label: label ?? null, addedAt })) };
+    return { publicKey: (await vapidKeys(store)).publicKey, reminders: login.reminders !== false, devices: (login.push ?? []).map(({ endpoint, label, addedAt }) => ({ endpoint, label: label ?? null, addedAt })) };
   });
 
   app.post<{ Body: { endpoint: string; keys?: { p256dh: string; auth: string }; label?: string } }>(
@@ -714,6 +716,17 @@ function pushRoutes(app: FastifyInstance, store: Store) {
         await store.save(org);
       }
       return { ok: true, devices: push.length };
+    },
+  );
+
+  // Reminders the evening before and two hours before each shift. Not-clocked-in nudges are not optional.
+  app.put<{ Body: { on: boolean } }>(
+    '/v1/staff/reminders',
+    { schema: { hide: true, body: { type: 'object', required: ['on'], properties: { on: { type: 'boolean' } }, additionalProperties: false } } },
+    async (req) => {
+      const { login } = await requireStaff(req, store);
+      await store.putStaffLogin({ ...login, reminders: req.body.on });
+      return { on: req.body.on };
     },
   );
 

@@ -69,9 +69,11 @@ const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['priva
 const ProfileView = screen(() => import('./ProfileView'), 'ProfileView', ['profile']);
 const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', ['programme']);
 const RequestsView = screen(() => import('./RequestsView'), 'RequestsView', ['requests']);
+const AdoptionView = screen(() => import('./AdoptionView'), 'AdoptionView', ['adoption']);
 const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
 const RetentionView = screen(() => import('./RetentionView'), 'RetentionView', ['retention']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
+const PremiumsPanel = screen(() => import('./PremiumsPanel'), 'PremiumsPanel', ['pay']);
 const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
 const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']);
@@ -90,6 +92,7 @@ const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['tr
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
 const TroncView = screen(() => import('./TroncView'), 'TroncView', ['tronc']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
+const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
@@ -653,6 +656,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'coach' && single && <CoachView state={state} siteId={single.id} week={week} onChanged={actions.refreshShifts} />}
               {shown === 'forecast' && single && <ForecastView state={state} siteId={single.id} week={week} onChanged={actions.reload} />}
               {shown === 'calendar' && single && <CalendarView key={single.id} state={state} site={single} today={today} onChanged={actions.reload} />}
+              {shown === 'cash' && <CashView canSettings={allow('settings.manage')} />}
               {shown === 'programme' && <ProgrammeView state={state} siteIds={siteIds} today={today} lead={!!me?.user && allow('programme.lead')} canShare={allow('settings.manage')} onOpenSite={(id) => chooseScope(entityId, id)} />}
               {shown === 'team' && <TeamView state={state} siteIds={siteIds} metrics={metrics} issues={issues} dates={dates} showCost={showCost} />}
               {shown === 'people' && single && (
@@ -695,6 +699,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
+              {shown === 'adoption' && <AdoptionView state={state} siteIds={siteIds} />}
               {shown === 'requests' && <RequestsView key={coverShift ?? 'requests'} state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} coverShiftId={coverShift ?? undefined} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
@@ -727,6 +732,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   meId={me?.user?.id}
                   meEmployeeId={me?.user?.employeeId}
                   onChanged={actions.refreshEmployee}
+                />
+              )}
+              {shown === 'pay' && (
+                <PremiumsPanel
+                  entities={state.entities.filter((e) => entityIds.includes(e.id))}
+                  roles={state.roles}
+                  onSave={allow('pay.approve') ? actions.setPremiums : undefined}
                 />
               )}
               {shown === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}

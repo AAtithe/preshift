@@ -47,6 +47,44 @@ export interface Entity {
    * chosen yet: it is paid at the normal rate meanwhile, and set-up asks for a choice.
    */
   travelPay?: TravelPay;
+  /** When this company pays its people. Weekly, paid the Friday after the week, when absent. */
+  paySchedule?: PaySchedule;
+  /** Enhanced rates this company's contracts pay hourly staff: Sundays, bank holidays, nights, overtime. */
+  premiums?: PremiumRule[];
+}
+
+/**
+ * When a company pays. Weekly, fortnightly and four-weekly pay periods run Monday to Sunday in blocks
+ * counted from `anchor`, and are paid `payLagDays` after the period ends (5 is the Friday after).
+ * Monthly pays the calendar month on `monthlyPayDay`, or the last working day of the month.
+ */
+export interface PaySchedule {
+  frequency: 'weekly' | 'fortnightly' | 'four-weekly' | 'monthly';
+  /** A Monday that starts a pay period, for fortnightly and four-weekly. */
+  anchor?: string;
+  payLagDays?: number;
+  monthlyPayDay?: number | 'last-working';
+}
+
+/**
+ * One pay premium. Qualifying hours are paid at the person's rate times `multiplier` (1.5 is time and
+ * a half), or with `perHour` added. Where several apply to the same hour, only the highest is paid.
+ */
+export interface PremiumRule {
+  id: string;
+  name: string;
+  kind: 'day' | 'bank_holiday' | 'night' | 'overtime';
+  multiplier?: number;
+  perHour?: number;
+  /** For `day`: 0 = Monday ... 6 = Sunday. */
+  weekdays?: number[];
+  /** For `night`: the window, in minutes from midnight; it may run past midnight (1320 to 360). */
+  fromMinute?: number;
+  toMinute?: number;
+  /** For `overtime`: weekly paid hours after which it pays. Absent means after the person's contracted hours. */
+  afterHours?: number;
+  /** Only for these roles. Absent or empty means every role. */
+  roleIds?: string[];
 }
 
 /**
@@ -402,8 +440,9 @@ export interface OpenShift {
   status: 'open' | 'filled' | 'withdrawn';
   postedBy: string;
   postedAt: string;
-  /** Set once filled: who and the shift it became. */
+  /** Set once filled: who, when, and the shift it became. */
   filledBy?: string;
+  filledAt?: string;
   shiftId?: string;
   /** The shift released to make this one, when a manager posted someone's shift for cover. */
   releasedFrom?: { shiftId: string; employeeId: string };
@@ -426,7 +465,8 @@ export interface OpenShift {
 
 export type StaffNotificationKind =
   | 'rota_published' | 'rota_changed' | 'shift_cancelled'
-  | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received';
+  | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received'
+  | 'shift_reminder' | 'shift_late';
 
 /** A message to one member of staff, shown in the staff app and emailed where an address is held. */
 export interface StaffNotification {
@@ -438,7 +478,8 @@ export interface StaffNotification {
   body: string;
   read?: boolean;
   /** pending until the request that raised it is saved; then sent, none (no email set up or no address) or failed. */
-  email?: 'pending' | 'sent' | 'none' | 'failed';
+  /** skip: never emailed, such as a shift reminder, which goes to the phone only. */
+  email?: 'pending' | 'sent' | 'none' | 'failed' | 'skip';
   /** Carried by WhatsApp or text instead of email, for someone who chose that in the staff app. */
   via?: 'whatsapp' | 'sms';
   /** Goes through quiet hours: a shift put out as urgent. */

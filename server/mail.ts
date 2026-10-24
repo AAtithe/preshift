@@ -246,3 +246,15 @@ export function payApprovalEmail(
     html: letter([`Hello ${name},`, opening, ...points], { label: 'Open pay approvals', link }, notes),
   };
 }
+
+/**
+ * Someone has not clocked in for a shift that started more than ten minutes ago. Sent to whoever
+ * publishes that site's rota, at once, so cover can be found while the shift is still running.
+ */
+export function lateAlertEmail(to: string, name: string, person: string, line: string, minutesLate: number, link: string): Mail {
+  const opening = `${person} has not clocked in for ${line}. The shift started ${minutesLate} minutes ago.`;
+  const next = 'They have been sent a reminder. If they are not coming, put the rest of the shift out as an open shift from Staff requests: everyone trained, free and legal to work it is told at once.';
+  const notes = ['Turn these emails off on the Staff requests screen.'];
+  const text = [`Hello ${name},`, '', opening, next, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: `Not clocked in: ${oneLine(person)}`, text, html: letter([`Hello ${name},`, opening, next], { label: 'Find cover', link }, notes) };
+}

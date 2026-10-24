@@ -68,7 +68,7 @@ export function fillOpenShift(org: OrgData, o: OpenShift, e: Employee, by: strin
     audit(org, by, 'shift.created', { id: shift.id });
     syncTold(org, [e.id], [shift]);
   }
-  Object.assign(o, { status: 'filled', filledBy: e.id, shiftId: shift.id, nextRoundAt: undefined });
+  Object.assign(o, { status: 'filled', filledBy: e.id, filledAt: now.toISOString(), shiftId: shift.id, nextRoundAt: undefined });
   for (const other of requestsOf(org).filter((x) => x.openShiftId === o.id && x.employeeId !== e.id && openClaim(x))) {
     Object.assign(other, { status: 'cancelled', decidedBy: by, decidedAt: now.toISOString(), decisionNote: 'Filled by someone else.' });
     notify(org, other.employeeId, 'request_decided', 'Open shift filled', `${shiftLine(o, names)} has gone to someone else. Thanks for offering.`, now);

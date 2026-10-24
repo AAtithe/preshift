@@ -58,6 +58,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/hr/overview': true,
   // Staff requests and open shifts work on the visitor's own sandbox, as the rota does.
   'GET /v1/requests': true,
+  'GET /v1/requests/late': true,
+  'GET /v1/insights/adoption': true,
   // The morning email: visitors may look at it; nothing is ever emailed from a sandbox.
   'GET /v1/requests/digest': true,
   'PUT /v1/requests/digest': true,
@@ -109,6 +111,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/employees/:id/badge': true,
   'DELETE /v1/employees/:id/badge': true,
   'PATCH /v1/entities/:id': true,
+  'PUT /v1/entities/:id/premiums': true,
   'PUT /v1/sites/:id/geofence': true,
   'DELETE /v1/sites/:id/geofence': true,
   'POST /v1/hr/records': true,
@@ -150,6 +153,10 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/integrations/epos': true,
   // Wellbeing on the sandbox's fictional team. Hospitality Rewards connects to the simulator only:
   // the route refuses a real platform for a sandbox, so no visitor can send names anywhere.
+  // The labour cash calendar on the sandbox's own figures, and its pay schedules.
+  'GET /v1/finance/cash-calendar': true,
+  'GET /v1/finance/cash-calendar.csv': true,
+  'PUT /v1/entities/:id/pay-schedule': true,
   'GET /v1/welfare': true,
   'PUT /v1/welfare/policy': true,
   'POST /v1/welfare/recognitions': true,
@@ -395,6 +402,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/push/subscribe': false,
   'POST /v1/staff/push/unsubscribe': false,
   'POST /v1/staff/push/test': false,
+  'PUT /v1/staff/reminders': false,
   'GET /v1/kiosk/board': false,
   'POST /v1/kiosk/tap': false,
   'POST /v1/kiosk/clock': false,

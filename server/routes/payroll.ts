@@ -6,7 +6,8 @@ import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/j
 import { addDays, weekDates } from '../../src/engine/time';
 import { sspEstimate, sspInPeriod, type SspCheckLine } from '../../src/engine/ssp';
 import { entriesAsShifts, payrollHours, payrollVariance, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
-import type { TravelPay } from '../../src/engine/types';
+import { describeRule } from '../../src/engine/premiums';
+import type { PremiumRule, TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
@@ -366,6 +367,88 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
               : { basis: 'fixed', hourly: Math.round(t.hourly * 100) / 100, ...(t.averaging ? { averaging: true } : {}) };
       }
       audit(org, actorName(g), 'entity.updated', { id: entity.id, fields: Object.keys(req.body) });
+      return entity;
+    },
+  );
+
+  app.put<{ Params: { id: string }; Body: { premiums: PremiumRule[] } }>(
+    '/v1/entities/:id/premiums',
+    {
+      ...write,
+      schema: {
+        tags: ['Payroll'],
+        description:
+          "Replaces a company's pay premiums for hourly staff: day rates (Sundays), bank holidays, night hours and overtime. " +
+          'Each pays a multiple of the normal rate (1.5 is time and a half) or a fixed amount per hour on top. Where several apply ' +
+          'to one hour only the highest is paid. Premiums raise pay, so changing them needs pay approval rights.',
+        params: idParam,
+        body: {
+          type: 'object',
+          required: ['premiums'],
+          additionalProperties: false,
+          properties: {
+            premiums: {
+              type: 'array',
+              maxItems: 20,
+              items: {
+                type: 'object',
+                required: ['name', 'kind'],
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', maxLength: 64 },
+                  name: { type: 'string', minLength: 1, maxLength: 60 },
+                  kind: { type: 'string', enum: ['day', 'bank_holiday', 'night', 'overtime'] },
+                  multiplier: { type: 'number', minimum: 1, maximum: 4 },
+                  perHour: { type: 'number', minimum: 0, maximum: 50 },
+                  weekdays: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 6 }, maxItems: 7 },
+                  fromMinute: { type: 'integer', minimum: 0, maximum: 1439 },
+                  toMinute: { type: 'integer', minimum: 0, maximum: 1439 },
+                  afterHours: { type: 'number', minimum: 0, maximum: 100 },
+                  roleIds: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const entity = org.state.entities.find((e) => e.id === req.params.id);
+      if (!entity) throw notFound(`Entity ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      // A premium rule is a pay rise for everyone it touches, so it sits with whoever approves pay.
+      g.allow('pay.approve');
+      const roles = new Set(org.state.roles.map((r) => r.id));
+      const clean = req.body.premiums.map((r): PremiumRule => {
+        const bad = (message: string) => new HttpError(400, 'invalid_premium', `${r.name}: ${message}`);
+        if ((typeof r.multiplier === 'number') === (typeof r.perHour === 'number')) throw bad('give either a multiplier or an amount per hour, not both.');
+        if (r.kind === 'day' && !r.weekdays?.length) throw bad('choose at least one day.');
+        if (r.kind === 'night' && (typeof r.fromMinute !== 'number' || typeof r.toMinute !== 'number' || r.fromMinute === r.toMinute)) {
+          throw bad('give the hours it covers.');
+        }
+        const unknown = (r.roleIds ?? []).filter((id) => !roles.has(id));
+        if (unknown.length) throw bad(`unknown role ${unknown.join(', ')}.`);
+        return {
+          id: r.id ?? `prem_${randomUUID().slice(0, 8)}`,
+          name: r.name.trim(),
+          kind: r.kind,
+          ...(typeof r.multiplier === 'number' ? { multiplier: Math.round(r.multiplier * 1000) / 1000 } : { perHour: Math.round(r.perHour! * 100) / 100 }),
+          ...(r.kind === 'day' ? { weekdays: [...new Set(r.weekdays)].sort() } : {}),
+          ...(r.kind === 'night' ? { fromMinute: r.fromMinute, toMinute: r.toMinute } : {}),
+          ...(r.kind === 'overtime' && typeof r.afterHours === 'number' ? { afterHours: r.afterHours } : {}),
+          ...(r.roleIds?.length ? { roleIds: [...new Set(r.roleIds)] } : {}),
+        };
+      });
+      const ids = clean.map((r) => r.id);
+      if (new Set(ids).size !== ids.length) throw new HttpError(400, 'invalid_premium', 'Each premium needs its own id.');
+      const before = (entity.premiums ?? []).map((r) => `${r.name}: ${describeRule(r)}`);
+      entity.premiums = clean;
+      audit(org, actorName(g), 'entity.premiums_set', {
+        id: entity.id,
+        before,
+        after: clean.map((r) => `${r.name}: ${describeRule(r)}`),
+      });
       return entity;
     },
   );

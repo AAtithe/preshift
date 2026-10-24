@@ -39,6 +39,20 @@ function StaffAppGuide() {
         moved shift when they next open the app or their email. Chase them.
       </p>
 
+      <h3>Reminders</h3>
+      <p>
+        With notifications on, each person is reminded the evening before a shift and two hours before it starts, on their phone
+        only, never by email. They can turn reminders off in Inbox. They are still told if they have not clocked in ten minutes
+        after the start.
+      </p>
+
+      <h3>Check it is working</h3>
+      <p>
+        Overview, then Staff app adoption shows, for each site: who is on the app, who has notifications on, how fast requests are
+        decided, how many open shifts were filled, and no-shows. Who to chase lists names for each site. Aim for nine in ten on the
+        app and seven in ten with notifications on.
+      </p>
+
       <h3>What they can do</h3>
       <ul>
         <li><strong>Today:</strong> clock in and out inside the site's geofence, record breaks, see today's shift and the break they are owed.</li>
