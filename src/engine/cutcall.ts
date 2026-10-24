@@ -4,6 +4,7 @@ import { breakFor } from './compliance';
 import { employeeWeekCost, shiftsInWeek } from './cost';
 import { headcountAt, requiredHeadcount } from './demand';
 import { shortNoticeCompensation, type EraPolicy } from './era';
+import { assessShortNotice, snapshot, type EraSettings } from './employmentRights';
 import { weekStart } from './time';
 
 export interface CutOptions {
@@ -19,6 +20,12 @@ export interface CutOptions {
    * compensation. A cut on the day is always short notice.
    */
   era?: EraPolicy;
+  /**
+   * The organisation's Employment Rights Act settings and the moment of the call. A cut to a published
+   * shift for a covered worker is priced with the short notice pay it owes once the measure has started,
+   * and shown as what it would owe before then. Takes the place of `era` when given.
+   */
+  rights?: { settings: EraSettings; at: Date };
 }
 
 export const DEFAULT_CUT_OPTIONS: CutOptions = { minTradedShare: 0.1, paceFloor: 0.5, paceCeiling: 1.5, minMinutesSaved: 45 };
@@ -35,6 +42,8 @@ export interface CutRecommendation {
   minutesSaved: number;
   /** Short-notice compensation owed for the cut, when Employment Rights Act pricing is on. */
   compensation: number;
+  /** Short notice pay the cut would owe once the measure starts: shown, not deducted. */
+  wouldOwe?: number;
   /** Loaded saving to the week, after guaranteed hours, on-cost thresholds and any compensation. */
   saving: number;
 }
@@ -178,7 +187,14 @@ export function cutCall(
       const before = employeeWeekCost(employee, weekOf(shifts, employee.id)).total;
       const after = employeeWeekCost(employee, weekOf(shifts.map((s) => (s.id === shift.id ? next : s)), employee.id)).total;
       const minutesSaved = shift.endMinute - newEnd;
-      const compensation = opts.era ? shortNoticeCompensation(minutesSaved, loadedHourlyRate(employee), opts.era) : 0;
+      let compensation = opts.era && !opts.rights ? shortNoticeCompensation(minutesSaved, loadedHourlyRate(employee), opts.era) : 0;
+      let wouldOwe: number | undefined;
+      if (opts.rights && shift.published) {
+        const owed = assessShortNotice(snapshot(shift), snapshot(next), employee, opts.rights.at, opts.rights.settings);
+        // Pay owed carries on-costs like any pay, so it is priced at the person's loaded rate.
+        if (owed?.owed) compensation = round2(owed.amount * (employee.hourlyRate > 0 ? loadedHourlyRate(employee) / employee.hourlyRate : 1));
+        else if (owed) wouldOwe = owed.amount;
+      }
       const saving = round2(before - after - compensation);
       if (saving <= 0) {
         keptAtNoCost.add(employee.id);
@@ -194,6 +210,7 @@ export function cutCall(
         newBreakMinutes,
         minutesSaved,
         compensation,
+        ...(wouldOwe ? { wouldOwe } : {}),
         saving,
       };
       if (!best || rec.saving > best.rec.saving) best = { rec, next };

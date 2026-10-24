@@ -39,6 +39,8 @@ import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
 import { exemptFromShortNotice, trackShortNotice } from './employmentRights';
 import { employmentRightsRoutes } from './routes/employmentRights';
+import { cutCallRoutes } from './routes/cutCall';
+import { runCutCallAlerts } from './cutCall';
 import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
@@ -338,7 +340,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // that has started. Each is sent once, however often this runs.
   app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
-    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
+    const log = (msg: string, detail: Record<string, unknown>) => app.log.error(detail, msg);
+    // The cut call watches trading on the same five minute run as the shift reminders.
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), log)), ...(await runCutCallAlerts(store, ctx.now(), log)) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
@@ -453,6 +457,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     });
     rotaRoutes(api, ctx);
     employmentRightsRoutes(api, ctx);
+    cutCallRoutes(api, ctx);
     employeeRoutes(api, ctx);
     payRoutes(api, ctx);
     setupRoutes(api, ctx);

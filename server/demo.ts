@@ -112,6 +112,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PATCH /v1/entities/:id': true,
   'PUT /v1/entities/:id/premiums': true,
   'GET /v1/employment-rights': true,
+  'GET /v1/cut-call': true,
+  'POST /v1/cut-call/apply': true,
   'GET /v1/employment-rights/settings': true,
   'PUT /v1/employment-rights/settings': true,
   'POST /v1/employment-rights/offers': true,
