@@ -303,6 +303,9 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/programmes/:siteId/verifications': false,
   // Refused: benchmarks are drawn from customers' figures, which a visitor must never see.
   'PUT /v1/settings/benchmarking': false,
+  // Allowed: switching sections off and on changes only what the visitor's own sandbox shows.
+  'GET /v1/settings/features': true,
+  'PUT /v1/settings/features': true,
   'GET /v1/benchmarks': false,
   // Refused: these have the live system fetch weather and any feed address a visitor chose.
   'POST /v1/outside/refresh': false,

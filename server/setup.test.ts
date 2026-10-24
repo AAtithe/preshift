@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { seedHistory } from '../src/engine/seedHistory';
 import { enrol, kit } from './testkit';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 

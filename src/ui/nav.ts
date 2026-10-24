@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'periods' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'customers' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'rights' | 'messages';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'periods' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'customers' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'rights' | 'messages' | 'features';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -142,6 +142,8 @@ export const NAV: NavGroup[] = [
       // insists on the organisation that runs Preshift.
       { id: 'customers', label: 'Customers', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['customers.view'], audience: 'ws' } },
       { id: 'settings', label: 'Settings', scope: 'org', access: { org: ['settings.manage'] } },
+      // Which parts of Preshift the organisation uses: sections switched off leave the bar for everyone.
+      { id: 'features', label: 'Features', scope: 'org', access: { org: ['settings.manage'] } },
       // The trial, the subscription and the sites paid for. Paying is a settings decision.
       { id: 'billing', label: 'Billing', scope: 'org', access: { org: ['settings.manage'] } },
     ],
@@ -168,8 +170,12 @@ export function sitesFor(item: NavItem, allow: Allow, siteIds: string[]): string
   return siteIds.filter((s) => (scope.some((p) => allow(p, s)) || org.some((p) => allow(p, s))) && also.every((p) => allow(p, s)));
 }
 
-/** Whether the person is offered the section anywhere in scope. `audience` is the side they are on, if they have a record. */
-export function offered(item: NavItem, allow: Allow, siteIds: string[], audience?: Audience): boolean {
+/**
+ * Whether the person is offered the section anywhere in scope. `audience` is the side they are on, if they have a record.
+ * `hidden` holds the sections of features the organisation has switched off: offered to nobody, whatever their roles.
+ */
+export function offered(item: NavItem, allow: Allow, siteIds: string[], audience?: Audience, hidden?: ReadonlySet<string>): boolean {
+  if (hidden?.has(item.id)) return false;
   if (item.access === 'everyone') return true;
   const { org = [], also = [] } = item.access;
   if (item.access.audience && item.access.audience !== audience) return false;
@@ -177,8 +183,8 @@ export function offered(item: NavItem, allow: Allow, siteIds: string[], audience
 }
 
 /** The bar as this person sees it: only what they are offered, and no empty groups. */
-export function visibleNav(allow: Allow, siteIds: string[], audience?: Audience): NavGroup[] {
-  return NAV.map((g) => ({ ...g, items: g.items.filter((t) => offered(t, allow, siteIds, audience)) })).filter((g) => g.items.length > 0);
+export function visibleNav(allow: Allow, siteIds: string[], audience?: Audience, hidden?: ReadonlySet<string>): NavGroup[] {
+  return NAV.map((g) => ({ ...g, items: g.items.filter((t) => offered(t, allow, siteIds, audience, hidden)) })).filter((g) => g.items.length > 0);
 }
 
 // Where you are lives in the address, so Back, refresh and a shared link all land on the same screen.

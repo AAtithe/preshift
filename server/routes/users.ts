@@ -315,6 +315,8 @@ export function userRoutes(app: FastifyInstance, ctx: AppContext) {
       user,
       authenticator: stored ? authenticatorState(req, org, stored, today(), await authenticatorOf(ctx, req, org, stored)) : undefined,
       permissions: user ? ALL_PERMISSIONS.filter((p) => can(user, p, today())) : ALL_PERMISSIONS,
+      // Switched off for everyone here, whatever their roles: the bar leaves their sections out.
+      featuresOff: org.settings.featuresOff ?? [],
     };
   });
 
