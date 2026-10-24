@@ -6,6 +6,9 @@ import type { Employee } from '../src/engine/types';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const WEEK = '2026-10-19';
 // Each key stands for its person having entered their authenticator code.

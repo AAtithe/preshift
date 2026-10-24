@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const TODAY = '2026-10-21';
 const HALF_TERM = '2026-10-26';

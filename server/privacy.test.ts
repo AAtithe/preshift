@@ -4,6 +4,9 @@ import { londonParts } from './context';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
 import { codeAt, stepAt } from './totp';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 

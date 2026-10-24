@@ -5,6 +5,9 @@ import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { signHmac, TeamPayProvider } from './integrations/payroll/teampay';
 import { PayrollError } from './integrations/payroll/provider';
 import { MemoryStore, upgradeState } from './store';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const WEEK = '2026-10-19';
 const KEYS = [
