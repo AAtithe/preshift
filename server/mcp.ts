@@ -7,7 +7,9 @@
 // all apply exactly as they do for the web app. The connector adds no authority of its own.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { hasScope, type Scope } from './auth';
+import { ORG_HEADER, resourceMetadataUrl } from './oauth';
 import { isoDate, minute } from './schemas';
+import type { Store } from './store';
 
 /** Newest first. A client asking for one of these gets it; anything else gets the newest. */
 export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -16,7 +18,9 @@ const SERVER_INFO = { name: 'preshift', title: 'Preshift Rota', version: '1.0.0'
 
 const INSTRUCTIONS =
   'Preshift is the rota, time and payroll system for UK hospitality run with Williams, Stanley & Co. ' +
-  'Start with list_sites and list_roles to learn the ids. Weeks start on Monday: pass weekStart as that Monday (YYYY-MM-DD). ' +
+  'One connection can reach several organisations (a person at Williams, Stanley & Co. works across many clients): ' +
+  'call list_organisations first, and pass organisation on every other tool whenever it lists more than one. ' +
+  'Then use list_sites and list_roles to learn the ids. Weeks start on Monday: pass weekStart as that Monday (YYYY-MM-DD). ' +
   'Money is in pounds, sales are net of VAT, and minutes count from midnight (600 is 10:00). ' +
   'get_rota_week gives cost against forecast and every compliance issue; publish_rota refuses a week with a blocking issue, so fix those first. ' +
   'Only approved time reaches payroll, and nobody approves their own hours.';
@@ -240,12 +244,37 @@ const rpcResult = (id: Id, result: unknown) => ({ jsonrpc: JSONRPC, id, result }
 
 const allowed = (req: FastifyRequest, tool: Tool) => hasScope(req, tool.scope);
 
+/** Every organisation this caller reaches: a connection's list, or a key's one organisation. */
+const reachOf = (req: FastifyRequest) => req.principal.orgs ?? [req.principal.orgId];
+
+const organisationArg = { type: 'string', description: 'Organisation id, from list_organisations. Needed when the connection reaches more than one.' };
+
+/** Lists what the connection reaches. Answered here: each organisation's own routes cannot see the others. */
+const LIST_ORGANISATIONS = {
+  name: 'list_organisations',
+  title: 'Organisations',
+  description: 'The organisations (client businesses) this connection reaches, with their ids and companies. Pass one as organisation to every other tool.',
+  inputSchema: obj({}),
+  annotations: { title: 'Organisations', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+};
+
+async function listOrganisations(store: Store, req: FastifyRequest) {
+  const out = [];
+  for (const id of reachOf(req)) {
+    if (!(await store.has(id))) continue;
+    const org = await store.load(id);
+    out.push({ id, name: org.state.entities.map((e) => e.name).join(', ') || id, companies: org.state.entities.map((e) => e.name), sites: org.state.sites.length });
+  }
+  return { organisations: out };
+}
+
 function describe(tool: Tool) {
+  const schema = tool.inputSchema as { properties: Record<string, unknown> };
   return {
     name: tool.name,
     title: tool.title,
     description: tool.description,
-    inputSchema: tool.inputSchema,
+    inputSchema: { ...schema, properties: { ...schema.properties, organisation: organisationArg } },
     annotations: { title: tool.title, readOnlyHint: tool.readOnly, destructiveHint: !!tool.destructive, idempotentHint: tool.readOnly, openWorldHint: false },
   };
 }
@@ -258,19 +287,33 @@ function credentials(req: FastifyRequest) {
   return h;
 }
 
-async function callTool(app: FastifyInstance, req: FastifyRequest, params: Record<string, unknown> | undefined) {
+const toolError = (text: string) => ({ result: { isError: true, content: [{ type: 'text', text }] } });
+
+async function callTool(app: FastifyInstance, store: Store, req: FastifyRequest, params: Record<string, unknown> | undefined) {
   const name = String(params?.name ?? '');
+  if (name === LIST_ORGANISATIONS.name) {
+    const data = await listOrganisations(store, req);
+    return { result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], structuredContent: data, isError: false } };
+  }
   const tool = MCP_TOOLS.find((t) => t.name === name);
   if (!tool) return { unknown: true as const };
-  if (!allowed(req, tool)) {
-    return { result: { isError: true, content: [{ type: 'text', text: `This key lacks the ${tool.scope} scope, so it cannot use ${tool.name}.` }] } };
-  }
-  const args = (params?.arguments && typeof params.arguments === 'object' ? params.arguments : {}) as Record<string, unknown>;
+  if (!allowed(req, tool)) return toolError(`This key lacks the ${tool.scope} scope, so it cannot use ${tool.name}.`);
+  const { organisation, ...args } = (params?.arguments && typeof params.arguments === 'object' ? params.arguments : {}) as Record<string, unknown>;
+  // Which organisation the call acts in: named, or the only one there is. Never guessed among several.
+  const reach = reachOf(req);
+  const orgId = typeof organisation === 'string' && organisation ? organisation : reach.length === 1 ? reach[0] : undefined;
+  if (!orgId) return toolError(`This connection reaches ${reach.length} organisations. Call list_organisations and pass one as organisation.`);
+  if (!reach.includes(orgId)) return toolError(`This connection does not reach organisation ${orgId}. Call list_organisations for the ones it does.`);
   const call = tool.request(args);
   const res = await app.inject({
     method: call.method,
     url: call.url,
-    headers: { ...credentials(req), ...(call.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: {
+      ...credentials(req),
+      // A connection names the organisation on each call; a key only ever has its own.
+      ...(req.principal.orgs ? { [ORG_HEADER]: orgId } : {}),
+      ...(call.body !== undefined ? { 'content-type': 'application/json' } : {}),
+    },
     payload: call.body !== undefined ? JSON.stringify(call.body) : undefined,
   });
   let data: unknown = res.body || null;
@@ -291,7 +334,7 @@ async function callTool(app: FastifyInstance, req: FastifyRequest, params: Recor
   };
 }
 
-async function handle(app: FastifyInstance, req: FastifyRequest, msg: RpcMessage): Promise<unknown | undefined> {
+async function handle(app: FastifyInstance, store: Store, req: FastifyRequest, msg: RpcMessage): Promise<unknown | undefined> {
   const id = msg.id ?? null;
   const isNotification = msg.id === undefined;
   if (msg.jsonrpc !== JSONRPC || typeof msg.method !== 'string') {
@@ -311,9 +354,9 @@ async function handle(app: FastifyInstance, req: FastifyRequest, msg: RpcMessage
       return rpcResult(id, {});
     case 'tools/list':
       // Only what this key may run: a read-only key never sees the tools that change the rota.
-      return rpcResult(id, { tools: MCP_TOOLS.filter((t) => allowed(req, t)).map(describe) });
+      return rpcResult(id, { tools: [LIST_ORGANISATIONS, ...MCP_TOOLS.filter((t) => allowed(req, t)).map(describe)] });
     case 'tools/call': {
-      const out = await callTool(app, req, msg.params);
+      const out = await callTool(app, store, req, msg.params);
       if ('unknown' in out) return rpcError(id, -32602, `Unknown tool: ${String(msg.params?.name ?? '')}`);
       return rpcResult(id, out.result);
     }
@@ -337,13 +380,19 @@ function sameOrigin(req: FastifyRequest) {
   }
 }
 
-export function mcpRoutes(app: FastifyInstance, auth: (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>) {
+export function mcpRoutes(app: FastifyInstance, store: Store, auth: (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>) {
   const hidden = { schema: { hide: true } };
   const guardOrigin = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!sameOrigin(req)) return reply.code(403).send({ error: 'forbidden', message: 'Cross-origin requests to the connector are refused' });
   };
 
-  app.post('/mcp', { ...hidden, onRequest: [guardOrigin, auth] }, async (req, reply) => {
+  // A 401 names the discovery document, so claude.ai can find Sign in with Preshift on its own.
+  const challenge = async (req: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+    if (reply.statusCode === 401) reply.header('www-authenticate', `Bearer resource_metadata="${resourceMetadataUrl(req)}"`);
+    return payload;
+  };
+
+  app.post('/mcp', { ...hidden, onRequest: [guardOrigin, auth], onSend: challenge }, async (req, reply) => {
     const body = req.body as RpcMessage | RpcMessage[] | undefined;
     if (!body || typeof body !== 'object') return reply.code(400).send(rpcError(null, -32700, 'Parse error'));
     const batch = Array.isArray(body);
@@ -351,7 +400,7 @@ export function mcpRoutes(app: FastifyInstance, auth: (req: FastifyRequest, repl
     if (messages.length === 0) return reply.code(400).send(rpcError(null, -32600, 'Invalid request'));
     const answers = [];
     for (const m of messages) {
-      const a = await handle(app, req, m ?? {});
+      const a = await handle(app, store, req, m ?? {});
       if (a !== undefined) answers.push(a);
     }
     // Notifications and responses only: accepted, nothing to say.

@@ -29,21 +29,31 @@ async function go(page: Page, label: string) {
 }
 const heading = (page: Page) => page.locator('.mast-title h1');
 
-/** The options of a scope picker, without its "All ..." entry. */
-async function choices(page: Page, label: 'Site' | 'Entity') {
-  const options = await page.getByLabel(label, { exact: true }).locator('option').evaluateAll((os) =>
-    (os as HTMLOptionElement[]).filter((o) => o.value).map((o) => o.textContent!.trim()),
-  );
-  return options;
+const picker = (page: Page) => page.getByRole('button', { name: 'Site or company' });
+const option = (page: Page, name: string) =>
+  page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText(name, { exact: true }) });
+
+/** The sites, or the companies, the scope picker offers. With one company it lists only sites. */
+async function choices(page: Page, kind: 'site' | 'entity', within?: string) {
+  await picker(page).click();
+  const scope = within ? page.locator('.sp-group').filter({ has: option(page, within) }) : page.locator('.sp-menu');
+  const names = await scope.locator(`.sp-option[data-kind="${kind}"] .sp-name`).allTextContents();
+  await page.keyboard.press('Escape');
+  return names;
+}
+
+/** Chooses a site or a company from the scope picker. */
+async function choose(page: Page, name: string) {
+  await picker(page).click();
+  await option(page, name).click();
 }
 
 async function signIn(page: Page) {
-  // A deployed site with a public demo: each test gets a sandbox of its own, as any visitor would.
+  // A deployed site with a public demo: the run's one sandbox, its session already in this browser
+  // (e2e/demo.setup.ts).
   if (process.env.PRESHIFT_E2E_DEMO) {
-    await page.goto('/demo');
-    await page.getByRole('button', { name: 'Start the demo' }).click();
-    // Building a fresh sandbox takes the live site around six seconds, longer than a check's usual wait.
-    await expect(bar(page)).toBeVisible({ timeout: 30_000 });
+    await page.goto('/app/');
+    await expect(bar(page)).toBeVisible();
     return;
   }
   await page.goto('/login?next=/app/');
@@ -72,10 +82,10 @@ for (const scope of ['all sites', 'one site'] as const) {
   test(`every section opens with the right header controls: ${scope}`, async ({ page }) => {
     let title = 'All sites';
     if (scope === 'one site') {
-      title = (await choices(page, 'Site'))[0];
-      await page.getByLabel('Site', { exact: true }).selectOption({ label: title });
+      title = (await choices(page, 'site'))[0];
+      await choose(page, title);
     }
-    const several = scope === 'all sites' && (await choices(page, 'Site')).length > 1;
+    const several = scope === 'all sites' && (await choices(page, 'site')).length > 1;
     // From one site, Sites steps back out to every site; that has its own test below.
     for (const label of scope === 'all sites' ? SECTIONS : SECTIONS.filter((l) => l !== 'Sites')) {
       await go(page, label);
@@ -86,7 +96,7 @@ for (const scope of ['all sites', 'one site'] as const) {
       const choosing = several && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
       await expect(heading(page)).toHaveText(ORG.includes(label) ? orgTitle(label) : title);
-      await expect(page.getByLabel('Site', { exact: true })).toHaveCount(ORG.includes(label) ? 0 : 1);
+      await expect(picker(page)).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);
       await expect(page.getByRole('button', { name: 'Clear week' })).toHaveCount(PLANNING.includes(label) && !choosing ? 1 : 0);
@@ -96,7 +106,7 @@ for (const scope of ['all sites', 'one site'] as const) {
 }
 
 test('a site-only section across several sites asks for a site, then opens it there', async ({ page }) => {
-  const sites = await choices(page, 'Site');
+  const sites = await choices(page, 'site');
   test.skip(sites.length < 2, 'Needs at least two sites');
   await go(page, 'Payroll');
   const chooser = page.locator('.site-chooser');
@@ -109,21 +119,34 @@ test('a site-only section across several sites asks for a site, then opens it th
 });
 
 test('the chooser only offers the sites in the chosen entity', async ({ page }) => {
-  const entities = await choices(page, 'Entity');
+  const entities = await choices(page, 'entity');
   test.skip(entities.length < 2, 'Needs at least two entities');
-  await page.getByLabel('Entity').selectOption({ label: entities[0] });
-  const inEntity = await choices(page, 'Site');
+  await choose(page, entities[0]);
+  const inEntity = await choices(page, 'site', entities[0]);
   test.skip(inEntity.length < 2, 'Needs an entity with at least two sites');
   await go(page, 'Rota');
   await expect(page.locator('.site-chooser').getByRole('button')).toHaveText(inEntity.map((s) => new RegExp(s)));
 });
 
+test('the trail above a site steps back out to its company, then to every site', async ({ page }) => {
+  const entities = await choices(page, 'entity');
+  test.skip(entities.length < 2, 'Needs at least two companies');
+  const site = (await choices(page, 'site', entities[0]))[0];
+  await choose(page, site);
+  await expect(heading(page)).toHaveText(site);
+  const trail = page.getByRole('navigation', { name: 'Scope' });
+  await trail.getByRole('button', { name: entities[0] }).click();
+  await expect(heading(page)).toHaveText(entities[0]);
+  await trail.getByRole('button', { name: 'All sites' }).click();
+  await expect(heading(page)).toHaveText('All sites');
+});
+
 test('changing site keeps you in the section you are in', async ({ page }) => {
-  const sites = await choices(page, 'Site');
+  const sites = await choices(page, 'site');
   test.skip(sites.length < 2, 'Needs at least two sites');
-  await page.getByLabel('Site', { exact: true }).selectOption({ label: sites[0] });
+  await choose(page, sites[0]);
   await go(page, 'Absence');
-  await page.getByLabel('Site', { exact: true }).selectOption({ label: sites[sites.length - 1] });
+  await choose(page, sites[sites.length - 1]);
   await expect(item(page, 'Absence')).toHaveAttribute('aria-current', 'page');
   await expect(heading(page)).toHaveText(sites[sites.length - 1]);
 });
@@ -136,12 +159,12 @@ test('opening a site from the overview goes to its rota, and Sites steps back ou
   await expect(heading(page)).toHaveText(name);
   await go(page, 'Sites');
   await expect(heading(page)).toHaveText('All sites');
-  await expect(page.getByLabel('Site', { exact: true })).toHaveValue('');
+  await expect(page.locator('.sp-crumbs')).toHaveCount(0);
 });
 
 test('Back and refresh return to the same place', async ({ page }) => {
-  const site = (await choices(page, 'Site'))[0];
-  await page.getByLabel('Site', { exact: true }).selectOption({ label: site });
+  const site = (await choices(page, 'site'))[0];
+  await choose(page, site);
   await go(page, 'Holiday');
   await go(page, 'Payroll');
   await page.getByLabel('Next week').click();
@@ -175,6 +198,32 @@ test('groups fold away, the one you are in opens, and your choice is remembered'
   await expect(item(page, 'Training')).toHaveAttribute('aria-current', 'page');
 });
 
+test('Go to finds a section by its name, and / reaches it from anywhere', async ({ page }) => {
+  const find = bar(page).getByLabel('Go to a section');
+  await page.locator('main').click();
+  await page.keyboard.press('/');
+  await expect(find).toBeFocused();
+  // A section named for what was typed comes before one whose group heading only mentions it.
+  await page.keyboard.type('pay');
+  await expect(bar(page).locator('.nav-results button').first()).toContainText('Payroll');
+  await page.keyboard.press('Enter');
+  await expect(item(page, 'Payroll')).toHaveAttribute('aria-current', 'page');
+  await expect(find).toHaveValue('');
+
+  await find.fill('nothing like this');
+  await expect(bar(page).locator('.nav-none')).toBeVisible();
+  await find.press('Escape');
+  await expect(find).toHaveValue('');
+});
+
+test('a folded group lists what is inside it', async ({ page }) => {
+  await go(page, 'Absence');
+  const people = toggle(page, 'people');
+  await people.click();
+  await expect(people).toHaveAttribute('aria-expanded', 'false');
+  await expect(people.locator('.nav-preview')).toContainText('Absence');
+});
+
 test('a supervisor sees only their sections, and the API refuses the rest', async ({ page }) => {
   // Acting as a demo person is a development build feature, so this runs against the local server only.
   test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
@@ -202,4 +251,50 @@ test('a supervisor sees only their sections, and the API refuses the rest', asyn
   });
   expect(status).toBe(403);
   await page.evaluate(() => localStorage.removeItem('preshift.demoKey'));
+});
+
+test('the organisation picker names where you are and moves only on a deliberate choice', async ({ page }) => {
+  // The account is given two more organisations in the browser only; the switch itself is refused,
+  // so the check never moves a real session.
+  await page.route('**/auth/me', async (route) => {
+    const body = await (await route.fetch()).json();
+    const others = [{ orgId: 'e2e-a', name: 'Harbour Kitchens Ltd', current: false, home: false }, { orgId: 'e2e-b', name: 'Northern Taverns Ltd', current: false, home: false }];
+    await route.fulfill({ json: { ...body, organisations: [...body.organisations, ...others] } });
+  });
+  await page.route('**/auth/switch', (route) => route.fulfill({ status: 403, json: { message: 'You have no access to that organisation.' } }));
+  await page.reload();
+
+  const picker = page.getByRole('button', { name: /^Organisation:/ });
+  await expect(picker).toContainText('3 you work in');
+  await picker.click();
+  const options = page.getByRole('listbox', { name: 'Organisations' }).getByRole('option');
+  await expect(options).toHaveCount(3);
+  await expect(page.locator('.op-option.selected')).toContainText('Home');
+  await page.keyboard.press('Escape');
+  await expect(options).toHaveCount(0);
+
+  await picker.click();
+  await options.filter({ hasText: 'Harbour Kitchens Ltd' }).click();
+  await expect(page.locator('.op-error')).toHaveText('You have no access to that organisation.');
+});
+
+test('viewing as someone else says so on every screen, and one click returns to yourself', async ({ page }) => {
+  // Acting as a demo person is a development build feature, so this runs against the local server only.
+  test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
+  const card = page.getByRole('button', { name: 'Viewing as' });
+  await expect(card).toContainText('Yourself');
+  await expect(page.locator('.acting-banner')).toHaveCount(0);
+
+  await card.click();
+  const people = page.getByRole('listbox', { name: 'People' }).getByRole('option');
+  await expect(people.first()).toHaveAttribute('aria-selected', 'true');
+  const someone = people.nth(1);
+  const name = (await someone.locator('.op-option-name').textContent())!.trim();
+  await someone.click();
+
+  await expect(page.locator('.acting-banner')).toContainText(`You are viewing the app as ${name}`);
+  await expect(card).toContainText(name);
+  await page.getByRole('button', { name: 'Back to yourself' }).click();
+  await expect(page.locator('.acting-banner')).toHaveCount(0);
+  await expect(card).toContainText('Yourself');
 });

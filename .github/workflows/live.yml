@@ -1,0 +1,85 @@
+name: Live checks
+
+# The browser checks against the live site, after every change to main goes live, once a night as a
+# backstop, and on demand. They go in through the public demo, so each run works in fresh sandboxes:
+# no account, no real data, nothing saved. A failure opens an issue (or adds to the open one) so it is
+# seen without anyone watching Actions, and the issue closes itself when the checks pass again.
+on:
+  # Vercel deploys main to production. Its deployment events do not reach GitHub here, so a push to
+  # main starts the run, which waits until the live site reports that commit before checking it.
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+# A newer push makes a run on the one before it moot.
+concurrency:
+  group: live-checks
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  live:
+    name: Live checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The customers' address, not the deployment's own URL, which sits behind Vercel's sign-in.
+      PRESHIFT_E2E_URL: ${{ vars.PRESHIFT_LIVE_URL || 'https://preshift.williamsstanley.co' }}
+      PRESHIFT_E2E_DEMO: '1'
+    steps:
+      - name: Wait for this commit to be live
+        if: github.event_name == 'push'
+        run: |
+          want="${GITHUB_SHA:0:7}"
+          for i in $(seq 1 60); do
+            live=$(curl -fsS --max-time 10 "$PRESHIFT_E2E_URL/health" | sed -n 's/.*"commit":"\([0-9a-f]*\)".*/\1/p' || true)
+            if [ "$live" = "$want" ]; then echo "Live site is on $want"; exit 0; fi
+            # A site that does not report its commit cannot be waited on exactly: allow a deploy's usual time.
+            if [ -z "$live" ] && [ "$i" -ge 20 ]; then echo "::warning::The live site does not report its commit; checked after five minutes instead"; exit 0; fi
+            echo "Live site is on ${live:-unknown}, waiting for $want"
+            sleep 15
+          done
+          echo "::error::$want was not live after 15 minutes; the deployment may have failed or been superseded"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: live-check-traces
+          path: test-results/
+          retention-days: 14
+      - name: Report the result on the live checks issue
+        if: always() && (success() || failure())
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Live checks failing';
+            const passed = '${{ job.status }}' === 'success';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const what = context.eventName === 'push'
+              ? `after deploying ${context.sha.slice(0, 7)}`
+              : context.eventName === 'schedule' ? 'on the nightly run' : 'on a manual run';
+            const open = (await github.rest.issues.listForRepo({ ...context.repo, state: 'open', per_page: 100 }))
+              .data.find((i) => i.title === title && !i.pull_request);
+            if (passed) {
+              if (open) {
+                await github.rest.issues.createComment({ ...context.repo, issue_number: open.number, body: `Passing again ${what}: ${run}` });
+                await github.rest.issues.update({ ...context.repo, issue_number: open.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+            const body = `The browser checks failed against ${process.env.PRESHIFT_E2E_URL} ${what}.\n\nRun and traces: ${run}`;
+            if (open) await github.rest.issues.createComment({ ...context.repo, issue_number: open.number, body });
+            else await github.rest.issues.create({ ...context.repo, title, body });

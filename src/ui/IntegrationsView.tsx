@@ -3,6 +3,8 @@ import type { RotaState } from '../engine/types';
 import { api } from './api';
 import { describeSync, syncedAt, type EposStatus } from './EposSetup';
 import type { Account } from './SettingsView';
+import { describeRewardsSync, type RewardsStatus } from './WelfareSettings';
+import type { XeroStatus } from './XeroPanel';
 
 // One page that answers "what is Preshift connected to, and is each connection healthy".
 // Nothing is configured here: each card reads live status and points to where the setting lives.
@@ -33,7 +35,7 @@ const HEALTH_LABEL: Record<Health, string> = {
   planned: 'Not connected',
 };
 
-export type IntegrationTarget = 'payroll' | 'close' | 'clock' | 'settings';
+export type IntegrationTarget = 'payroll' | 'close' | 'clock' | 'settings' | 'welfare';
 
 // Connections Preshift does not have yet. Each card says what manual step it would remove.
 const REQUEST = (name: string) =>
@@ -57,12 +59,16 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
   const [settings, setSettings] = useState<Settings | null>(null);
   const [logins, setLogins] = useState<StaffLogin[] | null>(null);
   const [epos, setEpos] = useState<EposStatus | null>(null);
+  const [rewards, setRewards] = useState<RewardsStatus | null>(null);
+  const [xero, setXero] = useState<XeroStatus | null>(null);
   const admin = canSettings;
 
   useEffect(() => {
     api.get<PayrollStatus>('/v1/integrations/payroll').then(setPayroll).catch((e) => setPayrollError(e instanceof Error ? e.message : String(e)));
     api.get<StaffLogin[]>('/v1/staff-logins').then(setLogins).catch(() => setLogins(null));
     api.get<EposStatus>('/v1/integrations/epos').then(setEpos).catch(() => setEpos(null));
+    api.get<RewardsStatus>('/v1/integrations/rewards').then(setRewards).catch(() => setRewards(null));
+    api.get<XeroStatus>('/v1/integrations/xero').then(setXero).catch(() => setXero(null));
   }, []);
   // Keys are admin only; members see that a connection exists but not its details.
   useEffect(() => {
@@ -116,7 +122,21 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         : eposConn.environment === 'simulator' ? 'partial' : eposMatched < epos.sites.length ? 'attention' : 'live';
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
 
-  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth, eposHealth].filter((h): h is Health => h !== null);
+  // Hospitality Rewards
+  const rewardsConn = rewards?.connection;
+  const rewardsHealth: Health | null = !rewards
+    ? null
+    : !rewardsConn
+      ? 'off'
+      : rewardsConn.lastSync?.ok === false || rewards.waiting > 0 || !rewardsConn.lastSync
+        ? 'attention'
+        : rewardsConn.environment === 'simulator' ? 'partial' : 'live';
+
+  // Xero: connected, and every company posting somewhere; otherwise the journal still goes by file.
+  const xeroUnmapped = xero?.ledgers.filter((l) => !l.tenantId) ?? [];
+  const xeroHealth: Health = !xero?.connection ? 'file' : xeroUnmapped.length ? 'attention' : xero.connection.environment === 'simulator' ? 'partial' : 'live';
+
+  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth, eposHealth, rewardsHealth, xeroHealth].filter((h): h is Health => h !== null);
   const connected = known.filter((h) => h === 'live').length;
   const attention = known.filter((h) => h === 'attention').length;
 
@@ -240,9 +260,9 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         <Card
           name="Xero"
           kind="Accounting"
-          health="file"
-          purpose="The weekly labour accrual, by role nominal and site tracking category, one journal per company, in Xero's manual journal import format. This is what lets the P&L carry true labour before payroll has run."
-          action={<button onClick={() => onOpen('close')}>Open Close</button>}
+          health={xeroHealth}
+          purpose="The weekly labour accrual, by role nominal and site tracking category, one journal per company, posted straight into each company's Xero with its reversal on the Monday after. This is what lets the P&L carry true labour before payroll has run."
+          action={<button onClick={() => onOpen('close')}>{admin && !xero?.connection ? 'Connect on Close' : 'Open Close'}</button>}
         >
           <dl className="facts">
             <dt>Journals per week</dt>
@@ -250,8 +270,51 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
             <dt>Tracking categories</dt>
             <dd>{state.sites.map((s) => `${s.name} (${s.trackingCode})`).join(', ')}</dd>
             <dt>How it gets there</dt>
-            <dd>Download from Close and import in Xero under Manual Journals</dd>
+            <dd>
+              {xero?.connection
+                ? `Posted from Close${xero.connection.environment === 'simulator' ? ' into the simulated Xero' : ''}`
+                : 'Download from Close and import in Xero under Manual Journals, until Xero is connected'}
+            </dd>
+            {xero?.connection && (
+              <>
+                <dt>Companies posting</dt>
+                <dd className={xeroUnmapped.length ? 'warn-text' : undefined}>
+                  {xero.ledgers.length - xeroUnmapped.length} of {xero.ledgers.length}
+                  {xeroUnmapped.length ? `: ${xeroUnmapped.map((l) => l.name).join(', ')} not yet` : ''}
+                </dd>
+              </>
+            )}
           </dl>
+        </Card>
+      </div>
+
+      <h2 className="integrations-group">Wellbeing and rewards</h2>
+      <div className="integrations-grid">
+        <Card
+          name="Hospitality Rewards"
+          kind={rewardsConn?.environment === 'simulator' ? 'Employee benefits, simulated' : 'Employee benefits'}
+          health={rewardsHealth}
+          purpose="Staff discounts, wellbeing support and recognition points for hospitality teams. Everyone who has started is enrolled and leavers are removed the day after their last day, so nobody re-keys the team; points a manager gives on the Wellbeing screen are credited to the person's account."
+          action={<button onClick={() => onOpen('welfare')}>{admin && !rewardsConn ? 'Connect on Wellbeing' : 'Open Wellbeing'}</button>}
+        >
+          {rewards && (
+            <dl className="facts">
+              <dt>Enrolled</dt>
+              <dd>{rewards.enrolled} of {rewards.eligible} eligible{rewards.optedOut ? `, ${rewards.optedOut} opted out` : ''}</dd>
+              <dt>Last sync</dt>
+              <dd className={rewardsConn?.lastSync?.ok === false ? 'bad-text' : undefined}>
+                {rewardsConn?.lastSync ? `${when(rewardsConn.lastSync.at)}: ${describeRewardsSync(rewardsConn.lastSync)}` : rewardsConn ? 'Not yet: press Sync now on Wellbeing' : 'Not connected'}
+              </dd>
+              {rewards.waiting > 0 && (
+                <>
+                  <dt>Awards waiting</dt>
+                  <dd className="warn-text">{rewards.waiting}</dd>
+                </>
+              )}
+              <dt>Schedule</dt>
+              <dd>Every morning, with the payroll retry</dd>
+            </dl>
+          )}
         </Card>
       </div>
 

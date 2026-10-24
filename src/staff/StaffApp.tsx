@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { checkFence } from '../engine/clocking';
 import { formatMinute } from '../engine/time';
+import type { Fortnight } from '../engine/rotaViews';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
+import { registerWorker, turnOff } from './push';
+import { RotaConfirm, SignDocuments, PayTab, InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
 interface Entry {
   id: string;
@@ -18,16 +21,28 @@ interface Entry {
   onBreak: boolean;
 }
 
-interface Overview {
+interface Overview extends SelfServiceData {
   employee: { id: string; name: string };
   email?: string;
-  today: string;
   sites: { id: string; name: string; geofence: GeoFence | null }[];
   open: Entry | null;
   shifts: { id: string; date: string; startMinute: number; endMinute: number; breakMinutes: number; siteName: string; roleName: string }[];
   recent: Entry[];
   /** The legal minimum break for the shift they are on, when there is one. */
   breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
+  welfare: Welfare;
+  /** Hours, pay before tax and rest over the same fortnight as `shifts`. */
+  fortnight?: Fortnight;
+  /** Whether they have a kiosk PIN, and whether a site they clock at asks for one. */
+  kioskPin: { set: boolean; required: boolean };
+}
+
+interface Welfare {
+  supportLine: { name: string; phone?: string; url?: string } | null;
+  pulse: { week: string; answered: boolean };
+  chatOpen: boolean;
+  rewards: { connected: boolean; member: boolean; optedOut: boolean };
+  recognitions: { id: string; at: string; label: string; message: string; points: number; by: string }[];
 }
 
 type GeoState = { status: 'locating' | 'denied' | 'unavailable' } | { status: 'ok'; fix: GeoFix };
@@ -66,6 +81,7 @@ function readInvite() {
 
 /** Read when the app loads, once, before anything can render twice. */
 const INVITE = readInvite();
+registerWorker();
 
 /** The staff app: a person's own login on their own phone, to clock in and out and see their shifts. */
 export function StaffApp() {
@@ -101,7 +117,17 @@ export function StaffApp() {
           {data && view === 'home' ? <div className="brand-sub">{data.employee.name}</div> : <div className="brand-sub">For staff</div>}
         </div>
         {view === 'home' && (
-          <button className="link" onClick={() => void call('POST', '/v1/staff/logout').then(() => { setData(null); setView('login'); })}>Sign out</button>
+          <button
+            className="link"
+            onClick={() =>
+              // A shared phone stops getting this person's notifications when they sign out of it.
+              void turnOff((body) => call('POST', '/v1/staff/push/unsubscribe', body))
+                .then(() => call('POST', '/v1/staff/logout'))
+                .then(() => { setData(null); setView('login'); })
+            }
+          >
+            Sign out
+          </button>
         )}
       </header>
       {error && <p className="staff-msg bad" role="alert">{error}</p>}
@@ -115,8 +141,51 @@ export function StaffApp() {
           }}
         />
       )}
-      {view === 'home' && data && <Home data={data} onChange={setData} onSignedOut={() => setView('login')} />}
+      {view === 'home' && data && <Signed data={data} onChange={setData} onSignedOut={() => setView('login')} />}
     </div>
+  );
+}
+
+type Tab = 'today' | 'rota' | 'requests' | 'pay' | 'inbox';
+
+/** Signed in: four tabs along the bottom, where a thumb reaches. */
+function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
+  // A tapped notification opens the inbox, whether the app was closed or already open.
+  const [tab, setTab] = useState<Tab>(() => (window.location.hash === '#inbox' ? 'inbox' : 'today'));
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const open = (e: MessageEvent) => { if (e.data?.type === 'open') setTab('inbox'); };
+    navigator.serviceWorker.addEventListener('message', open);
+    return () => navigator.serviceWorker.removeEventListener('message', open);
+  }, []);
+  const refresh = useCallback(async () => {
+    try {
+      onChange(await call<Overview>('GET', '/v1/staff/me'));
+    } catch (e) {
+      if (e instanceof Problem && e.status === 401) onSignedOut();
+    }
+  }, [onChange, onSignedOut]);
+  const reload = useCallback(() => void refresh(), [refresh]);
+  const open = data.requests.filter((r) => r.status === 'pending' || r.status === 'accepted').length;
+  const tabs: [Tab, string, number][] = [['today', 'Today', 0], ['rota', 'Rota', 0], ['requests', 'Requests', open], ['pay', 'Pay', 0], ['inbox', 'Inbox', data.unread]];
+  return (
+    <>
+      {tab !== 'inbox' && <SignDocuments call={call} say={say} count={data.toSign ?? 0} onDone={reload} />}
+      <RotaConfirm call={call} say={say} weeks={data.rotaToConfirm ?? []} onDone={reload} />
+      {tab === 'today' && <Home data={data} onChange={onChange} onSignedOut={onSignedOut} />}
+      {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} shifts={data.shifts} fortnight={data.fortnight} />}
+      {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
+      {tab === 'pay' && <PayTab call={call} />}
+      {tab === 'inbox' && <InboxTab call={call} say={say} refresh={reload} />}
+      <nav className="staff-tabs" aria-label="Staff app">
+        {tabs.map(([id, label, count]) => (
+          <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
+            {label}
+            {count > 0 && <span className="staff-badge" aria-label={`${count} new`}>{count}</span>}
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }
 
@@ -371,7 +440,179 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         )}
         <p className="muted small">Your manager checks hours and breaks, and corrects them if needed, before approval.</p>
       </section>
+
+      <Wellbeing data={data} onChange={onChange} onSignedOut={onSignedOut} />
+      <KioskPin data={data} onChange={onChange} onSignedOut={onSignedOut} />
     </>
+  );
+}
+
+/** The person's own PIN for signing in by name on the site's kiosk iPad. */
+function KioskPin({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  const { set, required } = data.kioskPin;
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const pin = String(form.get('pin'));
+    if (pin !== form.get('again')) return setMessage({ tone: 'bad', text: 'The two PINs do not match.' });
+    setBusy(true);
+    setMessage(null);
+    try {
+      onChange(await call<Overview>('PUT', '/v1/staff/kiosk-pin', { pin }));
+      setOpen(false);
+      setMessage({ tone: 'good', text: 'PIN saved. Use it on the kiosk iPad when you sign in by name.' });
+    } catch (err) {
+      if (err instanceof Problem && err.status === 401) return onSignedOut();
+      setMessage({ tone: 'bad', text: say(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="staff-card">
+      <h2>Kiosk PIN</h2>
+      <p className="muted">
+        {set ? 'You have a PIN for the kiosk iPad at work.' : 'Set a PIN to sign in by name on the kiosk iPad at work.'}
+        {required && !set ? ' Your site asks for one, so set it before your next shift, or use your card.' : ''}
+      </p>
+      {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
+      {open ? (
+        <form className="staff-form" onSubmit={submit}>
+          <label>New PIN, 4 to 6 digits <input name="pin" type="password" inputMode="numeric" pattern="\d{4,6}" autoComplete="off" required /></label>
+          <label>PIN again <input name="again" type="password" inputMode="numeric" pattern="\d{4,6}" autoComplete="off" required /></label>
+          <p className="muted small">Not 1234, not one digit repeated, and not your date of birth. Keep it to yourself.</p>
+          <button className="primary staff-big" disabled={busy}>{busy ? 'Saving' : 'Save PIN'}</button>
+          <button type="button" className="link" onClick={() => setOpen(false)}>Cancel</button>
+        </form>
+      ) : (
+        <button className="staff-big" onClick={() => { setOpen(true); setMessage(null); }}>{set ? 'Change PIN' : 'Set a PIN'}</button>
+      )}
+    </section>
+  );
+}
+
+const PULSE = [
+  { score: 1, label: 'Hard' },
+  { score: 2, label: 'Tough' },
+  { score: 3, label: 'OK' },
+  { score: 4, label: 'Good' },
+  { score: 5, label: 'Great' },
+];
+
+/** How was your week, a private chat, someone to call, rewards and thanks received. */
+function Wellbeing({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
+  const w = data.welfare;
+  const [chat, setChat] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+
+  async function send(path: string, body: unknown, done: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      onChange(await call<Overview>('POST', path, body));
+      setMessage({ tone: 'good', text: done });
+    } catch (e) {
+      if (e instanceof Problem && e.status === 401) return onSignedOut();
+      setMessage({ tone: 'bad', text: say(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="staff-card staff-wellbeing">
+      <h2>Wellbeing</h2>
+      {w.pulse.answered ? (
+        <p className="muted">Thanks, your answer for this week is in. Nobody sees it with your name on it.</p>
+      ) : (
+        <div className="staff-pulse">
+          <p className="strong">How was your week?</p>
+          <div className="staff-pulse-scale" role="group" aria-label="How was your week">
+            {PULSE.map((p) => (
+              <button key={p.score} disabled={busy} onClick={() => void send('/v1/staff/pulse', { score: p.score, chat }, chat ? 'Thanks. Your manager will find a private moment to talk.' : 'Thanks for letting us know.')}>
+                <span className="staff-pulse-n">{p.score}</span>
+                <span className="small">{p.label}</span>
+              </button>
+            ))}
+          </div>
+          {!w.chatOpen && (
+            <label className="check small">
+              <input type="checkbox" checked={chat} onChange={(e) => setChat(e.target.checked)} /> I'd like a private chat with my manager
+            </label>
+          )}
+          <p className="muted small">Your answer is kept without your name. Your manager only sees a site's average once five people have answered.</p>
+        </div>
+      )}
+
+      {w.chatOpen ? (
+        <p className="small">You've asked for a chat. Your manager will find a private moment with you.</p>
+      ) : (
+        w.pulse.answered && (
+          <button disabled={busy} onClick={() => void send('/v1/staff/chat', {}, 'Asked. Your manager will find a private moment with you.')}>Ask for a private chat</button>
+        )
+      )}
+
+      <div className="staff-support">
+        <p className="strong">Someone to talk to</p>
+        {w.supportLine && (
+          <p>
+            {w.supportLine.name}
+            {w.supportLine.phone && <>, <a href={`tel:${w.supportLine.phone.replace(/\s+/g, '')}`}>{w.supportLine.phone}</a></>}
+            {w.supportLine.url && <>, <a href={w.supportLine.url} target="_blank" rel="noreferrer">website</a></>}
+          </p>
+        )}
+        <p>Samaritans, <a href="tel:116123">116 123</a>, free, day or night.</p>
+      </div>
+
+      {(w.rewards.connected || w.recognitions.length > 0) && (
+        <div className="staff-rewards">
+          <p className="strong">Recognition{w.rewards.connected ? ' and Hospitality Rewards' : ''}</p>
+          {w.recognitions.length === 0 ? (
+            <p className="muted small">Thanks from your managers show here.</p>
+          ) : (
+            <ul className="staff-list">
+              {w.recognitions.map((r) => {
+                const d = dayLabel(r.at.slice(0, 10));
+                return (
+                  <li key={r.id}>
+                    <span className="staff-day">{d.short} {d.date}</span>
+                    <span>
+                      <span className="strong">{r.label}{r.points ? `, ${r.points} points` : ''}</span>
+                      <span className="small"> {r.message}</span>
+                      <span className="muted small"> From {r.by}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {w.rewards.connected && (
+            <>
+              <p className="muted small">
+                {w.rewards.optedOut
+                  ? 'You have opted out of Hospitality Rewards. Thanks still show here; points are not credited.'
+                  : w.rewards.member
+                    ? 'You are a Hospitality Rewards member: staff discounts, wellbeing support, and points from recognition.'
+                    : 'You will be enrolled in Hospitality Rewards at the next sync, usually the next morning.'}
+              </p>
+              <button
+                disabled={busy}
+                onClick={() => void send('/v1/staff/rewards', { optOut: !w.rewards.optedOut }, w.rewards.optedOut ? 'You are back in. You will be enrolled at the next sync.' : 'Opted out. Your membership ends at the next sync.')}
+              >
+                {w.rewards.optedOut ? 'Join Hospitality Rewards' : 'Opt out of Hospitality Rewards'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
+    </section>
   );
 }
 

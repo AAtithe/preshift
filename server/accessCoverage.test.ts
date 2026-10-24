@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bcustomersPerson\(|\bloginReviewer\(|\bsupportPerson\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -18,6 +18,7 @@ const EXEMPT_FILES: Record<string, string> = {
 /** Single routes that are deliberately open, and why. */
 const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/privacy/register': 'The record of processing names nobody and is open to anyone who reads the rota.',
+  'GET /v1/privacy/policy-documents': 'Whether each company has a signed appropriate policy document: names no member of staff, read with the register.',
   'POST /v1/integrations/teampay/webhook/:orgId': 'Called by TeamPay with a signed body, never by a person.',
   'POST /v1/integrations/stripe/webhook': "Called by Stripe with a signed body, never by a person; applied only to the organisation that owns the Stripe customer.",
   'GET /v1/webhooks/events': 'The public catalogue of event types and what each carries: no organisation data.',
@@ -30,6 +31,39 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/me': "Staff app: the caller's own shifts and hours, under the staff session.",
   'POST /v1/staff/clock-in': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
   'POST /v1/staff/clock-out': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
+  'POST /v1/staff/pulse': "Staff app: the caller's own answer to the weekly pulse, under the staff session.",
+  'POST /v1/staff/chat': 'Staff app: the caller asking for a chat for themselves, under the staff session.',
+  'POST /v1/staff/rewards': 'Staff app: the caller opting themselves in or out of Hospitality Rewards, under the staff session.',
+  'GET /v1/staff/notifications': "Staff app: the caller's own notifications, under the staff session.",
+  'POST /v1/staff/notifications/read': "Staff app: marks the caller's own notifications read, under the staff session.",
+  'GET /v1/staff/team': "Staff app: names and times of who shares the caller's own published shifts, under the staff session.",
+  'GET /v1/staff/board': 'Staff app: open shifts and swaps the caller is eligible for, under the staff session.',
+  'GET /v1/staff/shifts/:id/swap-options': "Staff app: colleagues who could take one of the caller's own shifts, under the staff session.",
+  'POST /v1/staff/open-shifts/:id/claim': 'Staff app: the caller asks for an open shift; a manager with rota.publish decides.',
+  'POST /v1/staff/requests/holiday': 'Staff app: the caller asks for holiday; a manager with team.manage decides.',
+  'POST /v1/staff/requests/time-off': 'Staff app: the caller asks for time off; a manager with hr.manage decides.',
+  'POST /v1/staff/requests/availability': 'Staff app: the caller proposes their availability; a manager with team.manage decides.',
+  'PUT /v1/staff/unavailable': "Staff app: the caller's own one-off unavailable days, under the staff session.",
+  'POST /v1/staff/requests/:id/cancel': 'Staff app: the caller withdraws their own request, under the staff session.',
+  'POST /v1/staff/sick': 'Staff app: the caller reports their own sickness, under the staff session.',
+  'POST /v1/staff/sick/back': 'Staff app: the caller ends their own sickness absence, under the staff session.',
+  'POST /v1/staff/fit-note': 'Staff app: the caller files their own fit note, under the staff session.',
+  'GET /v1/staff/push': "Staff app: the server's public push key and the caller's own phones, under the staff session.",
+  'POST /v1/staff/push/subscribe': "Staff app: the caller turns on notifications for their own phone, under the staff session.",
+  'POST /v1/staff/push/unsubscribe': "Staff app: the caller turns off notifications for their own phone, under the staff session.",
+  'POST /v1/staff/push/test': "Staff app: a test notification to the caller's own phones, under the staff session.",
+  'GET /v1/staff/tips': "Staff app: the caller's own tips record and their site's tipping policy, under the staff session.",
+  'GET /v1/staff/documents': 'Staff app: documents sent to the caller to sign, from their own file only, under the staff session.',
+  'GET /v1/staff/documents/:id/file': "Staff app: a copy sent to the caller to sign, found among their own first, every view logged.",
+  'POST /v1/staff/documents/:id/sign': 'Staff app: the caller signs a document sent to them, in their own name, under the staff session.',
+  'GET /v1/staff/payslips': "Staff app: the caller's own payslips and P60s from payroll, under the staff session.",
+  'GET /v1/staff/payslips/:id/pdf': "Staff app: one of the caller's own payslips, found in their own list first, under the staff session.",
+  'POST /v1/staff/rota/seen': "Staff app: the caller confirms their own published week, under the staff session.",
+  'PUT /v1/staff/reminders': "Staff app: the caller turns their own shift reminders on or off, under the staff session.",
+  'GET /v1/kiosk/board': "Kiosk: today's rota at the paired site only, under the kiosk's own credential, no manager session.",
+  'POST /v1/kiosk/tap': "Kiosk: a card tap at the paired site, under the kiosk's own credential.",
+  'POST /v1/kiosk/clock': "Kiosk: clocking by name, limited to today's rota at the paired site, under the kiosk's own credential.",
+  'PUT /v1/staff/kiosk-pin': "Staff app: the caller setting their own kiosk PIN, under the staff session.",
 };
 
 interface Route {

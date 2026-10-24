@@ -149,6 +149,40 @@ export function accessResetEmail(to: string, resetBy: string, link: string, hour
   return { to, subject: 'Your Preshift password has been reset', text, html: letter([opening, setUp], { label: 'Choose a new password', link }, notes) };
 }
 
+/**
+ * News for a member of staff from the staff app: their rota is out, a shift moved, a request was
+ * decided. Several from one save arrive as one email. Names and times only: never pay, never a
+ * reason for absence, so a shared or forwarded inbox gives nothing away.
+ */
+export function staffNoticeEmail(to: string, name: string, notices: { title: string; body: string }[], link: string): Mail {
+  const lines = notices.flatMap((n) => [n.title, n.body]);
+  const subject = notices.length === 1 ? oneLine(notices[0].title) : `${notices.length} updates from your rota`;
+  const notes = ['Open the staff app to see your shifts, swap a shift, or ask for time off.'];
+  const text = [`Hello ${name},`, '', ...notices.flatMap((n) => [n.title, n.body, '']), link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject, text, html: letter([`Hello ${name},`, ...lines], { label: 'Open the staff app', link }, notes) };
+}
+
+/**
+ * A manager's morning: what staff have asked for that is theirs to decide, sickness to cover and
+ * open shifts still unfilled. Names, dates and times only, never a reason for absence or pay.
+ */
+export function managerDigestEmail(to: string, name: string, count: number, sections: { heading: string; lines: string[] }[], link: string): Mail {
+  const opening = `${count} thing${count === 1 ? '' : 's'} from your team need${count === 1 ? 's' : ''} you today.`;
+  const notes = ['Each is checked again against the rota rules when you decide it, and the person is told straight away.', 'Turn this email off on the Staff requests screen.'];
+  const text = [
+    `Good morning ${name},`, '', opening, '',
+    ...sections.flatMap((s) => [s.heading, ...s.lines.map((l) => `- ${l}`), '']),
+    link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.',
+  ].join('\n');
+  const body = sections.flatMap((s) => [s.heading, ...s.lines]);
+  return {
+    to,
+    subject: `Staff requests: ${count} waiting for you`,
+    text,
+    html: letter([`Good morning ${name},`, opening, ...body], { label: 'Open Staff requests', link }, notes),
+  };
+}
+
 /** The link that confirms a self sign-up: the person proves the inbox is theirs before any account exists. */
 export function signupEmail(to: string, name: string, business: string, link: string, hours: number): Mail {
   const opening = `Thank you for starting a Preshift trial for ${business}.`;
@@ -171,4 +205,44 @@ export function signupExistingEmail(to: string, link: string): Mail {
   const notes = ['If it was not you, ignore this email. Nothing has changed.'];
   const text = [opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
   return { to, subject: 'You already have a Preshift account', text, html: letter([opening, setUp], { label: 'Sign in to Preshift', link }, notes) };
+}
+
+/**
+ * The daily reminder of pay changes waiting for finance. Carries counts and dates only, never a name
+ * or a rate: pay is not for an inbox anyone might glance at. An escalation goes to the owner too.
+ */
+export function payApprovalEmail(
+  to: string,
+  name: string,
+  digest: { waiting: number; overdue: number; nearCutoff: number; oldestDays: number; cutoff: string },
+  link: string,
+  escalated: boolean,
+): Mail {
+  const changes = (n: number) => `${n} pay change${n === 1 ? '' : 's'}`;
+  const opening = `${changes(digest.waiting)} ${digest.waiting === 1 ? 'is' : 'are'} waiting for finance to approve. The oldest has waited ${digest.oldestDays} day${digest.oldestDays === 1 ? '' : 's'}.`;
+  const points = [
+    digest.overdue ? `${changes(digest.overdue)} ${digest.overdue === 1 ? 'is' : 'are'} past the turnaround your organisation set.` : '',
+    digest.nearCutoff ? `Hours go to payroll on ${digest.cutoff}. Anything not decided by then misses that pay run, and people are paid on their old rate.` : '',
+    escalated ? 'You are copied in as the owner because this has gone past the rule for pay approvals.' : '',
+  ].filter(Boolean);
+  const notes = ['Pay stays as it is until a change is approved. Nobody approves their own proposal or their own pay.'];
+  const text = [`Hello ${name},`, '', opening, ...points, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return {
+    to,
+    subject: escalated ? `Overdue: ${changes(digest.waiting)} waiting for approval` : `${changes(digest.waiting)} waiting for approval`,
+    text,
+    html: letter([`Hello ${name},`, opening, ...points], { label: 'Open pay approvals', link }, notes),
+  };
+}
+
+/**
+ * Someone has not clocked in for a shift that started more than ten minutes ago. Sent to whoever
+ * publishes that site's rota, at once, so cover can be found while the shift is still running.
+ */
+export function lateAlertEmail(to: string, name: string, person: string, line: string, minutesLate: number, link: string): Mail {
+  const opening = `${person} has not clocked in for ${line}. The shift started ${minutesLate} minutes ago.`;
+  const next = 'They have been sent a reminder. If they are not coming, put the rest of the shift out as an open shift from Staff requests: everyone trained, free and legal to work it is told at once.';
+  const notes = ['Turn these emails off on the Staff requests screen.'];
+  const text = [`Hello ${name},`, '', opening, next, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: `Not clocked in: ${oneLine(person)}`, text, html: letter([`Hello ${name},`, opening, next], { label: 'Find cover', link }, notes) };
 }

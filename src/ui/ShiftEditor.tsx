@@ -7,6 +7,7 @@ import type { RotaState, Shift } from '../engine/types';
 import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
 import { travelIssues } from '../engine/travel';
+import { assessShortNotice, snapshot, type ShortNoticeAssessment } from '../engine/employmentRights';
 
 interface Props {
   state: RotaState;
@@ -27,6 +28,18 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
   const entityName = (id: string) => state.entities.find((e) => e.id === id)?.name ?? id;
 
   const others = state.shifts.filter((s) => s.id !== draft.id);
+  // A published shift changed now, inside the notice window, owes the worker under the Employment Rights Act.
+  const told = state.shifts.find((s) => s.id === shift.id && s.published);
+  const toldTo = told && state.employees.find((e) => e.id === told.employeeId);
+  const shortNotice = (after: Shift | null) => (told && toldTo ? assessShortNotice(snapshot(told), after ? snapshot(after) : null, toldTo, new Date(), state.employmentRights) : null);
+  const onSaveNotice = shortNotice(draft);
+  const noticeText = (a: ShortNoticeAssessment, action: string) => {
+    const who = toldTo!.name.split(' ')[0];
+    const hours = (a.minutesLost / 60).toFixed(1);
+    const pay = showCost ? ` ${money2(a.amount)}` : ' short notice pay';
+    return `${action} takes ${hours}h from ${who} with ${Math.floor(a.noticeHours)} hours' notice. ` +
+      (a.owed ? `It owes${pay} under the Employment Rights Act, paid with their next pay.` : `Once short notice pay starts under the Employment Rights Act, it would owe${pay}.`);
+  };
   const length = draft.endMinute - draft.startMinute;
   const site = state.sites.find((x) => x.id === draft.siteId)!;
   const options = useMemo(() => complianceOptions(state, employee), [state, employee]);
@@ -43,6 +56,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
         travelHours: withShift.travelHours - without.travelHours,
         total: withShift.total - without.total,
         ni: withShift.employerNi - without.employerNi,
+        premium: withShift.premium - without.premium,
         parts: {
           gross: Math.max(0, withShift.gross - without.gross),
           holiday: Math.max(0, withShift.holiday - without.holiday),
@@ -145,7 +159,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
               ? 'Salaried: no extra cost, but it uses their hours.'
               : marginal.total === 0
                 ? 'Covered by guaranteed hours you already pay for.'
-                : `Includes ${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
+                : `Includes ${marginal.premium > 0.005 ? `${money2(marginal.premium)} in pay premiums and ` : ''}${money2(marginal.ni)} employer NI. On-costs are worked on the whole week, so the same hours cost more for someone already over the thresholds.`}
             {marginal.travelHours > 0.005 &&
               ` It also pays ${Math.round(marginal.travelHours * 60)} minutes of travel from another site that day, which is working time.`}
           </div>
@@ -158,6 +172,8 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
           </p>
         )}
 
+        {onSaveNotice && <p className={`notice${onSaveNotice.owed ? ' error' : ''}`}>{noticeText(onSaveNotice, 'This change')}</p>}
+
         {issues.length > 0 && (
           <ul className="issues">
             {issues.map((i, n) => (
@@ -169,7 +185,18 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
         </div>
 
         <div className="modal-actions">
-          {!isNew && <button className="danger" onClick={() => onDelete(draft.id)}>Delete</button>}
+          {!isNew && (
+            <button
+              className="danger"
+              onClick={() => {
+                const onDelete_ = shortNotice(null);
+                if (onDelete_ && !window.confirm(`${noticeText(onDelete_, 'Cancelling this shift')} Cancel it anyway?`)) return;
+                onDelete(draft.id);
+              }}
+            >
+              Delete
+            </button>
+          )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={length <= 0} onClick={() => onSave(draft)}>Save</button>

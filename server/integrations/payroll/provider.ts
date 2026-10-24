@@ -15,6 +15,21 @@ export interface PayrollEmployee {
   startDate?: string;
 }
 
+/** A person as the payroll holds them, for matching to Preshift's own records. */
+export interface PayrollRecord {
+  payrollId: string;
+  /** Preshift's employee id, when Preshift created the record. */
+  externalRef?: string;
+  name: string;
+  dateOfBirth?: string;
+  payBasis?: 'hourly' | 'salaried';
+  hourlyRate?: number;
+  annualSalary?: number;
+  contractedHours?: number;
+  startDate?: string;
+  leaveDate?: string;
+}
+
 export interface PayRun {
   id: string;
   periodStart: string;
@@ -23,6 +38,30 @@ export interface PayRun {
   /** The payroll employer (PAYE scheme) the run belongs to. */
   employerId: string;
   employees: (PayRunEmployee & { payrollId: string })[];
+}
+
+/**
+ * A payslip or P60 as the payroll holds it, for the person's own phone. Fetched when they ask and
+ * never stored by Preshift: the payroll is where pay records live.
+ */
+export interface PayDocument {
+  id: string;
+  kind: 'payslip' | 'p60';
+  /** Payslips: the period paid and the day it was paid. */
+  periodStart?: string;
+  periodEnd?: string;
+  payDate?: string;
+  /** P60s: the tax year, such as 2025-26. */
+  taxYear?: string;
+  gross: number;
+  tax: number;
+  employeeNi: number;
+  pension?: number;
+  net?: number;
+  /** Whether the payroll has the document itself to download. */
+  hasPdf: boolean;
+  /** Set where the figures are made up, as the simulator's are. */
+  sample?: boolean;
 }
 
 /**
@@ -36,9 +75,15 @@ export interface PayrollProvider {
   // employers, one per PAYE scheme, and each company in a group runs its own payroll.
   /** Creates the person if new, updates them if not. Returns the payroll's id for them. */
   upsertEmployee(employerId: string, employee: PayrollEmployee, payrollId: string | undefined, idempotencyKey: string): Promise<{ payrollId: string }>;
+  /** Everyone the employer's payroll holds, leavers included, so existing staff can be linked rather than duplicated. */
+  listEmployees(employerId: string): Promise<PayrollRecord[]>;
   markLeaver(employerId: string, payrollId: string, leaveDate: string, idempotencyKey: string): Promise<void>;
   submitHours(employerId: string, batch: PayrollHoursBatch, idempotencyKey: string): Promise<{ submissionId: string }>;
   getPayRun(employerId: string, id: string): Promise<PayRun>;
+  /** The person's payslips and P60s, newest first. A payroll that cannot provide them leaves these out. */
+  listPayDocuments?(employerId: string, payrollId: string): Promise<PayDocument[]>;
+  /** One payslip or P60 as a PDF, or null where the payroll has none. */
+  payDocumentPdf?(employerId: string, payrollId: string, document: PayDocument): Promise<Buffer | null>;
   /** Checks an inbound webhook really came from the payroll. */
   verifyWebhook(rawBody: string, signature: string | undefined): boolean;
 }
@@ -49,6 +94,8 @@ export class PayrollError extends Error {
     /** Whether trying again later could succeed (network, 5xx, 429) or not (4xx validation). */
     readonly retryable: boolean,
     readonly status?: number,
+    /** Why, where a screen acts on it: 'possible_match' is a starter held because payroll may already hold them. */
+    readonly reason?: 'possible_match' | 'ambiguous_match',
   ) {
     super(message);
   }

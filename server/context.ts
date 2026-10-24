@@ -39,6 +39,8 @@ declare module 'fastify' {
     orgChanged?: boolean;
     /** Set when a read only refreshed someone's last seen: saved if it can be, never at the read's expense. */
     orgTouched?: boolean;
+    /** Shifts as they stood before a write, to find published shifts changed at short notice. */
+    shiftsBefore?: Map<string, import('../src/engine/types').Shift>;
   }
 }
 

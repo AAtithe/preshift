@@ -18,7 +18,7 @@ import { employerStatus } from '../payrollEmployers';
 import { peopleOn, periodEntries, recordFor, resolvePeriod, summarise } from '../payPeriods';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
-import { labourBasis, queueHours } from './payroll';
+import { labourBasis, queueHours, sicknessIn } from './payroll';
 
 const scheduleBody = {
   type: 'object',
@@ -65,19 +65,33 @@ function canSeeAny(g: Guard) {
   return reach === 'all' || reach.size > 0;
 }
 
-/** Loaded labour per person accrued for the period's days, from approved time, week by week. */
+/** Loaded labour and gross pay per person accrued for the period's days, from approved time, week by week. */
 function accruedFor(org: OrgData, people: Set<string>, from: string, to: string) {
-  const out = new Map<string, number>();
+  const total = new Map<string, number>();
+  const gross = new Map<string, number>();
+  const add = (m: Map<string, number>, id: string, n: number) => m.set(id, Math.round(((m.get(id) ?? 0) + n) * 100) / 100);
   for (let ws = weekStart(from); ws <= to; ws = addDays(ws, 7)) {
     const { state } = labourBasis(org, ws, 'actual');
     const cost = weekCost(state, ws);
     for (const s of state.shifts) {
       if (s.date < from || s.date > to || s.date < ws || s.date > addDays(ws, 6) || !people.has(s.employeeId)) continue;
       const c = cost.shifts.get(s.id);
-      if (c) out.set(s.employeeId, Math.round(((out.get(s.employeeId) ?? 0) + c.total) * 100) / 100);
+      if (!c) continue;
+      add(total, s.employeeId, c.total);
+      add(gross, s.employeeId, c.gross);
     }
   }
-  return out;
+  return { total, gross };
+}
+
+/** The weeks whose tips go with a period: each week goes with the period its Sunday falls in, so none is paid twice or missed. */
+function troncWeeksOf(from: string, to: string) {
+  const weeks: string[] = [];
+  for (let ws = weekStart(from); ws <= to; ws = addDays(ws, 7)) {
+    const sunday = addDays(ws, 6);
+    if (sunday >= from && sunday <= to) weeks.push(ws);
+  }
+  return weeks;
 }
 
 export function payPeriodRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -406,13 +420,28 @@ export function payPeriodRoutes(app: FastifyInstance, ctx: AppContext) {
       if (unsettled.length) {
         throw new HttpError(409, 'unapproved_time', `${unsettled.length} time entries still need approving or rejecting`, unsettled.map((t) => t.id));
       }
-      const batch = { ...payrollHours(people, entries, period.periodStart, period.periodEnd, org.state.sites, org.state.entities), payDate: period.payDate };
+      const ids = new Set(people.map((e) => e.id));
+      const batch = {
+        ...payrollHours(people, entries, period.periodStart, period.periodEnd, org.state.sites, org.state.entities),
+        payDate: period.payDate,
+        // Sickness goes with the hours, so payroll pays SSP for it and the pay run can be checked against it.
+        sickness: sicknessIn(org, entity.id, period.periodStart, period.periodEnd, today).filter((l) => ids.has(l.employeeId)),
+      };
       if (batch.lines.length) {
         const employer = employerStatus(org, entity, ctx.employers);
         if (!employer.employerId) throw new HttpError(409, 'payroll_employer_missing', employer.problem ?? `${entity.name} has no TeamPay employer.`, [entity.id]);
+        // A rate Preshift and TeamPay disagree on, undecided, would pay hours at a rate nobody has confirmed.
+        const inBatch = new Set(batch.lines.map((l) => l.employeeId));
+        const undecided = org.state.employees.filter((e) => inBatch.has(e.id) && e.payrollReview?.differences.some((d) => d.pay));
+        if (undecided.length) {
+          throw new HttpError(409, 'payroll_review', `Pay for ${undecided.map((e) => e.name).join(', ')} differs between Preshift and TeamPay. Decide which is right in Payroll, then pass.`, undecided.map((e) => e.id));
+        }
       }
-      const accrued = accruedFor(org, new Set(people.map((e) => e.id)), period.periodStart, period.periodEnd);
-      const submission = batch.lines.length ? queueHours(org, actorName(g), entity, batch, accrued, schedule.id) : undefined;
+      const costs = accruedFor(org, ids, period.periodStart, period.periodEnd);
+      const multiple = schedulesOf(entity).length > 1;
+      const submission = batch.lines.length
+        ? queueHours(org, actorName(g), entity, batch, costs, { scheduleId: schedule.id, troncWeeks: troncWeeksOf(period.periodStart, period.periodEnd), ...(multiple ? { people: ids } : {}) })
+        : undefined;
       const approved = entries.filter((t) => t.status === 'approved');
       for (const t of approved) t.passedIn = record.id;
       const at = ctx.now().toISOString();

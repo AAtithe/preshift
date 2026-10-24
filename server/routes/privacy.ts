@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { clearPin } from '../kioskPin';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   applyRetention,
   DEFAULT_RETENTION,
   erasureRefusal,
+  policyDocumentChecks,
+  type PolicyDocument,
   processingRegister,
   REQUEST_KINDS,
   requestDueOn,
@@ -22,7 +25,7 @@ import { emailSetting } from '../mail';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { claudeKeySetting } from './access';
-import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies } from './documents';
+import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies, recordCopies } from './documents';
 
 const today = () => londonParts(new Date()).date;
 const actor = (req: FastifyRequest) => req.principal.user?.email ?? req.principal.name;
@@ -54,6 +57,13 @@ const policyBody = {
  * erasure, retention, the request log) is privacy.manage, which needs the authenticator, and is
  * done by a person, never an integration key: a subject access export is everything held on someone.
  */
+const welfareHeld = (org: OrgData) => ({
+  pulses: org.welfare?.pulses.length ?? 0,
+  recognitions: org.welfare?.recognitions.length ?? 0,
+  chats: org.welfare?.chats.length ?? 0,
+  members: org.welfare?.rewardsEnrolled.length ?? 0,
+});
+
 export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   const read = { preHandler: requireScope('rota:read') };
   const admin = {
@@ -74,10 +84,72 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
         email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
         payrollLive: !ctx.simulatorFor(org.orgId),
+        rewards: org.welfare?.rewards?.environment === 'production',
       },
       policyOf(org),
+      org.support?.tickets.length ?? 0,
+      welfareHeld(org),
     );
   });
+
+  app.get(
+    '/v1/privacy/policy-documents',
+    {
+      ...read,
+      schema: {
+        tags: ['Privacy'],
+        description:
+          "Each employing company's appropriate policy document for sickness and other health data: who reviewed it, the director who " +
+          'signed it, when it is next reviewed, and where each company stands. Names no member of staff.',
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const docs = org.privacy?.policyDocuments ?? [];
+      const holdsHealthData = org.state.employees.some((e) => (e.absences ?? []).some((a) => a.type === 'sickness'));
+      return { documents: docs, checks: policyDocumentChecks(org.state.entities, docs, holdsHealthData, today()) };
+    },
+  );
+
+  app.put<{ Params: { entityId: string }; Body: Omit<PolicyDocument, 'entityId' | 'updatedBy' | 'updatedAt'> }>(
+    '/v1/privacy/policy-documents/:entityId',
+    {
+      ...admin,
+      schema: {
+        tags: ['Privacy'],
+        description: "Records a company's appropriate policy document: its title and link, the legal review, and the director's signature and date.",
+        params: { type: 'object', required: ['entityId'], properties: { entityId: { type: 'string' } } },
+        body: {
+          type: 'object',
+          required: ['title'],
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            url: { type: 'string', pattern: '^https://', maxLength: 500 },
+            reviewedBy: { type: 'string', maxLength: 120 },
+            reviewedOn: isoDate,
+            signedBy: { type: 'string', maxLength: 120 },
+            signedOn: isoDate,
+            reviewDue: isoDate,
+          },
+        },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const entity = org.state.entities.find((e) => e.id === req.params.entityId);
+      if (!entity) throw notFound(`Entity ${req.params.entityId}`);
+      const b = req.body;
+      if ((b.signedBy && !b.signedOn) || (b.signedOn && !b.signedBy)) throw new HttpError(422, 'signature', 'A signature needs both the director and the date.');
+      if (b.signedOn && b.signedOn > today()) throw new HttpError(422, 'invalid_dates', 'It cannot be signed on a day still to come.');
+      if (b.reviewedOn && b.signedOn && b.signedOn < b.reviewedOn) throw new HttpError(422, 'invalid_dates', 'Counsel reviews it before a director signs it.');
+      const doc: PolicyDocument = { ...b, entityId: entity.id, updatedBy: actor(req), updatedAt: new Date().toISOString() };
+      const privacy = privacyOf(org);
+      privacy.policyDocuments = [...(privacy.policyDocuments ?? []).filter((d) => d.entityId !== entity.id), doc];
+      audit(org, actor(req), 'privacy.policy_document_set', { entityId: entity.id, signed: Boolean(doc.signedOn) });
+      return doc;
+    },
+  );
 
   app.get('/v1/privacy/retention', { ...admin, schema: { tags: ['Privacy'], description: 'Personal data at or near the end of its retention period.' } }, async (req) => {
     const org = orgOf(req);
@@ -112,7 +184,17 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       org.timeEntries = result.timeEntries;
       // Anonymising someone removes their personnel file entries: training, reviews, cases and notes.
       const anonymised = new Set(result.applied.filter((a) => a.code === 'anonymise').map((a) => a.employeeId));
+      deleteCopiesAfterSave(req, recordCopies(org.hrRecords.filter((r) => anonymised.has(r.employeeId))));
       org.hrRecords = org.hrRecords.filter((r) => !anonymised.has(r.employeeId));
+      // Recognition messages and chat requests are about the person, and go with them.
+      if (org.welfare) {
+        org.welfare.recognitions = org.welfare.recognitions.filter((r) => !anonymised.has(r.employeeId));
+        org.welfare.chats = org.welfare.chats.filter((c) => !anonymised.has(c.employeeId));
+        org.welfare.rewardsOptOut = org.welfare.rewardsOptOut.filter((id) => !anonymised.has(id));
+      }
+      // And what they wrote in the staff app and were told there: requests keep only what the rota needs.
+      for (const r of org.requests ?? []) if (anonymised.has(r.employeeId)) delete r.note;
+      org.notifications = (org.notifications ?? []).filter((n) => !anonymised.has(n.employeeId));
       for (const id of result.closeLoginsFor) await ctx.store.deleteStaffLogin(org.orgId, id);
       // The audit keeps ids and counts only, never the data that was removed.
       audit(org, actor(req), 'privacy.retention_applied', { applied: result.applied });
@@ -150,8 +232,11 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
           email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
           payrollLive: !ctx.simulatorFor(org.orgId),
+          rewards: org.welfare?.rewards?.environment === 'production',
         },
         policyOf(org),
+        org.support?.tickets.length ?? 0,
+        welfareHeld(org),
       );
       const about = (detail?: Record<string, unknown>) => detail?.id === e.id || detail?.employeeId === e.id;
       audit(org, actor(req), 'privacy.subject_exported', { employeeId: e.id });
@@ -162,6 +247,9 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         shifts: org.state.shifts.filter((s) => s.employeeId === e.id),
         timeEntries: org.timeEntries.filter((t) => t.employeeId === e.id),
         hrRecords: records,
+        // What they asked for and were told in the staff app.
+        staffRequests: (org.requests ?? []).filter((r) => r.employeeId === e.id),
+        notifications: (org.notifications ?? []).filter((n) => n.employeeId === e.id),
         payroll: {
           hoursSent: org.submissions
             .filter((s) => s.accrued[e.id] !== undefined)
@@ -169,6 +257,15 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           payRuns: org.payRuns.flatMap((r) =>
             r.variance.lines.filter((l) => l.employeeId === e.id).map((l) => ({ periodStart: r.periodStart, periodEnd: r.periodEnd, ...l })),
           ),
+        },
+        wellbeing: {
+          recognitions: (org.welfare?.recognitions ?? []).filter((r) => r.employeeId === e.id),
+          chatRequests: (org.welfare?.chats ?? []).filter((c) => c.employeeId === e.id),
+          hospitalityRewards: {
+            member: (org.welfare?.rewardsEnrolled ?? []).includes(e.id),
+            optedOut: (org.welfare?.rewardsOptOut ?? []).includes(e.id),
+          },
+          pulse: 'Weekly pulse answers are stored without your id, so they cannot be found or returned as yours.',
         },
         staffLogin: login
           ? { email: login.email ?? null, createdAt: login.createdAt, activatedAt: login.activatedAt ?? null, lastSignInAt: login.lastSignInAt ?? null }
@@ -190,7 +287,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Privacy'],
         description:
-          'Erases what the law does not require us to keep for a leaver: contact details, availability, RFID card, staff login and clocking locations. ' +
+          'Erases what the law does not require us to keep for a leaver: contact details, availability, RFID card, kiosk PIN, staff login and clocking locations. ' +
           'Payroll and right to work records stay until their retention period ends (Article 17(3)).',
         params: idParam,
       },
@@ -210,6 +307,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         return stripLocation(t);
       });
       await ctx.store.deleteStaffLogin(org.orgId, e.id);
+      await clearPin(ctx.store, org.orgId, org.state.employees[i]);
       audit(org, actor(req), 'privacy.subject_erased', { employeeId: e.id, locations });
       return { employee: org.state.employees[i], locationsRemoved: locations };
     },

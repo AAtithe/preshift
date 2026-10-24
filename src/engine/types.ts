@@ -1,7 +1,7 @@
 // Core domain model. Times are minutes from midnight on the shift's date;
 // an end time past 1440 means the shift runs over midnight.
 
-import type { PaySchedule } from './payPeriods';
+import type { PaySchedule as PayrollSchedule } from './payPeriods';
 
 export type Department = 'FOH' | 'BOH' | 'BAR' | 'MGMT';
 
@@ -42,21 +42,70 @@ export interface Entity {
   payrollEmployerId?: string;
   /** First day of the leave year as MM-DD, set in each contract. Defaults to 01-01. */
   leaveYearStart?: string;
-  /** What this company pays for travel between sites within a working day. Defaults to the normal rate. */
+  /**
+   * What this company pays for travel between sites within a working day. Unset means nobody has
+   * chosen yet: it is paid at the normal rate meanwhile, and set-up asks for a choice.
+   */
   travelPay?: TravelPay;
   /**
    * The payrolls this company runs, each with its own calendar of periods, paydays and cutoffs. The
    * first is where anyone not placed on another is paid. None set means weekly, as before schedules.
    */
-  paySchedules?: PaySchedule[];
+  paySchedules?: PayrollSchedule[];
+  /** When this company pays its people. Weekly, paid the Friday after the week, when absent. */
+  paySchedule?: PaySchedule;
+  /** Enhanced rates this company's contracts pay hourly staff: Sundays, bank holidays, nights, overtime. */
+  premiums?: PremiumRule[];
+}
+
+/**
+ * When a company pays. Weekly, fortnightly and four-weekly pay periods run Monday to Sunday in blocks
+ * counted from `anchor`, and are paid `payLagDays` after the period ends (5 is the Friday after).
+ * Monthly pays the calendar month on `monthlyPayDay`, or the last working day of the month.
+ */
+export interface PaySchedule {
+  frequency: 'weekly' | 'fortnightly' | 'four-weekly' | 'monthly';
+  /** A Monday that starts a pay period, for fortnightly and four-weekly. */
+  anchor?: string;
+  payLagDays?: number;
+  monthlyPayDay?: number | 'last-working';
+}
+
+/**
+ * One pay premium. Qualifying hours are paid at the person's rate times `multiplier` (1.5 is time and
+ * a half), or with `perHour` added. Where several apply to the same hour, only the highest is paid.
+ */
+export interface PremiumRule {
+  id: string;
+  name: string;
+  kind: 'day' | 'bank_holiday' | 'night' | 'overtime';
+  multiplier?: number;
+  perHour?: number;
+  /** For `day`: 0 = Monday ... 6 = Sunday. */
+  weekdays?: number[];
+  /** For `night`: the window, in minutes from midnight; it may run past midnight (1320 to 360). */
+  fromMinute?: number;
+  toMinute?: number;
+  /** For `overtime`: weekly paid hours after which it pays. Absent means after the person's contracted hours. */
+  afterHours?: number;
+  /** Only for these roles. Absent or empty means every role. */
+  roleIds?: string[];
 }
 
 /**
  * The hourly rate for travel between sites: each person's normal rate, the minimum wage for their
- * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate never pays
- * below it.
+ * age, or a fixed rate. Travel is working time for the minimum wage, so a fixed rate is lifted to
+ * it on every hour, unless the company opts to average over the pay period instead.
  */
-export type TravelPay = { basis: 'normal' } | { basis: 'minimum' } | { basis: 'fixed'; hourly: number };
+export type TravelPay =
+  | { basis: 'normal' }
+  | { basis: 'minimum' }
+  /**
+   * `averaging` lets the rate sit below the minimum wage, as the law allows, as long as the pay
+   * period's total pay over work and travel averages at least the minimum wage; any shortfall is
+   * topped up on the travel pay.
+   */
+  | { basis: 'fixed'; hourly: number; averaging?: boolean };
 
 export interface Site {
   id: string;
@@ -73,10 +122,15 @@ export interface Site {
   eposLocationId?: string;
   /** Where staff must be to clock in from a phone or tablet. Absent means no location check. */
   geofence?: GeoFence;
+  /** Signing in by name on the site's kiosk needs the person's PIN. Off unless a manager turns it on. */
+  kioskPinRequired?: boolean;
   /** Which nation's school calendar applies. England when absent; only England and Wales get an estimate. */
   nation?: 'england' | 'wales' | 'scotland' | 'northern_ireland';
   /** A typical trading week, used to forecast any week no sales system has sent figures for. */
   salesProfile?: SalesProfile;
+  /** Cost of sales as a share of food and of drink sales the site is held to, for prime cost. */
+  foodCostTargetPct?: number;
+  drinkCostTargetPct?: number;
   /** Where the site is, for journeys between sites, its weather and nearby events. Set from its postcode. */
   location?: SiteLocation;
   /** Journey times from this site to others, by destination site id. */
@@ -153,6 +207,10 @@ export interface RightToWork {
   expiry?: string;
   /** Copies of what was seen. Managed by the server: the files are kept apart from the record. */
   documents?: RightToWorkDocument[];
+  /** Student permission: the most hours allowed in a Monday to Sunday week during term time. */
+  studentWeeklyHourLimit?: number;
+  /** Student permission: the institution's official vacations, when full-time work is allowed. */
+  termVacations?: { from: string; to: string }[];
 }
 
 /**
@@ -221,6 +279,11 @@ export interface Employee {
   payrollId?: string;
   /** The payroll employer (PAYE scheme) that `payrollId` belongs to. */
   payrollEmployerId?: string;
+  /**
+   * Set when the person was linked to a record already in payroll and the two disagree. Nothing is
+   * sent to payroll for them until someone decides which side is right.
+   */
+  payrollReview?: PayrollReview;
   status?: 'active' | 'leaver';
   /** Last day of employment for a leaver. */
   leaveDate?: string;
@@ -238,14 +301,26 @@ export interface Employee {
   pendingPay?: PayChangeSummary;
   /** The UID of the RFID card this person taps to clock in and out, normalised by normaliseBadge. */
   badgeId?: string;
+  /** When the person's kiosk PIN was last set, and by whom. The PIN itself is kept hashed, apart from the record. */
+  kioskPinSetAt?: string;
+  kioskPinSetBy?: 'self' | 'manager';
   /** What the rota should know: preferences, regular commitments, who they work well with. Read by the rota assistant. */
   rotaNotes?: string;
   /** Personnel file: contract, probation, personal details. Managed through the HR endpoints. */
   hr?: HrProfile;
   /** Sickness and other absence. A shift on an absence day is blocked like leave. */
   absences?: Absence[];
+  /** One-off days the person has said they cannot work, on top of their weekly availability. */
+  unavailable?: Unavailability[];
   /** Set when the retention period ended and the record was anonymised under UK GDPR. */
   anonymisedOn?: string;
+  /** How often the person is paid, which sets the minimum wage pay reference period. Weekly when absent. */
+  payFrequency?: 'weekly' | 'monthly';
+  /**
+   * Weekly deductions and payments that reduce pay for minimum wage purposes: uniform or tools the
+   * worker pays for, salary sacrifice, and similar.
+   */
+  nmwReducingDeductionsWeekly?: number;
 }
 
 export type ContractType = 'permanent' | 'fixed-term' | 'casual' | 'apprentice';
@@ -285,7 +360,11 @@ export type AbsenceType = 'sickness' | 'unauthorised' | 'compassionate' | 'depen
 /** A spell of absence other than holiday, which lives on `leave`. Dates are inclusive. */
 export interface Absence {
   id: string;
-  type: AbsenceType;
+  /**
+   * Always stored. Withheld by the API from readers who need only the days off: whether someone was
+   * off sick is health data, kept to those who read HR files or see pay (sick pay turns on it).
+   */
+  type?: AbsenceType;
   from: string;
   /** Last day off. Absent while the person is still off. */
   to?: string;
@@ -297,6 +376,118 @@ export interface Absence {
   /** Disability or pregnancy related: kept out of absence triggers, as the Equality Act requires. */
   excludeFromTriggers?: boolean;
   notes?: string;
+  /** Copies of fit notes, stored encrypted like right to work copies and read only by those who read the file. */
+  fitNotes?: RightToWorkDocument[];
+  /** Set when the person reported it themselves in the staff app. */
+  reportedBy?: 'staff';
+}
+
+/** A day someone cannot work, outside their usual pattern: a hospital appointment, an exam, a wedding. */
+export interface Unavailability {
+  date: string;
+  note?: string;
+}
+
+/**
+ * Something a member of staff asks for in the staff app, decided by a manager. Every one is checked
+ * by the same engine as the manager's own action, and nothing changes the rota until it is approved.
+ */
+export type StaffRequestKind = 'holiday' | 'time_off' | 'sickness' | 'availability' | 'swap' | 'open_shift';
+/**
+ * pending: waiting for a manager (or, for a swap, for the colleague first). accepted: a swap the
+ * colleague has agreed, now waiting for a manager. approved and declined are final; cancelled is
+ * withdrawn by the person, or overtaken (another claim was approved, the shift changed).
+ */
+export type StaffRequestStatus = 'pending' | 'accepted' | 'approved' | 'declined' | 'cancelled';
+
+export interface StaffRequest {
+  id: string;
+  kind: StaffRequestKind;
+  employeeId: string;
+  /** The site whose manager decides: the person's home site, or the shift's site for swaps and open shifts. */
+  siteId: string;
+  status: StaffRequestStatus;
+  createdAt: string;
+  /** Holiday, time off and sickness: first and last day, inclusive. Sickness may run with no last day yet. */
+  from?: string;
+  to?: string;
+  /** Holiday: hours the request takes from the balance. */
+  hours?: number;
+  /** Time off: the kind of absence it becomes once approved. */
+  absenceType?: AbsenceType;
+  /** What the person wrote. For sickness and time off this is health or family data: personnel file readers only. */
+  note?: string;
+  /** Availability: the new weekly pattern, from the date it starts. */
+  availability?: Availability[];
+  /** Swap: the shift given away, the colleague asked (absent: anyone eligible), and the shift taken in return, if any. */
+  shiftId?: string;
+  toEmployeeId?: string;
+  returnShiftId?: string;
+  /** Swap: who agreed to take it. */
+  takerId?: string;
+  /** Open shift: the one claimed. */
+  openShiftId?: string;
+  /** Sickness: the absence the report recorded. */
+  absenceId?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  decisionNote?: string;
+}
+
+/** A shift a manager has posted for anyone eligible to claim. */
+export interface OpenShift {
+  id: string;
+  siteId: string;
+  roleId: string;
+  date: string;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  note?: string;
+  status: 'open' | 'filled' | 'withdrawn';
+  postedBy: string;
+  postedAt: string;
+  /** Set once filled: who, when, and the shift it became. */
+  filledBy?: string;
+  filledAt?: string;
+  shiftId?: string;
+  /** The shift released to make this one, when a manager posted someone's shift for cover. */
+  releasedFrom?: { shiftId: string; employeeId: string };
+  /**
+   * Offered in waves, cheapest first: `waves` are the people in each, `told` everyone told so far,
+   * `released` how many waves are out, `nextAt` when the next goes. Once every wave is out, anyone
+   * eligible may claim.
+   */
+  offer?: { waves: OfferWave[]; released: number; told: string[]; nextAt?: string };
+  /** Set when a claim was approved automatically, inside the rules and the site's labour budget. */
+  autoApproved?: boolean;
+}
+
+/** One wave of an open shift offer: why these people come at this point, and who they are. */
+export interface OfferWave {
+  tier: 'contracted' | 'cheapest' | 'everyone';
+  employeeIds: string[];
+}
+
+export type StaffNotificationKind =
+  | 'rota_published' | 'rota_changed' | 'shift_cancelled'
+  | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received'
+  | 'shift_reminder' | 'shift_late' | 'document_to_sign';
+
+/** A message to one member of staff, shown in the staff app and emailed where an address is held. */
+export interface StaffNotification {
+  id: string;
+  employeeId: string;
+  kind: StaffNotificationKind;
+  at: string;
+  title: string;
+  body: string;
+  read?: boolean;
+  /** pending until the request that raised it is saved; then sent, none (no email set up or no address) or failed. */
+  /** skip: never emailed, such as a shift reminder, which goes to the phone only. */
+  email?: 'pending' | 'sent' | 'none' | 'failed' | 'skip';
+  /** Pushed to the person's phones: sent to at least one, none (not turned on), or failed on every one. */
+  push?: 'sent' | 'none' | 'failed';
 }
 
 export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';
@@ -332,6 +523,33 @@ export interface HrRecord {
   createdAt: string;
   /** Every change, oldest first, with what it replaced: a record can always be shown as it stood. Kept by the server. */
   history?: HrRecordChange[];
+  /**
+   * Copies on file: the signed contract or statement, a warning letter, a fit note, a certificate.
+   * Encrypted and stored apart from the record, like right to work copies. Managed by the server.
+   */
+  files?: RightToWorkDocument[];
+  /** A document sent to the person to read and sign in the staff app. Managed by the server. */
+  signing?: DocumentSigning;
+}
+
+/**
+ * Signing in the staff app: which copy was sent, when the person first opened it, and how they
+ * signed it. The fingerprint ties the signature to the exact file, which cannot change after it is sent.
+ */
+export interface DocumentSigning {
+  kind: 'statement' | 'handbook';
+  /** The copy on the record that was sent, and its SHA-256. */
+  fileId: string;
+  sha256: string;
+  sentAt: string;
+  sentBy: string;
+  /** First opened in the app: a document has to be opened before it can be signed. */
+  openedAt?: string;
+  signedAt?: string;
+  /** The name the person typed to sign. */
+  signedName?: string;
+  ip?: string;
+  userAgent?: string;
 }
 
 /** One change to an HR record: who made it, when, and the values it replaced. */
@@ -436,7 +654,7 @@ export interface TimeEntry {
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
   /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
-  method?: 'card' | 'device' | 'phone';
+  method?: 'card' | 'device' | 'phone' | 'kiosk';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
   /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */
@@ -509,6 +727,118 @@ export interface RotaState {
   sales?: DaySales[];
   /** Recorded by the API only; never sent with shifts. */
   restOverrides?: RestOverride[];
+  /** Tips, gratuities and service charge taken on the workers' behalf. Absent until a tips feed or entry exists. */
+  tips?: TipsTaken[];
+  /** Each site's tronc scheme. */
+  troncSchemes?: TroncScheme[];
+  /** The menu with recipe costs, till sales by dish, supplier invoices and stock counts, for prime cost. */
+  dishes?: Dish[];
+  dishSales?: DishSales[];
+  purchases?: Purchase[];
+  stockCounts?: StockCount[];
+  /** Employment Rights Act settings in force, loaded for warnings before a change is saved. */
+  employmentRights?: import('./employmentRights').EraSettings;
+}
+
+/**
+ * Tips, gratuities and service charges the business took on the customer's behalf on one day.
+ * Under the Employment (Allocation of Tips) Act 2023 all of it belongs to the workers.
+ */
+export interface TipsTaken {
+  id: string;
+  siteId: string;
+  date: string;
+  source: 'service-charge' | 'card-tip' | 'cash-pooled';
+  amount: number;
+  /** Date the money reached staff through payroll. */
+  paidOn?: string;
+  /** The payroll submission that carried it. Sent again if that submission is replaced. */
+  sentIn?: string;
+  /** Written by the till feed. A figure keyed in by hand has none, and the till never overwrites it. */
+  fromTill?: boolean;
+}
+
+export interface TroncScheme {
+  siteId: string;
+  /** The person who decides the allocation. */
+  troncmaster: string;
+  /** The troncmaster decides the allocation without the employer. Only then are payments free of Class 1 NI. */
+  independent: boolean;
+  /** Points per clocked hour by role. */
+  pointsPerHour: Record<string, number>;
+  /** Optional split of the pool by department before points are applied. */
+  departmentShares?: Partial<Record<Department, number>>;
+  serviceCharge: 'none' | 'discretionary' | 'mandatory';
+  /**
+   * When tronc reaches staff. A day of the month: each month's tips are paid on that day of the month
+   * after. Absent: in each pay run, with the pay for the days the tips were taken.
+   */
+  payoutDay?: number;
+  /** Date the written tipping policy was made available to staff. */
+  policyPublishedOn?: string;
+  /** Date staff were last consulted on whether the allocation is fair. */
+  lastReviewedOn?: string;
+  /** Who last recorded the scheme, and when: set by the server, never by the caller. */
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export type SalesCategory = 'food' | 'drink';
+
+/** One item on the menu: net selling price and the recipe cost of one portion or serve. */
+export interface Dish {
+  id: string;
+  siteId: string;
+  name: string;
+  category: SalesCategory;
+  /** Net of VAT. */
+  price: number;
+  recipeCost: number;
+}
+
+/** Units of one dish sold on one day, from the till. */
+export interface DishSales {
+  siteId: string;
+  date: string;
+  dishId: string;
+  units: number;
+}
+
+/** A supplier invoice or credit note, net of VAT. Credit notes are negative. */
+export interface Purchase {
+  id: string;
+  siteId: string;
+  date: string;
+  supplier: string;
+  category: SalesCategory;
+  amount: number;
+}
+
+/** Stock on hand at close of business on `date`, at cost. */
+export interface StockCount {
+  siteId: string;
+  date: string;
+  category: SalesCategory;
+  value: number;
+}
+
+/** A field where Preshift and the payroll record disagree. */
+export interface PayrollDifference {
+  field: 'name' | 'dateOfBirth' | 'payBasis' | 'hourlyRate' | 'annualSalary' | 'contractedHours';
+  label: string;
+  preshift: string | number;
+  payroll: string | number;
+  /** A pay rate or salary: deciding it needs the right to change pay. */
+  pay: boolean;
+}
+
+export interface PayrollReview {
+  linkedAt: string;
+  /** 'auto' when a starter matched an existing record on name and date of birth. */
+  how: 'auto' | 'manual';
+  differences: PayrollDifference[];
+  /** The pay proposal raised to take payroll's pay, waiting for finance. */
+  payChangeId?: string;
 }
 
 /** A school holiday. Estimates are the usual pattern; council dates replace them. */
@@ -612,7 +942,35 @@ export interface PayChange {
   decidedById?: string;
   decidedAt?: string;
   note?: string;
+  /**
+   * The date the new pay is agreed from. Absent means from the day it is approved. A date ahead is
+   * applied on that day; a date already past is applied on approval, with back pay for the gap.
+   */
+  effectiveFrom?: string;
+  /** The day the new terms went onto the person's record. Absent on an approved change still to take effect. */
+  appliedOn?: string;
+  /** Pay owed for work between the effective date and the day the change was applied. */
+  backPay?: BackPay;
+  /**
+   * Set when the change applied without a second person: made by a system key, or by a person when
+   * nobody else could approve. Every change to pay is on this list, however it was made.
+   */
+  direct?: 'system' | 'no_approver';
+}
+
+/** Arrears from a pay change approved after the date it was agreed from. */
+export interface BackPay {
+  from: string;
+  to: string;
+  /** Hours worked in the gap, for hourly pay. */
+  hours: number;
+  /** Gross owed, before holiday, employer NI and pension. */
+  amount: number;
+  /** Clocked and approved hours, or the rota where nothing was clocked. */
+  basis: 'clocked' | 'rota' | 'salary';
+  /** The payroll submission it went to TeamPay with. Absent until it is sent. */
+  sentIn?: string;
 }
 
 /** What a person's record carries about a change waiting for approval. */
-export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt'>;
+export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt' | 'effectiveFrom'>;

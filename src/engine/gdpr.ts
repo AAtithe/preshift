@@ -308,6 +308,16 @@ export interface ProcessingFlags {
   email: boolean;
   /** Payroll goes to the live TeamPay rather than the built-in simulator. */
   payrollLive: boolean;
+  /** Hospitality Rewards is connected to a live account rather than the simulator. */
+  rewards?: boolean;
+}
+
+/** What the wellbeing features hold now, for the register's counts. */
+export interface WelfareHeld {
+  pulses: number;
+  recognitions: number;
+  chats: number;
+  members: number;
 }
 
 export interface ProcessingActivity {
@@ -341,6 +351,8 @@ export function processingRegister(
   staffLogins: number,
   flags: ProcessingFlags,
   policy: RetentionPolicy = DEFAULT_RETENTION,
+  supportTickets = 0,
+  welfare: WelfareHeld = { pulses: 0, recognitions: 0, chats: 0, members: 0 },
 ): { activities: ProcessingActivity[]; processors: Processor[] } {
   const live = state.employees.filter((e) => !e.anonymisedOn);
   const payroll = `${flags.payrollLive ? 'TeamPay' : 'TeamPay (simulated)'}`;
@@ -438,6 +450,26 @@ export function processingRegister(
       held: flags.assistant ? live.length : 0,
     },
     {
+      activity: 'Recognition and staff benefits',
+      purpose: 'Thanking people for good work, crediting recognition points, and giving staff discounts and wellbeing support through Hospitality Rewards',
+      lawfulBasis: 'Legitimate interests (6(1)(f)). Anyone can opt out of the benefits platform from the staff app; a thank you is still recorded',
+      categories: 'Name, work email, site, company, start date; recognition messages, points and who gave them',
+      recipients: flags.rewards ? 'Hospitality Rewards' : 'None',
+      retention: 'Recognitions until the person is anonymised; platform membership ends at the first sync after leaving or opting out',
+      held: welfare.recognitions + welfare.members,
+    },
+    {
+      activity: 'Wellbeing pulse and chat requests',
+      purpose: 'Understanding how each team is doing, and offering a private conversation to anyone who asks for one',
+      lawfulBasis:
+        'Legitimate interests (6(1)(f)); answering is voluntary. Treated as possibly revealing health: answers are stored without the person’s id, ' +
+        'no free text is taken, and a site’s week is shown only once five people have answered',
+      categories: 'A weekly score of 1 to 5 with site and week; for a chat request, the person’s name, site and when they asked',
+      recipients: 'None',
+      retention: 'Pulse answers 13 months; chat requests until the person is anonymised',
+      held: welfare.pulses + welfare.chats,
+    },
+    {
       activity: 'Manager accounts and audit log',
       purpose: 'Securing access and showing who changed what',
       lawfulBasis: 'Legitimate interests (6(1)(f)); security of processing (Article 32)',
@@ -445,6 +477,15 @@ export function processingRegister(
       recipients: 'None',
       retention: 'Accounts until removed; the last 5,000 audit events',
       held: 0,
+    },
+    {
+      activity: 'Support tickets',
+      purpose: 'Answering questions and fixing problems reported to Williams, Stanley & Co.',
+      lawfulBasis: 'Contract (6(1)(b))',
+      categories: 'Name of the manager who raised it, what they wrote, the screen, site and week it was raised from, replies',
+      recipients: "The client's WS client partner (notified by email through Resend)",
+      retention: 'Two years after the ticket is closed, then deleted',
+      held: supportTickets,
     },
   ];
 
@@ -474,6 +515,14 @@ export function processingRegister(
       active: flags.email,
     },
     {
+      name: 'Hospitality Rewards',
+      role: 'Employee benefits and recognition',
+      data: 'Name, work email, site, company, start date, recognition points and messages',
+      location: 'UK (confirm in the contract)',
+      safeguard: 'Article 28 contract for enrolment. Check whether it acts as a controller once a member signs up, and say so in the staff privacy notice',
+      active: !!flags.rewards,
+    },
+    {
       name: 'Vercel and Neon',
       role: 'Hosting and database',
       data: 'Everything Preshift holds',
@@ -483,4 +532,64 @@ export function processingRegister(
     },
   ];
   return { activities, processors };
+}
+
+/**
+ * The appropriate policy document an employer must keep to hold health data such as sickness
+ * (DPA 2018 Schedule 1 Part 4): how it complies with the principles and how long it keeps the data.
+ * It must exist, be signed off and be reviewed. One per employing company, since each is a controller.
+ */
+export interface PolicyDocument {
+  entityId: string;
+  title: string;
+  /** Where the document lives, for anyone asked to show it. */
+  url?: string;
+  /** Legal review before sign-off. */
+  reviewedBy?: string;
+  reviewedOn?: string;
+  /** The director who signed it for the company. */
+  signedBy?: string;
+  signedOn?: string;
+  /** When it is next reviewed. A year after signing unless set. */
+  reviewDue?: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export const POLICY_REVIEW_MONTHS = 12;
+
+export interface PolicyDocumentCheck {
+  entityId: string;
+  severity: 'block' | 'warn' | 'ok';
+  message: string;
+}
+
+/** The review date in force: the one set, or a year after signing. */
+export function policyReviewDue(doc: Pick<PolicyDocument, 'signedOn' | 'reviewDue'>): string | undefined {
+  if (doc.reviewDue) return doc.reviewDue;
+  if (!doc.signedOn) return undefined;
+  const [y, m, d] = doc.signedOn.split('-');
+  return `${Number(y) + POLICY_REVIEW_MONTHS / 12}-${m}-${d}`;
+}
+
+/**
+ * Where each employing company stands: no document while sickness is held is the gap an ICO
+ * inspection asks about first; a document not reviewed by counsel or not signed is a draft; one
+ * past its review date is out of date.
+ */
+export function policyDocumentChecks(entities: { id: string; name: string }[], docs: PolicyDocument[], holdsHealthData: boolean, today: string): PolicyDocumentCheck[] {
+  return entities.map((entity) => {
+    const doc = docs.find((d) => d.entityId === entity.id);
+    const at = (severity: PolicyDocumentCheck['severity'], message: string) => ({ entityId: entity.id, severity, message });
+    if (!doc) {
+      return holdsHealthData
+        ? at('block', `${entity.name} holds sickness records with no appropriate policy document on record. Have it reviewed and signed by a director.`)
+        : at('warn', `${entity.name} has no appropriate policy document. One is needed before any sickness is recorded.`);
+    }
+    if (!doc.reviewedOn) return at('warn', `${entity.name}'s appropriate policy document has not been reviewed by counsel.`);
+    if (!doc.signedOn || !doc.signedBy) return at('warn', `${entity.name}'s appropriate policy document is reviewed but not signed by a director.`);
+    const due = policyReviewDue(doc)!;
+    if (due < today) return at('warn', `${entity.name}'s appropriate policy document was due for review on ${due}.`);
+    return at('ok', `Signed by ${doc.signedBy} on ${doc.signedOn}. Next review ${due}.`);
+  });
 }

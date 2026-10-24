@@ -6,7 +6,7 @@ import { actorName, guard } from '../guard';
 import { EposError, type EposEnvironment, type EposProvider } from '../integrations/epos/provider';
 import { SquareSimulator } from '../integrations/epos/simulator';
 import { SquareProvider } from '../integrations/epos/square';
-import { MAX_SYNC_DAYS, syncEpos } from '../integrations/epos/sync';
+import { MAX_RESYNC_DAYS, MAX_SYNC_DAYS, resyncTakings, syncEpos } from '../integrations/epos/sync';
 import { isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 
@@ -188,6 +188,37 @@ export function eposRoutes(app: FastifyInstance, ctx: AppContext, opts: Options)
       const result = await syncEpos(org, provider, from, to, ctx.now());
       org.epos!.lastSync = result;
       audit(org, actorName(g), 'epos.synced', { from, to, written: result.written, ok: result.ok, error: result.error });
+      return result;
+    },
+  );
+
+  // After a fix to how takings are worked out from the till, the days it already wrote are read again.
+  // Takings only, till days only: hand-keyed and imported days stand, and tips are left alone.
+  app.post<{ Body: { from?: string; to?: string } }>(
+    '/v1/integrations/epos/resync',
+    {
+      ...write,
+      schema: {
+        tags: ['EPOS'],
+        description: `Reads takings the till already brought in again, after a fix to how they are worked out. Only days the till wrote; hand-keyed and imported days and tips are left alone. Defaults to every till day up to yesterday; at most ${MAX_RESYNC_DAYS} days.`,
+        body: { type: 'object', properties: { from: isoDate, to: isoDate } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      // Rewriting takings is the forecast's right at each site, as a sync is.
+      const g = guard(ctx, req, org);
+      const mapped = org.state.sites.filter((s) => s.eposLocationId);
+      for (const site of mapped) g.allow('demand.manage', site.id);
+      const provider = await providerFor(ctx, org, opts);
+      const tillDays = (org.state.sales ?? []).filter((s) => s.source === 'till' && mapped.some((m) => m.id === s.siteId)).map((s) => s.date).sort();
+      const to = req.body?.to ?? addDays(today(ctx), -1);
+      const from = req.body?.from ?? tillDays[0] ?? to;
+      if (from > to) throw new HttpError(400, 'invalid_range', 'The start date is after the end date.');
+      if (daysBetween(from, to) >= MAX_RESYNC_DAYS) throw new HttpError(400, 'range_too_long', `Re-sync at most ${MAX_RESYNC_DAYS} days at a time.`);
+      const result = await resyncTakings(org, provider, from, to, ctx.now());
+      org.epos!.lastResync = result;
+      audit(org, actorName(g), 'epos.resynced', { from, to, read: result.read, changed: result.changed, ok: result.ok, error: result.error });
       return result;
     },
   );

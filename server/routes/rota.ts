@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
+import { rollingAverageIssues } from '../../src/engine/employmentRights';
 import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
 import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
+import { tradingHour } from '../../src/engine/demand';
 import { missingForecast } from '../../src/engine/setup';
 import { hasStarted, weekFingerprint } from '../../src/engine/rotaWeek';
 import { addDays, londonParts, weekDates, weekStart } from '../../src/engine/time';
@@ -14,6 +16,9 @@ import { actorName, guard, type Guard } from '../guard';
 import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery, sitesWeekBody, siteWeekQuery } from '../schemas';
 import { assertRotaOpen, isRotaLocked } from '../payPeriods';
 import { audit, type OrgData } from '../store';
+import { notify, notifyPublished, syncTold } from '../notify';
+import { namesOf, shiftLine } from '../../src/engine/requests';
+import { pendingNotices } from '../../src/engine/rotaViews';
 import { travelIssues } from '../../src/engine/travel';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -31,6 +36,7 @@ export function serialiseMetrics(m: WeekMetrics, byPerson = true) {
     cost: {
       total: cost.total,
       unallocated: cost.unallocated,
+      premium: cost.premium,
       employees: byPerson ? Object.fromEntries(cost.employees) : {},
       shifts: byPerson ? Object.fromEntries(cost.shifts) : {},
     },
@@ -262,6 +268,11 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     if (isWorked(org, shift)) throw workedError(shift, 'it cannot be removed. Record an absence on the timesheet instead.');
     org.state.shifts = org.state.shifts.filter((s) => s.id !== req.params.id);
     audit(org, actorName(g), 'shift.deleted', { id: req.params.id });
+    // A shift the person has been shown is gone from their phone now, so they are told now, not at the next publish.
+    if (shift.published) {
+      notify(org, shift.employeeId, 'shift_cancelled', 'A shift has been cancelled', `${shiftLine(shift, namesOf(org.state))} is no longer on your rota.`, ctx.now());
+      syncTold(org, [shift.employeeId], [shift]);
+    }
     return reply.code(204).send();
   });
 
@@ -278,7 +289,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
       // Labour cost is worked from pay rates, so it goes only to those who see them.
       metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws), hasScope(req, 'employees:read')) : null,
-      issues: checkWeek(org.state, ws, siteId),
+      // The rolling 48 hour average needs clocked history, which the rota alone does not hold.
+      issues: [...checkWeek(org.state, ws, siteId), ...rollingAverageIssues(org.state, org.timeEntries, ws, siteId)],
     };
   });
 
@@ -442,6 +454,39 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     return (org.state.restOverrides ?? []).filter(guard(ctx, req, org).at('rota.view'));
   });
 
+  // What the next publish would tell each person, worked the way the publish does: their week as it
+  // stands against what they were last told. Names and shift times only, as the rota already shows.
+  app.get<{ Querystring: SiteWeek }>(
+    '/v1/rota/changes',
+    {
+      ...read,
+      schema: {
+        tags: ['Rota'],
+        description:
+          "Who the next publish of a site's week will tell, and what: the whole week for anyone not yet told about it, otherwise the shifts added and taken off since they were last told.",
+        querystring: siteWeekQuery,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const { siteId, weekStart: ws } = req.query;
+      requireSite(org, siteId);
+      guard(ctx, req, org).allow('rota.view', siteId);
+      const dates = new Set(weekDates(ws));
+      const suffix = `|${siteId}|${ws}`;
+      const told = Object.fromEntries(
+        Object.entries(org.toldWeeks ?? {}).filter(([k]) => k.endsWith(suffix)).map(([k, lines]) => [k.slice(0, -suffix.length), lines]),
+      );
+      const shifts = org.state.shifts.filter((s) => s.siteId === siteId && dates.has(s.date));
+      const name = (id: string) => org.state.employees.find((e) => e.id === id)?.name ?? id;
+      const publications = org.publications.filter((p) => p.siteId === siteId && p.weekStart === ws).sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+      return {
+        lastPublished: publications.at(-1) ?? null,
+        notices: pendingNotices(told, shifts, namesOf(org.state)).map((n) => ({ ...n, name: name(n.employeeId) })).sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    },
+  );
+
   // An override is a person's judgement, so it needs a person: never a system key, and never the
   // rota assistant, which drafts through the engine. It is part of publishing, so it needs the
   // right to publish the rota at the site where the short rest is worked.
@@ -535,6 +580,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       org.publications.push({ siteId, weekStart: ws, publishedAt, by: actorName(g) });
     }
     audit(org, actorName(g), 'rota.published', { siteIds, weekStart: ws, published, overridden });
+    // Everyone whose week changed hears about it: the whole week the first time, what moved after that.
+    notifyPublished(org, siteIds, ws, ctx.now());
     return { published };
   });
 
@@ -585,7 +632,12 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       for (const id of siteIds) g.allow('demand.manage', id);
       const dates = weekDates(req.body.weekStart);
       // A day on the typical week alone is set-up's placeholder: its own takings say more, so it is filled like an empty one.
-      const forecast = (siteId: string, date: string) => org.state.forecast.some((f) => f.siteId === siteId && f.date === date && f.sales > 0 && f.source !== 'profile');
+      // Rows are matched to the trading day they belong to: Saturday 01:00 is Friday night at a late site.
+      const dayOf = (f: { siteId: string; date: string; hour: number }) => {
+        const site = org.state.sites.find((x) => x.id === f.siteId);
+        return site ? tradingHour(site, f.date, f.hour).date : f.date;
+      };
+      const forecast = (siteId: string, date: string) => org.state.forecast.some((f) => f.siteId === siteId && dayOf(f) === date && f.sales > 0 && f.source !== 'profile');
       const days: (DayForecast & { filled: boolean })[] = [];
       const rows: HourForecast[] = [];
       for (const siteId of siteIds) {
@@ -594,11 +646,11 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
           // A day with nothing to work from keeps whatever it had.
           const filled = d.basis !== 'none' && (req.body.replace === true || !forecast(siteId, d.date));
           days.push({ ...d, filled });
-          if (filled) rows.push(...worked.rows.filter((r) => r.date === d.date));
+          if (filled) rows.push(...worked.rows.filter((r) => dayOf(r) === d.date));
         }
       }
       const replaced = new Set(days.filter((d) => d.filled).map((d) => `${d.siteId}|${d.date}`));
-      org.state.forecast = [...org.state.forecast.filter((f) => !replaced.has(`${f.siteId}|${f.date}`)), ...rows];
+      org.state.forecast = [...org.state.forecast.filter((f) => !replaced.has(`${f.siteId}|${dayOf(f)}`)), ...rows];
       audit(org, actorName(g), 'forecast.from_takings', { siteIds, weekStart: req.body.weekStart, days: replaced.size, replace: req.body.replace === true });
       return { filled: replaced.size, days };
     },

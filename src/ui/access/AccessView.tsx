@@ -11,14 +11,15 @@ import {
   byArea, csvOfAccess, describeEvent, endingSoon, healthOf, lastSeen, reach, shortDate, signInState, signInText, STATUS_LABEL, today,
   deliveryText, fullLink, type AuditRow, type Delivery, type Me,
 } from './model';
+import { LoginCloseReview } from './LoginCloseReview';
 import { PersonPanel } from './PersonPanel';
 
-type Page = 'overview' | 'people' | 'roles' | 'coverage' | 'duties' | 'trail' | 'reviews';
+type Page = 'overview' | 'people' | 'roles' | 'coverage' | 'duties' | 'trail' | 'reviews' | 'logins';
 
 const NAV: { group: string; pages: { id: Page; label: string }[] }[] = [
   { group: 'Health', pages: [{ id: 'overview', label: 'Overview' }, { id: 'coverage', label: 'Site coverage' }] },
   { group: 'Directory', pages: [{ id: 'people', label: 'People' }, { id: 'roles', label: 'Roles' }] },
-  { group: 'Controls', pages: [{ id: 'duties', label: 'Paired duties' }, { id: 'reviews', label: 'Access reviews' }, { id: 'trail', label: 'Audit trail' }] },
+  { group: 'Controls', pages: [{ id: 'duties', label: 'Paired duties' }, { id: 'reviews', label: 'Access reviews' }, { id: 'logins', label: 'Staff login closes' }, { id: 'trail', label: 'Audit trail' }] },
 ];
 
 type Filter = 'all' | 'active' | 'invited' | 'suspended' | AttentionKind | 'ending';
@@ -62,6 +63,8 @@ export function AccessView({ state }: Props) {
   const [unrecorded, setUnrecorded] = useState<string[]>([]);
 
   const auditor = !!me && (!me.user || can(me.user, 'audit.view', today()) || canOrgWide(me.user, 'users.manage', today()));
+  // Staff login closes span every site, and are signed by name: a person auditing across the organisation.
+  const loginAuditor = !!me?.user && (canOrgWide(me.user, 'audit.view', today()) || canOrgWide(me.user, 'users.manage', today()));
 
   const refresh = useCallback(async () => {
     try {
@@ -207,7 +210,7 @@ export function AccessView({ state }: Props) {
           {NAV.map((g) => (
             <div key={g.group}>
               <div className="access-group">{g.group}</div>
-              {g.pages.filter((p) => auditor || !['trail', 'reviews'].includes(p.id)).map((p) => (
+              {g.pages.filter((p) => (p.id === 'logins' ? loginAuditor : auditor || !['trail', 'reviews'].includes(p.id))).map((p) => (
                 <button key={p.id} className={page === p.id ? 'active' : ''} onClick={() => setPage(p.id)}>
                   {p.label}
                   {p.id === 'overview' && blocks + warns > 0 && <span className={`count-badge ${blocks ? 'bad' : 'warn'}`}>{blocks + warns}</span>}
@@ -475,6 +478,8 @@ export function AccessView({ state }: Props) {
               </div>
             </>
           )}
+
+          {page === 'logins' && loginAuditor && me?.user && <LoginCloseReview me={me.user.name} />}
 
           {page === 'reviews' && auditor && (
             <>

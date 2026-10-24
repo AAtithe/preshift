@@ -14,5 +14,5 @@
     "noEmit": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src", "server", "e2e", "playwright.config.ts"]
+  "include": ["src", "server", "e2e", "playwright.config.ts", "scripts/whats-new.ts"]
 }

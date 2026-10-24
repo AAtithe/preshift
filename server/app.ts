@@ -10,41 +10,57 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { demoRoutes, keepSandboxTrading, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
-import { documentRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
+import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { eposRoutes, syncAllTills } from './routes/epos';
-import { payRoutes } from './routes/pay';
+import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
 import { payPeriodRoutes } from './routes/payPeriods';
+import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
+import { labourRoutes } from './routes/labour';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clientRoutes } from './routes/clients';
+import { supportRoutes } from './routes/support';
 import { clockingRoutes } from './routes/clocking';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
 import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
+import { customerRoutes } from './routes/customers';
+import { exemptFromShortNotice, trackShortNotice } from './employmentRights';
+import { employmentRightsRoutes } from './routes/employmentRights';
 import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
-import { travelRoutes } from './routes/travel';
+import { refreshStaleTravel, travelRoutes } from './routes/travel';
+import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
+import { signingRoutes } from './routes/signing';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { requestRoutes } from './routes/requests';
+import { deliverNotifications } from './notify';
+import { sendManagerDigests } from './digest';
+import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
+import { syncAllRewards, welfareRoutes } from './routes/welfare';
+import { cashRoutes } from './routes/cash';
+import { accountingRoutes, xeroFromEnv } from './routes/accounting';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
 import { mcpRoutes } from './mcp';
+import { oauthRoutes } from './oauth';
 import { API_CALL_RETENTION_DAYS, MemoryStore, PgStore, type Store } from './store';
 import { deliverAllWebhooks, deliverWebhooks, type Fetch } from './webhooks';
 
@@ -64,6 +80,8 @@ export interface BuildOptions {
   appDir?: string;
   /** The built staff app (hosted build). Public: it holds no data until someone signs in. */
   staffDir?: string;
+  /** The built kiosk page for shared iPads (hosted build). Public: it does nothing until the iPad is paired. */
+  kioskDir?: string;
   /** Outbound HTTP for postcode and journey lookups, the till, and weather and event feeds (tests pass a stub). */
   fetch?: typeof fetch;
   /** The public demo alongside customers: a sandbox per visitor at /demo. Defaults to PRESHIFT_DEMO=1. See server/demo.ts. */
@@ -217,6 +235,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
       documents: documents.status,
+      // Which build is live, so a check run after a deploy can wait for it. Vercel sets this on git deployments.
+      ...(env.VERCEL_GIT_COMMIT_SHA ? { commit: env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) } : {}),
     });
   });
 
@@ -225,6 +245,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await syncAllRewards(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
     await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
@@ -233,6 +254,30 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // never stops the rest.
     const today = londonToday(ctx);
     const started = Date.now();
+    // Once a day per organisation: approved pay changes dated today take effect, and finance hears
+    // what waits. Kept apart from the refresh below, which skips organisations with nothing to fetch.
+    let payRuns = 0;
+    for (const orgId of await store.orgIds()) {
+      if (Date.now() - started > 20_000) break;
+      try {
+        const org = await store.load(orgId);
+        if (org.payDailyOn === today || (!org.payChanges.some((c) => c.status === 'pending' || (c.status === 'approved' && !c.appliedOn)))) continue;
+        await payDaily(store, org, today);
+        try {
+          await store.save(org);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.statusCode === 409)) throw err;
+          // Someone saved meanwhile. Apply again over their copy, and mark the day done so the reminder is not sent twice.
+          const fresh = await store.load(orgId);
+          applyDuePayChanges(fresh, today);
+          fresh.payDailyOn = today;
+          await store.save(fresh);
+        }
+        payRuns++;
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'daily pay run failed');
+      }
+    }
     const due: { orgId: string; last: string }[] = [];
     for (const orgId of await store.orgIds()) {
       // Demo sandboxes last a day and fetch nothing from outside.
@@ -272,7 +317,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         failed.push(orgId);
       }
     }
-    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length };
+    // Journey times between sites drift as routes and timetables change: plan any out of date
+    // ones again with what time is left. Sandboxes keep their seeded times.
+    const journeys = Date.now() - started < 40_000 ? await refreshStaleTravel(store, ctx.fetch, ctx.tflAppKey, today, { skip: isSandbox, deadline: started + 50_000 }) : 0;
+    return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys, payRuns };
   });
 
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
@@ -281,6 +329,20 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await deliverAllWebhooks(store, options.webhookFetch);
     return { ok: true };
+  });
+
+  // Each morning: every manager hears what staff have asked for that is theirs to decide. Once a
+  // day per organisation, however often it is called.
+  app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
+  });
+
+  // Every five minutes: shift reminders, the next wave of open shift offers, and an alert when someone has not clocked in for a shift
+  // that has started. Each is sent once, however often this runs.
+  app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
@@ -301,13 +363,17 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   signupRoutes(app, ctx, { enabled: signup, trialDays: trialDaysFromEnv(env) });
   stripeWebhookRoutes(app, ctx, stripe);
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
-  mcpRoutes(app, auth);
-  staffRoutes(app, store);
+  mcpRoutes(app, store, auth);
+  // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
+  oauthRoutes(app, store);
+  staffRoutes(app, ctx);
+  kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
     loginPage: options.loginPage ?? path.resolve('site/login.html'),
     appDir: options.appDir,
     staffDir: options.staffDir,
+    kioskDir: options.kioskDir,
   });
   await app.register(async (api) => {
     const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
@@ -329,11 +395,22 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
+    // A demo sandbox's takings move on with the clock, so the cut call has a day to read whenever it is opened.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' && req.routeOptions.url === '/v1/sales' && req.org && keepSandboxTrading(req.org, ctx.now())) req.orgTouched = true;
+    });
     // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
     // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.
     api.addHook('preHandler', async (req) => {
       if (req.method === 'GET' || !req.org || isWebhook(req.url) || isSandbox(req.org.orgId) || allowedWhileLocked(req.routeOptions.url)) return;
       if (standingOf(await getBilling(store, req.org.orgId), ctx.now(), !!stripe).locked) throw new HttpError(402, 'billing_required', LOCKED_MESSAGE);
+    });
+    // What every shift looked like before a write, so a published shift changed at short notice is
+    // logged however the change was made.
+    api.addHook('preHandler', async (req) => {
+      if (req.method !== 'GET' && req.org && !isWebhook(req.url) && !exemptFromShortNotice(req.url)) {
+        req.shiftsBefore = new Map(req.org.state.shifts.map((s) => [s.id, s]));
+      }
     });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
@@ -343,8 +420,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       }
       if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
       try {
+        if (req.shiftsBefore) trackShortNotice(req.org, req.shiftsBefore, ctx.now(), req.principal?.name ?? 'system');
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
+        // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
+        await deliverNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -376,12 +456,16 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       return payload;
     });
     rotaRoutes(api, ctx);
+    employmentRightsRoutes(api, ctx);
     employeeRoutes(api, ctx);
     payRoutes(api, ctx);
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
+    hrFileRoutes(api, ctx);
+    signingRoutes(api, ctx);
     timeRoutes(api, ctx);
+    labourRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
@@ -390,9 +474,15 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     payPeriodRoutes(api, ctx);
+    payrollLinkRoutes(api, ctx);
+    cashRoutes(api, ctx);
+    accountingRoutes(api, ctx, { xero: xeroFromEnv(env), simulatorAllowed: demo || !!payroll.simulator });
+    welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);
+    supportRoutes(api, ctx);
     billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
+    customerRoutes(api, ctx, { stripe: !!stripe });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);
@@ -400,6 +490,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    // What staff ask for in the staff app, decided here by whoever runs their rota or team.
+    requestRoutes(api, ctx);
+    kioskAdminRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

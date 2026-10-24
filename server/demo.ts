@@ -2,13 +2,15 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { seedHrRecords, seedState } from '../src/engine/seed';
+import { seedHistory, seedLiveDay, tradeLiveDay } from '../src/engine/seedHistory';
+import { londonParts } from '../src/engine/time';
 import { sessionUser } from './auth';
 import { HttpError } from './context';
 import { hashPassword } from './passwords';
 import { isSandbox, londonDate, nextLondonMidnight, sandboxExpired, sandboxId } from './sandbox';
 import { seedUsers } from './seedUsers';
 import { createSession, SESSION_SECONDS, sessionCookie } from './session';
-import { audit, type Store } from './store';
+import { audit, type OrgData, type Store } from './store';
 
 // The public demo, on the live system alongside customers. Anyone who presses "Start the demo" gets
 // a sandbox organisation of their own, seeded with the demo group, and is signed in as its admin
@@ -54,8 +56,31 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/demand-rules': true,
   'GET /v1/forecast': true,
   'GET /v1/hr/overview': true,
+  // Staff requests and open shifts work on the visitor's own sandbox, as the rota does.
+  'GET /v1/requests': true,
+  'GET /v1/requests/late': true,
+  'GET /v1/requests/rota-seen': true,
+  'GET /v1/insights/adoption': true,
+  // The morning email: visitors may look at it; nothing is ever emailed from a sandbox.
+  'GET /v1/requests/digest': true,
+  'PUT /v1/requests/digest': true,
+  'POST /v1/requests/:id/approve': true,
+  'POST /v1/requests/:id/decline': true,
+  'GET /v1/open-shifts': true,
+  'POST /v1/open-shifts': true,
+  'DELETE /v1/open-shifts/:id': true,
+  'POST /v1/open-shifts/:id/offer-all': true,
+  'GET /v1/open-shifts/auto-approve': true,
+  'PUT /v1/open-shifts/auto-approve': true,
   'GET /v1/hr/records': true,
   'GET /v1/time-entries': true,
+  // Tips and cost of sales: read-only, the sandbox's own.
+  'GET /v1/tronc': true,
+  'GET /v1/prime': true,
+  // The sandbox's own scheme: nothing leaves it, so a visitor can try changing the allocation.
+  'PUT /v1/tronc/schemes/:siteId': true,
+  'POST /v1/tronc/tips/paid': true,
+  'PUT /v1/tronc/tips': true,
   'GET /v1/time-entries/break-check': true,
   'GET /v1/time-entries/compare': true,
   'GET /v1/integrations/payroll': true,
@@ -63,6 +88,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/payroll/submissions': true,
   'GET /v1/payroll/runs': true,
   'GET /v1/privacy/register': true,
+  'GET /v1/privacy/policy-documents': true,
+  'PUT /v1/privacy/policy-documents/:entityId': true,
   'GET /v1/privacy/retention': true,
   'GET /v1/privacy/requests': true,
   'GET /v1/journal': true,
@@ -86,6 +113,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/employees/:id/badge': true,
   'DELETE /v1/employees/:id/badge': true,
   'PATCH /v1/entities/:id': true,
+  'PUT /v1/entities/:id/premiums': true,
+  'GET /v1/employment-rights': true,
+  'GET /v1/employment-rights/settings': true,
+  'PUT /v1/employment-rights/settings': true,
+  'POST /v1/employment-rights/offers': true,
+  'POST /v1/employment-rights/offers/:id/response': true,
+  'POST /v1/employment-rights/short-notice/:id/waive': true,
   'PUT /v1/sites/:id/geofence': true,
   'DELETE /v1/sites/:id/geofence': true,
   'POST /v1/hr/records': true,
@@ -95,10 +129,22 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/time-entries/clock-in': true,
   'POST /v1/time-entries/approve': true,
   'POST /v1/time-entries/tap': true,
+  // Kiosks in the sandbox can be listed and removed; pairing one is refused below.
+  'GET /v1/kiosks': true,
+  'DELETE /v1/kiosks/:id': true,
+  // Kiosk PINs live in the sandbox's own people and settings.
+  'PUT /v1/sites/:id/kiosk-pin': true,
+  'POST /v1/employees/:id/kiosk-pin': true,
+  'DELETE /v1/employees/:id/kiosk-pin': true,
   'POST /v1/time-entries/:id/clock-out': true,
   'PATCH /v1/time-entries/:id': true,
   'POST /v1/integrations/payroll/sync-employees': true,
   'POST /v1/integrations/payroll/outbox/:id/retry': true,
+  // Linking staff already on TeamPay: a sandbox's payroll is its own simulator, so linking there touches nobody's real records.
+  'GET /v1/integrations/payroll/link': true,
+  'POST /v1/employees/:id/payroll-link': true,
+  'POST /v1/employees/:id/payroll-new-starter': true,
+  'DELETE /v1/employees/:id/payroll-link': true,
   'POST /v1/payroll/submissions': true,
   // Pay calendars and the pay period close: lock the rota, approve time cards, pass to the sandbox's simulator.
   'GET /v1/pay-schedules': true,
@@ -117,9 +163,41 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/pay-changes/:id/approve': true,
   'POST /v1/pay-changes/:id/reject': true,
   'POST /v1/pay-changes/:id/withdraw': true,
+  'GET /v1/pay-policy': true,
+  'PUT /v1/pay-policy': true,
+  // Sends email: a visitor's sandbox emails nobody.
+  'POST /v1/pay-changes/remind': false,
+  'GET /v1/hr/sick-pay': true,
   // Whether a till is connected: never in a sandbox, so this only ever says not connected.
   'GET /v1/integrations/epos': true,
+  // Wellbeing on the sandbox's fictional team. Hospitality Rewards connects to the simulator only:
+  // the route refuses a real platform for a sandbox, so no visitor can send names anywhere.
+  // The labour cash calendar on the sandbox's own figures, and its pay schedules.
+  'GET /v1/finance/cash-calendar': true,
+  'GET /v1/finance/cash-calendar.csv': true,
+  'PUT /v1/entities/:id/pay-schedule': true,
+  // Posting the labour journal to the simulated Xero only: connecting refuses real Xero for a sandbox,
+  // so no visitor's journal can reach anyone's books, and the sign-in return from Xero is never needed.
+  'GET /v1/integrations/xero': true,
+  'POST /v1/integrations/xero/connect': true,
+  'GET /v1/integrations/xero/callback': false,
+  'DELETE /v1/integrations/xero': true,
+  'PUT /v1/integrations/xero/ledgers/:id': true,
+  'GET /v1/journal/xero/check': true,
+  'POST /v1/journal/xero': true,
+  'GET /v1/journal/xero/postings': true,
+  'POST /v1/journal/xero/postings/:id/remove': true,
+  'GET /v1/welfare': true,
+  'PUT /v1/welfare/policy': true,
+  'POST /v1/welfare/recognitions': true,
+  'POST /v1/welfare/chats/:id/done': true,
+  'GET /v1/integrations/rewards': true,
+  'PUT /v1/integrations/rewards': true,
+  'DELETE /v1/integrations/rewards': true,
+  'POST /v1/integrations/rewards/sync': true,
+  'GET /v1/integrations/rewards/eligibility.csv': true,
   'POST /v1/dev/simulate-clocking': true,
+  'POST /v1/dev/payroll-existing': true,
   'POST /v1/dev/teampay/run-payroll': true,
   'PUT /v1/privacy/policy': true,
   'POST /v1/privacy/retention/apply': true,
@@ -135,6 +213,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/rota/weeks': true,
   // Managers' overrides of the rest rules, kept in the sandbox's own rota.
   'GET /v1/rota/overrides': true,
+  'GET /v1/rota/changes': true,
   'POST /v1/rota/overrides': true,
   'DELETE /v1/rota/overrides/:id': true,
   // Business set-up works on the caller's organisation only, so a prospect can set up their own.
@@ -193,6 +272,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/coach/dismiss': true,
   'GET /v1/coach/history': true,
   'GET /v1/scorecard': true,
+  'GET /v1/scorecards': true,
   'GET /v1/programmes': true,
   'GET /v1/weather': true,
   'GET /v1/event-feeds': true,
@@ -245,10 +325,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/integrations/epos/locations': false,
   'PUT /v1/integrations/epos/mapping': false,
   'POST /v1/integrations/epos/sync': false,
+  'POST /v1/integrations/epos/resync': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.
   'GET /v1/billing': false,
+  // Refused: every customer of the live system, never to a demo visitor.
+  'GET /v1/customers': false,
   'POST /v1/billing/checkout': false,
   'POST /v1/billing/portal': false,
   'POST /v1/billing/sites': false,
@@ -261,8 +344,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // real passport into a public demo, and there are none in it to read.
   'POST /v1/employees/:id/right-to-work/documents': false,
   'GET /v1/employees/:id/right-to-work/documents/:docId': false,
+  'GET /v1/employees/:id/absences/:absenceId/fit-notes/:docId': false,
+  'POST /v1/hr/records/:id/send-to-sign': false,
   'GET /v1/employees/:id/right-to-work/documents/:docId/access': false,
   'DELETE /v1/employees/:id/right-to-work/documents/:docId': false,
+  'POST /v1/hr/records/:id/files': false,
+  'GET /v1/hr/records/:id/files/:fileId': false,
+  'DELETE /v1/hr/records/:id/files/:fileId': false,
   // Refused: these call postcode and TfL services on the live system's quota at a visitor's say.
   'PUT /v1/sites/:id/location': false,
   'POST /v1/sites/travel/refresh': false,
@@ -271,6 +359,18 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/staff-logins': false,
   'POST /v1/staff-logins/:id/invite': false,
   'DELETE /v1/staff-logins/:id': false,
+  // Refused: pairing signs the visitor out of the iPad they pair, and with it their sandbox, and
+  // hands the device a credential lasting a year for a sandbox that ends at midnight.
+  'POST /v1/kiosks': false,
+  'GET /v1/staff-logins/review': false,
+  // Support is people answering people: a demo visitor is no named person, and nobody real is on the other end.
+  'GET /v1/support/tickets': false,
+  'POST /v1/support/tickets': false,
+  'POST /v1/support/answered': false,
+  'POST /v1/support/tickets/:id/vote': false,
+  'POST /v1/support/tickets/:id/comments': false,
+  'PATCH /v1/support/tickets/:id': false,
+  'POST /v1/staff-logins/review': false,
   // Refused: for signing in as the seeded team in development only.
   'GET /v1/dev/people': false,
   // Not reached with a visitor's session: signature-checked, or the staff app's own sign-in.
@@ -286,6 +386,42 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/staff/clock-out': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
+  'POST /v1/staff/pulse': false,
+  'POST /v1/staff/chat': false,
+  'POST /v1/staff/rewards': false,
+  'GET /v1/staff/notifications': false,
+  'POST /v1/staff/notifications/read': false,
+  'GET /v1/staff/team': false,
+  'GET /v1/staff/board': false,
+  'GET /v1/staff/shifts/:id/swap-options': false,
+  'POST /v1/staff/swaps': false,
+  'POST /v1/staff/swaps/:id/accept': false,
+  'POST /v1/staff/swaps/:id/decline': false,
+  'POST /v1/staff/open-shifts/:id/claim': false,
+  'POST /v1/staff/requests/holiday': false,
+  'POST /v1/staff/requests/time-off': false,
+  'POST /v1/staff/requests/availability': false,
+  'PUT /v1/staff/unavailable': false,
+  'POST /v1/staff/requests/:id/cancel': false,
+  'POST /v1/staff/sick': false,
+  'POST /v1/staff/sick/back': false,
+  'POST /v1/staff/fit-note': false,
+  'GET /v1/staff/push': false,
+  'POST /v1/staff/push/subscribe': false,
+  'POST /v1/staff/push/unsubscribe': false,
+  'POST /v1/staff/push/test': false,
+  'PUT /v1/staff/reminders': false,
+  'POST /v1/staff/rota/seen': false,
+  'GET /v1/staff/tips': false,
+  'GET /v1/staff/documents': false,
+  'GET /v1/staff/documents/:id/file': false,
+  'POST /v1/staff/documents/:id/sign': false,
+  'GET /v1/staff/payslips': false,
+  'GET /v1/staff/payslips/:id/pdf': false,
+  'GET /v1/kiosk/board': false,
+  'POST /v1/kiosk/tap': false,
+  'POST /v1/kiosk/clock': false,
+  'PUT /v1/staff/kiosk-pin': false,
 };
 
 export const sandboxRouteAllowed = (method: string, route: string | undefined) => SANDBOX_ROUTES[`${method} ${route}`] === true;
@@ -301,9 +437,24 @@ export function sandboxGuard(enabled: boolean) {
     if (!isSandbox(req.principal?.orgId)) return;
     if (!enabled) throw refused('The public demo has been switched off.');
     if (!sandboxRouteAllowed(req.method, req.routeOptions.url)) {
-      throw refused('This is the public demo, so invitations, passwords, keys, webhooks, email, identity documents and staff app logins are switched off here.');
+      throw refused('This is the public demo, so invitations, passwords, keys, webhooks, email, identity documents, staff app logins and support tickets are switched off here.');
     }
   };
+}
+
+/**
+ * Keeps a sandbox's day trading. A sandbox lasts until midnight, but its till takings were written
+ * when it was made, so one opened before the sites opened would show no trade all day and the cut
+ * call would never have a call to make. Each read of the takings adds the hours since traded.
+ * Returns whether anything was added; customers are untouched.
+ */
+export function keepSandboxTrading(org: OrgData, now: Date): boolean {
+  if (!isSandbox(org.orgId) || sandboxExpired(org.orgId, now.getTime())) return false;
+  const live = londonParts(now);
+  const sales = tradeLiveDay(org.state, live.date, live.minute);
+  if (!sales) return false;
+  org.state.sales = sales;
+  return true;
 }
 
 interface DayCounters {
@@ -429,7 +580,11 @@ export function demoRoutes(app: FastifyInstance, store: Store, options: { enable
     const orgId = sandboxId(now, randomBytes(6).toString('hex'));
     if (await store.has(orgId)) throw new HttpError(409, 'conflict', 'Try again.');
     const org = await store.load(orgId);
-    org.state = seedState();
+    // The sample group with its trading history, and today traded up to now so the cut call has a day to read.
+    const live = londonParts(new Date(now));
+    const history = seedHistory(seedState(live.date), live.date);
+    org.state = seedLiveDay(history.state, live.date, live.minute);
+    org.timeEntries = history.timeEntries;
     org.hrRecords = seedHrRecords();
     // The demo's fictional team, so the Access tab has people to show. None of them can sign in:
     // they have no accounts. The visitor has no record, so they hold the sandbox's full access.

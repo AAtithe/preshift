@@ -3,6 +3,7 @@ import { checkFence } from '../engine/clocking';
 import { addDays, formatMinute } from '../engine/time';
 import type { Employee, GeoFix, RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
+import { Kiosks } from './Kiosks';
 import { StaffLogins } from './StaffLogins';
 
 interface Props {
@@ -353,6 +354,11 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
           </p>
         ) : (
           <StaffLogins team={team} siteFenced={Boolean(site.geofence)} />
+        )}
+        {demo ? (
+          <p className="small muted">In the live product, a shared iPad can be set up here as a kiosk that only clocks people in and out. Kiosks are switched off in the demo.</p>
+        ) : (
+          <Kiosks siteId={site.id} siteName={site.name} pinRequired={Boolean(site.kioskPinRequired)} team={team} />
         )}
         </>)}
       </details>

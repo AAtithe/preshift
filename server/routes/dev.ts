@@ -5,6 +5,7 @@ import type { TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, orgOf, type AppContext } from '../context';
 import { guard } from '../guard';
+import { employerFor } from '../payrollEmployers';
 import { siteWeekQuery, isoDate } from '../schemas';
 
 // Deterministic jitter per shift so demos and tests are repeatable.
@@ -32,6 +33,37 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
     if (deployed || !/^dev-/.test(req.principal.key)) throw new HttpError(404, 'not_found', 'Not found');
     return orgOf(req).users.map((u) => ({ id: u.id, name: u.name, jobTitle: u.jobTitle, status: u.status }));
   });
+
+  // A client who ran TeamPay before Preshift: everyone at the site not yet linked is put on the simulated
+  // payroll as an existing record, unlinked. Every third differs the way real records do, so linking can be shown.
+  app.post<{ Body: { siteId: string } }>(
+    '/v1/dev/payroll-existing',
+    {
+      ...write,
+      schema: {
+        tags: ['Demo'],
+        description: 'Puts a site\'s unlinked people on the simulated TeamPay as if they were there before Preshift, some with differences.',
+        body: { type: 'object', required: ['siteId'], properties: { siteId: { type: 'string' } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      guard(ctx, req, org).allow('payroll.send');
+      const people = org.state.employees.filter((e) => e.siteId === req.body.siteId && !e.payrollId && e.status !== 'leaver');
+      people.forEach((e, i) => {
+        const twist = i % 3 === 1 ? 'rate' : i % 3 === 2 ? 'name' : null;
+        ctx.simulatorFor(org.orgId)!.addExisting(employerFor(org, e.entityId, ctx.employers), {
+          name: twist === 'name' ? e.name.replace(/^(\S+)/, (first) => `${first[0]}.`) : e.name,
+          dateOfBirth: e.dateOfBirth,
+          payBasis: e.payBasis,
+          hourlyRate: e.payBasis === 'hourly' ? (twist === 'rate' ? Math.round((e.hourlyRate - 0.5) * 100) / 100 : e.hourlyRate) : undefined,
+          annualSalary: e.payBasis === 'salaried' ? e.annualSalary : undefined,
+          contractedHours: e.contractedHours,
+        });
+      });
+      return { added: people.length };
+    },
+  );
 
   app.post<{ Body: { siteId: string; weekStart: string } }>(
     '/v1/dev/simulate-clocking',

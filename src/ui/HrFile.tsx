@@ -6,6 +6,7 @@ import {
 } from '../engine/hr';
 import { addDays } from '../engine/time';
 import type { Absence, AbsenceType, CaseType, ContractType, Employee, HrProfile, HrRecord, HrRecordKind, ReviewType, RotaState } from '../engine/types';
+import { fileSize, MAX_UPLOAD_BYTES, shrinkPhoto } from './files';
 import type { HrRecords } from './store';
 
 export type HrSection = 'summary' | 'profile' | 'absence' | 'training' | 'reviews' | 'cases' | 'documents';
@@ -36,7 +37,7 @@ const plusYears = (iso: string, years: number) => `${Number(iso.slice(0, 4)) + y
 export function HrFile({ state, employee, hr, today, isAdmin, initialSection = 'summary', onSaveProfile, onSaveAbsence, onDeleteAbsence, onClose }: Props) {
   const [section, setSection] = useState<HrSection>(initialSection);
   const records = useMemo(() => (hr.records ?? []).filter((r) => r.employeeId === employee.id), [hr.records, employee.id]);
-  const checks = useMemo(() => hrChecks(employee, hr.records ?? [], state.roles, today), [employee, hr.records, state.roles, today]);
+  const checks = useMemo(() => hrChecks(employee, hr.records ?? [], state.roles, today, state.shifts), [employee, hr.records, state.roles, state.shifts, today]);
   const status = employeeStatus(employee, today);
   const manager = state.employees.find((e) => e.id === employee.hr?.managerId);
 
@@ -91,7 +92,7 @@ export function HrFile({ state, employee, hr, today, isAdmin, initialSection = '
 
 function Summary({ employee, records, checks, today, state }: { employee: Employee; records: HrRecord[]; checks: ReturnType<typeof hrChecks>; today: string; state: RotaState }) {
   const hr = employee.hr ?? {};
-  const bradford = bradfordFactor(employee, today);
+  const bradford = bradfordFactor(employee, today, state.shifts);
   const statutory = statutoryNoticeWeeks(employee, today);
   const required = requiredCourses(employee, state.roles);
   const valid = required.filter((c) => !['missing', 'expired'].includes(trainingStatus(records, employee.id, c.name, today).status)).length;
@@ -111,7 +112,7 @@ function Summary({ employee, records, checks, today, state }: { employee: Employ
         <div className={`kpi ${bradford.score >= 51 ? 'warn' : 'good'}`}>
           <div className="kpi-label">Bradford factor</div>
           <div className="kpi-value small-value">{bradford.score}</div>
-          <div className="kpi-hint">{bradford.spells} spells, {bradford.days} days in 52 weeks</div>
+          <div className="kpi-hint">{bradford.spells} spells, {bradford.days} working days in 52 weeks</div>
         </div>
         <div className={`kpi ${valid < required.length ? 'warn' : 'good'}`}>
           <div className="kpi-label">Required training</div>
@@ -276,7 +277,7 @@ function AbsenceSection({ employee, today, onSave, onDelete }: {
           {list.length === 0 && <tr><td colSpan={7} className="muted">No absence recorded.</td></tr>}
           {list.map((a) => (
             <tr key={a.id}>
-              <td>{ABSENCE_LABEL[a.type]}{a.excludeFromTriggers && <span className="tag">Excluded</span>}{a.reason && <div className="muted small">{a.reason}</div>}</td>
+              <td>{a.type ? ABSENCE_LABEL[a.type] : 'Absent'}{a.excludeFromTriggers && <span className="tag">Excluded</span>}{a.reason && <div className="muted small">{a.reason}</div>}</td>
               <td>{a.from}</td>
               <td>{a.to ?? <span className="warn-text">Still off</span>}</td>
               <td className="num">{absenceDays(a, today)}</td>
@@ -480,10 +481,83 @@ function RecordList({ records, hr }: { records: HrRecord[]; hr: HrRecords }) {
               ].filter(Boolean).join('. ')}
             </div>
             {r.notes && <p className="hr-notes">{r.notes}</p>}
+            <RecordFiles record={r} hr={hr} />
+            {r.kind === 'document' && (r.files?.length || r.signing) ? <SendToSign record={r} hr={hr} /> : null}
           </li>
         ),
       )}
     </ul>
+  );
+}
+
+/**
+ * Copies on a record, each opened in a new tab (every view is logged), and a way to add one. Photos
+ * are shrunk below the upload limit first; PDFs go as they are.
+ */
+function RecordFiles({ record, hr }: { record: HrRecord; hr: HrRecords }) {
+  const [busy, setBusy] = useState(false);
+  async function add(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    const body = await shrinkPhoto(file);
+    if (body.size > MAX_UPLOAD_BYTES) alert(`${file.name} is ${fileSize(body.size)}. Copies can be up to ${fileSize(MAX_UPLOAD_BYTES)}.`);
+    else await hr.attach(record.id, body, file.name);
+    setBusy(false);
+  }
+  return (
+    <div className="hr-files muted small">
+      {(record.files ?? []).map((f) => (
+        <span key={f.id}>
+          <a href={`/v1/hr/records/${record.id}/files/${f.id}`} target="_blank" rel="noopener noreferrer">{f.fileName}</a> ({fileSize(f.bytes)}){' '}
+        </span>
+      ))}
+      <label className="link">
+        {busy ? 'Uploading' : record.files?.length ? 'Add another copy' : 'Attach a copy'}
+        <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden disabled={busy} onChange={(e) => { void add(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
+    </div>
+  );
+}
+
+const SIGN_KIND = { statement: 'Written statement', handbook: 'Handbook' } as const;
+const stamp = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+
+/**
+ * Signing in the staff app: send the copy on this record to the person, and see where it stands.
+ * Signed is final, with the time, the name typed and where from, against the exact copy sent.
+ */
+function SendToSign({ record, hr }: { record: HrRecord; hr: HrRecords }) {
+  const s = record.signing;
+  const [kind, setKind] = useState<'statement' | 'handbook'>(s?.kind ?? (/handbook/i.test(record.title) ? 'handbook' : 'statement'));
+  const files = record.files ?? [];
+  const [fileId, setFileId] = useState(s?.fileId ?? files[files.length - 1]?.id ?? '');
+  if (s?.signedAt) {
+    return (
+      <div className="hr-signing small good-text">
+        {SIGN_KIND[s.kind]} signed in the staff app on {stamp(s.signedAt)} as "{s.signedName}"{s.ip ? `, from ${s.ip}` : ''}. Sent by {s.sentBy} on {stamp(s.sentAt)}.
+      </div>
+    );
+  }
+  return (
+    <div className="hr-signing small">
+      {s && (
+        <span className="muted">
+          Sent to sign on {stamp(s.sentAt)}: {s.openedAt ? `opened ${stamp(s.openedAt)}, not yet signed.` : 'not yet opened.'}{' '}
+        </span>
+      )}
+      <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label="What it is">
+        <option value="statement">Written statement</option>
+        <option value="handbook">Handbook</option>
+      </select>{' '}
+      {files.length > 1 && (
+        <select value={fileId} onChange={(e) => setFileId(e.target.value)} aria-label="Which copy">
+          {files.map((f) => <option key={f.id} value={f.id}>{f.fileName}</option>)}
+        </select>
+      )}{' '}
+      <button className="link" disabled={!fileId} onClick={() => void hr.sendToSign(record.id, fileId, kind)}>
+        {s ? 'Send again' : 'Send to sign in the staff app'}
+      </button>
+    </div>
   );
 }
 
