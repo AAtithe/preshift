@@ -1,6 +1,8 @@
 // Core domain model. Times are minutes from midnight on the shift's date;
 // an end time past 1440 means the shift runs over midnight.
 
+import type { PaySchedule as PayrollSchedule } from './payPeriods';
+
 export type Department = 'FOH' | 'BOH' | 'BAR' | 'MGMT';
 
 export interface Role {
@@ -45,6 +47,11 @@ export interface Entity {
    * chosen yet: it is paid at the normal rate meanwhile, and set-up asks for a choice.
    */
   travelPay?: TravelPay;
+  /**
+   * The payrolls this company runs, each with its own calendar of periods, paydays and cutoffs. The
+   * first is where anyone not placed on another is paid. None set means weekly, as before schedules.
+   */
+  paySchedules?: PayrollSchedule[];
   /** When this company pays its people. Weekly, paid the Friday after the week, when absent. */
   paySchedule?: PaySchedule;
   /** Enhanced rates this company's contracts pay hourly staff: Sundays, bank holidays, nights, overtime. */
@@ -241,6 +248,8 @@ export interface Employee {
   siteId: string;
   /** The employing entity, whose PAYE scheme pays them. */
   entityId: string;
+  /** Which of their company's payrolls pays them. Absent means the company's first. */
+  payScheduleId?: string;
   /** Other sites the person is willing and trained to cover. */
   coverSiteIds: string[];
   /** Roles this person is trained for; the first is their primary role. */
@@ -444,12 +453,26 @@ export interface OpenShift {
   shiftId?: string;
   /** The shift released to make this one, when a manager posted someone's shift for cover. */
   releasedFrom?: { shiftId: string; employeeId: string };
+  /**
+   * Offered in waves, cheapest first: `waves` are the people in each, `told` everyone told so far,
+   * `released` how many waves are out, `nextAt` when the next goes. Once every wave is out, anyone
+   * eligible may claim.
+   */
+  offer?: { waves: OfferWave[]; released: number; told: string[]; nextAt?: string };
+  /** Set when a claim was approved automatically, inside the rules and the site's labour budget. */
+  autoApproved?: boolean;
+}
+
+/** One wave of an open shift offer: why these people come at this point, and who they are. */
+export interface OfferWave {
+  tier: 'contracted' | 'cheapest' | 'everyone';
+  employeeIds: string[];
 }
 
 export type StaffNotificationKind =
   | 'rota_published' | 'rota_changed' | 'shift_cancelled'
   | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received'
-  | 'shift_reminder' | 'shift_late';
+  | 'shift_reminder' | 'shift_late' | 'document_to_sign';
 
 /** A message to one member of staff, shown in the staff app and emailed where an address is held. */
 export interface StaffNotification {
@@ -505,6 +528,28 @@ export interface HrRecord {
    * Encrypted and stored apart from the record, like right to work copies. Managed by the server.
    */
   files?: RightToWorkDocument[];
+  /** A document sent to the person to read and sign in the staff app. Managed by the server. */
+  signing?: DocumentSigning;
+}
+
+/**
+ * Signing in the staff app: which copy was sent, when the person first opened it, and how they
+ * signed it. The fingerprint ties the signature to the exact file, which cannot change after it is sent.
+ */
+export interface DocumentSigning {
+  kind: 'statement' | 'handbook';
+  /** The copy on the record that was sent, and its SHA-256. */
+  fileId: string;
+  sha256: string;
+  sentAt: string;
+  sentBy: string;
+  /** First opened in the app: a document has to be opened before it can be signed. */
+  openedAt?: string;
+  signedAt?: string;
+  /** The name the person typed to sign. */
+  signedName?: string;
+  ip?: string;
+  userAgent?: string;
 }
 
 /** One change to an HR record: who made it, when, and the values it replaced. */
@@ -616,6 +661,8 @@ export interface TimeEntry {
   breaks?: BreakPeriod[];
   approvedBy?: string;
   approvedAt?: string;
+  /** The pay period it was passed to payroll in, so it is never paid again by another payroll. */
+  passedIn?: string;
 }
 
 /**

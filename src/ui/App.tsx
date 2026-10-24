@@ -48,6 +48,7 @@ const BillingView = screen(() => import('./BillingView'), 'BillingView', ['billi
 const CalendarView = screen(() => import('./CalendarView'), 'CalendarView', ['calendar']);
 const CasesView = screen(() => import('./ReviewsView'), 'CasesView', ['cases']);
 const ClientsView = screen(() => import('./ClientsView'), 'ClientsView', ['clients']);
+const CustomersView = screen(() => import('./CustomersView'), 'CustomersView', ['customers']);
 const ClockView = screen(() => import('./ClockView'), 'ClockView', ['clock']);
 const CloseView = screen(() => import('./CloseView'), 'CloseView', ['close']);
 const CoachView = screen(() => import('./CoachView'), 'CoachView', ['coach']);
@@ -64,6 +65,7 @@ const IntegrationsView = screen(() => import('./IntegrationsView'), 'Integration
 const OnboardingView = screen(() => import('./OnboardingView'), 'OnboardingView', ['onboarding']);
 const PayApprovalsView = screen(() => import('./PayApprovalsView'), 'PayApprovalsView', ['pay']);
 const PayrollView = screen(() => import('./PayrollView'), 'PayrollView', ['payroll']);
+const PayPeriodsView = screen(() => import('./PayPeriodsView'), 'PayPeriodsView', ['periods']);
 const PeopleView = screen(() => import('./PeopleView'), 'PeopleView', ['people']);
 const PrimeView = screen(() => import('./PrimeView'), 'PrimeView', ['prime']);
 const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['privacy']);
@@ -732,6 +734,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {shown === 'periods' && <PayPeriodsView state={state} today={today} allow={allow} onChanged={actions.refreshShifts} />}
               {shown === 'actuals' && single && <ActualsView state={state} siteId={single.id} week={week} asOf={today} onOpenPayroll={() => setTab('payroll')} />}
               {shown === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} canEdit={allow('payroll.send') || allow('pay.approve')} canRecord={(allow('time.approve', single.id) && allow('costs.view', single.id)) || allow('payroll.send') || allow('pay.approve')} />}
               {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
@@ -782,6 +785,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
+              {shown === 'customers' && <CustomersView />}
               {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}

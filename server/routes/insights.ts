@@ -6,8 +6,8 @@ import { forecastAccuracy, overrideForecast } from '../../src/engine/forecast';
 import { accuracyReport } from '../../src/engine/forecastreport';
 import { weekMetrics } from '../../src/engine/metrics';
 import { baselineFromHistory, MILESTONES, newProgramme, programmeStatus, wholeWeeks, type Programme } from '../../src/engine/programme';
-import { finishedWeeks, siteScorecard, type Scorecard } from '../../src/engine/scorecard';
-import { weekDates, weekStart } from '../../src/engine/time';
+import { finishedWeeks, scorecardLeague, siteScorecard, type Scorecard } from '../../src/engine/scorecard';
+import { addDays, weekDates, weekStart } from '../../src/engine/time';
 import type { AdjustmentReason, ForecastAdjustment, HourActual, Shift } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonToday, notFound, orgOf, type AppContext } from '../context';
@@ -16,6 +16,7 @@ import { modelDates } from '../forecasting';
 import { canOrgWide } from '../../src/engine/access';
 import { actorOf, guard } from '../guard';
 import { isSandbox } from '../sandbox';
+import { assertRotaOpen } from '../payPeriods';
 import { audit, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -32,12 +33,15 @@ function requireSite(org: OrgData, siteId: string) {
   if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
 }
 
-function scorecardFor(org: OrgData, siteId: string, today: string, weeks = 8): Scorecard {
+/** Scores the `weeks` weeks ending with `endWeek`, or with last week; never a week still being worked. */
+function scorecardFor(org: OrgData, siteId: string, today: string, weeks = 8, endWeek?: string): Scorecard {
+  const lastFinished = addDays(weekStart(today), -7);
+  const end = endWeek && weekStart(endWeek) < lastFinished ? weekStart(endWeek) : lastFinished;
   return siteScorecard({
     today,
     state: org.state,
     siteId,
-    weeks: finishedWeeks(weekStart(today), weeks),
+    weeks: finishedWeeks(addDays(end, 7), weeks),
     publications: org.publications,
     timeEntries: org.timeEntries,
     moves: org.moves,
@@ -320,6 +324,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       // Checked against the rota as it is now, for both people and their whole week: other shifts may have moved since.
       const issues = moveIssues(org.state, record.kind, org.state.shifts[i], record.after, record.weekStart);
       if (issues.length) throw new HttpError(409, 'compliance_block', 'This move now breaks a rule. Refresh the moves.', issues);
+      assertRotaOpen(org, [org.state.shifts[i], ...(record.after ? [record.after] : [])]);
       const next = record.after
         ? [...org.state.shifts.slice(0, i), { ...record.after, published: false }, ...org.state.shifts.slice(i + 1)]
         : org.state.shifts.filter((s) => s.id !== record.shiftId);
@@ -382,6 +387,25 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       // Labour % and cost against target.
       guard(ctx, req, org).allow('costs.view', req.query.siteId);
       return scorecardFor(org, req.query.siteId, today(), req.query.weeks ?? 8);
+    },
+  );
+
+  app.get<{ Querystring: { weeks?: number; endWeek?: string } }>(
+    '/v1/scorecards',
+    {
+      ...read,
+      schema: {
+        tags: ['Coach'],
+        description: 'Every site the caller can see costs for, scored and ranked on the GM scorecard over the finished weeks ending with endWeek (last week by default).',
+        querystring: { type: 'object', properties: { weeks: { type: 'integer', minimum: 1, maximum: 26 }, endWeek: isoDate } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const now = today();
+      const visible = guard(ctx, req, org).at('costs.view');
+      const cards = org.state.sites.filter((s) => visible({ siteId: s.id })).map((s) => scorecardFor(org, s.id, now, req.query.weeks ?? 4, req.query.endWeek));
+      return { league: scorecardLeague(cards), cards };
     },
   );
 

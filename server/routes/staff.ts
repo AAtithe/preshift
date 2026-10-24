@@ -25,6 +25,7 @@ import { loginCases, reviewRefusal, type StaffLoginEvent } from '../../src/engin
 import { audit, welfareOf, type OrgData, type StaffLogin, type Store } from '../store';
 import { balanceOf, ownRequestView, requestsOf, staffRequestRoutes } from './requests';
 import { cipherOf, cleanFileName, MAX_DOCUMENT_BYTES, sniffType } from './documents';
+import { staffSigningRoutes, toSignOf } from './signing';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
 
@@ -156,6 +157,8 @@ async function overview(staff: Staff, store: Store) {
       .slice(0, 20)
       .map(entryView),
     welfare: await welfareView(staff, store, today),
+    // Documents sent to them to sign and not yet signed: the written statement is due on day one.
+    toSign: toSignOf(org, employee.id).filter((r) => !r.signing!.signedAt).length,
     ...selfService(org, employee, today),
   };
 }
@@ -342,6 +345,7 @@ export function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   welfareStaffRoutes(app, store);
   staffRequestRoutes(app, ctx, (req) => requireStaff(req, store));
+  staffSigningRoutes(app, ctx, store, (req) => requireStaff(req, store));
   pushRoutes(app, ctx);
 
   // A fit note, photographed on the phone. Stored encrypted with the right to work copies, read only by

@@ -767,6 +767,17 @@ button.link.site-link { padding: 0; color: var(--ink); font-weight: 600; }
 .xero-settings { margin-top: 24px; max-width: 980px; }
 .xero-settings select { max-width: 280px; }
 .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+.pipeline.three { grid-template-columns: repeat(3, 1fr); }
+.period-bar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+.period-bar label, .pay-periods .reason, .schedule-editor label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.period-dates { margin: 0 0 10px; line-height: 1.6; }
+.pay-periods .reason { margin-bottom: 10px; max-width: 60ch; }
+.period-history { margin: 10px 0; font-size: 13px; }
+.pay-calendars { margin-top: 24px; display: grid; gap: 12px; }
+.pay-calendars h3 { margin: 0; }
+.schedule-editor { display: grid; gap: 10px; margin-top: 8px; }
+.schedule-editor fieldset { border: 1px solid var(--rule); border-radius: var(--radius); display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; padding: 10px 12px; }
+.schedule-editor .row, .pay-calendars .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .step { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
 .step.done { border-color: var(--good-fill); }
 .step-head { display: flex; gap: 8px; align-items: center; }
@@ -1322,6 +1333,9 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .requests-post { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
 .requests-post label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .requests-post p { grid-column: 1 / -1; margin: 0; }
+.requests-auto { margin: 12px 0; display: grid; gap: 6px; }
+.requests-auto h4, .requests-auto p { margin: 0; }
+.hr-signing { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .requests-digest { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; }
 .requests-digest input { margin-top: 3px; }
 .login-flags { margin: 4px 0 0; padding-left: 16px; }

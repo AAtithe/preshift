@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // This test fails until the route visibly checks access, or is named below with the reason it does not.
 
 /** Calls that refuse unless the caller holds the right permission. */
-const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bloginReviewer\(|\bsupportPerson\(/;
+const CHECKS = /\bguard\(|\bguardOf\(|\bg\.allow\(|\bmayView\(|\bmayAdd\(|\ballowPay\(|\bdataProtection\(|\bemployeeOf\(|\bsettingsPerson\(|\.\.\.admin\b|\.\.\.lead\b|\bkeyManager\(|\bhooks\(|\ballowSetup\(|\bclientPartner\(|\bbillingPerson\(|\bcustomersPerson\(|\bloginReviewer\(|\bsupportPerson\(/;
 
 /** Files whose routes answer to their own authority rules rather than the guard. */
 const EXEMPT_FILES: Record<string, string> = {
@@ -53,6 +53,9 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/staff/push/unsubscribe': "Staff app: the caller turns off notifications for their own phone, under the staff session.",
   'POST /v1/staff/push/test': "Staff app: a test notification to the caller's own phones, under the staff session.",
   'GET /v1/staff/tips': "Staff app: the caller's own tips record and their site's tipping policy, under the staff session.",
+  'GET /v1/staff/documents': 'Staff app: documents sent to the caller to sign, from their own file only, under the staff session.',
+  'GET /v1/staff/documents/:id/file': "Staff app: a copy sent to the caller to sign, found among their own first, every view logged.",
+  'POST /v1/staff/documents/:id/sign': 'Staff app: the caller signs a document sent to them, in their own name, under the staff session.',
   'GET /v1/staff/payslips': "Staff app: the caller's own payslips and P60s from payroll, under the staff session.",
   'GET /v1/staff/payslips/:id/pdf': "Staff app: one of the caller's own payslips, found in their own list first, under the staff session.",
   'POST /v1/staff/rota/seen': "Staff app: the caller confirms their own published week, under the staff session.",

@@ -21,6 +21,7 @@ import { eposRoutes, syncAllTills } from './routes/epos';
 import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
+import { payPeriodRoutes } from './routes/payPeriods';
 import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
@@ -37,6 +38,7 @@ import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
 import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
+import { customerRoutes } from './routes/customers';
 import { exemptFromShortNotice, trackShortNotice } from './employmentRights';
 import { employmentRightsRoutes } from './routes/employmentRights';
 import { cutCallRoutes } from './routes/cutCall';
@@ -46,6 +48,7 @@ import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
+import { signingRoutes } from './routes/signing';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
 import { deliverNotifications } from './notify';
@@ -337,7 +340,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
   });
 
-  // Every five minutes: shift reminders, and an alert when someone has not clocked in for a shift
+  // Every five minutes: shift reminders, the next wave of open shift offers, and an alert when someone has not clocked in for a shift
   // that has started. Each is sent once, however often this runs.
   app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
@@ -465,6 +468,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);
+    signingRoutes(api, ctx);
     timeRoutes(api, ctx);
     labourRoutes(api, ctx);
     clockingRoutes(api, ctx);
@@ -474,6 +478,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
+    payPeriodRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
     cashRoutes(api, ctx);
     accountingRoutes(api, ctx, { xero: xeroFromEnv(env), simulatorAllowed: demo || !!payroll.simulator });
@@ -482,6 +487,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     clientRoutes(api, ctx);
     supportRoutes(api, ctx);
     billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
+    customerRoutes(api, ctx, { stripe: !!stripe });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);

@@ -172,9 +172,10 @@ describe('open shifts', () => {
     const callum = await join('mar-16');
     const marco = await join('mar-2');
     const day = await clearDay(k, (await me(ben)).today);
-    const posted = await k.call('POST', '/v1/open-shifts', KEY, { siteId: 'mar', roleId: 'bar', date: day, startMinute: 18 * 60, endMinute: 23 * 60, note: 'Private party' });
+    const posted = await k.call('POST', '/v1/open-shifts', KEY, { siteId: 'mar', roleId: 'bar', date: day, startMinute: 18 * 60, endMinute: 23 * 60, note: 'Private party', everyone: true });
     expect(posted.status).toBe(201);
     expect(posted.body.eligible).toContain('Ben Ford');
+    expect(posted.body.offer.allTold).toBe(true);
     expect(posted.body.eligible).not.toContain('Marco Bianchi');
     expect((await notes(k, ben))[0]).toMatchObject({ kind: 'open_shift' });
     expect(await notes(k, marco)).toEqual([]);
@@ -223,6 +224,107 @@ describe('open shifts', () => {
     expect(posted.body.eligible).not.toContain('Ben Ford');
     expect((await notes(k, ben))[0]).toMatchObject({ kind: 'shift_cancelled' });
     expect((await k.call('DELETE', `/v1/open-shifts/${posted.body.id}`, KEY)).status).toBe(204);
+  });
+});
+
+describe('open shifts offered cheapest first', () => {
+  it('tells those short of their contracted hours first, then the cheapest, then everyone', async () => {
+    const { k, join, me } = await boot();
+    const ben = await join('mar-12');
+    const callum = await join('mar-16');
+    const day = await clearDay(k, (await me(ben)).today);
+    const org = await k.store.load('demo');
+    // Only Callum has contracted hours this week that the rota does not yet fill.
+    for (const e of org.state.employees) e.contractedHours = 0;
+    Object.assign(org.state.employees.find((e) => e.id === 'mar-16')!, { payBasis: 'hourly', contractedHours: 40 });
+    const posted = await k.call('POST', '/v1/open-shifts', KEY, { siteId: 'mar', roleId: 'bar', date: day, startMinute: 18 * 60, endMinute: 23 * 60 });
+    expect(posted.status).toBe(201);
+    expect(posted.body.offer.waves.map((w: { tier: string }) => w.tier)).toEqual(['contracted', 'cheapest', 'everyone']);
+    expect(posted.body.told).toBe(1);
+    expect(posted.body.offer.nextAt).toEqual(expect.any(String));
+    expect((await notes(k, callum))[0]).toMatchObject({ kind: 'open_shift' });
+    expect((await k.call('GET', '/v1/staff/board', callum)).body.openShifts).toHaveLength(1);
+
+    // Ben is in a later wave: not told, not shown, and cannot claim ahead of it.
+    const o = (await k.store.load('demo')).openShifts!.find((x) => x.id === posted.body.id)!;
+    const wave = o.offer!.waves.findIndex((w) => w.employeeIds.includes('mar-12'));
+    expect(wave).toBeGreaterThan(0);
+    expect(await notes(k, ben)).toEqual([]);
+    expect((await k.call('GET', '/v1/staff/board', ben)).body.openShifts).toEqual([]);
+    expect((await k.call('POST', `/v1/staff/open-shifts/${posted.body.id}/claim`, ben)).body.error).toBe('not_offered');
+
+    // A claim waiting holds the next wave; once decided, the next goes when its time comes.
+    const { releaseDueWaves } = await import('./routes/requests');
+    const later = new Date(Date.parse(o.offer!.nextAt!) + 60_000);
+    const claim = await k.call('POST', `/v1/staff/open-shifts/${posted.body.id}/claim`, callum);
+    expect(claim.status).toBe(201);
+    expect(releaseDueWaves(org, later)).toBe(0);
+    expect((await k.call('POST', `/v1/requests/${claim.body.id}/decline`, KEY, { note: 'Need you rested for Saturday' })).status).toBe(200);
+    expect(releaseDueWaves(org, later)).toBeGreaterThan(0);
+    expect(o.offer!.released).toBe(2);
+
+    // The manager sees the tier each claimant came from, and can tell everyone at once.
+    const all = await k.call('POST', `/v1/open-shifts/${posted.body.id}/offer-all`, KEY);
+    expect(all.status).toBe(200);
+    expect(all.body.offer.allTold).toBe(true);
+    expect((await k.call('GET', '/v1/staff/board', ben)).body.openShifts).toHaveLength(1);
+    const ask = await k.call('POST', `/v1/staff/open-shifts/${posted.body.id}/claim`, ben);
+    expect(ask.status).toBe(201);
+    const view = (await k.call('GET', '/v1/requests?siteId=mar', KEY)).body.find((r: { id: string }) => r.id === ask.body.id);
+    expect(view.offer).toMatchObject({ tier: expect.stringMatching(/cheapest|everyone/), cost: expect.any(Number) });
+  });
+
+  it('tells everyone at once inside a day of the start', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T09:00:00Z') });
+    try {
+      const { k, join, me } = await boot();
+      const ben = await join('mar-12');
+      const today = (await me(ben)).today;
+      const org = await k.store.load('demo');
+      org.state.shifts = org.state.shifts.filter((s) => s.date !== today);
+      const posted = await k.call('POST', '/v1/open-shifts', KEY, { siteId: 'mar', roleId: 'bar', date: today, startMinute: 18 * 60, endMinute: 23 * 60 });
+      expect(posted.status).toBe(201);
+      expect(posted.body.offer.allTold).toBe(true);
+      expect(posted.body.told).toBe(posted.body.eligible.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('approves a claim by itself only when the site turned it on, no rule is touched and labour stays in budget', async () => {
+    const { k, join, me } = await boot();
+    const ben = await join('mar-12');
+    const day = await clearDay(k, (await me(ben)).today);
+    const org = await k.store.load('demo');
+    const site = org.state.sites.find((x) => x.id === 'mar')!;
+    org.state.forecast = org.state.forecast.filter((f) => !(f.siteId === 'mar' && f.date >= weekStart(day) && f.date <= addDays(weekStart(day), 6)));
+    org.state.forecast.push({ siteId: 'mar', date: day, hour: 19, sales: 50_000, covers: 900 });
+    const post = async () => (await k.call('POST', '/v1/open-shifts', KEY, { siteId: 'mar', roleId: 'bar', date: day, startMinute: 18 * 60, endMinute: 23 * 60, everyone: true })).body.id as string;
+
+    // Off by default: the claim waits for a manager.
+    const first = await post();
+    const waiting = await k.call('POST', `/v1/staff/open-shifts/${first}/claim`, ben);
+    expect(waiting.body.status).toBe('pending');
+    expect((await k.call('DELETE', `/v1/open-shifts/${first}`, KEY)).status).toBe(204);
+
+    expect((await k.call('PUT', '/v1/open-shifts/auto-approve', KEY, { siteId: 'mar', on: true })).status).toBe(200);
+    expect((await k.call('GET', '/v1/open-shifts/auto-approve', KEY)).body.find((x: { siteId: string }) => x.siteId === 'mar').on).toBe(true);
+
+    // Over budget: still waits.
+    site.labourTargetPct = 0.0001;
+    const second = await post();
+    expect((await k.call('POST', `/v1/staff/open-shifts/${second}/claim`, ben)).body.status).toBe('pending');
+    expect((await k.call('DELETE', `/v1/open-shifts/${second}`, KEY)).status).toBe(204);
+
+    // Within budget and clear of every rule: approved and on the rota at once.
+    site.labourTargetPct = 0.9;
+    const third = await post();
+    const done = await k.call('POST', `/v1/staff/open-shifts/${third}/claim`, ben);
+    expect(done.status).toBe(201);
+    expect(done.body.status).toBe('approved');
+    const list = (await k.call('GET', '/v1/open-shifts?siteId=mar', KEY)).body;
+    expect(list.find((o: { id: string }) => o.id === third)).toMatchObject({ status: 'filled', autoApproved: true, filledByName: 'Ben Ford' });
+    expect((await notes(k, ben))[0].title).toMatch(/approved/i);
   });
 });
 

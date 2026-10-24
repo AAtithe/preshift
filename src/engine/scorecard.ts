@@ -260,3 +260,69 @@ export function siteScorecard(input: ScorecardInput): Scorecard {
 export function finishedWeeks(thisWeekStart: string, count: number): string[] {
   return Array.from({ length: count }, (_, i) => addDays(thisWeekStart, -7 * (count - i)));
 }
+
+/** One site's line in the league: its scorecard summed over the period, for comparing sites side by side. */
+export interface LeagueRow {
+  siteId: string;
+  rank: number;
+  level: Maturity['level'];
+  label: string;
+  next: string;
+  /** Weeks with anything rostered or published: a site that did not trade is not marked down for it. */
+  scoredWeeks: number;
+  onTimeRate: number;
+  legalRate: number;
+  onTargetRate: number;
+  /** Actual where approved, otherwise planned, weighted by each week's sales. Null with no labour at all. */
+  labourPct: number | null;
+  targetPct: number | null;
+  overstaffedShare: number | null;
+  rotaToPayrollVariance: number | null;
+  forecastWape: number | null;
+  movesTakenRate: number | null;
+  realisedSaving: number;
+}
+
+/**
+ * Sites ranked on the habits, not on the headline: the rung first, because a site on target with a
+ * late rota is lucky rather than run; then weeks on target, then hours over demand. Ties keep their order.
+ */
+export function scorecardLeague(cards: Scorecard[]): LeagueRow[] {
+  const rows = cards.map((card): Omit<LeagueRow, 'rank'> => {
+    const scored = card.weeks.filter((w) => w.rosteredHours > 0 || w.publishedAt !== undefined || w.plannedLabourPct > 0);
+    const rate = (f: (w: WeekScore) => boolean) => (scored.length ? scored.filter(f).length / scored.length : 0);
+    const withLabour = scored.filter((w) => (w.actualLabourPct ?? w.plannedLabourPct) > 0 && w.sales > 0);
+    const sales = withLabour.reduce((s, w) => s + w.sales, 0);
+    const weighted = (f: (w: WeekScore) => number) => (sales > 0 ? withLabour.reduce((s, w) => s + f(w) * w.sales, 0) / sales : null);
+    const precise = scored.filter((w) => w.rosteredHours > 0);
+    const variances = scored.map((w) => w.rotaToPayrollVariance).filter((v): v is number => v !== null);
+    const wapes = scored.map((w) => w.forecastWape).filter((v): v is number => v !== null);
+    const offered = scored.reduce((s, w) => s + w.movesOffered, 0);
+    return {
+      siteId: card.siteId,
+      level: card.maturity.level,
+      label: card.maturity.label,
+      next: card.maturity.next,
+      scoredWeeks: scored.length,
+      onTimeRate: rate((w) => w.publishedOnTime && w.legal),
+      legalRate: rate((w) => w.legal),
+      onTargetRate: rate((w) => w.onTarget),
+      labourPct: weighted((w) => w.actualLabourPct ?? w.plannedLabourPct),
+      targetPct: weighted((w) => w.targetPct),
+      overstaffedShare: precise.length ? precise.reduce((s, w) => s + w.overstaffedHours, 0) / precise.reduce((s, w) => s + w.rosteredHours, 0) : null,
+      rotaToPayrollVariance: variances.length ? mean(variances.map(Math.abs)) : null,
+      forecastWape: wapes.length ? mean(wapes) : null,
+      movesTakenRate: offered ? scored.reduce((s, w) => s + w.movesTaken, 0) / offered : null,
+      realisedSaving: scored.reduce((s, w) => s + w.realisedSaving, 0),
+    };
+  });
+  const order = rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) =>
+      b.r.level - a.r.level ||
+      b.r.onTargetRate - a.r.onTargetRate ||
+      (a.r.overstaffedShare ?? 1) - (b.r.overstaffedShare ?? 1) ||
+      a.i - b.i,
+    );
+  return order.map(({ r }, n) => ({ ...r, rank: n + 1 }));
+}
