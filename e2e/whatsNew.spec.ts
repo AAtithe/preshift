@@ -1,20 +1,23 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 import { toISODate } from '../src/engine/time';
 import { currentRelease } from '../src/ui/walkthrough';
 
-// What's new: this week's release is offered once, walks through each change on its own screen, and
-// stays out of the way once seen. It only navigates and keeps its place in the browser, so it runs
-// against the local demo, a deployed site and the public demo alike.
+// What's new: this week's release pops up at the first sign-in of the week, walks through each
+// change on its own screen, and stays out of the way once seen. It only navigates and keeps its
+// place in the browser, so it runs against the local demo, a deployed site and the public demo alike.
 
 const release = currentRelease(toISODate(new Date()));
+const titles = new Set(release?.steps.map((s) => s.title));
 const bar = (page: Page) => page.getByRole('navigation', { name: 'Management' });
+const popup = (page: Page) => page.getByRole('dialog', { name: "What's new this week" });
 const card = (page: Page) => page.getByRole('region', { name: "What's new walkthrough" });
 
 async function signIn(page: Page) {
+  // A deployed site with a public demo: the run's one sandbox, its session already in this browser
+  // (e2e/demo.setup.ts).
   if (process.env.PRESHIFT_E2E_DEMO) {
-    await page.goto('/demo');
-    await page.getByRole('button', { name: 'Start the demo' }).click();
-    await expect(bar(page)).toBeVisible({ timeout: 30_000 });
+    await page.goto('/app/');
+    await expect(bar(page)).toBeVisible();
     return;
   }
   await page.goto('/login?next=/app/');
@@ -26,36 +29,53 @@ async function signIn(page: Page) {
 }
 
 test.skip(!release, 'No release is out yet');
+test.use({ whatsNewPopsUp: true });
 
-test("this week's changes are walked through once, each on its own screen", async ({ page }) => {
+const pageErrors = new WeakMap<Page, string[]>();
+test.beforeEach(async ({ page }) => {
   const errors: string[] = [];
+  pageErrors.set(page, errors);
   page.on('pageerror', (e) => errors.push(e.message));
   await signIn(page);
+});
+test.afterEach(async ({ page }) => {
+  expect(pageErrors.get(page)).toEqual([]);
+});
 
-  const notice = page.getByRole('status').filter({ hasText: 'New this week.' });
-  await expect(notice).toBeVisible();
-  await notice.getByRole('button', { name: 'Take the walkthrough' }).click();
+test("this week's changes pop up at the first sign-in and are walked through, each on its own screen", async ({ page }) => {
+  await expect(popup(page)).toBeVisible();
+  await popup(page).getByRole('button', { name: 'Show me' }).click();
+  await expect(popup(page)).toHaveCount(0);
   await expect(card(page)).toBeVisible();
-  await expect(notice).toHaveCount(0);
 
-  // Step through to the end: a step that names a section opens it.
-  for (const step of release!.steps) {
-    await expect(card(page).getByRole('heading', { name: step.title })).toBeVisible();
-    if (step.tab === 'rota') await expect(page.locator('.mast-top .eyebrow')).toHaveText('Rota');
-    const next = card(page).getByRole('button', { name: 'Next' });
+  // Step through to the end: every step is one of this week's, and one that names the rota opens it.
+  for (let i = 0; i < 10; i++) {
+    const title = await card(page).locator('h3').innerText();
+    expect(titles.has(title)).toBe(true);
+    if (release!.steps.find((s) => s.title === title)?.tab === 'rota') await expect(page.locator('.mast-top .eyebrow')).toHaveText('Rota');
+    const next = card(page).getByRole('button', { name: 'Next', exact: true });
     if ((await next.count()) === 0) break;
     await next.click();
   }
   await card(page).getByRole('button', { name: 'Done' }).click();
   await expect(card(page)).toHaveCount(0);
 
-  // Seen: not offered again, but What's new brings it back.
+  // Seen: it does not pop up again this week, but What's new brings it back.
   await page.reload();
   await expect(bar(page)).toBeVisible();
-  await expect(page.getByText('New this week.')).toHaveCount(0);
+  await expect(popup(page)).toHaveCount(0);
   await page.getByRole('button', { name: "What's new" }).click();
   await expect(card(page)).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(card(page)).toHaveCount(0);
-  expect(errors).toEqual([]);
+});
+
+test('Not now puts it away for the week', async ({ page }) => {
+  await expect(popup(page)).toBeVisible();
+  await popup(page).getByRole('button', { name: 'Not now' }).click();
+  await expect(popup(page)).toHaveCount(0);
+  await expect(card(page)).toHaveCount(0);
+  await page.reload();
+  await expect(bar(page)).toBeVisible();
+  await expect(popup(page)).toHaveCount(0);
 });

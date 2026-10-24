@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 // Pay premiums in the browser: only the finance director can change them, and a premium added on
 // the Pay screen is listed in plain English. It changes data and acts as demo people, which only a

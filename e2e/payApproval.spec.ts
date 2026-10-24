@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 // The two-person pay control end to end in the browser: the people manager proposes a rise, it
 // waits with the pay in force unchanged, the finance director approves it, and the new rate is on

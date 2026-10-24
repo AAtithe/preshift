@@ -6,7 +6,7 @@ import { scopeMetrics } from '../engine/metrics';
 import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
-import { RemindersBanner } from './CalendarView';
+import { RemindersBanner } from './RemindersBanner';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
 import { dayLabel } from './format';
@@ -16,7 +16,7 @@ import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
 import type { HrSection } from './HrFile';
 import { PnlRail } from './PnlRail';
-import { BillingBanner } from './BillingView';
+import { BillingBanner } from './BillingBanner';
 import { RestBreaches } from './RestBreaches';
 import type { Account } from './SettingsView';
 import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, type AtAll, type NavItem, type Tab } from './nav';
@@ -25,8 +25,8 @@ import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
 import { SideNav } from './SideNav';
 import { useHrRecords, useRotaStore } from './store';
-import { Walkthrough, WhatsNewNotice } from './Walkthrough';
-import { markSeen, releasesOut, seenWeek, stepsFor, type WalkStep } from './walkthrough';
+import { Walkthrough, WhatsNewIntro } from './Walkthrough';
+import { markSeen, popsUp, releasesOut, seenWeek, stepsFor, type WalkStep } from './walkthrough';
 
 // Every screen is its own chunk, so the first paint waits on the shell alone. The section being opened
 // is asked for alongside the data; the rest follow once the app is up, before anyone opens them.
@@ -282,14 +282,15 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
   const offeredTab = (t: Tab) => NAV_ITEMS.some((i) => i.id === t && offered(i, allow, allSiteIds, me?.user?.audience));
 
-  // What's new: this week's release is offered once to each person, and can be walked again from the bar.
+  // What's new: this week's release pops up at each person's first sign-in of the week, and can be
+  // walked again from the bar.
   const released = useMemo(() => releasesOut(today), [today]);
   const release = released[0];
   const seenBy = me?.user?.id ?? 'you';
   const [walking, setWalking] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const newSteps = release ? stepsFor(release, offeredTab).length : 0;
-  const unseen = !!release && !dismissed && newSteps > 0 && seenWeek(seenBy) !== release.week;
+  const newSteps = release ? stepsFor(release, offeredTab) : [];
+  const unseen = !!release && !dismissed && newSteps.length > 0 && seenWeek(seenBy) !== release.week;
   function finishWalk() {
     setWalking(false);
     setDismissed(true);
@@ -538,10 +539,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   <a className="button primary" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>
                 </span>
               </div>
-            )}
-
-            {unseen && !walking && activeTab !== 'setup' && (
-              <WhatsNewNotice count={newSteps} onStart={() => setWalking(true)} onDismiss={finishWalk} />
             )}
 
             {section.scope !== 'org' ? (
@@ -918,6 +915,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         />
       )}
 
+      {release && unseen && !walking && activeTab !== 'setup' && popsUp() && (
+        <WhatsNewIntro release={release} steps={newSteps} onStart={() => setWalking(true)} onDismiss={finishWalk} />
+      )}
       {walking && released.length > 0 && <Walkthrough releases={released} offeredTab={offeredTab} onGo={walkTo} onClose={finishWalk} />}
 
       <Suspense fallback={null}>

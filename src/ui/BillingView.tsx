@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { formatPence, type Interval, type Quote } from '../engine/pricing';
 import { api, ApiError } from './api';
+import { plural } from './BillingBanner';
 
 // Billing, for an organisation that signed itself up: the trial, the subscription and the sites paid
 // for. Cards, invoices, VAT details and cancelling are on Stripe's own pages, so Preshift never sees a
@@ -38,7 +39,6 @@ const STANDING: Record<Standing, { label: string; tone: string }> = {
 const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const money = (pence: number, currency: string) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency.toUpperCase() }).format(pence / 100);
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 export function BillingView({ canSettings }: { canSettings: boolean }) {
   const [billing, setBilling] = useState<Billing | null>(null);
@@ -230,28 +230,4 @@ function Breakdown({ quote }: { quote: Quote }) {
       </tbody>
     </table>
   );
-}
-
-/** One line at the top of every screen when billing needs someone: trial ending, payment failed, or paused. */
-export function BillingBanner({ billing, canSettings, onOpen }: { billing?: BillingStanding; canSettings: boolean; onOpen: () => void }) {
-  if (!billing) return null;
-  const open = canSettings ? (
-    <>
-      {' '}
-      <button className="link" onClick={onOpen}>Open billing</button>
-    </>
-  ) : null;
-  if (billing.locked) {
-    return (
-      <div className="notice error">
-        Your subscription has lapsed, so changes are paused. Everything stays readable.
-        {canSettings ? open : ' Ask whoever manages your organisation\'s settings to restart it.'}
-      </div>
-    );
-  }
-  if (billing.standing === 'past_due' && canSettings) return <div className="notice error">The last payment failed. Update the card so nothing pauses.{open}</div>;
-  if (billing.standing === 'trial' && canSettings && (billing.trialDaysLeft ?? 0) <= 7) {
-    return <div className="notice">Your free trial ends in {plural(billing.trialDaysLeft ?? 0, 'day')}. Subscribe to carry on without a break.{open}</div>;
-  }
-  return null;
 }
