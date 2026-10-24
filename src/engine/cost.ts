@@ -13,6 +13,16 @@ export function shiftPaidHours(shift: Shift): number {
   return shiftPaidMinutes(shift) / 60;
 }
 
+/**
+ * Pay that counts towards minimum wage for a pay reference period of one week.
+ * Holiday accrual, employer on-costs and tips do not count; deductions for the
+ * employer's benefit (uniform, tools) and salary sacrifice come off.
+ */
+export function nmwPay(employee: Employee, hoursWorked: number): number {
+  const basic = employee.payBasis === 'salaried' ? employee.annualSalary / 52 : employee.hourlyRate * hoursWorked;
+  return basic - (employee.nmwReducingDeductionsWeekly ?? 0);
+}
+
 export interface EmployeeWeekCost {
   employeeId: string;
   /** Shift hours plus paid travel between sites. */

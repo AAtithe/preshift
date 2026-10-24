@@ -10,6 +10,8 @@ interface StaffLoginRow {
   inviteWaiting: boolean;
   lastSignInAt: string | null;
   locked: boolean;
+  /** Phones the person turned notifications on for. */
+  pushDevices?: number;
   /** The last staff app invitation emailed, and what Resend reported. */
   lastEmail: MailState | null;
 }
@@ -134,6 +136,8 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
                       <>
                         <span className="good-text">Active</span>
                         <span className="muted small"> {row.email}{row.lastSignInAt ? `, last signed in ${when(row.lastSignInAt)}` : ''}</span>
+                        {/* Without notifications, a moved shift reaches them only when they next look. */}
+                        <span className="muted small">{row.pushDevices ? `. Notifications on ${row.pushDevices} phone${row.pushDevices === 1 ? '' : 's'}` : '. Notifications off'}</span>
                         {row.locked && <span className="tag">Locked</span>}
                         {row.inviteWaiting && <span className="tag">New invite sent</span>}
                       </>
