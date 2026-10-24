@@ -28,7 +28,7 @@ import {
   currentRound, defaultRounds, goingCandidates, goingStatus, wasAsked, MAX_ROUND_SIZE, minutesUntil, offerText, roomForRounds, ROUND_MINUTES, roundOf, slotOf, waiting,
 } from '../../src/engine/cover';
 import { idParam } from '../schemas';
-import { assertRotaOpen } from '../payPeriods';
+import { assertRotaOpen, isRotaLocked, LOCKED_FOR_PAYROLL } from '../payPeriods';
 import { audit, type OrgData } from '../store';
 import { readsHr } from './hr';
 
@@ -96,6 +96,36 @@ const issueView = (org: OrgData) => (i: Issue) => ({
 
 
 /**
+ * Everyone who could take a slot now: eligible under the rota rules, and with their rota for that day
+ * open. A shift cannot be added to a pay period locked for payroll, so nobody there is offered one.
+ */
+export function eligibleNow(org: OrgData, slot: Shift, exclude: string[] = []) {
+  return eligibleFor(org.state, slot, exclude).filter((e) => !isRotaLocked(org, { employeeId: e.id, date: slot.date }));
+}
+
+/** The candidates for a slot, with anyone whose rota for that day is locked shown as not eligible, and why. */
+function openCandidates(org: OrgData, slot: Shift, exclude: string[]) {
+  return goingCandidates(org.state, slot, exclude).map((r) =>
+    r.eligible && isRotaLocked(org, { employeeId: r.candidate.employee.id, date: slot.date }) ? { ...r, eligible: false, reason: LOCKED_FOR_PAYROLL } : r,
+  );
+}
+
+/**
+ * Refuses to put a shift out when everyone who could otherwise take it has their rota for the day
+ * locked for payroll: it would be offered to people who are then refused when they say yes.
+ */
+function assertSomeoneUnlocked(org: OrgData, slot: Shift, exclude: string[]) {
+  const all = eligibleFor(org.state, slot, exclude);
+  if (all.length > 0 && all.every((e) => isRotaLocked(org, { employeeId: e.id, date: slot.date }))) {
+    throw new HttpError(
+      409,
+      'rota_locked',
+      `Everyone who could take this shift has their rota for ${slot.date} locked for payroll. Unlock the pay period first, with a reason, then put the shift out.`,
+    );
+  }
+}
+
+/**
  * Tells the next wave of an open shift, or everyone left when `all` is set or it is the last wave.
  * A wave nobody in it can still take is passed over for the next. Returns how many were told.
  */
@@ -105,7 +135,7 @@ export function releaseWave(org: OrgData, o: OpenShift, now: Date, all = false):
   const names = namesOf(org.state);
   const { title, body } = offerText(o, names.role(o.roleId), names.site(o.siteId));
   const exclude = [o.releasedFrom?.employeeId, o.heldBy?.employeeId].filter((x): x is string => !!x);
-  const eligible = new Set(eligibleFor(org.state, slotOf(o), exclude).map((e) => e.id));
+  const eligible = new Set(eligibleNow(org, slotOf(o), exclude).map((e) => e.id));
   let told = 0;
   while (offer.released < offer.waves.length) {
     const last = all || offer.released === offer.waves.length - 1;
@@ -506,7 +536,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
         .filter((r) => r.openShiftId === o.id)
         .map((r) => managerView(req, g, org, r, today())),
       // Untargeted: offered in waves to everyone eligible. Whoever it was released from or held by is not offered it.
-      eligible: o.status === 'open' && !o.offers ? eligibleFor(org.state, slotOf(o), [o.releasedFrom?.employeeId, o.heldBy?.employeeId].filter((x): x is string => !!x)).map((e) => e.name) : [],
+      eligible: o.status === 'open' && !o.offers ? eligibleNow(org, slotOf(o), [o.releasedFrom?.employeeId, o.heldBy?.employeeId].filter((x): x is string => !!x)).map((e) => e.name) : [],
       // Targeted: who is asked, in what round, and how each answered.
       asked: o.offers
         ? o.offers.map((x) => ({
@@ -589,7 +619,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
   }
 
   const candidateRows = (org: OrgData, g: Guard, slot: Shift, exclude: string[]) =>
-    goingCandidates(org.state, slot, exclude).map(({ candidate: c, eligible, reason }) => ({
+    openCandidates(org, slot, exclude).map(({ candidate: c, eligible, reason }) => ({
       employeeId: c.employee.id,
       name: c.employee.name,
       homeSite: c.homeSite,
@@ -663,13 +693,19 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       const keep = !!s && body.keepUntilTaken === true;
       const exclude = s ? [s.employeeId] : [];
       const targeted = body.employeeIds !== undefined || !!body.rounds;
+      assertSomeoneUnlocked(org, { ...slot, id: 'new', employeeId: '' }, exclude);
       // Who is put to, cheapest first: the eligible people named, or everyone eligible when rounds are asked for.
       let offers: OpenShift['offers'];
       let rounds: OpenShift['rounds'];
       if (targeted) {
-        const rows = goingCandidates(org.state, { ...slot, id: 'new', employeeId: '' }, exclude);
+        const rows = openCandidates(org, { ...slot, id: 'new', employeeId: '' }, exclude);
         const named = body.employeeIds;
         const bad = (named ?? []).filter((id) => !rows.some((r) => r.eligible && r.candidate.employee.id === id));
+        const locked = bad.filter((id) => rows.some((r) => r.candidate.employee.id === id && r.reason === LOCKED_FOR_PAYROLL));
+        if (locked.length) {
+          const who = locked.map((id) => org.state.employees.find((e) => e.id === id)?.name ?? id).join(', ');
+          throw new HttpError(409, 'rota_locked', `${who}: rota for ${slot.date} is locked for payroll, so cannot be asked.`);
+        }
         if (bad.length) {
           const who = bad.map((id) => org.state.employees.find((e) => e.id === id)?.name ?? id).join(', ');
           throw new HttpError(409, 'not_eligible', `${who} cannot take this shift under the rota rules, so cannot be asked.`);
@@ -713,7 +749,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       if (offers) told = askNextRound(org, o, actorName(g), now);
       else {
         // Offered cheapest first: those short of their contracted hours, then the cheapest few, then everyone.
-        const eligible = eligibleFor(org.state, slotOf(o), exclude);
+        const eligible = eligibleNow(org, slotOf(o), exclude);
         o.offer = { waves: offerWaves(rankOffer(org.state, slotOf(o), eligible)), released: 0, told: [] };
         told = releaseWave(org, o, now, body.everyone === true || tooCloseForWaves(o, londonParts(now)));
       }
