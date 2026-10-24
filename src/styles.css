@@ -1587,3 +1587,26 @@ button, select, input { border-radius: 8px; }
   .whatsnew-notice { flex-direction: column; align-items: flex-start; }
   .walkthrough { right: 16px; bottom: 16px; }
 }
+
+/* Features: which parts of Preshift the organisation uses. */
+.features-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.features-count { margin: 0; white-space: nowrap; font-size: 13px; color: var(--muted); }
+.features-count strong { font-size: 22px; color: var(--ink); margin-right: 2px; }
+.features-actions { display: flex; gap: 8px; margin-top: 10px; }
+.feature-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.feature-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 10px 0; border-top: 1px solid var(--rule); }
+.feature-row:first-child { border-top: none; }
+.feature-row.is-off .feature-name { color: var(--muted); }
+.feature-row-stack { flex-direction: column; align-items: stretch; }
+.feature-text { min-width: 0; }
+.feature-text p { margin: 2px 0 0; }
+.feature-name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.feature-off-means { color: var(--warn); }
+.feature-row .toggle { flex: none; }
+.feature-sites { margin: 4px 0 0; }
+.features-save { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; padding: 10px 0; }
+.features-save.is-pending { background: var(--card); border-top: 1px solid var(--rule-strong); padding: 10px 16px; border-radius: 10px; box-shadow: var(--shadow); }
+.features-save p { margin: 0; }
+@media (max-width: 640px) {
+  .features-head, .feature-row { flex-direction: column; }
+}

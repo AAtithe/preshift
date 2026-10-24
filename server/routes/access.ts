@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { User } from '../../src/engine/access';
+import { featureOf, normaliseOff } from '../../src/engine/features';
 import { getLimits, setLimits, spend } from '../assistantLimits';
 import { signedIn } from '../auth';
 import { HttpError, orgOf, type AppContext } from '../context';
@@ -463,6 +464,44 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
 
+
+  // Features: which parts of Preshift the organisation uses. Read by everyone through /v1/me; changed
+  // here by a person who manages settings, with every change kept in the audit trail.
+  const featureChanges = (org: OrgData) =>
+    org.audit
+      .filter((e) => e.action === 'settings.features_set')
+      .slice(-20)
+      .reverse()
+      .map((e) => ({ at: e.at, by: e.actor, on: (e.detail?.on as string[]) ?? [], off: (e.detail?.off as string[]) ?? [] }));
+
+  app.get('/v1/settings/features', hidden, async (req) => {
+    settingsPerson(req);
+    const org = orgOf(req);
+    return { featuresOff: org.settings.featuresOff ?? [], benchmarking: !!org.settings.benchmarking, changes: featureChanges(org) };
+  });
+
+  app.put<{ Body: { featuresOff?: unknown } }>('/v1/settings/features', hidden, async (req) => {
+    const who = settingsPerson(req);
+    const asked = req.body?.featuresOff;
+    if (!Array.isArray(asked) || asked.some((id) => typeof id !== 'string')) {
+      throw new HttpError(400, 'invalid_request', 'Send featuresOff: the list of features to switch off, empty for all on.');
+    }
+    const { off, unknown } = normaliseOff(asked as string[]);
+    if (unknown.length) throw new HttpError(422, 'unknown_feature', `There is no feature ${unknown.join(', ')} that can be switched off.`);
+    const org = orgOf(req);
+    const before = new Set(org.settings.featuresOff ?? []);
+    const after = new Set(off);
+    const turnedOn = [...before].filter((id) => !after.has(id));
+    const turnedOff = off.filter((id) => !before.has(id));
+    if (turnedOn.length || turnedOff.length) {
+      org.settings = { ...org.settings, featuresOff: off };
+      audit(org, who, 'settings.features_set', {
+        on: turnedOn, off: turnedOff,
+        labels: [...turnedOn, ...turnedOff].map((id) => featureOf(id)?.label ?? id),
+      });
+    }
+    return { featuresOff: off, benchmarking: !!org.settings.benchmarking, changes: featureChanges(org) };
+  });
 
   app.put<{ Body: { claudeApiKey?: string | null } }>('/v1/settings/claude-api-key', hidden, async (req) => {
     const who = settingsPerson(req);

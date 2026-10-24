@@ -248,6 +248,8 @@ export interface OrgSettings {
   digestOff?: string[];
   /** Sites whose open shift claims are approved without a manager when inside the rules and the labour budget. */
   openShiftAutoApprove?: string[];
+  /** Features switched off for everyone in the organisation (src/engine/features.ts). Absent means all on. */
+  featuresOff?: string[];
 }
 
 export type UserRole = 'admin' | 'member';
