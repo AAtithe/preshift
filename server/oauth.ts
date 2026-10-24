@@ -2,8 +2,9 @@
 // registration, and the discovery documents the MCP authorisation spec asks for. claude.ai finds
 // all of it from the connector's address alone, so nobody copies a key anywhere.
 //
-// A token acts as the person who approved it, exactly as a personal API key does: their roles
-// decide site by site, it never counts as having passed the authenticator (so pay approval and
+// One connection reaches every organisation the person approved, each named on every call, so
+// someone who works across many clients connects once. In each it acts as the person exactly as a
+// personal API key does: their roles there decide site by site, it never counts as having passed the authenticator (so pay approval and
 // other strong rights stay in the app), and it carries only the scopes they ticked. Removing the
 // person, suspending them or resetting their password ends every token they gave. Everything is
 // kept in the settings store, hashed, so it works on Vercel with no new tables.
@@ -24,6 +25,13 @@ const CODE_SECONDS = 5 * 60;
 /** What a person may hand Claude. Pay changes, payroll, HR files, webhooks and keys stay in the app. */
 export const OAUTH_SCOPES = ['rota:read', 'employees:read', 'rota:write', 'time:approve'] as const;
 const DEFAULT_SCOPES: Scope[] = ['rota:read'];
+/** What each box is called on the consent page, in the words the team guide uses. */
+const SCOPE_NAMES: Record<(typeof OAUTH_SCOPES)[number], string> = {
+  'rota:read': 'View the rota',
+  'employees:read': 'See staff and pay',
+  'rota:write': 'Change the rota',
+  'time:approve': 'Approve clocked time',
+};
 
 interface OAuthClient {
   id: string;
@@ -37,19 +45,26 @@ interface OAuthCode {
   redirectUri: string;
   challenge: string;
   scopes: Scope[];
-  orgId: string;
-  userId: string;
+  orgs: GrantOrg[];
   email: string;
   expiresAt: number;
 }
 
-/** One person's approval of one client in one organisation. Its tokens rotate; the grant stays. */
+/** An organisation a connection reaches, and the person's access record there. */
+export interface GrantOrg {
+  orgId: string;
+  userId: string;
+}
+
+/** One person's approval of one app, across the organisations they ticked. Its tokens rotate; the grant stays. */
 export interface OAuthGrant {
   id: string;
   clientId: string;
   clientName: string;
-  orgId: string;
-  userId: string;
+  orgs: GrantOrg[];
+  /** Grants made before connections reached several organisations name one here. */
+  orgId?: string;
+  userId?: string;
   email: string;
   scopes: Scope[];
   createdAt: string;
@@ -63,6 +78,10 @@ export interface OAuthGrant {
   revokedAt?: string;
 }
 
+/** The organisations a grant reaches, whichever shape it was saved in. */
+export const grantOrgs = (g: Pick<OAuthGrant, 'orgs' | 'orgId' | 'userId'>): GrantOrg[] =>
+  g.orgs ?? (g.orgId && g.userId ? [{ orgId: g.orgId, userId: g.userId }] : []);
+
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const token = (prefix: string) => `${prefix}${randomBytes(32).toString('base64url')}`;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -75,7 +94,9 @@ const key = {
   access: (h: string) => `oauth:access:${h}`,
   refresh: (h: string) => `oauth:refresh:${h}`,
   refreshUsed: (h: string) => `oauth:refresh-used:${h}`,
-  person: (email: string, orgId: string) => `oauth:person:${email.toLowerCase()}:${orgId}`,
+  person: (email: string) => `oauth:person:${email.toLowerCase()}`,
+  /** Where grants made before connections reached several organisations were listed. */
+  personIn: (email: string, orgId: string) => `oauth:person:${email.toLowerCase()}:${orgId}`,
 };
 
 async function readJson<T>(store: UserStore, k: string): Promise<T | null> {
@@ -121,29 +142,53 @@ async function revokeGrant(store: Store, g: OAuthGrant, by: string) {
   await store.setSetting(key.access(g.accessHash), null);
   await store.setSetting(key.refresh(g.refreshHash), null);
   await saveGrant(store, g);
-  const org = await store.load(g.orgId);
-  audit(org, by, 'oauth.revoked', { id: g.id, client: g.clientName, email: g.email });
-  await store.save(org);
+  for (const { orgId } of grantOrgs(g)) {
+    if (!(await store.has(orgId))) continue;
+    const org = await store.load(orgId);
+    audit(org, by, 'oauth.revoked', { id: g.id, client: g.clientName, email: g.email });
+    await store.save(org);
+  }
 }
 
-/** The account still exists, still belongs to the organisation, and has not reset its password since. */
-async function accountStands(store: UserStore, g: OAuthGrant) {
+/** The account still exists and has not reset its password since. Each organisation is checked per call. */
+async function accountOf(store: UserStore, g: OAuthGrant) {
   const account = await store.getUser(g.email);
-  return !!account && orgsOfAccount(account).includes(g.orgId) && g.issuedAt >= account.sessionsValidFrom;
+  return account && g.issuedAt >= account.sessionsValidFrom ? account : null;
 }
+
+/** The header that names which of a connection's organisations a call acts in. */
+export const ORG_HEADER = 'x-preshift-organisation';
 
 /**
- * The principal for a bearer token from this server, or null. Acts as its person, like a personal
- * key: their roles decide, the authenticator is never counted as passed.
+ * The principal for a bearer token from this server, null when the token is not live, or why the
+ * organisation asked for cannot be used. Acts as its person, like a personal key: their roles in
+ * that organisation decide, and the authenticator is never counted as passed. An organisation
+ * the account has since left drops out at once.
  */
-export async function oauthPrincipal(bearer: string, store: UserStore): Promise<ApiKey | null> {
+export async function oauthPrincipal(bearer: string, store: UserStore, asked?: string): Promise<ApiKey | { refused: string } | null> {
   const grantId = await store.getSetting(key.access(hash(bearer)));
   if (!grantId) return null;
   const g = await readJson<OAuthGrant>(store, key.grant(grantId));
   if (!g || g.revokedAt || g.accessHash !== hash(bearer) || g.accessExpiresAt <= nowSeconds()) return null;
-  if (!(await accountStands(store, g))) return null;
+  const account = await accountOf(store, g);
+  if (!account) return null;
+  const reach = grantOrgs(g).filter((o) => orgsOfAccount(account).includes(o.orgId));
+  if (reach.length === 0) return null;
+  const chosen = asked ? reach.find((o) => o.orgId === asked) : reach.length === 1 ? reach[0] : undefined;
+  if (asked && !chosen) return { refused: `This connection does not reach organisation ${asked}.` };
   if (!g.lastUsedAt || Date.now() - Date.parse(g.lastUsedAt) > 5 * 60_000) await saveGrant(store, { ...g, lastUsedAt: new Date().toISOString() });
-  return { key: `oauth:${g.id}`, keyId: `oauth:${g.id}`, orgId: g.orgId, name: `${g.clientName} for ${g.email}`, scopes: g.scopes, userId: g.userId, mfa: false };
+  const at = chosen ?? reach[0];
+  return {
+    key: `oauth:${g.id}`,
+    keyId: `oauth:${g.id}`,
+    orgId: at.orgId,
+    name: `${g.clientName} for ${g.email}`,
+    scopes: g.scopes,
+    userId: at.userId,
+    mfa: false,
+    orgs: reach.map((o) => o.orgId),
+    ...(chosen ? {} : { orgUnchosen: true }),
+  };
 }
 
 /** The address people reach Preshift on, for the discovery documents and the issuer. */
@@ -297,25 +342,36 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
     return reply.code(302).header('location', u.toString()).send();
   };
 
-  /** The signed-in person and their access record in the session's organisation, or why not. */
+  const orgLabel = (org: { orgId: string; state: { entities: { name: string }[] } }) => org.state.entities.map((e) => e.name).join(', ') || org.orgId;
+
+  /**
+   * The signed-in person, every organisation they could connect (an active access record, never
+   * the demo), and the others with why not, so the page can say so rather than leave them out silently.
+   */
   async function who(req: FastifyRequest) {
     const claims = await readSession(cookieFrom(req.headers.cookie), await store.sessionSecret());
     if (!claims) return null;
     const account = await store.getUser(claims.email);
     if (!account || !orgsOfAccount(account).includes(claims.orgId) || claims.issuedAt < account.sessionsValidFrom) return null;
-    const org = await store.load(claims.orgId);
-    const record = org.users.find((u) => u.email === account.email.toLowerCase());
-    return { account, org, record };
+    const open: { orgId: string; userId: string; label: string; name: string }[] = [];
+    const closed: { label: string; why: string }[] = [];
+    for (const orgId of orgsOfAccount(account)) {
+      if (isSandbox(orgId) || !(await store.has(orgId))) continue;
+      const org = await store.load(orgId);
+      const record = org.users.find((u) => u.email === account.email.toLowerCase());
+      const label = orgLabel(org);
+      if (record?.status === 'active') open.push({ orgId, userId: record.id, label, name: record.name });
+      else closed.push({ label, why: !record ? 'no access record' : record.status === 'invited' ? 'invitation not yet accepted' : 'access not active' });
+    }
+    // The organisation the person is working in comes first, as it is the one they will expect.
+    open.sort((a, b) => Number(b.orgId === claims.orgId) - Number(a.orgId === claims.orgId) || a.label.localeCompare(b.label));
+    return { account, sessionOrgId: claims.orgId, open, closed };
   }
 
-  const orgLabel = (org: { orgId: string; state: { entities: { name: string }[] } }) => org.state.entities.map((e) => e.name).join(', ') || org.orgId;
-
-  const refusal = (org: { orgId: string }, record: { status: string } | undefined) => {
-    if (isSandbox(org.orgId)) return 'This is the public demo, so connecting other apps is switched off here.';
-    if (!record) return 'You need an access record in this organisation before you can connect an app. Ask whoever manages access.';
-    if (record.status === 'invited') return 'Open Preshift once to accept your invitation, then connect again.';
-    if (record.status !== 'active') return 'Your access to this organisation is not active.';
-    return null;
+  const refusal = (me: { sessionOrgId: string; open: unknown[] }) => {
+    if (me.open.length > 0) return null;
+    if (isSandbox(me.sessionOrgId)) return 'This is the public demo, so connecting other apps is switched off here.';
+    return 'You need an active access record in an organisation before you can connect an app. Ask whoever manages access.';
   };
 
   app.get<{ Querystring: AuthorizeParams }>('/oauth/authorize', hidden, async (req, reply) => {
@@ -325,24 +381,32 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
     if ('redirectError' in checked) return back(reply, req, p.redirect_uri!, { error: checked.redirectError, state: p.state });
     const me = await who(req);
     if (!me) return reply.code(302).header('location', `/login?next=${encodeURIComponent(req.url)}`).send();
-    const no = refusal(me.org, me.record);
+    const no = refusal(me);
     if (no) return html(reply, 403, 'Cannot connect', `<h1>Cannot connect</h1><p>${escape(no)}</p>`);
     const host = new URL(p.redirect_uri!).host;
+    const orgBoxes = me.open
+      .map((o) => `<label><input type="checkbox" name="org:${escape(o.orgId)}" value="1" checked><span><b>${escape(o.label)}</b>as ${escape(o.name)}</span></label>`)
+      .join('');
+    const notOffered = me.closed.length
+      ? `<p class="quiet">Not offered: ${me.closed.map((c) => `${escape(c.label)} (${escape(c.why)})`).join('; ')}.</p>`
+      : '';
     const hiddenFields = (['client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method', 'response_type'] as const)
       .filter((k) => p[k] !== undefined)
       .map((k) => `<input type="hidden" name="${k}" value="${escape(String(p[k]))}">`)
       .join('');
     const boxes = OAUTH_SCOPES.map(
-      (s) => `<label><input type="checkbox" name="tick:${s}" value="1"${checked.scopes.includes(s) ? ' checked' : ''}><span><b>${escape(s)}</b>${escape(SCOPES[s])}</span></label>`,
+      (s) => `<label><input type="checkbox" name="tick:${s}" value="1"${checked.scopes.includes(s) ? ' checked' : ''}><span><b>${escape(SCOPE_NAMES[s])}</b>${escape(SCOPES[s])} <span class="quiet">(${escape(s)})</span></span></label>`,
     ).join('');
     return html(
       reply,
       200,
       'Connect to Preshift',
       `<h1>Connect ${escape(checked.client.name)} to Preshift</h1>
-<p>${escape(checked.client.name)} will act as you, ${escape(me.record!.name)}, in ${escape(orgLabel(me.org))}. It can only do what you can do, at the sites you can do it, and only what you tick below.</p>
-<p class="quiet">It will return to ${escape(host)}. Approving pay, payroll, personnel files and settings stay in Preshift itself. You can disconnect at any time at /oauth/connections.</p>
-<form method="post" action="/oauth/authorize">${hiddenFields}${boxes}
+<p>${escape(checked.client.name)} will act as you in each organisation you tick. In each it can only do what you can do there, at the sites you can do it, and only what you allow below.</p>
+<p class="quiet">It will return to ${escape(host)}. Approving pay, payroll, personnel files and settings stay in Preshift itself. Disconnect at any time from Connected apps, at the bottom left of Preshift.</p>
+<form method="post" action="/oauth/authorize">${hiddenFields}
+<h2 style="font-size:15px;margin:16px 0 4px">Organisations</h2>${orgBoxes}${notOffered}
+<h2 style="font-size:15px;margin:16px 0 4px">What it may do</h2>${boxes}
 <div class="row"><button class="go" name="decision" value="allow">Allow</button><button name="decision" value="deny">Cancel</button></div></form>`,
     );
   });
@@ -361,16 +425,18 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
     }
     const me = await who(req);
     if (!me) return reply.code(302).header('location', '/login').send();
-    const no = refusal(me.org, me.record);
+    const no = refusal(me);
     if (no) return html(reply, 403, 'Cannot connect', `<h1>Cannot connect</h1><p>${escape(no)}</p>`);
+    // Only organisations offered now, worked out again here, never trusted from the form alone.
+    const orgs = me.open.filter((o) => p[`org:${o.orgId}`] === '1').map(({ orgId, userId }) => ({ orgId, userId }));
+    if (orgs.length === 0) return html(reply, 400, 'Cannot connect', '<h1>Tick at least one organisation</h1><p>Go back and choose where the app may act as you.</p>');
     const code = randomBytes(32).toString('base64url');
     const record: OAuthCode = {
       clientId: checked.client.id,
       redirectUri: p.redirect_uri!,
       challenge: p.code_challenge!,
       scopes: checked.scopes,
-      orgId: me.org.orgId,
-      userId: me.record!.id,
+      orgs,
       email: me.account.email,
       expiresAt: nowSeconds() + CODE_SECONDS,
     };
@@ -397,8 +463,7 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
         id: `grant_${randomUUID()}`,
         clientId: c.clientId,
         clientName: client?.name ?? 'An MCP client',
-        orgId: c.orgId,
-        userId: c.userId,
+        orgs: c.orgs,
         email: c.email,
         scopes: c.scopes,
         createdAt: new Date().toISOString(),
@@ -409,11 +474,14 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
         refreshExpiresAt: 0,
       };
       const issued = await issueTokens(store, g);
-      const index = (await readJson<string[]>(store, key.person(g.email, g.orgId))) ?? [];
-      await writeJson(store, key.person(g.email, g.orgId), [...index, g.id].slice(-50));
-      const org = await store.load(g.orgId);
-      audit(org, g.email, 'oauth.connected', { id: g.id, client: g.clientName, scopes: g.scopes });
-      await store.save(org);
+      const index = (await readJson<string[]>(store, key.person(g.email))) ?? [];
+      await writeJson(store, key.person(g.email), [...index, g.id].slice(-50));
+      // Each organisation's own audit trail records that the person connected an app there.
+      for (const { orgId } of g.orgs) {
+        const org = await store.load(orgId);
+        audit(org, g.email, 'oauth.connected', { id: g.id, client: g.clientName, scopes: g.scopes });
+        await store.save(org);
+      }
       return reply.header('cache-control', 'no-store').send(issued);
     }
     if (b.grant_type === 'refresh_token') {
@@ -429,7 +497,8 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
       const g = await readJson<OAuthGrant>(store, key.grant(grantId));
       if (!g || g.revokedAt || g.refreshHash !== h || g.refreshExpiresAt <= nowSeconds()) return tokenError(reply, 'invalid_grant', 'That refresh token is unknown, used or expired.');
       if (b.client_id && b.client_id !== g.clientId) return tokenError(reply, 'invalid_grant', 'That refresh token belongs to another app.');
-      if (!(await accountStands(store, g))) return tokenError(reply, 'invalid_grant', 'Sign in to Preshift again.');
+      const account = await accountOf(store, g);
+      if (!account || !grantOrgs(g).some((o) => orgsOfAccount(account).includes(o.orgId))) return tokenError(reply, 'invalid_grant', 'Sign in to Preshift again.');
       if (!(await claimOnce(store, key.refreshUsed(h), g.id))) return tokenError(reply, 'invalid_grant', 'That refresh token is unknown, used or expired.');
       // A narrower set may be asked for on refresh, never a wider one.
       if (b.scope) {
@@ -453,15 +522,18 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
     return reply.code(200).send({});
   });
 
-  // A person's own connections in the organisation they are signed in to, with a disconnect button.
+  // Every connection the person has made, across every organisation, each with a disconnect button.
   app.get('/oauth/connections', hidden, async (req, reply) => {
     const me = await who(req);
     if (!me) return reply.code(302).header('location', `/login?next=${encodeURIComponent('/oauth/connections')}`).send();
-    const ids = (await readJson<string[]>(store, key.person(me.account.email, me.org.orgId))) ?? [];
-    const grants = (await Promise.all(ids.map((id) => readJson<OAuthGrant>(store, key.grant(id))))).filter((g): g is OAuthGrant => !!g && !g.revokedAt);
+    const ids = new Set((await readJson<string[]>(store, key.person(me.account.email))) ?? []);
+    for (const orgId of orgsOfAccount(me.account)) for (const id of (await readJson<string[]>(store, key.personIn(me.account.email, orgId))) ?? []) ids.add(id);
+    const grants = (await Promise.all([...ids].map((id) => readJson<OAuthGrant>(store, key.grant(id))))).filter((g): g is OAuthGrant => !!g && !g.revokedAt);
+    const labels = new Map<string, string>();
+    for (const g of grants) for (const { orgId } of grantOrgs(g)) if (!labels.has(orgId) && (await store.has(orgId))) labels.set(orgId, orgLabel(await store.load(orgId)));
     const rows = grants
       .map(
-        (g) => `<tr><td><b>${escape(g.clientName)}</b><br><span class="quiet">${escape(g.scopes.join(', '))}<br>Connected ${escape(g.createdAt.slice(0, 10))}${g.lastUsedAt ? `, last used ${escape(g.lastUsedAt.slice(0, 10))}` : ''}</span></td>
+        (g) => `<tr><td><b>${escape(g.clientName)}</b><br><span class="quiet">${escape(grantOrgs(g).map((o) => labels.get(o.orgId) ?? o.orgId).join('; '))}<br>${escape(g.scopes.join(', '))}<br>Connected ${escape(g.createdAt.slice(0, 10))}${g.lastUsedAt ? `, last used ${escape(g.lastUsedAt.slice(0, 10))}` : ''}</span></td>
 <td style="text-align:right"><form method="post" action="/oauth/connections/${escape(g.id)}/revoke"><button>Disconnect</button></form></td></tr>`,
       )
       .join('');
@@ -469,7 +541,7 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
       reply,
       200,
       'Connected apps',
-      `<h1>Connected apps</h1><p>Apps you have let act as you in ${escape(orgLabel(me.org))}. Disconnecting stops them at once.</p>${rows ? `<table>${rows}</table>` : '<p class="quiet">None yet. To connect Claude, add this Preshift address followed by /mcp as a custom connector in Claude.</p>'}<p class="quiet" style="margin-top:20px"><a href="/app/" style="color:inherit">Back to Preshift</a></p>`,
+      `<h1>Connected apps</h1><p>Apps you have let act as you, in every organisation you work in. Disconnecting stops them at once, everywhere.</p>${rows ? `<table>${rows}</table>` : '<p class="quiet">None yet. To connect Claude, add this Preshift address followed by /mcp as a custom connector in Claude.</p>'}<p class="quiet" style="margin-top:20px"><a href="/app/" style="color:inherit">Back to Preshift</a></p>`,
     );
   });
 
@@ -478,9 +550,9 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
     const me = await who(req);
     if (!me) return reply.code(302).header('location', '/login').send();
     const g = await readJson<OAuthGrant>(store, key.grant(req.params.id));
-    // Only your own, in the organisation you are signed in to.
-    if (!g || g.email !== me.account.email || g.orgId !== me.org.orgId) return html(reply, 404, 'Not found', '<h1>Not found</h1>');
-    await revokeGrant(store, g, me.record?.name ?? me.account.email);
+    // Only your own.
+    if (!g || g.email !== me.account.email) return html(reply, 404, 'Not found', '<h1>Not found</h1>');
+    await revokeGrant(store, g, me.open.find((o) => o.orgId === me.sessionOrgId)?.name ?? me.account.email);
     return reply.code(303).header('location', '/oauth/connections').send();
   });
 }

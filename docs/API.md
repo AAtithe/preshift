@@ -243,8 +243,23 @@ claude mcp add --transport http preshift https://<your Preshift address>/mcp \
 claude.ai connects with no key at all. Add a custom connector (Settings, Connectors) with the
 address `https://<your Preshift address>/mcp` and press Connect. Claude finds Preshift's sign-in
 on its own, opens it, and the person signs in to Preshift as they normally do. They then see
-what Claude will be able to do and tick the boxes, and Claude is connected. Claude Code and
-Claude Desktop use the same sign-in when added without a key header.
+every organisation they work in and what Claude will be able to do, tick the boxes, and Claude is
+connected. Claude Code and Claude Desktop use the same sign-in when added without a key header.
+
+One connection reaches every organisation the person ticked, so someone at Williams, Stanley & Co.
+who looks after twenty clients connects once, at the one Preshift address, not twenty times.
+
+- The consent page lists each organisation where the person has an active access record, all
+  ticked, and names the others with the reason they are left out (no access record, invitation
+  not accepted, access not active). The demo is never offered.
+- Claude calls `list_organisations` first, then passes `organisation` to every other tool. With
+  more than one organisation and none named, a tool refuses rather than guess; with one, it is
+  used. A key reaches its own organisation only, as before.
+- Each call acts as the person's own access record in that organisation, checked on the call. An
+  organisation the person leaves drops out of the connection at once; the others carry on.
+- Calling the API directly with such a token, name the organisation in the
+  `x-preshift-organisation` header. Without it, a token reaching several answers
+  `400 organisation_required` with the list.
 
 - Standards: OAuth 2.1 with PKCE (S256 only), dynamic client registration (RFC 7591),
   protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`,
@@ -255,18 +270,18 @@ Claude Desktop use the same sign-in when added without a key header.
   decide, site by site: a GM's connection reaches their own site only. It never counts as having
   passed the authenticator, so strong rights (pay changes and approval, payroll, settings, access,
   HR cases, close export) stay in the app, whatever the person holds.
-- The person ticks what Claude may do from `rota:read` (ticked by default), `employees:read`,
-  `rota:write` and `time:approve`. Nothing else is offered.
-- Only someone with an active access record in the organisation can connect. The public demo
-  refuses.
+- The person ticks what Claude may do, the same in every organisation: View the rota
+  (`rota:read`, ticked by default), See staff and pay (`employees:read`), Change the rota
+  (`rota:write`) and Approve clocked time (`time:approve`). Nothing else is offered.
 - Access tokens last an hour; refresh tokens 30 days and rotate on every use. A refresh token
   used twice ends the whole connection, as it means someone holds a copy. Codes last five
   minutes and work once, with their own verifier, for their own app and address.
-- A connection ends at once when the person disconnects it at `/oauth/connections`, when it is
-  revoked, when the person is removed or suspended, or when their password is reset.
+- A connection ends at once when the person disconnects it from Connected apps
+  (`/oauth/connections`, linked at the bottom left of Preshift, listing every connection with the
+  organisations it reaches), when it is revoked, or when their password is reset.
 - Redirect addresses must be https, or http on `localhost` for desktop clients, and must match
   what the app registered exactly. A bad one is shown as an error, never followed.
-- Every connection and disconnection is in the organisation's audit trail (`oauth.connected`,
+- Every connection and disconnection is in each organisation's audit trail (`oauth.connected`,
   `oauth.revoked`). Calls made through it are logged like any key's, as `oauth:<grant id>`.
 - Clients, codes and tokens are kept in the settings table, hashed, so nothing new needs setting
   up. Set `PRESHIFT_PUBLIC_URL` if Preshift sits behind a proxy that changes the host name;
