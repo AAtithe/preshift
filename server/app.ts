@@ -45,7 +45,7 @@ import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
 import { askDueRounds } from './cover';
-import { carryNotifications, releaseHeld } from './messaging';
+import { carryNotifications, keepMessages, releaseHeld } from './messaging';
 import { requestRoutes } from './routes/requests';
 import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
@@ -336,7 +336,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
           await carryNotifications(ctx, org);
           await deliverNotifications(store, org);
         }
-        if (released || asked) await store.save(org);
+        // Messages past the organisation's retention period go even where nobody has written lately.
+        const dropped = keepMessages(org, ctx.now());
+        if (released || asked || dropped) await store.save(org);
       } catch (err) {
         app.log.error({ orgId, err: (err as Error).message }, 'held messages not released');
       }

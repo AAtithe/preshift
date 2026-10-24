@@ -10,9 +10,10 @@
 //   reading that, and is kept by a third party on its own terms.
 
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { DEFAULT_RETENTION } from '../src/engine/gdpr';
 import type { Employee } from '../src/engine/types';
 import {
-  CHANNEL_NAMES, directId, emptyMessaging, inQuiet, maskEmail, maskPhone, minutesToQuietEnd, routeFor,
+  CHANNEL_NAMES, directId, emptyMessaging, inQuiet, trimMessaging, maskEmail, maskPhone, minutesToQuietEnd, routeFor,
   type Channel, type Conversation, type Delivery, type Message, type MessagingData, type PersonChannel, type TeamChannel,
 } from '../src/engine/messaging';
 import { londonParts, type AppContext } from './context';
@@ -130,6 +131,15 @@ export function settingsView(s: MessagingSettings, orgId: string, appUrl: string
 }
 
 export const whatsappWebhookPath = (orgId: string) => `/v1/integrations/whatsapp/webhook/${encodeURIComponent(orgId)}`;
+
+/**
+ * Drops messages past the organisation's retention period. Run on every write and on the
+ * quarter-hourly run, so a quiet organisation still lets them go on time.
+ */
+export function keepMessages(org: OrgData, now: Date): number {
+  if (!org.messaging) return 0;
+  return trimMessaging(messagingOf(org), now, { ...DEFAULT_RETENTION, ...org.privacy?.policy }.messageMonths);
+}
 
 /** The org's messaging, made on first use. */
 export function messagingOf(org: OrgData): MessagingData {

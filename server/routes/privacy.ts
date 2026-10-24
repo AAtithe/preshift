@@ -48,6 +48,7 @@ const policyBody = {
     contactMonthsAfterLeaving: { type: 'integer', minimum: 0 },
     rightToWorkYearsAfterLeaving: { type: 'integer', minimum: 0 },
     payrollYearsAfterTaxYear: { type: 'integer', minimum: 0 },
+    messageMonths: { type: 'integer', minimum: 0 },
   },
 } as const;
 
@@ -160,10 +161,12 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.put<{ Body: RetentionPolicy }>('/v1/privacy/policy', { ...admin, schema: { tags: ['Privacy'], body: policyBody } }, async (req) => {
-    const problem = retentionPolicyProblem(req.body);
+    // Clients that saved a policy before messages had a period keep the default for them.
+    const policy = { ...DEFAULT_RETENTION, ...req.body };
+    const problem = retentionPolicyProblem(policy);
     if (problem) throw new HttpError(400, 'retention_too_short', problem);
     const org = orgOf(req);
-    privacyOf(org).policy = { ...req.body };
+    privacyOf(org).policy = policy;
     audit(org, actor(req), 'privacy.policy_set', { ...req.body });
     return { policy: policyOf(org) };
   });

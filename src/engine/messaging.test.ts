@@ -49,4 +49,16 @@ describe('retention', () => {
     expect(data.conversations.map((c) => c.id)).toEqual(['b']);
     expect(data.reads).toEqual({});
   });
+
+  it('keeps messages longer where the organisation sets a longer period', () => {
+    const data = emptyMessaging();
+    data.conversations = [
+      { id: 'a', kind: 'direct', siteId: 'mar', employeeId: 'x', createdAt: '', createdBy: '', lastAt: '' },
+      { id: 'b', kind: 'direct', siteId: 'mar', employeeId: 'y', createdAt: '', createdBy: '', lastAt: '' },
+    ];
+    const m = (conversationId: string, at: string): Message => ({ id: at, conversationId, at, from: { kind: 'staff', name: 'x' }, body: 'hi', via: 'app', deliveries: [] });
+    data.messages = [m('a', '2023-11-01T00:00:00Z'), m('b', '2025-08-01T00:00:00Z')];
+    expect(trimMessaging(data, new Date('2026-10-21T00:00:00Z'), 24)).toBe(1);
+    expect(data.conversations.map((c) => c.id)).toEqual(['b']);
+  });
 });

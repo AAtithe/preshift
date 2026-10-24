@@ -109,7 +109,7 @@ export const emptyMessaging = (): MessagingData => ({ conversations: [], message
 
 export const MAX_BODY = 2000;
 export const MAX_TITLE = 120;
-/** Messages are kept 13 months: a year of any dispute about what someone was told, and a month to answer it. */
+/** Messages are kept 13 months unless the organisation's retention policy says longer (see gdpr.ts). */
 export const KEEP_MONTHS = 13;
 /** Held to a size the organisation document can carry; the oldest go first. */
 export const KEEP_MAX = 5000;
@@ -200,9 +200,9 @@ export function unread(data: MessagingData, c: Conversation, reader: string): nu
  * Drops messages past the retention period, and the oldest beyond the cap, then conversations left
  * with none. Returns how many messages went.
  */
-export function trimMessaging(data: MessagingData, now: Date): number {
+export function trimMessaging(data: MessagingData, now: Date, months = KEEP_MONTHS): number {
   const cutoff = new Date(now);
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - KEEP_MONTHS);
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
   const before = data.messages.length;
   data.messages = data.messages.filter((m) => m.at >= cutoff.toISOString());
   if (data.messages.length > KEEP_MAX) data.messages = [...data.messages].sort((a, b) => a.at.localeCompare(b.at)).slice(-KEEP_MAX);

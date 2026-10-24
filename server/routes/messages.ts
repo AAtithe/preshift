@@ -4,6 +4,7 @@ import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
 import {
+  keepMessages,
   addMessage, deliverToStaff, directThread, getMessagingSettings, inBatches, managerLink, messagingOf, messagingSetting, newVerifyToken,
   notifyTeam, outboundFor, postTeam, reachOf, carryNotifications, settingsView, STOP_WORDS, teamUrlProblem, verifyMetaSignature, appUrlOf, emailConnected,
   type MessagingSettings, type WhatsAppInbound,
@@ -15,7 +16,7 @@ import { deliverNotifications, notify } from '../notify';
 import { isYes } from '../../src/engine/cover';
 import {
   bodyProblem, CHANNEL_NAMES, deliverySummary, MAX_TITLE, normalisePhone, OUTSIDE_CHANNELS,
-  staffReader, trimMessaging, unread, userReader,
+  staffReader, unread, userReader,
   type Conversation, type Delivery, type Message, type PersonChannel, type StaffMessagingPrefs,
 } from '../../src/engine/messaging';
 import type { Employee } from '../../src/engine/types';
@@ -138,7 +139,7 @@ export function messageRoutes(app: FastifyInstance, ctx: AppContext) {
     message.deliveries = await deliverToStaff(out, employee, `${name}: ${message.body}`, { urgent, subject: `Message from ${name}` });
     // Writing is reading: the sender has seen everything up to their own message.
     messagingOf(org).reads[`${thread.id}|${reader}`] = at;
-    trimMessaging(messagingOf(org), ctx.now());
+    keepMessages(org, ctx.now());
     audit(org, name, 'messaging.sent', { conversationId: thread.id, employeeId: employee.id, urgent });
     return reply.code(201).send({ conversationId: thread.id, message: messageView(message) });
   });
@@ -176,7 +177,7 @@ export function messageRoutes(app: FastifyInstance, ctx: AppContext) {
     const results = await inBatches(recipients, 10, (e) => deliverToStaff(out, e, text, { urgent, subject: title }));
     message.deliveries = results.flat();
     message.deliveries.push(...(await notifyTeam(out, siteId, `${name} sent "${title}" to ${recipients.length} people at ${siteName(org, siteId)}.`, managerLink(out, siteId, c.id))));
-    trimMessaging(data, ctx.now());
+    keepMessages(org, ctx.now());
     audit(org, name, 'messaging.announcement', { conversationId: c.id, siteId, recipients: recipients.length, urgent });
     return reply.code(201).send({ conversationId: c.id, message: messageView(message) });
   });
@@ -366,7 +367,7 @@ export function staffMessageRoutes(app: FastifyInstance, ctx: AppContext) {
     const out = await outboundFor(ctx, org);
     // The team channel hears that there is a message, never what it says.
     message.deliveries = await notifyTeam(out, thread.siteId, `New message from ${employee.name} at ${siteName(org, thread.siteId)}.`, managerLink(out, thread.siteId, thread.id));
-    trimMessaging(messagingOf(org), ctx.now());
+    keepMessages(org, ctx.now());
     audit(org, `staff:${employee.id}`, 'messaging.staff_sent', { conversationId: thread.id });
     await store.save(org);
     return reply.code(201).send({ threads: threadsFor(org, employee) });
@@ -544,7 +545,7 @@ export function takeInbound(ctx: Pick<AppContext, 'now'>, org: OrgData, payload:
     }
   }
   if (received.length) audit(org, 'WhatsApp', 'messaging.whatsapp_received', { count: received.length });
-  trimMessaging(data, ctx.now());
+  keepMessages(org, ctx.now());
   return { received, taken, ambiguous };
 }
 
