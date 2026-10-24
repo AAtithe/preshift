@@ -146,6 +146,17 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/employees/:id/payroll-new-starter': true,
   'DELETE /v1/employees/:id/payroll-link': true,
   'POST /v1/payroll/submissions': true,
+  // Pay calendars and the pay period close: lock the rota, approve time cards, pass to the sandbox's simulator.
+  'GET /v1/pay-schedules': true,
+  'POST /v1/pay-schedules/preview': true,
+  'PUT /v1/entities/:id/pay-schedules': true,
+  'PUT /v1/employees/:id/pay-schedule': true,
+  'GET /v1/pay-periods': true,
+  'GET /v1/pay-periods/:entityId/:scheduleId/:periodStart': true,
+  'POST /v1/pay-periods/:entityId/:scheduleId/:periodStart/lock-rota': true,
+  'POST /v1/pay-periods/:entityId/:scheduleId/:periodStart/unlock-rota': true,
+  'POST /v1/pay-periods/:entityId/:scheduleId/:periodStart/approve': true,
+  'POST /v1/pay-periods/:entityId/:scheduleId/:periodStart/pass': true,
   // Pay changes waiting on finance approval, inside the sandbox.
   'GET /v1/pay-changes': true,
   'POST /v1/employees/:id/pay-changes': true,

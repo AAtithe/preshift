@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { addDays, weekDates } from '../../src/engine/time';
+import { weekDates } from '../../src/engine/time';
 import type { TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, orgOf, type AppContext } from '../context';
@@ -124,7 +124,7 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
         const item = org.outbox.find((i) => i.type === 'hours.submit' && i.payload.submissionId === sent.id);
         if (!item || item.type !== 'hours.submit') throw new HttpError(409, 'no_hours_sent', 'Send this week\'s hours to TeamPay first');
         const people = org.state.employees.filter((e) => e.entityId === entityId);
-        return ctx.simulatorFor(org.orgId)!.runPayroll(sent.employerId!, req.body.weekStart, addDays(req.body.weekStart, 6), people, item.payload.batch);
+        return ctx.simulatorFor(org.orgId)!.runPayroll(sent.employerId!, sent.periodStart, sent.periodEnd, people, item.payload.batch);
       });
       // Each webhook is its own request with its own load and save, exactly as when TeamPay calls in.
       await ctx.store.save(org);

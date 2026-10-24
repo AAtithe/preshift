@@ -21,6 +21,7 @@ import { eposRoutes, syncAllTills } from './routes/epos';
 import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
+import { payPeriodRoutes } from './routes/payPeriods';
 import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
@@ -472,6 +473,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
+    payPeriodRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
     cashRoutes(api, ctx);
     accountingRoutes(api, ctx, { xero: xeroFromEnv(env), simulatorAllowed: demo || !!payroll.simulator });

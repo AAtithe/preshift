@@ -23,6 +23,7 @@ import { actorName, guard, type Guard } from '../guard';
 import { managerDigests } from '../digest';
 import { deliverNotifications, notify, syncTold } from '../notify';
 import { idParam } from '../schemas';
+import { assertRotaOpen } from '../payPeriods';
 import { audit, type OrgData } from '../store';
 import { readsHr } from './hr';
 
@@ -274,7 +275,10 @@ function apply(org: OrgData, r: StaffRequest, by: string, now: Date) {
     case 'swap': {
       const touched = org.state.shifts.filter((s) => s.id === r.shiftId || s.id === r.returnShiftId);
       if (touched.some((s) => !tradeable(org, s, londonParts(now)))) throw new HttpError(409, 'request_stale', 'The shift has started or changed since the swap was agreed.');
-      org.state.shifts = swapped(org.state, r, r.takerId!);
+      const next = swapped(org.state, r, r.takerId!);
+      // A swap moves shifts between people, so neither side may sit in a pay period whose rota is locked.
+      assertRotaOpen(org, [...touched, ...next.filter((s) => touched.some((t) => t.id === s.id))]);
+      org.state.shifts = next;
       for (const s of touched) audit(org, by, 'shift.updated', { id: s.id });
       syncTold(org, [r.employeeId, r.takerId!], touched);
       break;
@@ -282,6 +286,7 @@ function apply(org: OrgData, r: StaffRequest, by: string, now: Date) {
     case 'open_shift': {
       const o = openShiftsOf(org).find((x) => x.id === r.openShiftId)!;
       const shift = claimedShift(org, o, e);
+      assertRotaOpen(org, [shift]);
       org.state.shifts.push(shift);
       Object.assign(o, { status: 'filled', filledBy: e.id, filledAt: now.toISOString(), shiftId: shift.id });
       audit(org, by, 'shift.created', { id: shift.id });
@@ -563,6 +568,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
         if (!s) throw notFound(`Shift ${req.body.fromShiftId}`);
         g.allow('rota.publish', s.siteId);
         if (hasStarted(s, londonParts(now)) || org.timeEntries.some((t) => t.shiftId === s.id)) throw new HttpError(409, 'worked_shift', 'This shift has started or been clocked against, so it cannot be put out for cover.');
+        assertRotaOpen(org, [s]);
         org.state.shifts = org.state.shifts.filter((x) => x.id !== s.id);
         audit(org, actorName(g), 'shift.deleted', { id: s.id });
         if (s.published) {
