@@ -231,6 +231,8 @@ export interface OrgSettings {
   benchmarking?: boolean;
   /** People (user ids) who have turned off the morning email of staff requests waiting for them. */
   digestOff?: string[];
+  /** Sites whose open shift claims are approved without a manager when inside the rules and the labour budget. */
+  openShiftAutoApprove?: string[];
 }
 
 export type UserRole = 'admin' | 'member';

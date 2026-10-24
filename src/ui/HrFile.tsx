@@ -482,6 +482,7 @@ function RecordList({ records, hr }: { records: HrRecord[]; hr: HrRecords }) {
             </div>
             {r.notes && <p className="hr-notes">{r.notes}</p>}
             <RecordFiles record={r} hr={hr} />
+            {r.kind === 'document' && (r.files?.length || r.signing) ? <SendToSign record={r} hr={hr} /> : null}
           </li>
         ),
       )}
@@ -514,6 +515,48 @@ function RecordFiles({ record, hr }: { record: HrRecord; hr: HrRecords }) {
         {busy ? 'Uploading' : record.files?.length ? 'Add another copy' : 'Attach a copy'}
         <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden disabled={busy} onChange={(e) => { void add(e.target.files?.[0]); e.target.value = ''; }} />
       </label>
+    </div>
+  );
+}
+
+const SIGN_KIND = { statement: 'Written statement', handbook: 'Handbook' } as const;
+const stamp = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+
+/**
+ * Signing in the staff app: send the copy on this record to the person, and see where it stands.
+ * Signed is final, with the time, the name typed and where from, against the exact copy sent.
+ */
+function SendToSign({ record, hr }: { record: HrRecord; hr: HrRecords }) {
+  const s = record.signing;
+  const [kind, setKind] = useState<'statement' | 'handbook'>(s?.kind ?? (/handbook/i.test(record.title) ? 'handbook' : 'statement'));
+  const files = record.files ?? [];
+  const [fileId, setFileId] = useState(s?.fileId ?? files[files.length - 1]?.id ?? '');
+  if (s?.signedAt) {
+    return (
+      <div className="hr-signing small good-text">
+        {SIGN_KIND[s.kind]} signed in the staff app on {stamp(s.signedAt)} as "{s.signedName}"{s.ip ? `, from ${s.ip}` : ''}. Sent by {s.sentBy} on {stamp(s.sentAt)}.
+      </div>
+    );
+  }
+  return (
+    <div className="hr-signing small">
+      {s && (
+        <span className="muted">
+          Sent to sign on {stamp(s.sentAt)}: {s.openedAt ? `opened ${stamp(s.openedAt)}, not yet signed.` : 'not yet opened.'}{' '}
+        </span>
+      )}
+      <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label="What it is">
+        <option value="statement">Written statement</option>
+        <option value="handbook">Handbook</option>
+      </select>{' '}
+      {files.length > 1 && (
+        <select value={fileId} onChange={(e) => setFileId(e.target.value)} aria-label="Which copy">
+          {files.map((f) => <option key={f.id} value={f.id}>{f.fileName}</option>)}
+        </select>
+      )}{' '}
+      <button className="link" disabled={!fileId} onClick={() => void hr.sendToSign(record.id, fileId, kind)}>
+        {s ? 'Send again' : 'Send to sign in the staff app'}
+      </button>
     </div>
   );
 }

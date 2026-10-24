@@ -3,6 +3,7 @@ import { REQUEST_LABEL } from '../engine/requests';
 import { absoluteMinute, addDays, daysBetween, formatMinute, londonParts, parseClock } from '../engine/time';
 import type { RotaState, StaffRequestKind, StaffRequestStatus } from '../engine/types';
 import { api } from './api';
+import { money2 } from './format';
 import type { Allow } from './permissions';
 
 interface Props {
@@ -32,6 +33,8 @@ interface RequestView {
   shift: { id: string; line: string } | null;
   returnShift: { id: string; line: string } | null;
   openShift: { id: string; line: string; status: string } | null;
+  /** For an open shift claim: the wave they were offered it in, and what adding it costs, to those who see cost. */
+  offer: { tier: string | null; tierLabel: string | null; shortHours: number; cost: number | null } | null;
   toName: string | null;
   takerName: string | null;
   decidedBy: string | null;
@@ -76,7 +79,26 @@ interface OpenShiftView {
   filledByName: string | null;
   claims: RequestView[];
   eligible: string[];
+  offer: { waves: { tier: string; label: string; count: number; released: boolean }[]; told: number; allTold: boolean; nextAt: string | null } | null;
+  autoApproved: boolean;
 }
+
+interface AutoApprove {
+  siteId: string;
+  siteName: string;
+  on: boolean;
+  labourTargetPct: number;
+}
+
+/** What posting did: who was told now, and that the rest follow if nobody claims. */
+function postedText(res: { told: number; offer: OpenShiftView['offer'] }) {
+  const people = `${res.told} ${res.told === 1 ? 'person' : 'people'}`;
+  if (!res.offer || res.offer.allTold) return `Posted. ${people} eligible ${res.told === 1 ? 'has' : 'have'} been told.`;
+  const first = res.offer.waves.find((w) => w.released);
+  return `Posted. Offered first to ${people}: ${first?.label.toLowerCase() ?? 'the cheapest'}. Everyone else eligible is told if nobody claims it within two hours.`;
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
 
 const STATUS: Record<StaffRequestStatus, string> = {
   pending: 'Waiting',
@@ -85,6 +107,9 @@ const STATUS: Record<StaffRequestStatus, string> = {
   declined: 'Declined',
   cancelled: 'Withdrawn',
 };
+
+/** Claims cheapest first, so the obvious choice is on top. Without cost sight, in the order they came. */
+const byCost = (claims: RequestView[]) => [...claims].sort((a, b) => (a.offer?.cost ?? 0) - (b.offer?.cost ?? 0));
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -116,6 +141,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
   const [digest, setDigest] = useState<{ on: boolean; email: string; count: number } | null>(null);
   const [late, setLate] = useState<LateShift[]>([]);
   const [seen, setSeen] = useState<RotaSeen[]>([]);
+  const [auto, setAuto] = useState<AutoApprove[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -124,6 +150,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
         api.get<OpenShiftView[]>('/v1/open-shifts'),
         api.get<LateShift[]>('/v1/requests/late').catch(() => []),
         api.get<RotaSeen[]>('/v1/requests/rota-seen').catch(() => []).then(setSeen),
+        api.get<AutoApprove[]>('/v1/open-shifts/auto-approve').catch(() => []).then(setAuto),
       ]);
       setRequests(r);
       setOpenShifts(o);
@@ -136,6 +163,26 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
   useEffect(() => void load(), [load]);
   // People only: an API key has no morning email.
   useEffect(() => void api.get<{ on: boolean; email: string; count: number }>('/v1/requests/digest').then(setDigest).catch(() => setDigest(null)), []);
+
+  async function setAutoOn(siteId: string, on: boolean) {
+    try {
+      await api.put('/v1/open-shifts/auto-approve', { siteId, on });
+      setAuto((list) => list.map((a) => (a.siteId === siteId ? { ...a, on } : a)));
+    } catch (e) {
+      setMessage({ text: (e as Error).message, bad: true });
+    }
+  }
+
+  async function offerAll(o: OpenShiftView) {
+    if (!confirm(`Tell everyone eligible about ${o.line} now, without waiting for the cheaper waves?`)) return;
+    try {
+      const res = await api.post<{ told: number; offer: OpenShiftView['offer'] }>(`/v1/open-shifts/${o.id}/offer-all`, {});
+      setMessage({ text: `${res.told} more ${res.told === 1 ? 'person has' : 'people have'} been told.` });
+      await load();
+    } catch (e) {
+      setMessage({ text: (e as Error).message, bad: true });
+    }
+  }
 
   async function setDigestOn(on: boolean) {
     try {
@@ -186,12 +233,13 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
     try {
       // Past midnight it is tomorrow's open shift, so it is not refused as a day gone.
       const nextDay = from >= 1440;
-      const res = await api.post<{ told: number }>('/v1/open-shifts', {
+      const res = await api.post<{ told: number; offer: OpenShiftView['offer'] }>('/v1/open-shifts', {
         siteId: l.siteId, roleId: l.roleId, date: nextDay ? addDays(l.date, 1) : l.date,
         startMinute: nextDay ? from - 1440 : from, endMinute: nextDay ? l.endMinute - 1440 : l.endMinute, breakMinutes: 0,
         note: `Cover needed now: ${l.employeeName} has not arrived.`,
+        everyone: true,
       });
-      setMessage({ text: `Posted. ${res.told} eligible ${res.told === 1 ? 'person has' : 'people have'} been told.` });
+      setMessage({ text: postedText(res) });
       await load();
     } catch (e) {
       setMessage({ text: (e as Error).message, bad: true });
@@ -201,8 +249,8 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
   async function release(shiftId: string, name: string) {
     if (!confirm(`Take this shift off ${name} and post it for anyone eligible to claim?`)) return;
     try {
-      const res = await api.post<{ told: number }>('/v1/open-shifts', { fromShiftId: shiftId });
-      setMessage({ text: `Posted. ${res.told} eligible ${res.told === 1 ? 'person has' : 'people have'} been told.` });
+      const res = await api.post<{ told: number; offer: OpenShiftView['offer'] }>('/v1/open-shifts', { fromShiftId: shiftId });
+      setMessage({ text: postedText(res) });
       await onChanged();
       await load();
     } catch (e) {
@@ -227,11 +275,12 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
     let end = parseClock(String(f.get('end')));
     if (end <= start) end += 1440;
     try {
-      const res = await api.post<{ told: number }>('/v1/open-shifts', {
+      const res = await api.post<{ told: number; offer: OpenShiftView['offer'] }>('/v1/open-shifts', {
         siteId: f.get('siteId'), roleId: f.get('roleId'), date: f.get('date'), startMinute: start, endMinute: end,
         breakMinutes: Number(f.get('break') || 0), ...(f.get('note') ? { note: f.get('note') } : {}),
+        everyone: f.get('everyone') === 'on',
       });
-      setMessage({ text: `Posted. ${res.told} eligible ${res.told === 1 ? 'person has' : 'people have'} been told.` });
+      setMessage({ text: postedText(res) });
       setPosting(false);
       await load();
     } catch (err) {
@@ -411,8 +460,14 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
           <label>To <input type="time" name="end" defaultValue="23:00" required /></label>
           <label>Break, minutes <input type="number" name="break" min={0} max={240} defaultValue={0} /></label>
           <label>Note for staff <input name="note" maxLength={300} placeholder="Private party, 40 covers" /></label>
-          <div><button className="primary">Post and tell eligible staff</button></div>
-          <p className="muted small">Only people trained for the role, set up for the site, free and legal to work it are told or can claim. You confirm who gets it; the break is raised to what the person is owed.</p>
+          <label className="check"><input type="checkbox" name="everyone" /> Tell everyone eligible now</label>
+          <div><button className="primary">Post and offer it</button></div>
+          <p className="muted small">
+            Only people trained for the role, set up for the site, free and legal to work it are told or can claim. It goes first to
+            anyone short of their contracted hours that week, then to the three cheapest to add, then to everyone, two hours apart
+            while nobody claims. Inside a day of the start everyone is told at once. You confirm who gets it; the break is raised to
+            what the person is owed.
+          </p>
         </form>
       )}
       <div className="grid-wrap">
@@ -426,13 +481,23 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
               <tr key={o.id}>
                 <td><span className="strong">{o.line}</span>{o.note && <div className="muted small">{o.note}</div>}</td>
                 <td>
-                  {o.status === 'filled' ? `Filled by ${o.filledByName}` : o.status === 'withdrawn' ? 'Withdrawn' : 'Open'}
+                  {o.status === 'filled' ? `Filled by ${o.filledByName}${o.autoApproved ? ', approved automatically' : ''}` : o.status === 'withdrawn' ? 'Withdrawn' : 'Open'}
                   {o.status === 'open' && <div className="muted small">{o.eligible.length} eligible</div>}
+                  {o.status === 'open' && o.offer && (
+                    <div className="muted small">
+                      {o.offer.allTold
+                        ? `All eligible told`
+                        : `Told so far: ${o.offer.waves.filter((w) => w.released).map((w) => `${w.label.toLowerCase()} (${w.count})`).join(', ')}.${o.offer.nextAt ? ` Next wave at ${clock(o.offer.nextAt)} if nobody claims.` : ''}`}
+                      {!o.offer.allTold && allow('rota.publish', o.siteId) && <> <button className="link" onClick={() => void offerAll(o)}>Tell everyone now</button></>}
+                    </div>
+                  )}
                 </td>
                 <td className="small">
-                  {o.claims.length === 0 ? <span className="muted">No claims yet</span> : o.claims.map((c) => (
+                  {o.claims.length === 0 ? <span className="muted">No claims yet</span> : byCost(o.claims).map((c) => (
                     <div key={c.id}>
                       {c.employeeName} <span className="muted">{STATUS[c.status]}</span>{' '}
+                      {c.offer?.tierLabel && <span className="tag">{c.offer.tierLabel}</span>}{' '}
+                      {c.offer?.cost != null && <span className="muted">adds {money2(c.offer.cost)}</span>}{' '}
                       {c.canDecide && <button className="link" disabled={Boolean(c.problem)} title={c.problem ?? undefined} onClick={() => void decide(c, 'approve')}>Give it to them</button>}
                     </div>
                   ))}
@@ -443,6 +508,22 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
           </tbody>
         </table>
       </div>
+
+      {auto.length > 0 && (
+        <div className="card requests-auto">
+          <h4>Approve claims automatically</h4>
+          <p className="muted small">
+            A claim is approved the moment it is made only when it breaks no rule, raises nothing to review, and the site's labour that
+            week stays at or under its target with the shift added. Anything else waits for you.
+          </p>
+          {auto.map((a) => (
+            <label key={a.siteId} className="check">
+              <input type="checkbox" checked={a.on} onChange={(e) => void setAutoOn(a.siteId, e.target.checked)} /> {a.siteName}
+              <span className="muted small"> (labour target {Math.round(a.labourTargetPct * 1000) / 10}%)</span>
+            </label>
+          ))}
+        </div>
+      )}
 
       <h3 className="section-title">Decided in the last 30 days</h3>
       <div className="grid-wrap">

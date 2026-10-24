@@ -55,11 +55,25 @@ describe('onboarding', () => {
     expect(o.total).toBe(o.steps.filter((s) => s.state !== 'hidden').length);
   });
 
+  it('says where a document sent to sign in the staff app stands', () => {
+    const doc = (kind: 'statement' | 'handbook', extra = {}): HrRecord => ({
+      id: kind, employeeId: 'p1', kind: 'document', title: kind, date: TODAY, createdBy: 't', createdAt: TODAY,
+      signing: { kind, fileId: 'f', sha256: 'x', sentAt: `${TODAY}T09:00:00Z`, sentBy: 'GM', ...extra },
+    });
+    const step = (o: ReturnType<typeof onboardingFor>, code: string) => o.steps.find((s) => s.code === code)!;
+    const sent = onboardingFor(starter(), [doc('statement'), doc('handbook', { openedAt: `${TODAY}T09:05:00Z` })], roles, TODAY, ALL);
+    expect(step(sent, 'contract-signed').detail).toMatch(/Sent to sign in the staff app on .*not yet opened/);
+    expect(step(sent, 'handbook').detail).toMatch(/opened, not yet signed/);
+    const signed = onboardingFor(starter({ hr: { contractSignedOn: TODAY } }), [doc('statement', { signedAt: `${TODAY}T09:10:00Z` })], roles, TODAY, ALL);
+    expect(step(signed, 'contract-signed')).toMatchObject({ state: 'done', detail: `Signed on ${TODAY} in the staff app` });
+    expect(step(signed, 'handbook').state).not.toBe('done');
+  });
+
   it('is complete once every step is done, and clocking counts the card or the staff app', () => {
     const done = starter({
       rightToWork: { checked: true, checkedOn: '2026-10-20', evidence: 'British passport', documents: [{ id: 'd', fileName: 'p.pdf', contentType: 'application/pdf', bytes: 1, sha256: 'x', uploadedAt: TODAY, uploadedBy: 't' }] },
       payrollId: 'tp-1',
-      hr: { contractIssuedOn: '2026-10-15', contractSignedOn: '2026-10-16', niNumber: 'QQ123456C', address: '1 High St', emergencyContact: { name: 'Kin', phone: '07700 900000' }, probationEnd: '2027-02-02' },
+      hr: { contractIssuedOn: '2026-10-15', contractSignedOn: '2026-10-16', handbookAcknowledgedOn: '2026-10-16', niNumber: 'QQ123456C', address: '1 High St', emergencyContact: { name: 'Kin', phone: '07700 900000' }, probationEnd: '2027-02-02' },
     });
     const training: HrRecord = { id: 't', employeeId: 'p1', kind: 'training', title: 'Allergen awareness', date: '2026-10-10', expiresOn: '2029-10-10', createdBy: 't', createdAt: TODAY };
     expect(onboardingFor(done, [training], roles, TODAY, ALL, { staffApp: 'invited' }).complete).toBe(false);

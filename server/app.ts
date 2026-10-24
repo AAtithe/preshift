@@ -42,6 +42,7 @@ import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
+import { signingRoutes } from './routes/signing';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
 import { deliverNotifications } from './notify';
@@ -332,7 +333,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
   });
 
-  // Every five minutes: shift reminders, and an alert when someone has not clocked in for a shift
+  // Every five minutes: shift reminders, the next wave of open shift offers, and an alert when someone has not clocked in for a shift
   // that has started. Each is sent once, however often this runs.
   app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
@@ -448,6 +449,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);
+    signingRoutes(api, ctx);
     timeRoutes(api, ctx);
     labourRoutes(api, ctx);
     clockingRoutes(api, ctx);

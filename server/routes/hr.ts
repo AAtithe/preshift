@@ -328,6 +328,7 @@ export function hrRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!record || (record.kind === 'case' && !seesCases(req, g, record.employeeId))) throw notFound(`Record ${req.params.id}`);
       mayManage(g, findEmployee(org, record.employeeId));
       // A case is evidence of how a complaint or a warning was handled: closed, never deleted. Retention removes it with the file.
+      if (record.signing?.signedAt) throw new HttpError(409, 'signed_kept', 'A signed document is evidence it was given and agreed. It is removed with the rest of the file when its retention period ends.');
       if (record.kind === 'case') throw new HttpError(409, 'case_kept', 'A case is closed, not deleted. It is removed with the rest of the file when its retention period ends.');
       org.hrRecords = org.hrRecords.filter((r) => r.id !== record.id);
       deleteCopiesAfterSave(req, recordCopies([record]));

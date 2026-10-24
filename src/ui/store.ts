@@ -355,7 +355,7 @@ export function useHrRecords(setError: (message: string | null) => void) {
     save: (record: HrRecord, isNew: boolean) =>
       run(async () => {
         // Copies on the record are the server's: they are added and removed through their own routes.
-        const { id, createdBy: _b, createdAt: _a, history: _h, files: _f, ...body } = record;
+        const { id, createdBy: _b, createdAt: _a, history: _h, files: _f, signing: _s, ...body } = record;
         const saved = isNew
           ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
           : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);
@@ -366,6 +366,13 @@ export function useHrRecords(setError: (message: string | null) => void) {
     attach: (recordId: string, file: Blob, fileName: string) =>
       run(async () => {
         const saved = await api.upload<HrRecord>(`/v1/hr/records/${recordId}/files?fileName=${encodeURIComponent(fileName)}`, file);
+        setRecords((list) => (list ?? []).map((r) => (r.id === recordId ? saved : r)));
+        return saved;
+      }),
+    /** Sends a copy on a document record to the person to read and sign in the staff app. */
+    sendToSign: (recordId: string, fileId: string, kind: 'statement' | 'handbook') =>
+      run(async () => {
+        const saved = await api.post<HrRecord>(`/v1/hr/records/${recordId}/send-to-sign`, { fileId, kind });
         setRecords((list) => (list ?? []).map((r) => (r.id === recordId ? saved : r)));
         return saved;
       }),
