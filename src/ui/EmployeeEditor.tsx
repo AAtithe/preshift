@@ -17,7 +17,8 @@ interface Props {
   /** Pay changes go to finance for approval rather than applying on save. */
   payNeedsApproval?: boolean;
   /** The reason travels with a proposed pay change; finance sees it. */
-  onSave: (employee: Employee, payReason?: string) => void;
+  /** With a pay change to propose: the reason finance sees, and the date it is agreed from (empty for on approval). */
+  onSave: (employee: Employee, payReason?: string, payFrom?: string) => void;
   onLeaver: (id: string, leaveDate: string) => void;
   /** Right to work copies are stored at once, not on Save, so they need a record that already exists. */
   onAddDocument: (id: string, file: Blob, fileName: string) => Promise<Employee>;
@@ -40,6 +41,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
   const [history, setHistory] = useState<{ documentId: string; entries: DocumentAccess[] } | null>(null);
   const [leaveDay, setLeaveDay] = useState('');
   const [payReason, setPayReason] = useState('');
+  const [payFrom, setPayFrom] = useState('');
   const [leaving, setLeaving] = useState<string | null>(null);
   const isNew = !state.employees.some((e) => e.id === employee.id);
   const payChanged = !draft.payHidden && canEditPay &&
@@ -242,7 +244,8 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
             {employee.pendingPay.after.payBasis === 'salaried'
               ? `${money(employee.pendingPay.after.annualSalary)} a year`
               : `£${employee.pendingPay.after.hourlyRate.toFixed(2)} an hour`}{' '}
-            proposed by {employee.pendingPay.requestedBy}, waiting for finance. The pay below stays in force until it is approved.
+            {employee.pendingPay.effectiveFrom ? `from ${employee.pendingPay.effectiveFrom} ` : ''}proposed by {employee.pendingPay.requestedBy}, waiting for
+            finance. The pay below stays in force until it is approved.
           </p>
         )}
         <div className="form">
@@ -271,6 +274,17 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
               Reason for the change (finance sees this)
               <input value={payReason} onChange={(e) => setPayReason(e.target.value)} placeholder="e.g. passed probation, new responsibilities, market rate" />
               <span className="muted small">Goes to finance for approval. Until then their current pay stays in force{isNew ? ', which for a starter is nought' : ''}.</span>
+            </label>
+          )}
+          {payChanged && payNeedsApproval && !isNew && (
+            <label>
+              Agreed from (optional)
+              <input type="date" value={payFrom} onChange={(e) => setPayFrom(e.target.value)} />
+              <span className="muted small">
+                {payFrom && payFrom < today
+                  ? 'Already past: once approved, back pay for the hours since goes to payroll.'
+                  : payFrom ? 'Applies on that day if approved before it.' : 'Blank: from the day finance approves.'}
+              </span>
             </label>
           )}
           <label>
@@ -531,7 +545,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
           )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() }, payChanged ? payReason : undefined)}>
+          <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() }, payChanged ? payReason : undefined, payChanged && payFrom ? payFrom : undefined)}>
             Save
           </button>
         </div>

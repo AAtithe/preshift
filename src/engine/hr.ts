@@ -1,6 +1,7 @@
 import { employeeStatus, isEmployedOn, LOOKAHEAD_DAYS, type RecordCheck } from './employees';
 import { addDays, daysBetween } from './time';
-import type { Absence, AbsenceType, CaseType, Department, Employee, HrRecord, ReviewType, Role } from './types';
+import type { Absence, AbsenceType, CaseType, Department, Employee, HrRecord, ReviewType, Role, Shift } from './types';
+import { workingDates, workPattern } from './workPattern';
 
 export const ABSENCE_LABEL: Record<AbsenceType, string> = {
   sickness: 'Sickness',
@@ -94,20 +95,34 @@ export interface Bradford {
   days: number;
   /** Spells squared times days, over the last 52 weeks. */
   score: number;
+  /** Working days, from each person's pattern on the rota, or calendar days when no rota was given. */
+  basis: 'working' | 'calendar';
+}
+
+/** Days of a spell inside the window, up to today: working days on the person's pattern when the rota is known. */
+function spellDays(employee: Employee, a: Absence, windowStart: string, today: string, shifts?: Shift[]): number {
+  const from = a.from < windowStart ? windowStart : a.from;
+  if (!shifts) return absenceDays({ ...a, from }, today);
+  if (from > today) return 0;
+  const to = a.to && a.to < today ? a.to : today;
+  // The pattern before the spell began: shifts during it may have been given to someone else.
+  return workingDates(from, to, workPattern(employee, shifts, a.from)).length;
 }
 
 /**
- * Bradford factor over the last 52 weeks, on calendar days. Frequent short spells score far
- * higher than one long one, which is the point: they disrupt a rota more. Spells marked as
+ * Bradford factor over the last 52 weeks. Frequent short spells score far higher than one long
+ * one, which is the point: they disrupt a rota more. Days are working days on the person's usual
+ * pattern when the rota is passed, so a part-timer is not scored on days they would not have
+ * worked. A spell that falls wholly on days off still counts as a spell. Spells marked as
  * disability or pregnancy related are left out.
  */
-export function bradfordFactor(employee: Employee, today: string): Bradford {
+export function bradfordFactor(employee: Employee, today: string, shifts?: Shift[]): Bradford {
   const windowStart = addDays(today, -364);
   const spells = (employee.absences ?? []).filter(
     (a) => isTrigger(a) && !a.excludeFromTriggers && a.from <= today && (a.to ?? today) >= windowStart,
   );
-  const days = spells.reduce((sum, a) => sum + absenceDays({ ...a, from: a.from < windowStart ? windowStart : a.from }, today), 0);
-  return { spells: spells.length, days, score: spells.length * spells.length * days };
+  const days = spells.reduce((sum, a) => sum + spellDays(employee, a, windowStart, today, shifts), 0);
+  return { spells: spells.length, days, score: spells.length * spells.length * days, basis: shifts ? 'working' : 'calendar' };
 }
 
 export function requiredCourses(employee: Employee, roles: Role[]): Course[] {
@@ -152,7 +167,7 @@ export function lengthOfService(employee: Employee, today: string): string {
  * Checks a personnel file: what the law requires to be on it, and what a manager should be
  * acting on this week. Separate from reviewEmployee, which decides whether someone can work a shift.
  */
-export function hrChecks(employee: Employee, records: HrRecord[], roles: Role[], today: string): RecordCheck[] {
+export function hrChecks(employee: Employee, records: HrRecord[], roles: Role[], today: string, shifts?: Shift[]): RecordCheck[] {
   const checks: RecordCheck[] = [];
   const push = (code: string, severity: RecordCheck['severity'], message: string) => checks.push({ code, severity, message });
   const hr = employee.hr ?? {};
@@ -203,11 +218,12 @@ export function hrChecks(employee: Employee, records: HrRecord[], roles: Role[],
       push(`rtw:${a.id}`, 'warn', `No return to work conversation recorded after the absence from ${a.from}.`);
     }
   }
-  const bradford = bradfordFactor(employee, today);
+  const bradford = bradfordFactor(employee, today, shifts);
+  const unit = bradford.basis === 'working' ? 'working days' : 'days';
   if (bradford.score >= BRADFORD_FORMAL) {
-    push('bradford', 'warn', `Bradford factor ${bradford.score} (${bradford.spells} spells, ${bradford.days} days). Consider the formal absence procedure.`);
+    push('bradford', 'warn', `Bradford factor ${bradford.score} (${bradford.spells} spells, ${bradford.days} ${unit}). Consider the formal absence procedure.`);
   } else if (bradford.score >= BRADFORD_REVIEW) {
-    push('bradford', 'warn', `Bradford factor ${bradford.score} (${bradford.spells} spells, ${bradford.days} days). Hold an informal absence review.`);
+    push('bradford', 'warn', `Bradford factor ${bradford.score} (${bradford.spells} spells, ${bradford.days} ${unit}). Hold an informal absence review.`);
   }
 
   for (const course of requiredCourses(employee, roles)) {

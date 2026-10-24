@@ -99,7 +99,8 @@ describe('editing worked shifts by hand', () => {
     expect((await t.call('DELETE', '/v1/shifts/finished')).body.error).toBe('worked_shift');
     expect((await t.call('DELETE', '/v1/shifts/clocked-ahead')).status).toBe(409);
     expect((await t.call('PATCH', '/v1/shifts/running', { employeeId: 'mar-7' })).body.error).toBe('worked_shift');
-    expect((await t.call('PATCH', '/v1/shifts/running', { startMinute: 0 })).status).toBe(409);
+    // A start that is really a move: in the hour after midnight the running shift already starts at 00:00.
+    expect((await t.call('PATCH', '/v1/shifts/running', { startMinute: t.running.startMinute === 0 ? 1 : 0 })).status).toBe(409);
     expect((await t.call('PATCH', '/v1/shifts/finished', { endMinute: 17 * 60 })).status).toBe(409);
     if (t.running.endMinute < 1439) {
       expect((await t.call('PATCH', '/v1/shifts/running', { endMinute: t.running.endMinute + 1 })).status).toBe(200);

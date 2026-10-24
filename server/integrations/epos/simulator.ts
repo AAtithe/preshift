@@ -20,7 +20,7 @@ function londonInstant(date: string, hour: number, minute: number): string {
 export class SquareSimulator implements EposProvider {
   readonly name = 'Square (simulator)';
 
-  constructor(private readonly state: Pick<RotaState, 'sites' | 'forecast'>) {}
+  constructor(private readonly state: Pick<RotaState, 'sites' | 'forecast' | 'troncSchemes'>) {}
 
   async listLocations(): Promise<EposLocation[]> {
     return this.state.sites.map((s) => ({ id: `sim-${s.id}`, name: `${s.name} (simulated till)`, timeZone: LONDON }));
@@ -37,7 +37,13 @@ export class SquareSimulator implements EposProvider {
       for (let i = 0; i < count; i++) {
         const closedAt = londonInstant(f.date, f.hour, Math.floor((i * 60) / count));
         if (closedAt < start || closedAt >= end) continue;
-        orders.push({ locationId, closedAt, netSales: Math.round((sales / count) * 100) / 100 });
+        const net = Math.round((sales / count) * 100) / 100;
+        // About one table in three leaves a card tip of around ten per cent.
+        const tips = (seed + i) % 3 === 0 ? Math.round(net * 0.1 * 100) / 100 : 0;
+        // A site whose scheme takes a service charge adds 12.5% to every bill.
+        const charged = (this.state.troncSchemes ?? []).some((s) => s.siteId === f.siteId && s.serviceCharge !== 'none');
+        const serviceCharge = charged ? Math.round(net * 0.125 * 100) / 100 : 0;
+        orders.push({ locationId, closedAt, netSales: net, tips, serviceCharge });
       }
     }
     return orders;

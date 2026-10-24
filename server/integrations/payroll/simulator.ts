@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { UK_RATES_2026_27 } from '../../../src/engine/ukRates';
 import { weekOnCosts } from '../../../src/engine/cost';
 import type { Employee } from '../../../src/engine/types';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
@@ -122,20 +123,35 @@ export class TeamPaySimulator implements PayrollProvider {
     // TeamPay pays each line at the rate it was sent with, so travel at its own rate is paid at that rate.
     const hoursByEmployee = new Map<string, number>();
     const payByEmployee = new Map<string, number>();
+    // Premium lines are paid on top, after any guaranteed hours top-up, and are not extra hours.
+    const premiumByEmployee = new Map<string, number>();
     for (const l of batch.lines) {
+      if (l.premium) {
+        premiumByEmployee.set(l.employeeId, (premiumByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
+        continue;
+      }
       hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
       payByEmployee.set(l.employeeId, (payByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
     }
+    // SSP at the flat rate over the days a week the person works, as a payroll does with a
+    // fixed pattern. It knows nothing of 80% of earnings, so a low earner's SSP comes back too high,
+    // which is what the check on each pay run is there to catch.
+    const sspByEmployee = new Map((batch.sickness ?? []).map((s) => [s.employeeId, Math.round(s.dates.length * (UK_RATES_2026_27.ssp.weeklyRate / s.qualifyingDaysPerWeek) * 100) / 100]));
+    // One-off sums such as back pay are added to gross pay on top of the week's pay, as a payroll does.
+    const extra = new Map<string, number>();
+    for (const a of batch.adjustments ?? []) extra.set(a.employeeId, (extra.get(a.employeeId) ?? 0) + a.amount);
     const employees: PayRun['employees'] = [];
     for (const person of people) {
       if (!person.payrollId) continue;
       const hours = hoursByEmployee.get(person.id) ?? 0;
-      if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0) continue;
+      const ssp = sspByEmployee.get(person.id) ?? 0;
+      if (person.payBasis === 'hourly' && hours === 0 && person.contractedHours === 0 && ssp === 0 && !extra.has(person.id)) continue;
       // Salary is paid as salary; hourly pay is the lines, topped up to any guaranteed hours.
       const gross =
-        person.payBasis === 'salaried'
+        (person.payBasis === 'salaried'
           ? person.annualSalary / 52
-          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate);
+          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate) + (premiumByEmployee.get(person.id) ?? 0)) +
+        (extra.get(person.id) ?? 0);
       // Price on-costs with the same statutory model; a real payroll's rounding differs slightly.
       const cost = weekOnCosts(person, gross);
       employees.push({
@@ -145,6 +161,7 @@ export class TeamPaySimulator implements PayrollProvider {
         holidayPay: cost.holiday,
         employerNi: cost.employerNi,
         employerPension: cost.pension,
+        ssp,
       });
     }
     const run: PayRun = { id: `tp_run_${randomUUID().slice(0, 8)}`, periodStart, periodEnd, status: 'completed', employerId, employees };

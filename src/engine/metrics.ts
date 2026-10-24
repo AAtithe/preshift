@@ -101,12 +101,14 @@ export function scopeMetrics(state: RotaState, siteIds: string[], start: string)
     unallocated: 0,
     parts: { gross: 0, holiday: 0, employerNi: 0, pension: 0 },
     travel: { hours: 0, cost: 0, unpriced: 0 },
+    premium: 0,
   };
   for (const m of sites) {
     m.cost.employees.forEach((v, k) => cost.employees.set(k, v));
     m.cost.shifts.forEach((v, k) => cost.shifts.set(k, v));
     cost.total += m.cost.total;
     cost.unallocated += m.cost.unallocated;
+    cost.premium += m.cost.premium;
     // Each site's parts are already scoped to it, so they sum to the scope without double counting.
     cost.parts.gross += m.cost.parts.gross;
     cost.parts.holiday += m.cost.parts.holiday;

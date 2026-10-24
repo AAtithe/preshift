@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { REQUEST_LABEL } from '../engine/requests';
-import { daysBetween, formatMinute, parseClock } from '../engine/time';
+import { absoluteMinute, addDays, daysBetween, formatMinute, londonParts, parseClock } from '../engine/time';
 import type { RotaState, StaffRequestKind, StaffRequestStatus } from '../engine/types';
 import { api } from './api';
 import type { Allow } from './permissions';
@@ -43,6 +43,28 @@ interface RequestView {
   clashes: { id: string; line: string; published: boolean }[];
   othersOff: string[];
   canDecide: boolean;
+}
+
+interface RotaSeen {
+  siteId: string;
+  siteName: string;
+  weekStart: string;
+  total: number;
+  seen: number;
+  notSeen: { name: string; onApp: boolean; changed: boolean }[];
+}
+
+interface LateShift {
+  shiftId: string;
+  employeeName: string;
+  siteId: string;
+  siteName: string;
+  roleId: string;
+  date: string;
+  startMinute: number;
+  endMinute: number;
+  line: string;
+  minutesLate: number;
 }
 
 interface OpenShiftView {
@@ -92,12 +114,20 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [posting, setPosting] = useState(false);
   const [digest, setDigest] = useState<{ on: boolean; email: string; count: number } | null>(null);
+  const [late, setLate] = useState<LateShift[]>([]);
+  const [seen, setSeen] = useState<RotaSeen[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [r, o] = await Promise.all([api.get<RequestView[]>('/v1/requests?status=all'), api.get<OpenShiftView[]>('/v1/open-shifts')]);
+      const [r, o, l] = await Promise.all([
+        api.get<RequestView[]>('/v1/requests?status=all'),
+        api.get<OpenShiftView[]>('/v1/open-shifts'),
+        api.get<LateShift[]>('/v1/requests/late').catch(() => []),
+        api.get<RotaSeen[]>('/v1/requests/rota-seen').catch(() => []).then(setSeen),
+      ]);
       setRequests(r);
       setOpenShifts(o);
+      setLate(l);
     } catch (e) {
       setMessage({ text: (e as Error).message, bad: true });
       setRequests([]);
@@ -137,6 +167,31 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
         : '';
       setMessage({ text: `${verdict === 'approve' ? 'Approved' : 'Declined'}. ${r.employeeName} has been told.${covered}` });
       await onChanged();
+      await load();
+    } catch (e) {
+      setMessage({ text: (e as Error).message, bad: true });
+    }
+  }
+
+  /**
+   * Cover for the rest of a shift nobody turned up for: an open shift from the next quarter hour to the
+   * end. The original stays on the rota as the no-show it was.
+   */
+  async function coverRest(l: LateShift) {
+    const now = londonParts(new Date());
+    // Minutes on the shift's own day, so a shift that began yesterday evening still works.
+    const from = Math.max(l.startMinute, Math.ceil(absoluteMinute(l.date, now.date, now.minute) / 15) * 15);
+    if (from >= l.endMinute - 30) return setMessage({ text: 'Less than half an hour of this shift is left, so there is nothing worth posting.', bad: true });
+    if (!confirm(`Post ${formatMinute(from)} to ${formatMinute(l.endMinute)} as an open shift, to cover ${l.employeeName}?`)) return;
+    try {
+      // Past midnight it is tomorrow's open shift, so it is not refused as a day gone.
+      const nextDay = from >= 1440;
+      const res = await api.post<{ told: number }>('/v1/open-shifts', {
+        siteId: l.siteId, roleId: l.roleId, date: nextDay ? addDays(l.date, 1) : l.date,
+        startMinute: nextDay ? from - 1440 : from, endMinute: nextDay ? l.endMinute - 1440 : l.endMinute, breakMinutes: 0,
+        note: `Cover needed now: ${l.employeeName} has not arrived.`,
+      });
+      setMessage({ text: `Posted. ${res.told} eligible ${res.told === 1 ? 'person has' : 'people have'} been told.` });
       await load();
     } catch (e) {
       setMessage({ text: (e as Error).message, bad: true });
@@ -211,12 +266,58 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
       </p>
       {digest && (
         <label className="muted small requests-digest">
-          <input type="checkbox" checked={digest.on} onChange={(e) => void setDigestOn(e.target.checked)} /> Email me each morning at {digest.email} with what is waiting for me
+          <input type="checkbox" checked={digest.on} onChange={(e) => void setDigestOn(e.target.checked)} /> Email me at {digest.email} each morning with what is waiting for me, and at once when someone has not clocked in
           {digest.on ? ` (today it would list ${digest.count})` : ''}. Sent only when something is waiting; names and dates only, never a reason for absence.
         </label>
       )}
       {message && <p className={`notice${message.bad ? ' error' : ''}`}>{message.text}</p>}
       {requests === null && <p className="muted">Loading</p>}
+
+      {late.filter((l) => siteIds.includes(l.siteId)).length > 0 && (
+        <>
+          <h3 className="section-title bad-text">Not clocked in</h3>
+          <div className="grid-wrap">
+            <table className="table people">
+              <tbody>
+                {late.filter((l) => siteIds.includes(l.siteId)).map((l) => (
+                  <tr key={l.shiftId}>
+                    <td><span className="strong">{l.employeeName}</span><div className="muted small">{l.siteName}</div></td>
+                    <td>{l.line}<div className="bad-text small">{l.minutesLate} minutes late, nothing clocked. They have been nudged.</div></td>
+                    <td className="nowrap">
+                      {allow('rota.publish', l.siteId) && <button className="primary" onClick={() => void coverRest(l)}>Find cover for the rest</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {seen.filter((w) => siteIds.includes(w.siteId)).length > 0 && (
+        <>
+          <h3 className="section-title">Rota seen</h3>
+          <div className="grid-wrap">
+            <table className="table people">
+              <tbody>
+                {seen.filter((w) => siteIds.includes(w.siteId)).map((w) => (
+                  <tr key={`${w.siteId}${w.weekStart}`}>
+                    <td><span className="strong">{w.siteName}</span><div className="muted small">Week of {date(w.weekStart)}</div></td>
+                    <td className={`num ${w.seen === w.total ? 'good-text' : 'warn-text'}`}>{w.seen} of {w.total} seen</td>
+                    <td className="small">
+                      {w.notSeen.length === 0 ? <span className="good-text">Everyone has confirmed this week as it stands.</span> : w.notSeen.map((p) => (
+                        <span key={p.name} className="tag" title={p.onApp ? (p.changed ? 'Saw an earlier version; something changed since' : 'Has the app, not confirmed yet') : 'No staff app: tell them yourself'}>
+                          {p.name}{p.changed ? ', changed since' : ''}{p.onApp ? '' : ', no app'}
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <div className="people-bar">
         <h3 className="section-title">Waiting</h3>
@@ -238,6 +339,10 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
                 <td>
                   <span className="strong">{r.employeeName}</span>
                   <div className="muted small">{r.siteName}, {when(r.createdAt)}</div>
+                  {/* Two days without an answer and it is in the area manager's morning email too. */}
+                  {!(r.kind === 'swap' && r.status === 'pending') && Date.now() - Date.parse(r.createdAt) >= 48 * 3_600_000 && (
+                    <div className="bad-text small">Overdue: now with your area manager too</div>
+                  )}
                 </td>
                 <td>
                   <span className="strong">{REQUEST_LABEL[r.kind]}</span>

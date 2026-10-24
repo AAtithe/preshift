@@ -1,8 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import type { PersonInsight } from '../engine/insights';
 import type { LondonNow } from '../engine/rotaWeek';
 import type { RotaState } from '../engine/types';
 import { formatMinute } from '../engine/time';
+import { messagesClient, type MessagesClient } from './messagesClient';
 import { usageCostUsd } from './pricing';
 import { executeRotaTool, ROTA_TOOLS, type RotaDraft } from './rotaTools';
 
@@ -95,7 +96,7 @@ function addUsage(total: RotaUsage, u: Anthropic.Beta.BetaUsage): RotaUsage {
  * state. Nothing reaches the live rota until the manager accepts the result.
  */
 export async function runRotaAgent(
-  client: Anthropic,
+  client: MessagesClient,
   req: RotaAgentRequest,
   onStep: (step: string) => void = () => {},
   signal?: AbortSignal,
@@ -188,38 +189,36 @@ export async function runRotaAgent(
   throw new RotaAgentError(`The assistant did not finish within ${MAX_TURNS} steps. The draft so far has not been applied.`, 'turn_limit');
 }
 
-/** Turns SDK failures into something a GM can act on. */
+/**
+ * Turns a failed call into something a GM can act on. Reads the status and body off the error,
+ * so it serves the browser's own client and the SDK alike.
+ */
 export function describeAgentError(err: unknown): string {
   if (err instanceof RotaAgentError) return err.message;
-  if (err instanceof Anthropic.APIUserAbortError) return 'Stopped.';
-  if (err instanceof Anthropic.AuthenticationError && JSON.stringify(err.error).includes('session_expired')) {
-    return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
+  // The browser client's errors carry their name; the SDK's are known by their class.
+  const name = [(err as { name?: string } | null)?.name, (err as object | null)?.constructor?.name];
+  if (name.some((n) => n === 'AbortError' || n === 'APIUserAbortError')) return 'Stopped.';
+  if (name.some((n) => n === 'MessagesConnectionError' || n === 'APIConnectionError' || n === 'APIConnectionTimeoutError')) {
+    return 'Could not reach the assistant. Check the connection and that the dev server is running.';
   }
-  // The public demo says in its own words why the assistant is unavailable there.
-  const demo = err instanceof Anthropic.PermissionDeniedError && (err.error as { error?: { type?: string; message?: string } })?.error;
-  if (demo && demo.type === 'demo' && demo.message) return demo.message;
-  if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('spend_limit')) {
-    const body = err.error as { error?: { message?: string } } | undefined;
-    return body?.error?.message ?? 'The rota assistant has reached its spending limit.';
+  const status = (err as { status?: unknown } | null)?.status;
+  if (typeof status !== 'number') return err instanceof Error ? err.message : String(err);
+  const body = (err as { error?: unknown }).error;
+  const detail = (body as { error?: { type?: string; message?: string } } | undefined)?.error;
+  const says = (word: string) => JSON.stringify(body ?? '').includes(word);
+  if (status === 401 && says('session_expired')) return 'Your session has ended. Sign in again, then redraft. Nothing has been applied.';
+  if (status === 403) {
+    // The public demo says in its own words why the assistant is unavailable there.
+    if (detail?.type === 'demo' && detail.message) return detail.message;
+    if (says('spend_limit')) return detail?.message ?? 'The rota assistant has reached its spending limit.';
+    if (says('not_configured')) return 'The assistant is not set up yet. An admin needs to add the Claude API key under Settings.';
   }
-  if (err instanceof Anthropic.PermissionDeniedError && JSON.stringify(err.error).includes('not_configured')) {
-    return 'The assistant is not set up yet. An admin needs to add the Claude API key under Settings.';
-  }
-  if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-    return 'Claude did not accept the saved API key. An admin can replace it under Settings.';
-  }
-  if (err instanceof Anthropic.RateLimitError) return 'The assistant is busy. Wait a minute and try again.';
-  if (err instanceof Anthropic.APIConnectionError) return 'Could not reach the assistant. Check the connection and that the dev server is running.';
-  if (err instanceof Anthropic.APIError) return `The assistant returned an error (${err.status ?? 'unknown'}). Try again.`;
-  return err instanceof Error ? err.message : String(err);
+  if (status === 401 || status === 403) return 'Claude did not accept the saved API key. An admin can replace it under Settings.';
+  if (status === 429) return 'The assistant is busy. Wait a minute and try again.';
+  return `The assistant returned an error (${status}). Try again.`;
 }
 
 /** Browser client. Requests go to our own server, which adds the API key; the key never reaches the browser. */
-export function createBrowserClient(): Anthropic {
-  return new Anthropic({
-    apiKey: 'set-by-proxy',
-    baseURL: `${window.location.origin}/api/anthropic`,
-    dangerouslyAllowBrowser: true,
-    maxRetries: 2,
-  });
+export function createBrowserClient(): MessagesClient {
+  return messagesClient({ baseURL: `${window.location.origin}/api/anthropic`, maxRetries: 2 });
 }
