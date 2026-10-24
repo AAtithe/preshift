@@ -7,6 +7,7 @@ import { addDays, weekDates } from '../../src/engine/time';
 import { sspEstimate, sspInPeriod, type SspCheckLine } from '../../src/engine/ssp';
 import { entriesAsShifts, payrollHours, payrollVariance, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
 import { describeRule } from '../../src/engine/premiums';
+import { troncForPayroll } from '../../src/engine/tronc';
 import type { PremiumRule, TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -241,8 +242,11 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         const replaced = new Set(org.submissions.filter((s) => s.status === 'superseded').map((s) => s.id));
         const owed = org.payChanges.filter((c) => c.backPay && (!c.backPay.sentIn || replaced.has(c.backPay.sentIn)) &&
           org.state.employees.find((e) => e.id === c.employeeId)?.entityId === entity.id);
+        // Each person's share of the week's tips goes with their hours, unless the week was already paid by hand.
+        const tronc = troncForPayroll(org.state, org.timeEntries, entity.id, periodStart, replaced);
         const batch = {
           ...hours,
+          tronc: tronc.lines,
           adjustments: owed.map((c) => {
             const e = org.state.employees.find((x) => x.id === c.employeeId)!;
             return {
@@ -255,7 +259,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           }),
         };
         // Anyone not yet in payroll is set up first; the outbox delivers in order.
-        for (const line of [...batch.lines, ...batch.adjustments]) {
+        for (const line of [...batch.lines, ...batch.adjustments, ...batch.tronc]) {
           const e = org.state.employees.find((x) => x.id === line.employeeId)!;
           if (!e.payrollId && !queued.has(e.id)) {
             enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
@@ -284,6 +288,10 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + a.amount).total - weekOnCosts(e, gross).total) * 100) / 100;
         }
         for (const c of owed) c.backPay!.sentIn = submission.id;
+        // Tips are recorded as paid through this payroll, at the end of the period it pays.
+        const carried = new Set(tronc.tipIds);
+        org.state.tips = (org.state.tips ?? []).map((t) => (carried.has(t.id) ? { ...t, paidOn: periodEnd, sentIn: submission.id } : t));
+        if (tronc.lines.length) audit(org, actorName(g), 'tronc.sent_to_payroll', { submissionId: submission.id, entityId: entity.id, people: tronc.lines.length, amount: Math.round(tronc.lines.reduce((n, l) => n + l.amount, 0) * 100) / 100 });
         org.submissions.push(submission);
         enqueue(org, {
           type: 'hours.submit',

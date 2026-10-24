@@ -1,0 +1,147 @@
+// What's new, walked through in the app. One release a week, newest first, written alongside the
+// README card. Demo and live run this same file, so a release reaches both with the build that
+// carries it, and a release written ahead of its week goes out by itself on that Monday.
+import { weekStart } from '../engine/time';
+import type { Tab } from './nav';
+
+export type RotaLens = 'timeline' | 'people' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
+
+export interface WalkStep {
+  /** Who it is for, as on the README card: GMs, Staff, Finance, Admin, Owners, WS, Everyone. */
+  for: string;
+  title: string;
+  /** What changed and why it matters, in two or three sentences. */
+  body: string;
+  /** One thing to try while the screen is open. */
+  tryIt?: string;
+  /** The section the step opens. Shown only to people offered that section; with none, shown to everyone. */
+  tab?: Tab;
+  /** On the Rota tab, the view the step opens. */
+  lens?: RotaLens;
+}
+
+export interface Release {
+  /** The Monday of the week it goes out, YYYY-MM-DD. Hidden until that day. */
+  week: string;
+  /** The week's test, from the foot of the README card. */
+  test: string;
+  steps: WalkStep[];
+}
+
+export const RELEASES: Release[] = [
+  {
+    week: '2026-10-19',
+    test: 'Take one site through a full cycle: build the week, publish it, clock two people in on the tablet and one on a phone, approve the hours, send them to payroll and post the accrual. If any step needs an explanation, that is the next thing to fix.',
+    steps: [
+      {
+        for: 'Everyone',
+        title: 'This walkthrough',
+        body: 'Every Monday the new features open here, in the live app and the demo alike, each one on the screen it changed. You only see what your role is offered. What\'s new at the foot of the left-hand bar brings it back, and past weeks stay in the list.',
+      },
+      {
+        for: 'Everyone',
+        title: 'Go to',
+        body: 'Type part of a section\'s name at the top of the left-hand bar, or press / from anywhere, and Enter opens the best match. Nobody needs to know which group a section lives in.',
+        tryIt: 'Press / now and type "cash".',
+      },
+      {
+        for: 'GMs',
+        title: 'Six new ways to see the week',
+        body: 'Beside Service timeline and By person: Cover map, Rest, Positions, Shift cost, Changes and Fairness. Each answers one decision the grid leaves to the eye: where to add or cut the next hour, who is being worn down, which shift to cut when labour runs over.',
+        tryIt: 'Open Changes, move one shift and watch who the next publish would tell.',
+        tab: 'rota',
+        lens: 'changes',
+      },
+      {
+        for: 'GMs',
+        title: 'Staff requests',
+        body: 'Every request waiting, each with what it would do now: rules broken, clashes, who else is off, holiday left after it. Open shifts go to everyone eligible, and a sick person\'s shift goes out for cover in one click, checked by the same compliance engine as the rota.',
+        tab: 'requests',
+      },
+      {
+        for: 'GMs',
+        title: 'Wellbeing',
+        body: 'Who needs a conversation this week and why: long weeks, close then open, no weekend off in four, missed breaks, no holiday in three months. None of these breaks the law, which is why compliance lets them through. They are what drives people out.',
+        tab: 'welfare',
+      },
+      {
+        for: 'GMs',
+        title: 'Onboarding',
+        body: 'One checklist for every person starting in the next 60 days or who started in the last 90. Right to work and pay before any shift, the rest by day one, week one and month one. Late steps go red and open the form that fixes them.',
+        tab: 'onboarding',
+      },
+      {
+        for: 'Operators',
+        title: 'Staff app adoption',
+        body: 'Per site: the share of the team on the app, notifications on, requests decided within a day, open shifts filled and no-shows. It shows whether each GM runs the team through the app or round it. Every red cell is a conversation with a GM.',
+        tab: 'adoption',
+      },
+      {
+        for: 'Finance',
+        title: 'Labour cash',
+        body: 'What each company pays out for its people over the next 13 weeks, and when: net pay on each pay day, PAYE and NI to HMRC by the 22nd, pensions after deduction. The accrual says what labour cost; this says when the bank account feels it.',
+        tab: 'cash',
+      },
+      {
+        for: 'Finance',
+        title: 'Pay premiums',
+        body: 'Each company sets the enhanced rates its contracts pay: Sundays, bank holidays, night hours and overtime, as a multiple or a fixed amount on top. The rota, the P&L, the accrual and TeamPay all cost them the same way, so payroll pays what was accrued.',
+        tab: 'pay',
+      },
+      {
+        for: 'Staff',
+        title: 'A drawn rota in the staff app',
+        body: 'Staff see the next two weeks as a strip with hours, pay before tax, shortest rest and days off, each shift beside the people on with them, and every open shift tagged with what it does to their week. They only ask for a shift once they know what it costs them.',
+      },
+    ],
+  },
+];
+
+/** Releases already out on the day given, newest first. */
+export function releasesOut(today: string, releases: Release[] = RELEASES): Release[] {
+  return releases.filter((r) => r.week <= today).sort((a, b) => b.week.localeCompare(a.week));
+}
+
+/** This week's release: the newest one out. */
+export function currentRelease(today: string, releases: Release[] = RELEASES): Release | null {
+  return releasesOut(today, releases)[0] ?? null;
+}
+
+/** The steps this person is offered, in order. `offeredTab` says whether they are offered a section. */
+export function stepsFor(release: Release, offeredTab: (tab: Tab) => boolean): WalkStep[] {
+  return release.steps.filter((s) => !s.tab || offeredTab(s.tab));
+}
+
+/** What a release is called on screen. */
+export function releaseLabel(week: string): string {
+  const d = new Date(`${week}T12:00:00Z`);
+  return `Week of ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}`;
+}
+
+// The last release each person has seen, kept in the browser. A demo sandbox is new every visit but
+// the browser is not, so a returning visitor is not walked through the same week twice.
+const SEEN_KEY = 'preshift.whatsnew.seen';
+
+export function seenWeek(who: string): string | null {
+  try {
+    const all = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') as Record<string, string>;
+    return all[who] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function markSeen(who: string, week: string) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') as Record<string, string>;
+    all[who] = week;
+    localStorage.setItem(SEEN_KEY, JSON.stringify(all));
+  } catch {
+    // Private mode: the walkthrough is offered again next visit, which does no harm.
+  }
+}
+
+/** Whether a week is a Monday, as every release must start on one. */
+export function isMonday(week: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(week) && weekStart(week) === week;
+}
