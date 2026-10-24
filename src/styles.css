@@ -1642,3 +1642,6 @@ button, select, input { border-radius: 8px; }
 @media (max-width: 640px) {
   .features-head, .feature-row { flex-direction: column; }
 }
+
+.first-run-welcome h2 { margin: 0 0 8px; }
+.first-run-welcome ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; }

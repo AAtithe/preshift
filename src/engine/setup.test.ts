@@ -141,3 +141,17 @@ describe('team paste', () => {
     expect(pasteWarnings(people, TODAY)[0]).toMatch(/below the National Living Wage/);
   });
 });
+
+describe('a blank set-up', () => {
+  it('starts from the companies already on record, as a self sign-up leaves its business name', () => {
+    const d = emptyDraft([{ id: 'main', name: 'Harbour Kitchens Ltd', companyNumber: '', payeReference: '', intercompanyCode: '1350' }]);
+    expect(d.entities.map((e) => e.name)).toEqual(['Harbour Kitchens Ltd']);
+    expect(d.sites[0].entityId).toBe('main');
+  });
+
+  it('starts from one unnamed company when there are none', () => {
+    const d = emptyDraft();
+    expect(d.entities).toHaveLength(1);
+    expect(d.sites[0].entityId).toBe(d.entities[0].id);
+  });
+});
