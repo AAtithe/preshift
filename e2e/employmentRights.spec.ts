@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './fixtures';
 
 // Employment rights in the browser: a GM sees who would be owed guaranteed hours on the hours they
 // work, makes an offer, gets the letter and records the answer. It changes data and acts as a demo

@@ -1600,9 +1600,7 @@ button, select, input { border-radius: 8px; }
   .shifty-launcher { bottom: 10px; }
 }
 
-/* What's new: the notice in a week with something unseen, and the walkthrough docked above the command bar. */
-.whatsnew-notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--surface-2); border-color: var(--rule-strong); }
-.whatsnew-actions { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+/* What's new: the pop-up in a week with something unseen, and the walkthrough docked above the command bar. */
 .walkthrough { position: fixed; right: 24px; bottom: 132px; z-index: 31; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 160px); display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--rule-strong); border-radius: 14px; box-shadow: 0 16px 48px rgb(0 51 89 / 0.22); overflow: hidden; animation: rise 0.2s ease-out; }
 .walkthrough-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: var(--ink); color: var(--card); }
 .walkthrough-head .eyebrow, .walkthrough-head .link { color: var(--card); }
@@ -1617,9 +1615,10 @@ button, select, input { border-radius: 8px; }
 .walkthrough-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--rule-strong); }
 .walkthrough-dots span.on { background: var(--ink); }
 @media (max-width: 720px) {
-  .whatsnew-notice { flex-direction: column; align-items: flex-start; }
-  .walkthrough { right: 16px; bottom: 16px; }
+    .walkthrough { right: 16px; bottom: 16px; }
 }
+.whatsnew-list { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; }
+.whatsnew-list .badge { background: var(--surface-2); color: var(--ink); }
 
 /* Features: which parts of Preshift the organisation uses. */
 .features-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }

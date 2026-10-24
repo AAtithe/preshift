@@ -205,6 +205,19 @@ export function markSeen(who: string, week: string) {
   }
 }
 
+// A browser can be told not to pop the week's changes up by themselves: a screen shared by a team,
+// a demo being presented, or the browser checks. What's new in the bar still opens them.
+const AUTO_KEY = 'preshift.whatsnew.auto';
+
+/** Whether the week's changes pop up by themselves at the first sign-in of the week in this browser. */
+export function popsUp(): boolean {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
 /** Whether a week is a Monday, as every release must start on one. */
 export function isMonday(week: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(week) && weekStart(week) === week;
