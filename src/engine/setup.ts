@@ -73,11 +73,15 @@ export function newSite(entityId: string): Site {
   };
 }
 
-export function emptyDraft(): SetupDraft {
-  const entity = newEntity();
-  const site = newSite(entity.id);
+/**
+ * A blank set-up. Companies already on record are kept, so a business that signed itself up starts
+ * from the name it gave, not an empty form.
+ */
+export function emptyDraft(existing: SetupDraft['entities'] = []): SetupDraft {
+  const entities = existing.length ? existing.map((e) => ({ ...e })) : [newEntity()];
+  const site = newSite(entities[0].id);
   const roles = ROLE_TEMPLATE.map(({ rule: _rule, ...role }) => role);
-  return { entities: [entity], sites: [site], roles, demandRules: roles.flatMap((r) => defaultRule(r, site.id) ?? []) };
+  return { entities, sites: [site], roles, demandRules: roles.flatMap((r) => defaultRule(r, site.id) ?? []) };
 }
 
 export function draftFromState(state: RotaState): SetupDraft {

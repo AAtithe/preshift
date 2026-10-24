@@ -181,8 +181,9 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = orgOf(req);
     const g = guard(ctx, req, org);
     g.allow('rota.view');
-    // Only the companies whose sites the person can see the rota for.
-    const reach = g.sites('rota.view');
+    // Only the companies whose sites the person can see the rota for. Whoever runs set-up sees every
+    // company, including one with no sites yet, as a business that has just signed itself up has.
+    const reach = g.can('settings.manage') ? 'all' : g.sites('rota.view');
     const seen = org.state.entities.filter((e) => reach === 'all' || org.state.sites.some((s) => s.entityId === e.id && reach.has(s.id)));
     // A company's registration, PAYE reference and Employment Allowance are for set-up, payroll and the close.
     const registered = (['settings.manage', 'payroll.view', 'close.export'] as const).some((p) => g.can(p));
