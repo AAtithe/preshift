@@ -109,6 +109,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/employees/:id/badge': true,
   'DELETE /v1/employees/:id/badge': true,
   'PATCH /v1/entities/:id': true,
+  'PUT /v1/entities/:id/premiums': true,
   'PUT /v1/sites/:id/geofence': true,
   'DELETE /v1/sites/:id/geofence': true,
   'POST /v1/hr/records': true,

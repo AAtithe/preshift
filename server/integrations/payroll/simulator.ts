@@ -123,7 +123,13 @@ export class TeamPaySimulator implements PayrollProvider {
     // TeamPay pays each line at the rate it was sent with, so travel at its own rate is paid at that rate.
     const hoursByEmployee = new Map<string, number>();
     const payByEmployee = new Map<string, number>();
+    // Premium lines are paid on top, after any guaranteed hours top-up, and are not extra hours.
+    const premiumByEmployee = new Map<string, number>();
     for (const l of batch.lines) {
+      if (l.premium) {
+        premiumByEmployee.set(l.employeeId, (premiumByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
+        continue;
+      }
       hoursByEmployee.set(l.employeeId, (hoursByEmployee.get(l.employeeId) ?? 0) + l.hours);
       payByEmployee.set(l.employeeId, (payByEmployee.get(l.employeeId) ?? 0) + l.hours * l.rate);
     }
@@ -144,7 +150,8 @@ export class TeamPaySimulator implements PayrollProvider {
       const gross =
         (person.payBasis === 'salaried'
           ? person.annualSalary / 52
-          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate)) + (extra.get(person.id) ?? 0);
+          : Math.max(payByEmployee.get(person.id) ?? 0, person.contractedHours * person.hourlyRate) + (premiumByEmployee.get(person.id) ?? 0)) +
+        (extra.get(person.id) ?? 0);
       // Price on-costs with the same statutory model; a real payroll's rounding differs slightly.
       const cost = weekOnCosts(person, gross);
       employees.push({
