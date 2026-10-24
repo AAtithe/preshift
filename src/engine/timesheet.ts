@@ -69,6 +69,21 @@ export interface PayrollAdjustment {
   reference: string;
 }
 
+/**
+ * A person's share of a week's tips at a site, paid through payroll. Through an independent tronc it
+ * is free of Class 1 NI; allocated by the employer it is not. Income tax is due either way.
+ */
+export interface PayrollTroncLine {
+  employeeId: string;
+  payrollId?: string;
+  siteId: string;
+  weekStart: string;
+  amount: number;
+  niable: boolean;
+  /** Site and week, so payroll never pays the same week's tips twice. */
+  reference: string;
+}
+
 export interface PayrollHoursBatch {
   periodStart: string;
   periodEnd: string;
@@ -77,6 +92,8 @@ export interface PayrollHoursBatch {
   sickness?: PayrollSicknessLine[];
   /** Back pay and other one-off sums. Absent on batches sent before back pay was carried. */
   adjustments?: PayrollAdjustment[];
+  /** Tips allocated by the site's tronc scheme. Absent on batches sent before tips went with the hours. */
+  tronc?: PayrollTroncLine[];
   /** Approved entries skipped because their person is salaried (paid by salary, not hours). */
   salariedEntryIds: string[];
   totalHours: number;

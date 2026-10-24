@@ -348,3 +348,73 @@ describe('TeamPay hours lines', () => {
     expect(lines[1].rate).toBe(13);
   });
 });
+
+describe('tips through payroll', () => {
+  const scheme = (independent: boolean) => ({ siteId: 'mar', troncmaster: 'Head waiter', independent, pointsPerHour: { server: 1 }, serviceCharge: 'discretionary' as const, policyPublishedOn: '2026-01-01' });
+
+  it('sends each share of the week\'s tips with the hours, again if the batch is replaced, and marks them paid', async () => {
+    const payroll = new RecordingPayroll();
+    const { call, ctx, store } = await setup(payroll);
+    await call('PATCH', '/v1/entities/wdl', { payrollEmployerId: 'er_west' });
+    await approvedShift(call, 'mar-7', 'mar', 'server');
+    const org = await store.load('demo');
+    org.state.troncSchemes = [scheme(true)];
+    org.state.tips = [{ id: 'tip1', siteId: 'mar', date: WEEK, source: 'card-tip', amount: 84.5 }];
+
+    const first = (await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' })).body.submissions[0];
+    await call('POST', '/v1/integrations/payroll/sync-employees', {});
+    await ctx.dispatcher.processDue();
+    const sent = () => payroll.calls.filter((c) => c.method === 'submitHours').map((c) => (c.detail as PayrollHoursBatch).tronc);
+    expect(sent().at(-1)).toEqual([expect.objectContaining({ employeeId: 'mar-7', amount: 84.5, niable: false, siteId: 'mar', weekStart: WEEK, reference: `tronc:mar:${WEEK}`, payrollId: expect.any(String) })]);
+    expect(org.state.tips![0]).toMatchObject({ paidOn: '2026-10-25', sentIn: first.id });
+
+    // Replaced batch: the tips go again with the new one, once.
+    await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' });
+    await ctx.dispatcher.processDue();
+    expect(sent().at(-1)).toHaveLength(1);
+    expect(org.state.tips![0].sentIn).not.toBe(first.id);
+  });
+
+  it('marks tips allocated by the employer as liable to NI, and leaves a week paid by hand alone', async () => {
+    const payroll = new RecordingPayroll();
+    const { call, ctx, store } = await setup(payroll);
+    await call('PATCH', '/v1/entities/wdl', { payrollEmployerId: 'er_west' });
+    await approvedShift(call, 'mar-7', 'mar', 'server');
+    const org = await store.load('demo');
+    org.state.troncSchemes = [scheme(false)];
+    org.state.tips = [{ id: 'tip1', siteId: 'mar', date: WEEK, source: 'service-charge', amount: 40 }];
+    await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' });
+    await call('POST', '/v1/integrations/payroll/sync-employees', {});
+    await ctx.dispatcher.processDue();
+    const sent = () => payroll.calls.filter((c) => c.method === 'submitHours').map((c) => (c.detail as PayrollHoursBatch).tronc);
+    expect(sent().at(-1)![0]).toMatchObject({ amount: 40, niable: true });
+
+    // Paid by hand, outside payroll: a later send for that week must not pay it again.
+    org.state.tips = [{ id: 'tip2', siteId: 'mar', date: WEEK, source: 'cash-pooled', amount: 40, paidOn: '2026-10-24' }];
+    await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' });
+    await ctx.dispatcher.processDue();
+    expect(sent().at(-1)).toEqual([]);
+  });
+});
+
+describe('payslips from TeamPay', () => {
+  it('reads payslips and P60s for one person, and fetches a PDF only by its own path', async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(url);
+      if (url.endsWith('/payslips')) return new Response(JSON.stringify({ data: [{ id: 'ps1', period_start: '2026-10-12', period_end: '2026-10-18', pay_date: '2026-10-23', gross_pay: 420, tax: 35.65, employee_ni: 14.26, pension: 15, net_pay: 355.09 }] }), { status: 200 });
+      if (url.endsWith('/p60s')) return new Response(JSON.stringify({ data: [{ id: 'p60_2526', tax_year: '2025-26', gross_pay: 18000, tax: 1086, employee_ni: 600, pdf_available: true }] }), { status: 200 });
+      if (url.endsWith('/payslips/ps1/pdf')) return new Response(Buffer.from('%PDF-1.4 slip'), { status: 200 });
+      return new Response('', { status: 404 });
+    }) as typeof fetch;
+    const teampay = new TeamPayProvider({ baseUrl: 'https://teampay.test/v1', apiKey: 'k', webhookSecret: 's', employerId: 'er_1', fetchImpl });
+    const docs = await teampay.listPayDocuments('er_1', 'emp 7');
+    expect(docs).toEqual([
+      expect.objectContaining({ id: 'ps1', kind: 'payslip', payDate: '2026-10-23', gross: 420, net: 355.09, hasPdf: true }),
+      expect.objectContaining({ id: 'p60_2526', kind: 'p60', taxYear: '2025-26', gross: 18000, hasPdf: true }),
+    ]);
+    expect(urls[0]).toBe('https://teampay.test/v1/employees/emp%207/payslips');
+    expect((await teampay.payDocumentPdf('er_1', 'emp 7', docs[0]))!.toString()).toBe('%PDF-1.4 slip');
+    expect(await teampay.payDocumentPdf('er_1', 'emp 7', { ...docs[0], id: 'missing' })).toBeNull();
+  });
+});
