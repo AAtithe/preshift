@@ -56,6 +56,7 @@ function StaffAppGuide() {
       <h3>What they can do</h3>
       <ul>
         <li><strong>Today:</strong> clock in and out inside the site's geofence, record breaks, see today's shift and the break they are owed.</li>
+        <li><strong>Seen it:</strong> when a week is published or changes, a banner asks them to check their shifts and confirm.</li>
         <li><strong>Rota:</strong> their shifts for the next two weeks and who they are on with. Swap or give away a shift, and pick up open shifts and swaps offered to them.</li>
         <li><strong>Requests:</strong> holiday with their balance shown first, other time off, report sickness and send a fit note, change their usual week, and add days they cannot work.</li>
         <li><strong>Inbox:</strong> every message about their rota and requests, and the notifications switch.</li>
