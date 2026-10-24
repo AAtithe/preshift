@@ -1,7 +1,8 @@
-import { can, type User } from '../src/engine/access';
+import { can, sitesWith, type Permission, type User } from '../src/engine/access';
 import { ABSENCE_LABEL } from '../src/engine/hr';
 import { dayLabel, namesOf, shiftLine } from '../src/engine/requests';
-import { addDays } from '../src/engine/time';
+import { addDays, daysBetween, weekStart } from '../src/engine/time';
+import { weeksSeen } from '../src/engine/rotaSeen';
 import type { StaffRequest } from '../src/engine/types';
 import { emailSetting, linkFor, managerDigestEmail, parseEmailSettings, sendMail } from './mail';
 import { authority } from './routes/requests';
@@ -10,6 +11,27 @@ import { audit, type OrgData, type Store } from './store';
 
 /** Open shifts still unfilled this close to the day are worth a manager's morning. */
 export const DIGEST_OPEN_SHIFT_DAYS = 7;
+/** A request waiting longer than this goes up a level, to whoever runs the site's manager. */
+export const ESCALATE_AFTER_HOURS = 48;
+/** An open shift still unfilled this close to its start goes up a level too. */
+export const ESCALATE_OPEN_SHIFT_DAYS = 2;
+
+/** Holds the permission for this one site only: the site's own manager, as against an area or group one. */
+const runsOnly = (user: User, permission: Permission, siteId: string, today: string) => {
+  const sites = sitesWith(user, permission, today);
+  return sites !== 'all' && sites.length === 1 && sites[0] === siteId;
+};
+
+/**
+ * How a person stands to a site's decisions: its own manager ('site'), someone above who hears only
+ * what has gone overdue ('above'), or neither. Where nobody runs the site alone, whoever can decide is
+ * its manager, so nothing goes unanswered for want of a GM.
+ */
+export function deciderLevel(users: User[], user: User, permission: Permission, siteId: string, today: string): 'site' | 'above' | null {
+  if (!can(user, permission, today, siteId)) return null;
+  if (runsOnly(user, permission, siteId, today)) return 'site';
+  return users.some((u) => u.status === 'active' && runsOnly(u, permission, siteId, today)) ? 'above' : 'site';
+}
 
 export interface DigestSection {
   heading: string;
@@ -40,10 +62,15 @@ export function managerDigests(org: OrgData, today: string): Digest[] {
   const out: Digest[] = [];
   for (const user of org.users) {
     if (user.status !== 'active' || off.has(user.id)) continue;
+    const waitedHours = (r: StaffRequest) => (Date.parse(`${today}T07:00:00Z`) - Date.parse(r.createdAt)) / 3_600_000;
+    const level = (r: StaffRequest) => deciderLevel(org.users, user, authority(r.kind).permission, r.siteId, today);
     // A swap nobody has agreed to yet is not the manager's to decide.
-    const mine = open.filter(
-      (r) => !(r.kind === 'swap' && r.status === 'pending') && r.employeeId !== user.employeeId && can(user, authority(r.kind).permission, today, r.siteId),
-    );
+    const theirs = open.filter((r) => !(r.kind === 'swap' && r.status === 'pending') && r.employeeId !== user.employeeId);
+    const mine = theirs.filter((r) => level(r) === 'site');
+    // Above the site, only what its own manager has left: over two days, with who should have decided it.
+    const escalated = theirs.filter((r) => level(r) === 'above' && waitedHours(r) >= ESCALATE_AFTER_HOURS);
+    const decidersOf = (r: StaffRequest) =>
+      org.users.filter((u) => u.status === 'active' && u.employeeId !== r.employeeId && runsOnly(u, authority(r.kind).permission, r.siteId, today)).map((u) => u.name);
     const line = (r: StaffRequest) => {
       const waited = Math.max(0, Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(r.createdAt)) / 86_400_000));
       const age = waited >= 2 ? ` Waiting ${waited} days.` : '';
@@ -71,7 +98,14 @@ export function managerDigests(org: OrgData, today: string): Digest[] {
     }
     const asks = mine.filter((r) => r.kind !== 'sickness');
     if (asks.length) sections.push({ heading: `${asks.length} request${asks.length === 1 ? '' : 's'} to decide`, lines: asks.map(line) });
-    const shifts = unfilled.filter((o) => can(user, 'rota.publish', today, o.siteId));
+    if (escalated.length) {
+      sections.push({
+        heading: `Overdue at your sites: ${escalated.length} waiting more than ${ESCALATE_AFTER_HOURS / 24} days`,
+        lines: escalated.map((r) => `${line(r)} For ${decidersOf(r).join(' or ') || 'the site manager'} to decide.`),
+      });
+    }
+    const publishLevel = (siteId: string) => deciderLevel(org.users, user, 'rota.publish', siteId, today);
+    const shifts = unfilled.filter((o) => publishLevel(o.siteId) === 'site' || (publishLevel(o.siteId) === 'above' && o.date <= addDays(today, ESCALATE_OPEN_SHIFT_DAYS)));
     if (shifts.length) {
       sections.push({
         heading: 'Open shifts not yet filled',
@@ -81,7 +115,22 @@ export function managerDigests(org: OrgData, today: string): Digest[] {
         }),
       });
     }
-    const count = mine.length + shifts.length;
+    // This week's rota, and next week's from Friday: who has not pressed Seen it on the week as it now stands.
+    const thisWeek = weekStart(today);
+    const comingWeeks = [thisWeek, ...(daysBetween(today, addDays(thisWeek, 7)) <= 3 ? [addDays(thisWeek, 7)] : [])];
+    const unseen = weeksSeen(org.toldWeeks ?? {}, org.rotaSeen ?? {}, (w) => comingWeeks.includes(w.weekStart) && publishLevel(w.siteId) === 'site').filter((w) => !w.seen);
+    const unseenGroups = [...new Set(unseen.map((w) => `${w.siteId}|${w.weekStart}`))];
+    if (unseenGroups.length) {
+      sections.push({
+        heading: 'Not yet seen their rota',
+        lines: unseenGroups.map((g) => {
+          const [siteId, ws] = g.split('|');
+          const who = unseen.filter((w) => w.siteId === siteId && w.weekStart === ws).map((w) => person(w.employeeId)).sort();
+          return `${names.site(siteId)}, week of ${dayLabel(ws)}: ${who.join(', ')}.`;
+        }),
+      });
+    }
+    const count = mine.length + escalated.length + shifts.length + unseenGroups.length;
     if (count) out.push({ user, sections, count });
   }
   return out;
