@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
 import type { DayForecast } from '../engine/forecasting';
-import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, PayChange, PayTerms, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
+import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, PayChange, PayTerms, PremiumRule, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
 import { weekDates } from '../engine/time';
 import type { Me } from './access/model';
 import { api } from './api';
@@ -28,8 +28,9 @@ export function useRotaStore() {
 
   const load = useCallback(async () => {
     try {
-      setMe(await api.get<Me>('/v1/me'));
-      const [entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
+      // One round trip for everything, who is asking included, rather than asking that first.
+      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
+        api.get<Me>('/v1/me'),
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
         api.get<RotaState['roles']>('/v1/roles'),
@@ -41,6 +42,7 @@ export function useRotaStore() {
         api.get<RestOverride[]>('/v1/rota/overrides'),
         api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
       ]);
+      setMe(me);
       // Till actuals stay on the server: the screens that need them ask for them.
       setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments });
       setError(null);
@@ -236,6 +238,13 @@ export function useRotaStore() {
     setTravelPay: (entityId: string, travelPay: TravelPay) =>
       guard(async () => {
         const entity = await api.patch<Entity>(`/v1/entities/${entityId}`, { travelPay });
+        setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
+        return entity;
+      }),
+    /** Replaces a company's pay premiums; every shift cost, the accrual and the hours sent to payroll follow them. */
+    setPremiums: (entityId: string, premiums: PremiumRule[]) =>
+      guard(async () => {
+        const entity = await api.put<Entity>(`/v1/entities/${entityId}/premiums`, { premiums });
         setState((s) => s && { ...s, entities: s.entities.map((x) => (x.id === entityId ? entity : x)) });
         return entity;
       }),

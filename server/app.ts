@@ -10,7 +10,7 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { demoRoutes, keepSandboxTrading, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
@@ -26,6 +26,7 @@ import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
+import { labourRoutes } from './routes/labour';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clientRoutes } from './routes/clients';
@@ -43,10 +44,12 @@ import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
-import { emailNotifications } from './notify';
+import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
+import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
+import { cashRoutes } from './routes/cash';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -226,6 +229,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
       documents: documents.status,
+      // Which build is live, so a check run after a deploy can wait for it. Vercel sets this on git deployments.
+      ...(env.VERCEL_GIT_COMMIT_SHA ? { commit: env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) } : {}),
     });
   });
 
@@ -327,6 +332,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
   });
 
+  // Every five minutes: shift reminders, and an alert when someone has not clocked in for a shift
+  // that has started. Each is sent once, however often this runs.
+  app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
+  });
+
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
   // midnight UK time in winter and summer alike. Runs whether or not the demo is switched on,
   // so switching it off still clears what visitors left.
@@ -377,6 +389,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
+    // A demo sandbox's takings move on with the clock, so the cut call has a day to read whenever it is opened.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' && req.routeOptions.url === '/v1/sales' && req.org && keepSandboxTrading(req.org, ctx.now())) req.orgTouched = true;
+    });
     // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
     // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.
     api.addHook('preHandler', async (req) => {
@@ -394,7 +410,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
-        await emailNotifications(store, req.org);
+        await deliverNotifications(store, req.org);
         await store.save(req.org);
         return payload;
       } catch (err) {
@@ -433,6 +449,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);
     timeRoutes(api, ctx);
+    labourRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
@@ -441,6 +458,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
+    cashRoutes(api, ctx);
     welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);

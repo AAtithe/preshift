@@ -95,14 +95,16 @@ describe('public demo on the live system', () => {
     const customerBefore = (await t.call('GET', '/v1/employees', customer)).json();
     const sites = (await t.call('GET', '/v1/sites', a)).json();
     const week = weekStart(toISODate(new Date()));
+    const range = `?from=${week}&to=${addDays(week, 6)}`;
+    // Each sandbox starts with the sample group's worked days; what one visitor builds stays in theirs.
+    const bBefore = (await t.call('GET', `/v1/shifts${range}`, b)).json();
     expect((await t.call('POST', '/v1/rota/build', a, { siteIds: sites.map((s: { id: string }) => s.id), weekStart: week })).statusCode).toBe(200);
     const template = (await t.call('GET', '/v1/employees', a)).json()[0];
     const { id: _id, ...fields } = template;
     expect((await t.call('POST', '/v1/employees', a, { ...fields, name: 'Visitor Hire' })).statusCode).toBe(201);
 
-    const range = `?from=${week}&to=${addDays(week, 6)}`;
-    expect((await t.call('GET', `/v1/shifts${range}`, a)).json().length).toBeGreaterThan(0);
-    expect((await t.call('GET', `/v1/shifts${range}`, b)).json()).toEqual([]);
+    expect((await t.call('GET', `/v1/shifts${range}`, a)).json().length).toBeGreaterThan(bBefore.length);
+    expect((await t.call('GET', `/v1/shifts${range}`, b)).json()).toEqual(bBefore);
     expect((await t.call('GET', `/v1/shifts${range}`, customer)).json()).toEqual([]);
     expect((await t.call('GET', '/v1/employees', customer)).json()).toEqual(customerBefore);
     expect((await t.call('GET', '/v1/employees', b)).json().some((e: { name: string }) => e.name === 'Visitor Hire')).toBe(false);
@@ -304,6 +306,33 @@ describe('midnight reset', () => {
     expect(await store.getUser(email)).toBeNull();
     expect(await store.has('demo')).toBe(true);
     expect((await t.call('GET', '/v1/sites', customer)).statusCode).toBe(200);
+  });
+
+  it('keeps a sandbox opened before the sites open trading through the day, in memory and Postgres', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    for (const make of [() => new MemoryStore(['demo'], '2026-07-15'), () => new PgStore(pglite(), ['demo'], '2026-07-15')]) {
+      // 09:00 in London, before any site opens.
+      vi.setSystemTime(new Date('2026-07-15T08:00:00Z'));
+      const t = await boot({ store: make() });
+      const visitor = await t.visit();
+      const today = async () => ((await t.call('GET', '/v1/sales', visitor)).json() as { siteId: string; date: string; hours?: { hour: number; netSales: number }[] }[])
+        .find((d) => d.siteId === 'mar' && d.date === '2026-07-15');
+      expect(await today()).toBeUndefined();
+
+      // 16:30: lunch and the afternoon have traded, and only hours that have finished.
+      vi.setSystemTime(new Date('2026-07-15T15:30:00Z'));
+      const afternoon = await today();
+      expect(afternoon?.hours?.map((h) => h.hour)).toEqual([11, 12, 13, 14, 15]);
+
+      // 19:10: the evening adds to the day; the hours already taken are not rewritten.
+      vi.setSystemTime(new Date('2026-07-15T18:10:00Z'));
+      const evening = await today();
+      expect(evening?.hours?.map((h) => h.hour)).toEqual([11, 12, 13, 14, 15, 16, 17, 18]);
+      expect(evening?.hours?.slice(0, 5)).toEqual(afternoon?.hours);
+      expect(await today()).toEqual(evening);
+      vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ['Date'] });
+    }
   });
 
   it('refuses to delete anything that is not a sandbox, in memory and Postgres', async () => {

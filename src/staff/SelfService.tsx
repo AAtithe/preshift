@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { formatMinute, parseClock } from '../engine/time';
 import type { Availability } from '../engine/types';
+import type { Fortnight } from '../engine/rotaViews';
 import { dayLabel } from '../ui/format';
+import { CrewLine, EffectLine, FortnightStrip, type Crew, type OwnShift, type ShiftEffect } from './RotaPictures';
+import { pushState, turnOff, turnOn, type PushState } from './push';
 
 /** What the overview carries for self-service. The rest of it is the clock and hours. */
 export interface SelfServiceData {
@@ -95,15 +98,15 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 // ------------------------------------------------------------------------------------------------
 // Rota: who they work with, swaps, and open shifts.
 
-interface TeamShift {
+interface TeamShift extends Crew {
   shiftId: string;
   date: string;
   line: string;
-  team: { name: string; role: string; startMinute: number; endMinute: number }[];
+  siteName: string;
 }
 
 interface Board {
-  openShifts: { id: string; line: string; note: string | null; claimed: boolean }[];
+  openShifts: { id: string; line: string; note: string | null; claimed: boolean; effect?: ShiftEffect }[];
   offers: { id: string; from: string; line: string; returnLine: string | null; directed: boolean; note: string | null }[];
 }
 
@@ -112,7 +115,7 @@ interface SwapOptions {
   people: { id: string; name: string; role: string; shifts: { id: string; line: string }[] }[];
 }
 
-export function RotaTab({ call, say, today, requests, refresh }: { call: Call; say: Say; today: string; requests: OwnRequest[]; refresh: () => void }) {
+export function RotaTab({ call, say, today, requests, refresh, shifts, fortnight }: { call: Call; say: Say; today: string; requests: OwnRequest[]; refresh: () => void; shifts: OwnShift[]; fortnight?: Fortnight }) {
   const [team, setTeam] = useState<TeamShift[] | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
   const [swapping, setSwapping] = useState<string | null>(null);
@@ -150,6 +153,7 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
                 <span>
                   <span className="strong">{o.line}</span>
                   {o.note && <span className="muted small"> {o.note}</span>}
+                  {o.effect && !o.claimed && <EffectLine effect={o.effect} />}
                   <span className="staff-buttons">
                     {o.claimed ? (
                       <span className="muted small">You asked for this. Waiting for your manager.</span>
@@ -164,6 +168,8 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
         </Card>
       )}
 
+      {fortnight && <FortnightStrip today={today} shifts={shifts} summary={fortnight} />}
+
       <Card title="My rota and who I am working with">
         {team === null ? (
           <p className="muted">Loading</p>
@@ -176,10 +182,7 @@ export function RotaTab({ call, say, today, requests, refresh }: { call: Call; s
                 <span className="staff-day">{s.date === today ? 'Today' : day(s.date)}</span>
                 <span>
                   <span className="strong">{s.line.replace(/^\S+ \d+ \S+ /, '')}</span>
-                  <span className="muted small">
-                    {' '}
-                    {s.team.length ? `With ${s.team.map((t) => `${t.name} (${t.role}, ${formatMinute(t.startMinute)}-${formatMinute(t.endMinute)})`).join(', ')}` : 'Nobody else on yet'}
-                  </span>
+                  <CrewLine shift={s} />
                   <span className="staff-buttons">
                     {offered.has(s.line) ? (
                       <span className="muted small">Up for a swap</span>
@@ -506,7 +509,94 @@ interface Notice {
   read: boolean;
 }
 
-export function InboxTab({ call, refresh }: { call: Call; refresh: () => void }) {
+/** Notifications on this phone: why they cannot be, or a switch, and a test once on. */
+function PushCard({ call, say }: { call: Call; say: Say }) {
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  const [others, setOthers] = useState(0);
+  const [reminders, setReminders] = useState(true);
+  const check = useCallback(async () => {
+    try {
+      const info = await call<{ devices: { endpoint: string }[]; reminders: boolean }>('GET', '/v1/staff/push');
+      setReminders(info.reminders);
+      const now = await pushState(info.devices.map((d) => d.endpoint));
+      setState(now);
+      setOthers(info.devices.filter((d) => now.kind !== 'on' || d.endpoint !== now.endpoint).length);
+    } catch {
+      setState({ kind: 'unsupported' });
+    }
+  }, [call]);
+  useEffect(() => void check(), [check]);
+
+  async function act(work: () => Promise<string | null | void>, done: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const problem = await work();
+      setMessage(problem ? { tone: 'bad', text: problem } : { tone: 'good', text: done });
+      await check();
+    } catch (e) {
+      setMessage({ tone: 'bad', text: say(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!state) return null;
+  return (
+    <section className="staff-card staff-form">
+      <h2>Notifications on this phone</h2>
+      {state.kind === 'unsupported' && <p className="muted small">This browser cannot show notifications from Preshift. Messages still arrive here and by email.</p>}
+      {state.kind === 'install-first' && (
+        <p className="muted small">
+          On an iPhone, add Preshift to your home screen first: tap the Share button, then Add to Home Screen. Open Preshift from the new icon,
+          come back here, and turn notifications on.
+        </p>
+      )}
+      {state.kind === 'blocked' && <p className="muted small">Notifications are blocked for Preshift. Allow them in your phone settings, then come back here.</p>}
+      {state.kind === 'off' && (
+        <>
+          <p className="muted small">Get told on your phone when your rota is out, a shift changes, a shift you could pick up is posted, or a request is decided.</p>
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() => void act(async () => {
+              const { publicKey } = await call<{ publicKey: string }>('GET', '/v1/staff/push');
+              return turnOn(publicKey, (body) => call('POST', '/v1/staff/push/subscribe', body));
+            }, 'Notifications are on for this phone.')}
+          >
+            {busy ? 'Turning on' : 'Turn on notifications'}
+          </button>
+        </>
+      )}
+      {state.kind === 'on' && (
+        <>
+          <p className="good-text small">On for this phone.{others ? ` Also on for ${others} other phone${others === 1 ? '' : 's'} or browser${others === 1 ? '' : 's'}.` : ''}</p>
+          <label className="staff-check">
+            <input
+              type="checkbox"
+              checked={reminders}
+              disabled={busy}
+              onChange={(e) => { const on = e.target.checked; void act(async () => { await call('PUT', '/v1/staff/reminders', { on }); setReminders(on); }, on ? 'Reminders on.' : 'Reminders off. You will still be told if you have not clocked in.'); }}
+            />
+            Remind me the evening before and two hours before each shift
+          </label>
+          <div className="staff-buttons">
+            <button disabled={busy} onClick={() => void act(async () => {
+              const r = await call<{ sent: number }>('POST', '/v1/staff/push/test');
+              return r.sent ? null : 'The test did not reach your phone. Turn notifications off and on again.';
+            }, 'Sent. It should appear in a few seconds.')}>Send a test</button>
+            <button disabled={busy} onClick={() => void act(() => turnOff((body) => call('POST', '/v1/staff/push/unsubscribe', body)), 'Notifications are off for this phone.')}>Turn off</button>
+          </div>
+        </>
+      )}
+      {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
+    </section>
+  );
+}
+
+export function InboxTab({ call, say, refresh }: { call: Call; say: Say; refresh: () => void }) {
   const [list, setList] = useState<Notice[] | null>(null);
   useEffect(() => {
     call<Notice[]>('GET', '/v1/staff/notifications')
@@ -518,6 +608,8 @@ export function InboxTab({ call, refresh }: { call: Call; refresh: () => void })
       .catch(() => setList([]));
   }, [call, refresh]);
   return (
+    <>
+    <PushCard call={call} say={say} />
     <section className="staff-card">
       <h2>Messages</h2>
       {list === null ? (
@@ -538,5 +630,6 @@ export function InboxTab({ call, refresh }: { call: Call; refresh: () => void })
         </ul>
       )}
     </section>
+    </>
   );
 }

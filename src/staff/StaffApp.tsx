@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { checkFence } from '../engine/clocking';
 import { formatMinute } from '../engine/time';
+import type { Fortnight } from '../engine/rotaViews';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
+import { registerWorker, turnOff } from './push';
 import { InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
 interface Entry {
@@ -29,6 +31,8 @@ interface Overview extends SelfServiceData {
   /** The legal minimum break for the shift they are on, when there is one. */
   breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
   welfare: Welfare;
+  /** Hours, pay before tax and rest over the same fortnight as `shifts`. */
+  fortnight?: Fortnight;
   /** Whether they have a kiosk PIN, and whether a site they clock at asks for one. */
   kioskPin: { set: boolean; required: boolean };
 }
@@ -77,6 +81,7 @@ function readInvite() {
 
 /** Read when the app loads, once, before anything can render twice. */
 const INVITE = readInvite();
+registerWorker();
 
 /** The staff app: a person's own login on their own phone, to clock in and out and see their shifts. */
 export function StaffApp() {
@@ -112,7 +117,17 @@ export function StaffApp() {
           {data && view === 'home' ? <div className="brand-sub">{data.employee.name}</div> : <div className="brand-sub">For staff</div>}
         </div>
         {view === 'home' && (
-          <button className="link" onClick={() => void call('POST', '/v1/staff/logout').then(() => { setData(null); setView('login'); })}>Sign out</button>
+          <button
+            className="link"
+            onClick={() =>
+              // A shared phone stops getting this person's notifications when they sign out of it.
+              void turnOff((body) => call('POST', '/v1/staff/push/unsubscribe', body))
+                .then(() => call('POST', '/v1/staff/logout'))
+                .then(() => { setData(null); setView('login'); })
+            }
+          >
+            Sign out
+          </button>
         )}
       </header>
       {error && <p className="staff-msg bad" role="alert">{error}</p>}
@@ -135,7 +150,14 @@ type Tab = 'today' | 'rota' | 'requests' | 'inbox';
 
 /** Signed in: four tabs along the bottom, where a thumb reaches. */
 function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
-  const [tab, setTab] = useState<Tab>('today');
+  // A tapped notification opens the inbox, whether the app was closed or already open.
+  const [tab, setTab] = useState<Tab>(() => (window.location.hash === '#inbox' ? 'inbox' : 'today'));
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const open = (e: MessageEvent) => { if (e.data?.type === 'open') setTab('inbox'); };
+    navigator.serviceWorker.addEventListener('message', open);
+    return () => navigator.serviceWorker.removeEventListener('message', open);
+  }, []);
   const refresh = useCallback(async () => {
     try {
       onChange(await call<Overview>('GET', '/v1/staff/me'));
@@ -149,9 +171,9 @@ function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o:
   return (
     <>
       {tab === 'today' && <Home data={data} onChange={onChange} onSignedOut={onSignedOut} />}
-      {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} />}
+      {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} shifts={data.shifts} fortnight={data.fortnight} />}
       {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
-      {tab === 'inbox' && <InboxTab call={call} refresh={reload} />}
+      {tab === 'inbox' && <InboxTab call={call} say={say} refresh={reload} />}
       <nav className="staff-tabs" aria-label="Staff app">
         {tabs.map(([id, label, count]) => (
           <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
