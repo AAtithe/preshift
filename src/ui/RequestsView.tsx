@@ -48,6 +48,15 @@ interface RequestView {
   canDecide: boolean;
 }
 
+interface RotaSeen {
+  siteId: string;
+  siteName: string;
+  weekStart: string;
+  total: number;
+  seen: number;
+  notSeen: { name: string; onApp: boolean; changed: boolean }[];
+}
+
 interface LateShift {
   shiftId: string;
   employeeName: string;
@@ -118,6 +127,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged, coverShi
   const [posting, setPosting] = useState<{ shiftId?: string; keep: boolean } | null>(coverShiftId ? { shiftId: coverShiftId, keep: true } : null);
   const [digest, setDigest] = useState<{ on: boolean; email: string; count: number } | null>(null);
   const [late, setLate] = useState<LateShift[]>([]);
+  const [seen, setSeen] = useState<RotaSeen[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +135,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged, coverShi
         api.get<RequestView[]>('/v1/requests?status=all'),
         api.get<OpenShiftView[]>('/v1/open-shifts'),
         api.get<LateShift[]>('/v1/requests/late').catch(() => []),
+        api.get<RotaSeen[]>('/v1/requests/rota-seen').catch(() => []).then(setSeen),
       ]);
       setRequests(r);
       setOpenShifts(o);
@@ -279,6 +290,31 @@ export function RequestsView({ state, siteIds, today, allow, onChanged, coverShi
         </>
       )}
 
+      {seen.filter((w) => siteIds.includes(w.siteId)).length > 0 && (
+        <>
+          <h3 className="section-title">Rota seen</h3>
+          <div className="grid-wrap">
+            <table className="table people">
+              <tbody>
+                {seen.filter((w) => siteIds.includes(w.siteId)).map((w) => (
+                  <tr key={`${w.siteId}${w.weekStart}`}>
+                    <td><span className="strong">{w.siteName}</span><div className="muted small">Week of {date(w.weekStart)}</div></td>
+                    <td className={`num ${w.seen === w.total ? 'good-text' : 'warn-text'}`}>{w.seen} of {w.total} seen</td>
+                    <td className="small">
+                      {w.notSeen.length === 0 ? <span className="good-text">Everyone has confirmed this week as it stands.</span> : w.notSeen.map((p) => (
+                        <span key={p.name} className="tag" title={p.onApp ? (p.changed ? 'Saw an earlier version; something changed since' : 'Has the app, not confirmed yet') : 'No staff app: tell them yourself'}>
+                          {p.name}{p.changed ? ', changed since' : ''}{p.onApp ? '' : ', no app'}
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       <div className="people-bar">
         <h3 className="section-title">Waiting</h3>
       </div>
@@ -299,6 +335,10 @@ export function RequestsView({ state, siteIds, today, allow, onChanged, coverShi
                 <td>
                   <span className="strong">{r.employeeName}</span>
                   <div className="muted small">{r.siteName}, {when(r.createdAt)}</div>
+                  {/* Two days without an answer and it is in the area manager's morning email too. */}
+                  {!(r.kind === 'swap' && r.status === 'pending') && Date.now() - Date.parse(r.createdAt) >= 48 * 3_600_000 && (
+                    <div className="bad-text small">Overdue: now with your area manager too</div>
+                  )}
                 </td>
                 <td>
                   <span className="strong">{REQUEST_LABEL[r.kind]}</span>

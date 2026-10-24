@@ -9,6 +9,8 @@ import { pushState, turnOff, turnOn, type PushState } from './push';
 /** What the overview carries for self-service. The rest of it is the clock and hours. */
 export interface SelfServiceData {
   today: string;
+  /** Published weeks they have not confirmed as they now stand. */
+  rotaToConfirm: { weekStart: string; label: string; changed: boolean }[];
   unread: number;
   holiday: { remainingHours: number; bookedHours: number; takenHours: number; dayHours: number; yearEnd: string; upcoming: string[] };
   availability: Availability[];
@@ -638,5 +640,42 @@ export function InboxTab({ call, say, refresh }: { call: Call; say: Say; refresh
       )}
     </section>
     </>
+  );
+}
+
+/**
+ * "Seen it" on each published week they have not confirmed, at the top of every tab. Their manager
+ * sees who has and who has not, so "I didn't know I was on" stops being an answer.
+ */
+export function RotaConfirm({ call, say, weeks, onDone }: { call: Call; say: Say; weeks: SelfServiceData['rotaToConfirm']; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (weeks.length === 0) return null;
+  return (
+    <section className="staff-card staff-confirm" aria-live="polite">
+      {weeks.map((w) => (
+        <div key={w.weekStart} className="staff-confirm-row">
+          <span>
+            <span className="strong">{w.changed ? `Your rota has changed: ${w.label}` : `Your rota is out: ${w.label}`}</span>
+            <span className="muted small"> Check your shifts on the Rota tab, then confirm.</span>
+          </span>
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError(null);
+              call('POST', '/v1/staff/rota/seen', { weekStart: w.weekStart })
+                .then(onDone)
+                .catch((e) => setError(say(e)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Seen it
+          </button>
+        </div>
+      ))}
+      {error && <p className="staff-msg bad">{error}</p>}
+    </section>
   );
 }

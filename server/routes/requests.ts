@@ -10,7 +10,8 @@ import {
 } from '../../src/engine/requests';
 import { shiftEffect } from '../../src/engine/rotaViews';
 import { hasStarted } from '../../src/engine/rotaWeek';
-import { absoluteMinute, addDays, londonParts } from '../../src/engine/time';
+import { absoluteMinute, addDays, londonParts, weekStart } from '../../src/engine/time';
+import { weeksSeen } from '../../src/engine/rotaSeen';
 import { clockedFor } from '../../src/engine/reminders';
 import { adoption, adoptionTotal, TARGETS } from '../../src/engine/adoption';
 import { entriesAsShifts } from '../../src/engine/timesheet';
@@ -379,9 +380,44 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       const sites = org.state.sites.filter((s) => g.can('rota.publish', s.id) || g.can('team.manage', s.id)).map((s) => s.id);
       const logins = (await ctx.store.listStaffLogins(org.orgId)).map((l) => ({ employeeId: l.employeeId, active: Boolean(l.hash), pushDevices: l.push?.length ?? 0 }));
       const weeks = req.query.weeks ?? 4;
-      const rows = adoption(org.state, { logins, requests: requestsOf(org), openShifts: openShiftsOf(org), entries: org.timeEntries }, sites, today(), ctx.now().toISOString(), weeks)
+      const weeksSeenAll = weeksSeen(org.toldWeeks ?? {}, org.rotaSeen ?? {}, (w) => sites.includes(w.siteId));
+      const rows = adoption(org.state, { logins, requests: requestsOf(org), openShifts: openShiftsOf(org), entries: org.timeEntries, weeks: weeksSeenAll }, sites, today(), ctx.now().toISOString(), weeks)
         .map((r) => (g.can('team.manage', r.siteId) ? r : { ...r, notOnApp: undefined, noNotifications: undefined }));
       return { weeks, from: addDays(today(), -7 * weeks), to: addDays(today(), -1), targets: TARGETS, sites: rows, total: adoptionTotal(rows) };
+    },
+  );
+
+  // Who has confirmed their published week, this week and next, at the sites where the caller publishes the rota.
+  app.get(
+    '/v1/requests/rota-seen',
+    { ...read, schema: { tags, description: 'This week and next, per site: who has pressed Seen it on their published week as it now stands, who has not, and who has no staff app to do so.' } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const names = namesOf(org.state);
+      const thisWeek = weekStart(today());
+      const weeks = [thisWeek, addDays(thisWeek, 7)];
+      const onApp = new Set((await ctx.store.listStaffLogins(org.orgId)).filter((l) => l.hash).map((l) => l.employeeId));
+      const rows = weeksSeen(org.toldWeeks ?? {}, org.rotaSeen ?? {}, (w) => weeks.includes(w.weekStart) && g.can('rota.publish', w.siteId));
+      const groups = new Map<string, typeof rows>();
+      for (const r of rows) groups.set(`${r.siteId}|${r.weekStart}`, [...(groups.get(`${r.siteId}|${r.weekStart}`) ?? []), r]);
+      return [...groups.entries()]
+        .map(([key, people]) => {
+          const [siteId, ws] = key.split('|');
+          const person = (id: string) => org.state.employees.find((e) => e.id === id)?.name ?? id;
+          return {
+            siteId,
+            siteName: names.site(siteId),
+            weekStart: ws,
+            total: people.length,
+            seen: people.filter((p) => p.seen).length,
+            notSeen: people
+              .filter((p) => !p.seen)
+              .map((p) => ({ name: person(p.employeeId), onApp: onApp.has(p.employeeId), changed: p.changed }))
+              .sort((a, b) => a.name.localeCompare(b.name)),
+          };
+        })
+        .sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.siteName.localeCompare(b.siteName));
     },
   );
 
