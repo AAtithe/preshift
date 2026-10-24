@@ -1,3 +1,4 @@
+import type { SspCheckLine } from './ssp';
 import type { DaySales, Department, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours, weekCost } from './cost';
 import type { PayrollVariance } from './timesheet';
@@ -383,6 +384,8 @@ export interface PayRunSummary {
   /** When the run came back. A later run for the same company and period replaces an earlier one. */
   receivedAt?: string;
   variance: PayrollVariance;
+  /** SSP paid against SSP due on the absence record, when the payroll reports it. */
+  ssp?: SspCheckLine[];
 }
 
 export interface AccuracyRow extends PayRunSummary {

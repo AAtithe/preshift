@@ -6,7 +6,7 @@ import { kit } from './testkit';
 import { base32Encode, codeAt, stepAt, verifyCode } from './totp';
 
 const OLIVIA = 'olivia@marylebonegroup.example'; // Owner: enrolled in the demo with the published demo secret
-const NADIA = 'nadia@marylebonegroup.example'; // Finance director: role needs an authenticator, has none
+const NADIA = 'nadia@marylebonegroup.example'; // Finance director: role needs an authenticator, taken away in boot()
 const KEYS = [
   { key: 'system', orgId: 'demo', name: 'System', scopes: ['*'] as ['*'] },
   { key: 'priya-key', orgId: 'demo', name: 'Priya key', scopes: ['*'] as ['*'], userId: 'usr_gm_mar' },
@@ -19,6 +19,10 @@ const invite = (n: number) => ({ email: `new${n}@example.com`, name: `New ${n}`,
 
 async function boot() {
   const k = await kit({ keys: KEYS });
+  // The demo's finance director has an authenticator; these tests start her without one.
+  const org = await k.store.load('demo');
+  org.users.find((u) => u.id === 'usr_fd')!.mfaEnrolled = false;
+  delete org.authenticators.usr_fd;
   const call = async (method: string, url: string, as: { cookie?: string; key?: string }, body?: unknown) => {
     const res = await k.call(method, url, as.cookie ? `${COOKIE}=${as.cookie}` : as.key ? { key: as.key } : null, body);
     return { ...res, cookie: res.cookie?.split('=').slice(1).join('=') };

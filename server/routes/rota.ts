@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
+import { rollingAverageIssues } from '../../src/engine/employmentRights';
 import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
 import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
@@ -16,6 +17,7 @@ import { forecastBody, idParam, rangeQuery, salesBody, shiftBody, siteDateQuery,
 import { audit, type OrgData } from '../store';
 import { notify, notifyPublished, syncTold } from '../notify';
 import { namesOf, shiftLine } from '../../src/engine/requests';
+import { pendingNotices } from '../../src/engine/rotaViews';
 import { travelIssues } from '../../src/engine/travel';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -33,6 +35,7 @@ export function serialiseMetrics(m: WeekMetrics, byPerson = true) {
     cost: {
       total: cost.total,
       unallocated: cost.unallocated,
+      premium: cost.premium,
       employees: byPerson ? Object.fromEntries(cost.employees) : {},
       shifts: byPerson ? Object.fromEntries(cost.shifts) : {},
     },
@@ -275,7 +278,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
       // Labour cost is worked from pay rates, so it goes only to those who see them.
       metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws), hasScope(req, 'employees:read')) : null,
-      issues: checkWeek(org.state, ws, siteId),
+      // The rolling 48 hour average needs clocked history, which the rota alone does not hold.
+      issues: [...checkWeek(org.state, ws, siteId), ...rollingAverageIssues(org.state, org.timeEntries, ws, siteId)],
     };
   });
 
@@ -432,6 +436,39 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = orgOf(req);
     return (org.state.restOverrides ?? []).filter(guard(ctx, req, org).at('rota.view'));
   });
+
+  // What the next publish would tell each person, worked the way the publish does: their week as it
+  // stands against what they were last told. Names and shift times only, as the rota already shows.
+  app.get<{ Querystring: SiteWeek }>(
+    '/v1/rota/changes',
+    {
+      ...read,
+      schema: {
+        tags: ['Rota'],
+        description:
+          "Who the next publish of a site's week will tell, and what: the whole week for anyone not yet told about it, otherwise the shifts added and taken off since they were last told.",
+        querystring: siteWeekQuery,
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const { siteId, weekStart: ws } = req.query;
+      requireSite(org, siteId);
+      guard(ctx, req, org).allow('rota.view', siteId);
+      const dates = new Set(weekDates(ws));
+      const suffix = `|${siteId}|${ws}`;
+      const told = Object.fromEntries(
+        Object.entries(org.toldWeeks ?? {}).filter(([k]) => k.endsWith(suffix)).map(([k, lines]) => [k.slice(0, -suffix.length), lines]),
+      );
+      const shifts = org.state.shifts.filter((s) => s.siteId === siteId && dates.has(s.date));
+      const name = (id: string) => org.state.employees.find((e) => e.id === id)?.name ?? id;
+      const publications = org.publications.filter((p) => p.siteId === siteId && p.weekStart === ws).sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+      return {
+        lastPublished: publications.at(-1) ?? null,
+        notices: pendingNotices(told, shifts, namesOf(org.state)).map((n) => ({ ...n, name: name(n.employeeId) })).sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    },
+  );
 
   // An override is a person's judgement, so it needs a person: never a system key, and never the
   // rota assistant, which drafts through the engine. It is part of publishing, so it needs the

@@ -1,17 +1,24 @@
+import type { PayPolicy } from '../src/engine/payPolicy';
+import type { EraSettings, HoursOffer, ShortNoticeRecord } from '../src/engine/employmentRights';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
 import type { SupportTicket } from '../src/engine/support';
 import { seedHrRecords, seedState } from '../src/engine/seed';
-import type { RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
+import type { PolicyDocument, RetentionPolicy, SubjectRequest } from '../src/engine/gdpr';
 import { addDays, toISODate } from '../src/engine/time';
 import type { MoveRecord } from '../src/engine/coach';
 import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
+import type { AccountingData } from './integrations/accounting/provider';
 import type { Publication } from '../src/engine/scorecard';
+import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
+import type { PushDevice } from './push';
+import type { ShiftAlertRecord } from '../src/engine/reminders';
+import type { SeenRecord } from '../src/engine/rotaSeen';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { RewardsConnection } from './integrations/rewards/provider';
@@ -45,6 +52,8 @@ export interface PayRunRecord {
   periodEnd: string;
   receivedAt: string;
   variance: PayrollVariance;
+  /** SSP paid against SSP due, when the payroll reports it. */
+  ssp?: SspCheckLine[];
   entityId?: string;
   employerId?: string;
 }
@@ -103,6 +112,13 @@ export interface Kiosk {
   lastSeenAt?: string;
 }
 
+export interface EraData {
+  /** Absent means the assumptions in DEFAULT_ERA_SETTINGS, with neither measure started. */
+  settings?: EraSettings;
+  shortNotice: ShortNoticeRecord[];
+  offers: HoursOffer[];
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -137,6 +153,10 @@ export interface OrgData {
   notifications?: StaffNotification[];
   /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
   toldWeeks?: Record<string, string[]>;
+  /** Each person's "Seen it" on their published week, by the same key, with the week as it read then. */
+  rotaSeen?: Record<string, SeenRecord>;
+  /** Reminders and no-show alerts sent per shift, kept a couple of days. */
+  shiftAlerts?: Record<string, ShiftAlertRecord>;
   /** The London day the managers' morning digest last went out, so it goes once a day. */
   lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
@@ -155,6 +175,12 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** How fast finance decides pay changes, and the day hours go to payroll. Defaults apply when absent. */
+  payPolicy?: PayPolicy;
+  /** Employment Rights Act settings, short notice changes and guaranteed hours offers. Absent until first used. */
+  era?: EraData;
+  /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
+  payDailyOn?: string;
   /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
   support?: { tickets: SupportTicket[]; answeredByHelp: number };
   /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
@@ -162,11 +188,13 @@ export interface OrgData {
   /** Sign-offs of staff logins closed and opened again. Never removed. */
   loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
-  privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[] };
+  privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
   welfare?: WelfareData;
+  /** The accounting ledger the labour journal posts to, which company posts where, and what has been posted. Absent until connected. */
+  accounting?: AccountingData;
   /**
    * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.
@@ -195,6 +223,8 @@ export interface WelfareData {
   /** The benefits platform, if connected. Its API key lives in the settings store. */
   rewards?: RewardsConnection;
 }
+
+export const accountingOf = (org: OrgData): AccountingData => (org.accounting ??= { ledgers: {}, postings: [] });
 
 export const welfareOf = (org: OrgData): WelfareData =>
   (org.welfare ??= { recognitions: [], pulses: [], pulseAnswered: [], chats: [], rewardsOptOut: [], rewardsEnrolled: [] });
@@ -318,6 +348,10 @@ export interface StaffLogin {
   failedAttempts: number;
   /** Epoch seconds. */
   lockedUntil: number;
+  /** Phones the person turned notifications on for. Closing the login forgets them with it. */
+  push?: PushDevice[];
+  /** False when the person has turned off shift reminders. Not-clocked-in nudges still come. */
+  reminders?: boolean;
 }
 
 /**

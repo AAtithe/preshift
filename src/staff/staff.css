@@ -23,7 +23,7 @@
 .staff-breaks p { margin: 0; }
 /* Self-service: tabs, requests and the inbox. */
 .staff { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
-.staff-tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 10; }
+.staff-tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--surface); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 10; }
 .staff-tabs button { background: none; border: none; padding: 10px 4px; font-size: 14px; font-weight: 600; color: var(--muted); border-radius: 8px; position: relative; }
 .staff-tabs button.active { color: var(--ink); background: var(--ws-tint, var(--bg)); }
 .staff-badge { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: var(--bad-fill); color: #fff; font-size: 12px; line-height: 18px; }
@@ -51,3 +51,38 @@
 .staff-pulse-scale button { display: grid; gap: 2px; justify-items: center; padding: 10px 0; border-radius: 10px; }
 .staff-pulse-n { font-size: 20px; font-weight: 700; }
 .staff-support, .staff-rewards { display: grid; gap: 6px; border-top: 1px solid var(--border); padding-top: 12px; }
+/* Rota pictures: the fortnight strip, the crew line, and what an open shift does to your week. */
+.fn-summary { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.fn-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.fn-day { display: grid; grid-template-rows: auto auto 64px auto; justify-items: center; gap: 2px; padding: 4px 0 6px; border-radius: 8px; font-size: 12px; text-align: center; }
+.fn-day.on { background: var(--surface-2); }
+.fn-day.today { box-shadow: inset 0 0 0 2px var(--ink); }
+.fn-day.week2 { grid-column-start: 1; }
+.fn-name { font-weight: 600; color: var(--ink); }
+.fn-date { color: var(--muted); }
+.fn-bar { position: relative; width: 10px; height: 64px; border-radius: 5px; background: var(--paper-2); }
+.fn-shift { position: absolute; left: 0; right: 0; background: var(--ink); border-radius: 5px; min-height: 3px; }
+.fn-times { font: 500 11px/1.25 var(--mono); }
+.fn-rest { display: block; margin-top: 3px; padding: 1px 3px; border-radius: 4px; font: 600 9px/1.3 var(--mono); }
+.fn-rest.short { background: var(--bad-bg); color: var(--bad); }
+.fn-rest.tight { background: var(--warn-bg); color: var(--warn); }
+.crew { margin-top: 8px; display: grid; gap: 6px; }
+.crew-rows { display: grid; gap: 6px; }
+.crew-row { display: grid; gap: 2px; font-size: 13px; }
+.crew-name { display: flex; gap: 6px; align-items: baseline; }
+.crew-row.you .crew-name { font-weight: 700; color: var(--ink); }
+.crew-time { margin-left: auto; font: 500 12px/1 var(--mono); color: var(--ink-2); }
+.crew-track { position: relative; height: 8px; border-radius: 4px; background: var(--paper-2); }
+.crew-you-band { position: absolute; top: -2px; bottom: -2px; background: var(--ws-tint); border-left: 1px dashed var(--rule-strong); border-right: 1px dashed var(--rule-strong); }
+.crew-bar { position: absolute; top: 0; bottom: 0; background: var(--ws-slate); border-radius: 4px; }
+.crew-row.you .crew-bar { background: var(--ink); }
+.crew-more { justify-self: start; }
+.crew p { margin: 0; }
+.staff-effect { display: block; margin-top: 4px; color: var(--ink-2); }
+/* Seen it: the published week to confirm. */
+.staff-confirm { display: grid; gap: 10px; border-color: var(--warn-line, var(--border)); background: var(--warn-bg, var(--surface)); }
+.staff-confirm-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.staff-confirm-row button { flex: none; padding: 10px 14px; }
+
+.staff-tabs button { font-size: 13px; padding: 10px 2px; }
+.staff-buttons a.button { display: inline-block; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; text-decoration: none; color: var(--ink); }
