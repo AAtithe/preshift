@@ -4,8 +4,9 @@ import type { PaySchedule } from '../engine/types';
 import { api } from './api';
 import { dayLabel, download, ledger, money } from './format';
 
-// Labour cash: what each company pays out for its people, and when. Net pay on each pay day, PAYE and
-// NI to HMRC by the 22nd, pensions by the 22nd of the month after deduction. The accrual says what
+// Labour cash: what each company pays out for its people, and when. Net pay on each pay day, tronc on
+// the pay day or the scheme's payout day, PAYE and NI to HMRC by the 22nd, pensions by the 22nd of the
+// month after deduction. The accrual says what
 // labour cost; this says when the bank account feels it. The figures are worked in src/engine/cashflow.ts.
 
 interface Calendar extends CashCalendar {
@@ -19,7 +20,7 @@ const day = (iso: string) => {
   const d = dayLabel(iso);
   return `${d.short} ${d.date}`;
 };
-const span = (i: CashItem) => (i.kind === 'net-pay' ? `${day(i.covers.from)} to ${day(i.covers.to)}` : i.kind === 'hmrc' ? `Tax month ${day(i.covers.from)} to ${day(i.covers.to)}` : `Deducted in ${new Date(`${i.covers.from}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })}`);
+const span = (i: CashItem) => (i.kind === 'net-pay' ? `${day(i.covers.from)} to ${day(i.covers.to)}` : i.kind === 'tronc' ? `Tips taken ${i.covers.from === i.covers.to ? day(i.covers.from) : `${day(i.covers.from)} to ${day(i.covers.to)}`}` : i.kind === 'hmrc' ? `Tax month ${day(i.covers.from)} to ${day(i.covers.to)}` : `Deducted in ${new Date(`${i.covers.from}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })}`);
 
 export function CashView({ canSettings }: { canSettings: boolean }) {
   const [data, setData] = useState<Calendar | null>(null);
@@ -49,6 +50,8 @@ export function CashView({ canSettings }: { canSettings: boolean }) {
   const nextPay = next('net-pay');
   const nextHmrc = next('hmrc');
   const nextPension = next('pension');
+  const nextTronc = next('tronc');
+  const tronc = data.totals.tronc > 0;
   const peak = data.weeks.reduce((best, w) => (w.total > best.total ? w : best), data.weeks[0]);
   const many = !entityId && data.entities.length > 1;
 
@@ -60,7 +63,8 @@ export function CashView({ canSettings }: { canSettings: boolean }) {
   return (
     <div className="cash">
       <p className="muted small">
-        What each company pays out for its people over the next 13 weeks, and when. Net pay leaves on pay day; PAYE and NI go to HMRC by
+        What each company pays out for its people over the next 13 weeks, and when. Net pay leaves on pay day, and tronc with it or on
+        the scheme's payout day; PAYE and NI go to HMRC by
         the 22nd of the month after the tax month; pension contributions reach the provider by the 22nd of the month after they were
         deducted. A strong week on the rota is a larger HMRC bill about six weeks later.
       </p>
@@ -78,12 +82,15 @@ export function CashView({ canSettings }: { canSettings: boolean }) {
         <div className="kpi">
           <div className="kpi-label">Next 13 weeks</div>
           <div className="kpi-value">{money(data.totals.total)}</div>
-          <div className="kpi-hint">Net pay {money(data.totals['net-pay'])}, HMRC {money(data.totals.hmrc)}, pensions {money(data.totals.pension)}</div>
+          <div className="kpi-hint">Net pay {money(data.totals['net-pay'])}{tronc ? `, tronc ${money(data.totals.tronc)}` : ''}, HMRC {money(data.totals.hmrc)}, pensions {money(data.totals.pension)}</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Next pay day</div>
           <div className="kpi-value">{nextPay ? money(nextPay.amount) : 'None'}</div>
-          <div className="kpi-hint">{nextPay ? `${day(nextPay.date)}${who(nextPay)}` : 'No pay due in the window'}</div>
+          <div className="kpi-hint">
+            {nextPay ? `${day(nextPay.date)}${who(nextPay)}` : 'No pay due in the window'}
+            {nextTronc ? `. Tronc ${money(nextTronc.amount)} on ${day(nextTronc.date)}` : ''}
+          </div>
         </div>
         <div className="kpi warn">
           <div className="kpi-label">Next HMRC payment</div>
@@ -106,13 +113,14 @@ export function CashView({ canSettings }: { canSettings: boolean }) {
       <div className="grid-wrap">
         <table className="table ledger-table cash-weeks">
           <thead>
-            <tr><th>Week of</th><th className="num">Net pay</th><th className="num">HMRC</th><th className="num">Pensions</th><th className="num">Total</th><th className="num">Running total</th></tr>
+            <tr><th>Week of</th><th className="num">Net pay</th>{tronc && <th className="num">Tronc</th>}<th className="num">HMRC</th><th className="num">Pensions</th><th className="num">Total</th><th className="num">Running total</th></tr>
           </thead>
           <tbody>
             {data.weeks.map((w) => (
               <tr key={w.weekStart}>
                 <td>{day(w.weekStart)}</td>
                 <td className="num">{w.byKind['net-pay'] ? ledger(w.byKind['net-pay']) : ''}</td>
+                {tronc && <td className="num">{w.byKind.tronc ? ledger(w.byKind.tronc) : ''}</td>}
                 <td className="num">{w.byKind.hmrc ? ledger(w.byKind.hmrc) : ''}</td>
                 <td className="num">{w.byKind.pension ? ledger(w.byKind.pension) : ''}</td>
                 <td className="num strong">{w.total ? ledger(w.total) : ''}</td>
@@ -124,6 +132,7 @@ export function CashView({ canSettings }: { canSettings: boolean }) {
             <tr className="total">
               <td>13 weeks</td>
               <td className="num">{ledger(data.totals['net-pay'])}</td>
+              {tronc && <td className="num">{ledger(data.totals.tronc)}</td>}
               <td className="num">{ledger(data.totals.hmrc)}</td>
               <td className="num">{ledger(data.totals.pension)}</td>
               <td className="num">{ledger(data.totals.total)}</td>
@@ -160,6 +169,7 @@ export function CashView({ canSettings }: { canSettings: boolean }) {
                         <dt>Employee NI</dt><dd>{ledger(i.parts.employeeNi)}</dd>
                         <dt>Employer NI</dt><dd>{ledger(i.parts.employerNi)}</dd>
                         {i.parts.allowance > 0 && (<><dt>Employment Allowance</dt><dd>({ledger(i.parts.allowance).replace(/[()]/g, '')})</dd></>)}
+                        {i.parts.tronc > 0 && (<><dt className="muted">Of which on tronc</dt><dd className="muted">{ledger(i.parts.tronc)}</dd></>)}
                         <dt className="strong">Due to HMRC</dt><dd className="strong">{ledger(i.amount)}</dd>
                       </dl>
                     </td>

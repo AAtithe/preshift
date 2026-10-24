@@ -16,6 +16,7 @@ import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, Staf
 import { HttpError } from './context';
 import type { PushDevice } from './push';
 import type { ShiftAlertRecord } from '../src/engine/reminders';
+import type { SeenRecord } from '../src/engine/rotaSeen';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { RewardsConnection } from './integrations/rewards/provider';
@@ -143,6 +144,8 @@ export interface OrgData {
   notifications?: StaffNotification[];
   /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
   toldWeeks?: Record<string, string[]>;
+  /** Each person's "Seen it" on their published week, by the same key, with the week as it read then. */
+  rotaSeen?: Record<string, SeenRecord>;
   /** Reminders and no-show alerts sent per shift, kept a couple of days. */
   shiftAlerts?: Record<string, ShiftAlertRecord>;
   /** The London day the managers' morning digest last went out, so it goes once a day. */
