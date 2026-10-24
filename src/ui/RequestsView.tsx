@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { REQUEST_LABEL } from '../engine/requests';
-import { absoluteMinute, addDays, daysBetween, formatMinute, londonParts, parseClock } from '../engine/time';
+import { absoluteMinute, addDays, daysBetween, formatMinute, londonParts } from '../engine/time';
 import type { RotaState, StaffRequestKind, StaffRequestStatus } from '../engine/types';
 import { api } from './api';
 import { money2 } from './format';
 import type { Allow } from './permissions';
+import { CoverPanel } from './CoverPanel';
 
 interface Props {
   state: RotaState;
@@ -13,6 +14,8 @@ interface Props {
   allow: Allow;
   /** A decision changed leave, absence, availability or the rota: re-read them. */
   onChanged: () => Promise<unknown>;
+  /** A shift sent from the rota's shift editor to put out, staying with its person until taken. */
+  coverShiftId?: string;
 }
 
 interface RequestView {
@@ -75,10 +78,18 @@ interface OpenShiftView {
   siteId: string;
   line: string;
   note?: string;
-  status: 'open' | 'filled' | 'withdrawn';
+  status: 'open' | 'filled' | 'withdrawn' | 'expired';
   filledByName: string | null;
   claims: RequestView[];
   eligible: string[];
+  fill: 'claim' | 'first_yes';
+  urgent?: boolean;
+  heldByName: string | null;
+  asked: { employeeId: string; name: string; round: number; asked: boolean; skipped: string | null; declined: boolean; refused: string | null }[] | null;
+  rounds: { size: number; everyMinutes: number } | null;
+  round: number;
+  nextRoundAt: string | null;
+  waiting: number;
   offer: { waves: { tier: string; label: string; count: number; released: boolean }[]; told: number; allTold: boolean; nextAt: string | null } | null;
   autoApproved: boolean;
 }
@@ -133,11 +144,12 @@ function asked(r: RequestView): string {
  * shift claims, each shown with what it would do now. Approving carries it out through the same
  * checks as the manager's own screens, and the person is told either way.
  */
-export function RequestsView({ state, siteIds, today, allow, onChanged }: Props) {
+export function RequestsView({ state, siteIds, today, allow, onChanged, coverShiftId }: Props) {
   const [requests, setRequests] = useState<RequestView[] | null>(null);
   const [openShifts, setOpenShifts] = useState<OpenShiftView[]>([]);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
-  const [posting, setPosting] = useState(false);
+  // Putting a shift out: from the editor, sickness to cover, or the button. Keep is whether it stays with its person.
+  const [posting, setPosting] = useState<{ shiftId?: string; keep: boolean } | null>(coverShiftId ? { shiftId: coverShiftId, keep: true } : null);
   const [digest, setDigest] = useState<{ on: boolean; email: string; count: number } | null>(null);
   const [late, setLate] = useState<LateShift[]>([]);
   const [seen, setSeen] = useState<RotaSeen[]>([]);
@@ -237,7 +249,9 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
         siteId: l.siteId, roleId: l.roleId, date: nextDay ? addDays(l.date, 1) : l.date,
         startMinute: nextDay ? from - 1440 : from, endMinute: nextDay ? l.endMinute - 1440 : l.endMinute, breakMinutes: 0,
         note: `Cover needed now: ${l.employeeName} has not arrived.`,
+        // Someone has not turned up: everyone eligible at once, through their quiet hours.
         everyone: true,
+        urgent: true,
       });
       setMessage({ text: postedText(res) });
       await load();
@@ -246,12 +260,13 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
     }
   }
 
-  async function release(shiftId: string, name: string) {
-    if (!confirm(`Take this shift off ${name} and post it for anyone eligible to claim?`)) return;
+  // Sickness to cover: put the shift out from here, taken off the person since they cannot work it.
+  const release = (shiftId: string) => setPosting({ shiftId, keep: false });
+
+  async function next(o: OpenShiftView, everyone: boolean) {
     try {
-      const res = await api.post<{ told: number; offer: OpenShiftView['offer'] }>('/v1/open-shifts', { fromShiftId: shiftId });
-      setMessage({ text: postedText(res) });
-      await onChanged();
+      await api.post(`/v1/open-shifts/${o.id}/next`, { everyone });
+      setMessage({ text: everyone ? 'Asked everyone left.' : 'Asked the next round.' });
       await load();
     } catch (e) {
       setMessage({ text: (e as Error).message, bad: true });
@@ -265,26 +280,6 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
       await load();
     } catch (e) {
       setMessage({ text: (e as Error).message, bad: true });
-    }
-  }
-
-  async function post(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const start = parseClock(String(f.get('start')));
-    let end = parseClock(String(f.get('end')));
-    if (end <= start) end += 1440;
-    try {
-      const res = await api.post<{ told: number; offer: OpenShiftView['offer'] }>('/v1/open-shifts', {
-        siteId: f.get('siteId'), roleId: f.get('roleId'), date: f.get('date'), startMinute: start, endMinute: end,
-        breakMinutes: Number(f.get('break') || 0), ...(f.get('note') ? { note: f.get('note') } : {}),
-        everyone: f.get('everyone') === 'on',
-      });
-      setMessage({ text: postedText(res) });
-      setPosting(false);
-      await load();
-    } catch (err) {
-      setMessage({ text: (err as Error).message, bad: true });
     }
   }
 
@@ -311,7 +306,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
       <p className="muted small">
         Staff ask in the staff app and you decide here. Every request is checked again when you approve it, by the same rules as
         the rota: a swap or claim that would break the Working Time Regulations, double book someone or put them on a role they are
-        not trained for is refused. The person is told the moment you decide, in the app and by email.
+        not trained for is refused. The person is told the moment you decide, in the app and by email, or by WhatsApp or text if they chose that.
       </p>
       {digest && (
         <label className="muted small requests-digest">
@@ -415,7 +410,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
                         <div key={c.id}>
                           {c.line}{' '}
                           {r.kind !== 'availability' && allow('rota.publish', r.siteId) && (
-                            <button className="link" onClick={() => void release(c.id, r.employeeName)}>Put out as open shift</button>
+                            <button className="link" onClick={() => release(c.id)}>Put out for cover</button>
                           )}
                         </div>
                       ))}
@@ -445,31 +440,27 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
 
       <div className="people-bar">
         <h3 className="section-title">Open shifts</h3>
-        {publishable.length > 0 && <button onClick={() => setPosting(!posting)}>{posting ? 'Close' : 'Post an open shift'}</button>}
+        {publishable.length > 0 && <button onClick={() => setPosting(posting ? null : { keep: false })}>{posting ? 'Close' : 'Put a shift out'}</button>}
       </div>
-      {posting && (
-        <form className="card requests-post" onSubmit={(e) => void post(e)}>
-          <label>Site
-            <select name="siteId" defaultValue={publishable[0]}>{publishable.map((id) => <option key={id} value={id}>{state.sites.find((s) => s.id === id)?.name ?? id}</option>)}</select>
-          </label>
-          <label>Role
-            <select name="roleId">{state.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
-          </label>
-          <label>Day <input type="date" name="date" min={today} required /></label>
-          <label>From <input type="time" name="start" defaultValue="17:00" required /></label>
-          <label>To <input type="time" name="end" defaultValue="23:00" required /></label>
-          <label>Break, minutes <input type="number" name="break" min={0} max={240} defaultValue={0} /></label>
-          <label>Note for staff <input name="note" maxLength={300} placeholder="Private party, 40 covers" /></label>
-          <label className="check"><input type="checkbox" name="everyone" /> Tell everyone eligible now</label>
-          <div><button className="primary">Post and offer it</button></div>
-          <p className="muted small">
-            Only people trained for the role, set up for the site, free and legal to work it are told or can claim. It goes first to
-            anyone short of their contracted hours that week, then to the three cheapest to add, then to everyone, two hours apart
-            while nobody claims. Inside a day of the start everyone is told at once. You confirm who gets it; the break is raised to
-            what the person is owed.
-          </p>
-        </form>
-      )}
+      {posting && publishable.length > 0 && (() => {
+        const now = londonParts(new Date());
+        return (
+          <CoverPanel
+            key={`${posting.shiftId ?? 'new'}-${posting.keep}`}
+            state={state}
+            siteIds={publishable}
+            today={now.date}
+            nowMinute={now.minute}
+            shiftId={posting.shiftId}
+            keepDefault={posting.keep}
+            onPosted={() => {
+              setPosting(null);
+              void onChanged();
+              void load();
+            }}
+          />
+        );
+      })()}
       <div className="grid-wrap">
         <table className="table people">
           <thead>
@@ -481,14 +472,28 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
               <tr key={o.id}>
                 <td><span className="strong">{o.line}</span>{o.note && <div className="muted small">{o.note}</div>}</td>
                 <td>
-                  {o.status === 'filled' ? `Filled by ${o.filledByName}${o.autoApproved ? ', approved automatically' : ''}` : o.status === 'withdrawn' ? 'Withdrawn' : 'Open'}
-                  {o.status === 'open' && <div className="muted small">{o.eligible.length} eligible</div>}
+                  {o.status === 'filled' ? `Filled by ${o.filledByName}${o.autoApproved ? ', approved automatically' : ''}` : o.status === 'withdrawn' ? 'Withdrawn' : o.status === 'expired' ? 'Started, not filled' : 'Open'}
+                  <div className="muted small">
+                    {o.fill === 'first_yes' ? 'First legal yes gets it' : 'You approve who gets it'}
+                    {o.heldByName && o.status === 'open' ? `; ${o.heldByName} keeps it until then` : ''}
+                    {o.urgent ? '; urgent' : ''}
+                  </div>
+                  {o.status === 'open' && !o.asked && <div className="muted small">{o.eligible.length} eligible</div>}
                   {o.status === 'open' && o.offer && (
                     <div className="muted small">
                       {o.offer.allTold
                         ? `All eligible told`
                         : `Told so far: ${o.offer.waves.filter((w) => w.released).map((w) => `${w.label.toLowerCase()} (${w.count})`).join(', ')}.${o.offer.nextAt ? ` Next wave at ${clock(o.offer.nextAt)} if nobody claims.` : ''}`}
                       {!o.offer.allTold && allow('rota.publish', o.siteId) && <> <button className="link" onClick={() => void offerAll(o)}>Tell everyone now</button></>}
+                    </div>
+                  )}
+                  {o.asked && (
+                    <div className="muted small">
+                      {o.asked.filter((a) => a.asked).length} asked{o.rounds ? `, round ${o.round} of ${Math.max(...o.asked.map((a) => a.round))}` : ''}
+                      {o.asked.some((a) => a.declined) ? `, ${o.asked.filter((a) => a.declined).length} said no` : ''}
+                      {o.status === 'open' && o.waiting ? `; ${o.waiting} still to ask${o.nextRoundAt ? ` from ${new Date(o.nextRoundAt).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' })}` : ''}` : ''}
+                      {o.asked.some((a) => a.skipped) && <div>Passed over: {o.asked.filter((a) => a.skipped).map((a) => `${a.name} (${a.skipped})`).join('; ')}</div>}
+                      {o.asked.some((a) => a.refused) && <div className="warn-text">Said yes but could not be given it: {o.asked.filter((a) => a.refused).map((a) => `${a.name} (${a.refused})`).join('; ')}</div>}
                     </div>
                   )}
                 </td>
@@ -502,7 +507,15 @@ export function RequestsView({ state, siteIds, today, allow, onChanged }: Props)
                     </div>
                   ))}
                 </td>
-                <td>{o.status === 'open' && allow('rota.publish', o.siteId) && <button className="link" onClick={() => void withdraw(o)}>Withdraw</button>}</td>
+                <td className="nowrap">
+                  {o.status === 'open' && allow('rota.publish', o.siteId) && (
+                    <>
+                      {o.waiting > 0 && <button className="link" onClick={() => void next(o, false)}>Next round now</button>}{' '}
+                      {o.waiting > 0 && <button className="link" onClick={() => void next(o, true)}>Ask everyone</button>}{' '}
+                      <button className="link" onClick={() => void withdraw(o)}>Withdraw</button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

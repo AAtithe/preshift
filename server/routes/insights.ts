@@ -16,6 +16,7 @@ import { modelDates } from '../forecasting';
 import { canOrgWide } from '../../src/engine/access';
 import { actorOf, guard } from '../guard';
 import { isSandbox } from '../sandbox';
+import { assertRotaOpen } from '../payPeriods';
 import { audit, type OrgData } from '../store';
 
 type SiteWeek = { siteId: string; weekStart: string };
@@ -323,6 +324,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
       // Checked against the rota as it is now, for both people and their whole week: other shifts may have moved since.
       const issues = moveIssues(org.state, record.kind, org.state.shifts[i], record.after, record.weekStart);
       if (issues.length) throw new HttpError(409, 'compliance_block', 'This move now breaks a rule. Refresh the moves.', issues);
+      assertRotaOpen(org, [org.state.shifts[i], ...(record.after ? [record.after] : [])]);
       const next = record.after
         ? [...org.state.shifts.slice(0, i), { ...record.after, published: false }, ...org.state.shifts.slice(i + 1)]
         : org.state.shifts.filter((s) => s.id !== record.shiftId);

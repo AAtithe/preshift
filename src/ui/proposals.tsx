@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Proposal, Screen } from '../ai/appTools';
 import type { Employee } from '../engine/types';
 import type { useRotaStore } from './store';
+import { api, ApiError } from './api';
 
 type Actions = ReturnType<typeof useRotaStore>['actions'];
 
@@ -44,6 +45,25 @@ export async function carryOut(p: Proposal, deps: ProposalDeps): Promise<string>
       return done(await actions.deleteShift(p.shiftId), 'Removed the shift.');
     case 'publish_week':
       return done(await actions.publish(p.siteIds, p.weekStart), 'Published the week.');
+    case 'ask_cover': {
+      // Checked again on the server: anyone no longer free is refused there with the reason.
+      try {
+        const res = await api.post<{ told: number }>('/v1/open-shifts', {
+          fromShiftId: p.shiftId,
+          keepUntilTaken: p.keepUntilTaken,
+          employeeIds: p.employeeIds,
+          ...(p.note ? { note: p.note } : {}),
+          fill: p.firstToAccept ? 'first_yes' : 'claim',
+          urgent: p.urgent,
+          ...(p.rounds ? { rounds: p.rounds } : {}),
+        });
+        return p.rounds
+          ? `Asked the ${res.told} cheapest; ${p.rounds.size} more every ${p.rounds.everyMinutes} minutes until someone says yes. Answers show under Rota, then Staff requests.`
+          : `Asked ${res.told} ${res.told === 1 ? 'person' : 'people'}. Answers show under Rota, then Staff requests.`;
+      } catch (e) {
+        throw new Error(`Not sent: ${e instanceof ApiError ? e.message : 'the app did not accept it.'}`);
+      }
+    }
     case 'draft_rota':
       deps.openAssistant(p.instruction);
       return 'Opened the rota assistant with the request.';
@@ -90,7 +110,7 @@ export function ProposalCard({
     onSettled(`the manager cancelled "${proposal.summary}"`);
   }
 
-  const openLabel = proposal.kind === 'draft_rota' ? 'Open the rota assistant' : 'Confirm';
+  const openLabel = proposal.kind === 'draft_rota' ? 'Open the rota assistant' : proposal.kind === 'ask_cover' ? 'Ask them' : 'Confirm';
   return (
     <div className={`proposal ${status}`}>
       <div className="proposal-title">{proposal.summary}</div>

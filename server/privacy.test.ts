@@ -156,6 +156,18 @@ describe('GDPR', () => {
     const ok = await t.call('PUT', '/v1/privacy/policy', { ...policy, rightToWorkYearsAfterLeaving: 2 });
     expect(ok.body.policy.locationMonths).toBe(1);
     expect((await t.call('GET', '/v1/privacy/retention')).body.policy.locationMonths).toBe(1);
+    // Saved without a message period, messages keep the 13 month default.
+    expect(ok.body.policy.messageMonths).toBe(13);
+  });
+
+  it('lets a client keep messages longer, up to six years, and says so in the record of processing', async () => {
+    const t = await boot();
+    const policy = { locationMonths: 3, contactMonthsAfterLeaving: 3, rightToWorkYearsAfterLeaving: 2, payrollYearsAfterTaxYear: 6 };
+    expect((await t.call('PUT', '/v1/privacy/policy', { ...policy, messageMonths: 6 })).status).toBe(400);
+    expect((await t.call('PUT', '/v1/privacy/policy', { ...policy, messageMonths: 100 })).status).toBe(400);
+    expect((await t.call('PUT', '/v1/privacy/policy', { ...policy, messageMonths: 36 })).body.policy.messageMonths).toBe(36);
+    const register = (await t.call('GET', '/v1/privacy/register')).body;
+    expect(JSON.stringify(register)).toContain('36 months from the message');
   });
 });
 

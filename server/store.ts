@@ -14,6 +14,7 @@ import type { AccountingData } from './integrations/accounting/provider';
 import type { Publication } from '../src/engine/scorecard';
 import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
+import type { PayPeriodRecord } from './payPeriods';
 import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { PushDevice } from './push';
@@ -21,6 +22,7 @@ import type { ShiftAlertRecord } from '../src/engine/reminders';
 import type { SeenRecord } from '../src/engine/rotaSeen';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
+import type { MessagingData } from '../src/engine/messaging';
 import type { RewardsConnection } from './integrations/rewards/provider';
 import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
 import type { OutboxItem } from './outbox';
@@ -44,6 +46,9 @@ export interface PayrollSubmission {
   entityId?: string;
   /** The payroll employer the batch went to, once sent. */
   employerId?: string;
+  /** The company's payroll it was passed for, and its payday. Absent on weekly batches sent before pay schedules. */
+  scheduleId?: string;
+  payDate?: string;
 }
 
 export interface PayRunRecord {
@@ -175,6 +180,8 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** Pay periods acted on: rota locked, time cards approved, hours passed to payroll. Absent on organisations saved before. */
+  payPeriods?: PayPeriodRecord[];
   /** How fast finance decides pay changes, and the day hours go to payroll. Defaults apply when absent. */
   payPolicy?: PayPolicy;
   /** Employment Rights Act settings, short notice changes and guaranteed hours offers. Absent until first used. */
@@ -191,6 +198,8 @@ export interface OrgData {
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
+  /** Messages between managers and staff, rota notices, and how each person wants to hear. Absent until first used. */
+  messaging?: MessagingData;
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
   welfare?: WelfareData;
   /** The accounting ledger the labour journal posts to, which company posts where, and what has been posted. Absent until connected. */

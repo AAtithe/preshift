@@ -51,6 +51,23 @@
 .staff-pulse-scale button { display: grid; gap: 2px; justify-items: center; padding: 10px 0; border-radius: 10px; }
 .staff-pulse-n { font-size: 20px; font-weight: 700; }
 .staff-support, .staff-rewards { display: grid; gap: 6px; border-top: 1px solid var(--border); padding-top: 12px; }
+.staff-threads { list-style: none; margin: 0 0 12px; padding: 0; }
+.staff-threads > li { border-top: 1px solid var(--border); }
+.staff-threads > li:first-child { border-top: none; }
+.staff-thread { display: block; width: 100%; text-align: left; background: none; border: none; padding: 10px 0; font-size: 15px; }
+.staff-thread.new .strong::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-right: 6px; vertical-align: 1px; }
+.staff-bubbles { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.staff-bubbles li { background: var(--surface-2, #f1f4f7); border-radius: 10px; padding: 8px 10px; max-width: 88%; }
+.staff-bubbles li.mine { justify-self: end; background: var(--good-bg); }
+.staff-bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.staff-form textarea, .staff-form select { font-size: 16px; padding: 12px; }
+.staff-check { display: flex !important; gap: 8px; align-items: flex-start; color: var(--ink, inherit) !important; }
+.staff-check input { margin-top: 3px; }
+.staff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.staff-cover { border-color: var(--warn); }
+.staff-offer { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--border); }
+.staff-offer:first-of-type { border-top: none; }
+
 /* Rota pictures: the fortnight strip, the crew line, and what an open shift does to your week. */
 .fn-summary { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: var(--ink); }
 .fn-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }

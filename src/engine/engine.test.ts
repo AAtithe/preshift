@@ -218,6 +218,17 @@ describe('compliance', () => {
     const c = codes(teen, [shift(WEEK, 14, 23, 30)]);
     expect(c).toContain('young-daily');
     expect(c).toContain('young-night');
+    expect(c).not.toContain('young-midnight');
+  });
+
+  it('never lets an under 18 work between midnight and 04:00', () => {
+    const teen = person({ dateOfBirth: '2009-06-01', hourlyRate: 8 });
+    const late = codes(teen, [shift(WEEK, 18, 24.5, 30)]);
+    expect(late).toContain('young-midnight');
+    expect(late).not.toContain('young-night');
+    expect(codes(teen, [shift(WEEK, 3, 8, 30)])).toContain('young-midnight');
+    expect(codes(teen, [shift(WEEK, 16, 24, 30)])).not.toContain('young-midnight');
+    expect(codes(teen, [shift(WEEK, 4, 10, 30)])).toContain('young-night');
   });
 
   it('flags no day off and hours over 48 without opt-out', () => {

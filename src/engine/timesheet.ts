@@ -87,6 +87,8 @@ export interface PayrollTroncLine {
 export interface PayrollHoursBatch {
   periodStart: string;
   periodEnd: string;
+  /** The payday these hours are for, when passed from a pay period. */
+  payDate?: string;
   lines: PayrollHoursLine[];
   /** Sickness on which SSP is due in the period. Absent on batches sent before SSP was checked. */
   sickness?: PayrollSicknessLine[];

@@ -68,6 +68,11 @@ export const FEATURES: FeatureDef[] = [
     offMeans: 'Hides HR overview, Absence, Training, Probation and reviews, and Cases. Records are kept for retention as before.',
   },
   {
+    id: 'messages', label: 'Messages', group: 'People', tabs: ['messages'],
+    about: 'One thread per person, announcements and rota notices, with the team on the staff app.',
+    offMeans: 'Managers lose the inbox and announcements here. Messages already sent stay on record.',
+  },
+  {
     id: 'onboarding', label: 'Onboarding', group: 'People', tabs: ['onboarding'],
     about: "Each new person's first weeks as one checklist: the legal steps before day one, the rest after.",
   },
@@ -121,7 +126,7 @@ export const FEATURES: FeatureDef[] = [
  * needs to stay in control of the organisation and meet the law (access, GDPR, set-up, billing).
  */
 export const CORE_TABS = [
-  'sites', 'rota', 'demand', 'clock', 'payroll', 'people', 'team', 'setup', 'access', 'integrations', 'privacy', 'settings',
+  'sites', 'rota', 'demand', 'clock', 'payroll', 'periods', 'people', 'team', 'setup', 'access', 'integrations', 'privacy', 'settings',
   'features', 'billing', 'clients', 'customers', 'profile', 'howto', 'support',
 ];
 

@@ -5,11 +5,11 @@ import { employmentAllowanceIssues, employmentAllowanceWeek } from '../../src/en
 import { intercompanyBalances, rotaJournal, toXeroCsv } from '../../src/engine/journal';
 import { addDays, weekDates } from '../../src/engine/time';
 import { sspEstimate, sspInPeriod, type SspCheckLine } from '../../src/engine/ssp';
-import { entriesAsShifts, payrollHours, payrollVariance, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
+import { entriesAsShifts, payrollHours, payrollVariance, type PayrollHoursBatch, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
 import { describeRule } from '../../src/engine/premiums';
 import { shortNoticeOwed } from '../employmentRights';
 import { troncForPayroll } from '../../src/engine/tronc';
-import type { PremiumRule, TravelPay } from '../../src/engine/types';
+import type { Entity, PremiumRule, TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard, type Guard } from '../guard';
@@ -17,7 +17,7 @@ import { enqueue } from '../outbox';
 import { PayrollError } from '../integrations/payroll/provider';
 import { employerFor, employerStatus } from '../payrollEmployers';
 import { idParam, isoDate } from '../schemas';
-import { audit, type OrgData } from '../store';
+import { audit, type OrgData, type PayrollSubmission } from '../store';
 
 function approvedIn(org: OrgData, from: string, to: string) {
   return org.timeEntries.filter((t) => t.status === 'approved' && t.date >= from && t.date <= to);
@@ -57,6 +57,123 @@ export function labourBasis(org: OrgData, weekStart: string, basis: 'rota' | 'ac
       ? { ...org.state, shifts: [...org.state.shifts.filter((s) => !dates.has(s.date)), ...entriesAsShifts(actual)] }
       : org.state,
   };
+}
+
+/**
+ * Queues one company's hours to its own PAYE scheme, with everything else owed that goes with hours:
+ * back pay not yet sent, each person's share of the tips, and short notice pay. Anyone not yet in
+ * payroll is set up first, any earlier batch for the same period of the same payroll is superseded,
+ * and the new batch is versioned so TeamPay takes each exactly once.
+ */
+export function queueHours(
+  org: OrgData,
+  by: string,
+  entity: Entity,
+  hours: PayrollHoursBatch,
+  cost: { total: Map<string, number>; gross: Map<string, number> },
+  opts: {
+    /** The company's payroll, when passed from a pay period. Absent for the weekly send. */
+    scheduleId?: string;
+    /** Only these people's back pay and short notice pay go, when the company runs more than one payroll. */
+    people?: Set<string>;
+    /** The weeks whose tips go with this batch. */
+    troncWeeks: string[];
+  },
+) {
+  const { scheduleId } = opts;
+  const periodStart = hours.periodStart;
+  const periodEnd = hours.periodEnd;
+  const onPayroll = (id: string) => !opts.people || opts.people.has(id);
+  const queued = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
+  // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
+  // Weekly batches from before pay schedules were the company's weekly payroll.
+  const samePayroll = (s: PayrollSubmission) => (s.scheduleId ?? 'weekly') === (scheduleId ?? 'weekly');
+  const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id) && samePayroll(s));
+  for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
+  // Back pay not yet sent goes with this batch; arrears sent with a batch since replaced go again with this one.
+  const replaced = new Set(org.submissions.filter((s) => s.status === 'superseded').map((s) => s.id));
+  const owed = org.payChanges.filter((c) => c.backPay && (!c.backPay.sentIn || replaced.has(c.backPay.sentIn)) &&
+    org.state.employees.find((e) => e.id === c.employeeId)?.entityId === entity.id && onPayroll(c.employeeId));
+  // Each person's share of the week's tips goes with their hours, unless the week was already paid by hand.
+  // Tips are shared across a site, so a week's tronc goes whole with the first payroll that carries it.
+  const tronc = opts.troncWeeks.map((ws) => troncForPayroll(org.state, org.timeEntries, entity.id, ws, replaced));
+  const troncLines = tronc.flatMap((t) => t.lines);
+  // Short notice pay owed under the Employment Rights Act goes the same way, as pay on top of the week.
+  const compensation = shortNoticeOwed(org, entity.id, periodEnd, replaced).filter((r) => onPayroll(r.employeeId));
+  const batch = {
+    ...hours,
+    tronc: troncLines,
+    adjustments: [
+      ...owed.map((c) => {
+        const e = org.state.employees.find((x) => x.id === c.employeeId)!;
+        return {
+          employeeId: e.id,
+          ...(e.payrollId ? { payrollId: e.payrollId } : {}),
+          amount: c.backPay!.amount,
+          description: `Back pay from ${c.backPay!.from} to ${c.backPay!.to}`,
+          reference: c.id,
+        };
+      }),
+      ...compensation.map((r) => {
+        const e = org.state.employees.find((x) => x.id === r.employeeId)!;
+        return {
+          employeeId: e.id,
+          ...(e.payrollId ? { payrollId: e.payrollId } : {}),
+          amount: r.amount,
+          description: `Short notice pay: shift on ${r.original.date} ${r.change} with ${Math.floor(r.noticeHours)} hours' notice`,
+          reference: r.id,
+        };
+      }),
+    ],
+  };
+  // Anyone not yet in payroll is set up first; the outbox delivers in order.
+  for (const line of [...batch.lines, ...batch.adjustments, ...batch.tronc]) {
+    const e = org.state.employees.find((x) => x.id === line.employeeId)!;
+    if (!e.payrollId && !queued.has(e.id)) {
+      enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
+      queued.add(e.id);
+    }
+  }
+  const version = mine.length + 1;
+  const people = new Set(org.state.employees.filter((e) => e.entityId === entity.id).map((e) => e.id));
+  const submission: PayrollSubmission = {
+    id: `sub_${randomUUID().slice(0, 12)}`,
+    entityId: entity.id,
+    periodStart,
+    periodEnd,
+    version,
+    status: 'queued',
+    totalHours: batch.totalHours,
+    lineCount: batch.lines.length,
+    createdAt: new Date().toISOString(),
+    createdBy: by,
+    accrued: Object.fromEntries([...cost.total].filter(([id]) => people.has(id))),
+    ...(scheduleId ? { scheduleId } : {}),
+    ...(batch.payDate ? { payDate: batch.payDate } : {}),
+  };
+  // Back pay costs what any pay costs: priced on top of the period's pay, so on-costs cross thresholds as payroll's will.
+  // All of a person's adjustments are priced together, so two of them cannot each miss a threshold they cross between them.
+  const extraBy = new Map<string, number>();
+  for (const a of batch.adjustments) extraBy.set(a.employeeId, (extraBy.get(a.employeeId) ?? 0) + a.amount);
+  for (const [id, extra] of extraBy) {
+    const e = org.state.employees.find((x) => x.id === id)!;
+    const gross = cost.gross.get(e.id) ?? 0;
+    submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + extra).total - weekOnCosts(e, gross).total) * 100) / 100;
+  }
+  for (const c of owed) c.backPay!.sentIn = submission.id;
+  for (const r of compensation) r.sentIn = submission.id;
+  // Tips are recorded as paid through this payroll, at the end of the period it pays.
+  const carried = new Set(tronc.flatMap((t) => t.tipIds));
+  org.state.tips = (org.state.tips ?? []).map((t) => (carried.has(t.id) ? { ...t, paidOn: periodEnd, sentIn: submission.id } : t));
+  if (troncLines.length) audit(org, by, 'tronc.sent_to_payroll', { submissionId: submission.id, entityId: entity.id, people: troncLines.length, amount: Math.round(troncLines.reduce((n, l) => n + l.amount, 0) * 100) / 100 });
+  org.submissions.push(submission);
+  enqueue(org, {
+    type: 'hours.submit',
+    payload: { submissionId: submission.id, batch, entityId: entity.id },
+    idempotencyKey: `hours:${org.orgId}:${entity.id}:${scheduleId ? `${scheduleId}:` : ''}${periodStart}:v${version}`,
+  });
+  audit(org, by, 'payroll.hours_submitted', { id: submission.id, entityId: entity.id, hours: batch.totalHours, version, ...(scheduleId ? { scheduleId } : {}) });
+  return submission;
 }
 
 /** Sickness with SSP due in the period, for the people a company employs. */
@@ -184,6 +301,12 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       const { weekStart: periodStart, entityId } = req.body;
       if (entityId && !org.state.entities.some((e) => e.id === entityId)) throw notFound(`Entity ${entityId}`);
       const periodEnd = addDays(periodStart, 6);
+      // A company that has set its own pay calendars passes hours by pay period, where the rota lock and
+      // time cards are, so nobody on a monthly payroll is ever paid a week of it from here as well.
+      const scheduled = org.state.entities.filter((e) => (!entityId || e.id === entityId) && e.paySchedules?.length);
+      if (scheduled.length) {
+        throw new HttpError(409, 'pay_schedules_set', `${scheduled.map((e) => e.name).join(', ')} pass hours by pay period. Use Pass to payroll on the pay period.`, scheduled.map((e) => e.id));
+      }
       // Hours belong to the company that employs the person, wherever they worked.
       const employerOf = new Map(org.state.employees.map((e) => [e.id, e.entityId]));
       const inScope = org.timeEntries.filter(
@@ -192,6 +315,10 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
       const unapproved = inScope.filter((t) => t.status === 'open' || t.status === 'submitted');
       if (unapproved.length) {
         throw new HttpError(409, 'unapproved_time', `${unapproved.length} time entries still need approving or rejecting`, unapproved.map((t) => t.id));
+      }
+      const passed = inScope.filter((t) => t.passedIn);
+      if (passed.length) {
+        throw new HttpError(409, 'passed_by_period', 'These hours were passed from the pay period. Correct them there, so the period keeps one record.', passed.map((t) => t.id));
       }
 
       const batches = org.state.entities
@@ -233,93 +360,11 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
 
       const { state } = labourBasis(org, periodStart, 'actual');
       const cost = weekCost(state, periodStart);
-      const queued = new Set(org.outbox.filter((i) => i.status === 'pending' && i.type === 'employee.upsert').map((i) => (i.payload as { employeeId: string }).employeeId));
-      const created = [];
-      for (const { entity, batch: hours } of batches) {
-        // Batches from before per-scheme payroll covered the whole organisation, so they count for every company.
-        const mine = org.submissions.filter((s) => s.periodStart === periodStart && (!s.entityId || s.entityId === entity.id));
-        for (const p of mine) if (p.status !== 'superseded') p.status = 'superseded';
-        // Back pay not yet sent goes with this batch; arrears sent with a batch since replaced go again with this one.
-        const replaced = new Set(org.submissions.filter((s) => s.status === 'superseded').map((s) => s.id));
-        const owed = org.payChanges.filter((c) => c.backPay && (!c.backPay.sentIn || replaced.has(c.backPay.sentIn)) &&
-          org.state.employees.find((e) => e.id === c.employeeId)?.entityId === entity.id);
-        // Each person's share of the week's tips goes with their hours, unless the week was already paid by hand.
-        const tronc = troncForPayroll(org.state, org.timeEntries, entity.id, periodStart, replaced);
-        // Short notice pay owed under the Employment Rights Act goes the same way, as pay on top of the week.
-        const compensation = shortNoticeOwed(org, entity.id, periodEnd, replaced);
-        const batch = {
-          ...hours,
-          tronc: tronc.lines,
-          adjustments: [
-            ...owed.map((c) => {
-              const e = org.state.employees.find((x) => x.id === c.employeeId)!;
-              return {
-                employeeId: e.id,
-                ...(e.payrollId ? { payrollId: e.payrollId } : {}),
-                amount: c.backPay!.amount,
-                description: `Back pay from ${c.backPay!.from} to ${c.backPay!.to}`,
-                reference: c.id,
-              };
-            }),
-            ...compensation.map((r) => {
-              const e = org.state.employees.find((x) => x.id === r.employeeId)!;
-              return {
-                employeeId: e.id,
-                ...(e.payrollId ? { payrollId: e.payrollId } : {}),
-                amount: r.amount,
-                description: `Short notice pay: shift on ${r.original.date} ${r.change} with ${Math.floor(r.noticeHours)} hours' notice`,
-                reference: r.id,
-              };
-            }),
-          ],
-        };
-        // Anyone not yet in payroll is set up first; the outbox delivers in order.
-        for (const line of [...batch.lines, ...batch.adjustments, ...batch.tronc]) {
-          const e = org.state.employees.find((x) => x.id === line.employeeId)!;
-          if (!e.payrollId && !queued.has(e.id)) {
-            enqueue(org, { type: 'employee.upsert', payload: { employeeId: e.id }, idempotencyKey: `emp:${e.id}:initial` });
-            queued.add(e.id);
-          }
-        }
-        const version = mine.length + 1;
-        const people = new Set(org.state.employees.filter((e) => e.entityId === entity.id).map((e) => e.id));
-        const submission = {
-          id: `sub_${randomUUID().slice(0, 12)}`,
-          entityId: entity.id,
-          periodStart,
-          periodEnd,
-          version,
-          status: 'queued' as const,
-          totalHours: batch.totalHours,
-          lineCount: batch.lines.length,
-          createdAt: new Date().toISOString(),
-          createdBy: actorName(g),
-          accrued: Object.fromEntries([...cost.employees].filter(([id]) => people.has(id)).map(([id, c]) => [id, c.total])),
-        };
-        // Back pay costs what any pay costs: priced on top of the week's pay, so on-costs cross thresholds as payroll's will.
-        // All of a person's adjustments are priced together, so two of them cannot each miss a threshold they cross between them.
-        const extraBy = new Map<string, number>();
-        for (const a of batch.adjustments) extraBy.set(a.employeeId, (extraBy.get(a.employeeId) ?? 0) + a.amount);
-        for (const [id, extra] of extraBy) {
-          const e = org.state.employees.find((x) => x.id === id)!;
-          const gross = cost.employees.get(e.id)?.gross ?? 0;
-          submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + extra).total - weekOnCosts(e, gross).total) * 100) / 100;
-        }
-        for (const c of owed) c.backPay!.sentIn = submission.id;
-        for (const r of compensation) r.sentIn = submission.id;
-        // Tips are recorded as paid through this payroll, at the end of the period it pays.
-        const carried = new Set(tronc.tipIds);
-        org.state.tips = (org.state.tips ?? []).map((t) => (carried.has(t.id) ? { ...t, paidOn: periodEnd, sentIn: submission.id } : t));
-        if (tronc.lines.length) audit(org, actorName(g), 'tronc.sent_to_payroll', { submissionId: submission.id, entityId: entity.id, people: tronc.lines.length, amount: Math.round(tronc.lines.reduce((n, l) => n + l.amount, 0) * 100) / 100 });
-        org.submissions.push(submission);
-        enqueue(org, {
-          type: 'hours.submit',
-          payload: { submissionId: submission.id, batch, entityId: entity.id },
-          idempotencyKey: `hours:${org.orgId}:${entity.id}:${periodStart}:v${version}`,
-        });
-        audit(org, actorName(g), 'payroll.hours_submitted', { id: submission.id, entityId: entity.id, hours: batch.totalHours, version });
-        created.push(submission);
-      }
+      const costs = {
+        total: new Map([...cost.employees].map(([id, c]) => [id, c.total])),
+        gross: new Map([...cost.employees].map(([id, c]) => [id, c.gross])),
+      };
+      const created = batches.map(({ entity, batch }) => queueHours(org, actorName(g), entity, batch, costs, { troncWeeks: [periodStart] }));
       await kick(ctx, org);
       const totalHours = Math.round(created.reduce((s, x) => s + x.totalHours, 0) * 100) / 100;
       return reply.code(202).send({ periodStart, totalHours, submissions: created });
@@ -574,7 +619,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         }
         const run = await provider.getPayRun(employerId, event.data.pay_run_id);
         const submission = org.submissions
-          .filter((s) => s.periodStart === run.periodStart && s.status === 'sent' && (s.entityId ?? org.state.entities[0]?.id) === entity.id)
+          .filter((s) => s.periodStart === run.periodStart && (!run.periodEnd || s.periodEnd === run.periodEnd) && s.status === 'sent' && (s.entityId ?? org.state.entities[0]?.id) === entity.id)
           .at(-1);
         const accrued = new Map(Object.entries(submission?.accrued ?? {}));
         const variance = payrollVariance(accrued, run.employees);

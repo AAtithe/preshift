@@ -64,8 +64,10 @@ const HrFile = screen(() => import('./HrFile'), 'HrFile');
 const HrOverview = screen(() => import('./HrOverview'), 'HrOverview', ['hr']);
 const IntegrationsView = screen(() => import('./IntegrationsView'), 'IntegrationsView', ['integrations']);
 const OnboardingView = screen(() => import('./OnboardingView'), 'OnboardingView', ['onboarding']);
+const MessagesView = screen(() => import('./MessagesView'), 'MessagesView', ['messages']);
 const PayApprovalsView = screen(() => import('./PayApprovalsView'), 'PayApprovalsView', ['pay']);
 const PayrollView = screen(() => import('./PayrollView'), 'PayrollView', ['payroll']);
+const PayPeriodsView = screen(() => import('./PayPeriodsView'), 'PayPeriodsView', ['periods']);
 const PeopleView = screen(() => import('./PeopleView'), 'PeopleView', ['people']);
 const PrimeView = screen(() => import('./PrimeView'), 'PrimeView', ['prime']);
 const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['privacy']);
@@ -214,6 +216,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
   const [week, setWeek] = useState(initial.week);
   const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : initial.tab);
+  // A shift sent from the editor to ask cover for, opened on Messages.
+  const [coverShift, setCoverShift] = useState<string | null>(null);
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
@@ -717,6 +721,14 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpenSite={(id, t) => { setSiteId(id); setTab(t); }}
                 />
               )}
+              {shown === 'messages' && (
+                <MessagesView
+                  state={state}
+                  siteIds={sectionSites}
+                  canAnnounce={(id) => allow('rota.publish', id)}
+                  openThread={new URLSearchParams(window.location.search).get('thread') ?? undefined}
+                />
+              )}
               {shown === 'welfare' && <WelfareView key={sectionSites.join(',')} state={state} siteIds={sectionSites} today={today} allow={allow} onOpenHr={openHr} />}
               {shown === 'holiday' && (
                 <HolidayView
@@ -729,7 +741,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 />
               )}
               {shown === 'adoption' && <AdoptionView state={state} siteIds={siteIds} />}
-              {shown === 'requests' && <RequestsView state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} />}
+              {shown === 'requests' && <RequestsView key={coverShift ?? 'requests'} state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} coverShiftId={coverShift ?? undefined} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
                 <AbsenceView state={state} siteIds={siteIds} today={today} onOpen={openHr} onSaveAbsence={actions.saveAbsence} />
@@ -738,6 +750,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'reviews' && <ReviewsView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'cases' && allow('hr.cases') && <CasesView state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'payroll' && single && <PayrollView state={state} siteId={single.id} week={week} allow={allow} simulator={!!me?.simulator} onChanged={actions.refreshShifts} onOpenGuide={openGuide} />}
+              {shown === 'periods' && <PayPeriodsView state={state} today={today} allow={allow} onChanged={actions.refreshShifts} />}
               {shown === 'actuals' && single && <ActualsView state={state} siteId={single.id} week={week} asOf={today} onOpenPayroll={() => setTab('payroll')} />}
               {shown === 'tronc' && single && <TroncView state={state} siteId={single.id} week={week} asOf={today} canEdit={allow('payroll.send') || allow('pay.approve')} canRecord={(allow('time.approve', single.id) && allow('costs.view', single.id)) || allow('payroll.send') || allow('pay.approve')} />}
               {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
@@ -797,7 +810,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'customers' && <CustomersView />}
               {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'features' && <FeaturesView state={state} onChanged={actions.reload} onOpen={setTab} />}
-              {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} onSalesChanged={() => void actions.refreshSales()} />}
+              {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} sites={state.sites} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}
               {shown === 'howto' && <HowToView guideId={guide} onOpen={setGuide} />}
               {shown === 'support' && <SupportView me={me?.user?.name ?? null} context={{ siteId: single?.id, week }} onOpen={(t) => setTab(t as Tab)} />}
@@ -935,6 +948,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           }}
           onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
+          onAskCover={allow('rota.publish', editing.siteId) ? (id) => { setEditing(null); setCoverShift(id); setSiteId(editing.siteId); setTab('requests'); } : undefined}
         />
       )}
       </Suspense>

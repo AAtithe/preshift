@@ -68,6 +68,10 @@ function RequestsGuide() {
         <li>Post an open shift for an extra need, such as a private party, or release one from someone who cannot work it.</li>
         <li>Only people trained for the role, set up for the site and free to work it legally are told or can claim it.</li>
         <li>
+          Nobody whose rota for that day is locked for payroll is offered it. Once a pay period is locked, its people drop off any
+          shift already out, and a shift only they could take is refused until the period is unlocked with a reason.
+        </li>
+        <li>
           It is offered cheapest first. First to anyone short of their contracted hours that week, whose pay you are already
           committed to. Then to the three cheapest to add. Then to everyone eligible. Each wave gets two hours, and the next only
           goes while nobody has claimed. Inside a day of the start, everyone is told at once. Tick Tell everyone eligible now, or
