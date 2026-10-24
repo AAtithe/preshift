@@ -45,6 +45,15 @@ function RequestsGuide() {
         <li>When they come back, hold the return to work conversation and record it in their HR file.</li>
       </ol>
 
+      <h3>Someone has not turned up</h3>
+      <ol className="guide-steps">
+        <li>Ten minutes after a shift starts with nothing clocked, the person gets a nudge on their phone and you get an email.</li>
+        <li>They appear under Not clocked in at the top of Staff requests until they clock in or the shift ends.</li>
+        <li>If they are not coming, press Find cover for the rest. The rest of the shift, from the next quarter hour, goes out as an open shift to everyone eligible.</li>
+        <li>Their own shift stays on the rota as the no-show it was, so it counts in their record and in Staff app adoption.</li>
+      </ol>
+      <p>This only runs at sites where people clock in, so a missing clock means something.</p>
+
       <h3>Open shifts</h3>
       <ul>
         <li>Post an open shift for an extra need, such as a private party, or release one from someone who cannot work it.</li>
@@ -56,7 +65,7 @@ function RequestsGuide() {
       <p>
         Each morning you get one email listing what is waiting for you: sickness to cover, requests and how long each has
         waited, and open shifts in the week ahead still unfilled. It only comes when something is waiting, and never carries a
-        reason for absence. Turn it off or on at the top of Staff requests.
+        reason for absence. The same switch, at the top of Staff requests, covers the not clocked in emails.
       </p>
     </>
   );

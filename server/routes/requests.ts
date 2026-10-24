@@ -10,7 +10,9 @@ import {
 } from '../../src/engine/requests';
 import { shiftEffect } from '../../src/engine/rotaViews';
 import { hasStarted } from '../../src/engine/rotaWeek';
-import { addDays, londonParts } from '../../src/engine/time';
+import { absoluteMinute, addDays, londonParts } from '../../src/engine/time';
+import { clockedFor } from '../../src/engine/reminders';
+import { adoption, adoptionTotal, TARGETS } from '../../src/engine/adoption';
 import { entriesAsShifts } from '../../src/engine/timesheet';
 import type { Absence, AbsenceType, Availability, Employee, OpenShift, Shift, StaffRequest } from '../../src/engine/types';
 import { hasScope, requireScope } from '../auth';
@@ -211,7 +213,7 @@ function apply(org: OrgData, r: StaffRequest, by: string, now: Date) {
       const o = openShiftsOf(org).find((x) => x.id === r.openShiftId)!;
       const shift = claimedShift(org, o, e);
       org.state.shifts.push(shift);
-      Object.assign(o, { status: 'filled', filledBy: e.id, shiftId: shift.id });
+      Object.assign(o, { status: 'filled', filledBy: e.id, filledAt: now.toISOString(), shiftId: shift.id });
       audit(org, by, 'shift.created', { id: shift.id });
       syncTold(org, [e.id], [shift]);
       // Everyone else who asked for it hears it has gone.
@@ -325,6 +327,61 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       org.settings.digestOff = [...off];
       audit(org, actorName(g), 'requests.digest_set', { on: req.body.on });
       return { on: req.body.on };
+    },
+  );
+
+  // People who have not clocked in for a shift that started more than ten minutes ago, at the sites
+  // where the caller publishes the rota. Gone from the list once they clock in or the shift ends.
+  app.get(
+    '/v1/requests/late',
+    { ...read, schema: { tags, description: 'Shifts running now that nobody has clocked in for, ten minutes or more after the start, so cover can be found for the rest.' } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const now = londonParts(ctx.now());
+      const names = namesOf(org.state);
+      return Object.entries(org.shiftAlerts ?? {})
+        .filter(([, a]) => a.late)
+        .map(([id]) => org.state.shifts.find((s) => s.id === id))
+        .filter((s): s is Shift => Boolean(s) && g.can('rota.publish', s!.siteId))
+        .filter((s) => absoluteMinute(now.date, s.date, s.endMinute) > now.minute && !clockedFor(org.timeEntries, s))
+        .map((s) => ({
+          shiftId: s.id,
+          employeeName: org.state.employees.find((e) => e.id === s.employeeId)?.name ?? s.employeeId,
+          siteId: s.siteId,
+          siteName: names.site(s.siteId),
+          roleId: s.roleId,
+          date: s.date,
+          startMinute: s.startMinute,
+          endMinute: s.endMinute,
+          line: shiftLine(s, names),
+          minutesLate: now.minute - absoluteMinute(now.date, s.date, s.startMinute),
+        }));
+    },
+  );
+
+  app.get<{ Querystring: { weeks?: number } }>(
+    '/v1/insights/adoption',
+    {
+      ...read,
+      schema: {
+        tags,
+        description:
+          'Per site, over the last 4 weeks (or `weeks`, 1 to 13): how much of the team is on the staff app and has notifications on, ' +
+          'how fast requests are decided and how many wait now, open shifts posted and filled, and no-shows at sites where people clock. ' +
+          'For the sites where the caller publishes the rota or manages the team; names of who is not on the app only where they manage the team.',
+        querystring: { type: 'object', properties: { weeks: { type: 'integer', minimum: 1, maximum: 13 } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const sites = org.state.sites.filter((s) => g.can('rota.publish', s.id) || g.can('team.manage', s.id)).map((s) => s.id);
+      const logins = (await ctx.store.listStaffLogins(org.orgId)).map((l) => ({ employeeId: l.employeeId, active: Boolean(l.hash), pushDevices: l.push?.length ?? 0 }));
+      const weeks = req.query.weeks ?? 4;
+      const rows = adoption(org.state, { logins, requests: requestsOf(org), openShifts: openShiftsOf(org), entries: org.timeEntries }, sites, today(), ctx.now().toISOString(), weeks)
+        .map((r) => (g.can('team.manage', r.siteId) ? r : { ...r, notOnApp: undefined, noNotifications: undefined }));
+      return { weeks, from: addDays(today(), -7 * weeks), to: addDays(today(), -1), targets: TARGETS, sites: rows, total: adoptionTotal(rows) };
     },
   );
 

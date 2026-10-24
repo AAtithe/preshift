@@ -68,6 +68,7 @@ const PrivacyView = screen(() => import('./PrivacyView'), 'PrivacyView', ['priva
 const ProfileView = screen(() => import('./ProfileView'), 'ProfileView', ['profile']);
 const ProgrammeView = screen(() => import('./ProgrammeView'), 'ProgrammeView', ['programme']);
 const RequestsView = screen(() => import('./RequestsView'), 'RequestsView', ['requests']);
+const AdoptionView = screen(() => import('./AdoptionView'), 'AdoptionView', ['adoption']);
 const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['reports']);
 const RetentionView = screen(() => import('./RetentionView'), 'RetentionView', ['retention']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
@@ -686,6 +687,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                 />
               )}
+              {shown === 'adoption' && <AdoptionView state={state} siteIds={siteIds} />}
               {shown === 'requests' && <RequestsView state={state} siteIds={siteIds} today={today} allow={allow} onChanged={actions.reload} />}
               {shown === 'hr' && <HrOverview state={state} siteIds={siteIds} today={today} hr={hr} onOpen={openHr} />}
               {shown === 'absence' && (
