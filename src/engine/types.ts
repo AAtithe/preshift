@@ -692,6 +692,11 @@ export interface TroncScheme {
   /** Optional split of the pool by department before points are applied. */
   departmentShares?: Partial<Record<Department, number>>;
   serviceCharge: 'none' | 'discretionary' | 'mandatory';
+  /**
+   * When tronc reaches staff. A day of the month: each month's tips are paid on that day of the month
+   * after. Absent: in each pay run, with the pay for the days the tips were taken.
+   */
+  payoutDay?: number;
   /** Date the written tipping policy was made available to staff. */
   policyPublishedOn?: string;
   /** Date staff were last consulted on whether the allocation is fair. */

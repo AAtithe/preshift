@@ -79,7 +79,7 @@ function toPennies(raw: Map<string, number>, total: number): Map<string, number>
  * tronc is the real one, not 15% of the pool.
  */
 export function troncRun(
-  state: RotaState,
+  state: Pick<RotaState, 'roles' | 'employees' | 'tips' | 'troncSchemes'>,
   entries: TimeEntry[],
   siteId: string,
   weekStartDate: string,
@@ -313,6 +313,9 @@ export function troncSchemeProblems(scheme: TroncScheme, roles: Pick<Role, 'id' 
     if (shares.some(([, v]) => v === undefined || !Number.isFinite(v) || v < 0 || v > 1)) problems.push('Each department share is a fraction from 0 to 1.');
     const total = shares.reduce((s, [, v]) => s + (v ?? 0), 0);
     if (shares.length > 0 && Math.abs(total - 1) > 0.001) problems.push(`Department shares add up to ${Math.round(total * 100)}%. They must share all of the pool.`);
+  }
+  if (scheme.payoutDay !== undefined && !(Number.isInteger(scheme.payoutDay) && scheme.payoutDay >= 1 && scheme.payoutDay <= 31)) {
+    problems.push('The payout day is a day of the month, from 1 to 31.');
   }
   for (const [label, date] of [['policy published', scheme.policyPublishedOn], ['last reviewed', scheme.lastReviewedOn]] as const) {
     if (date === undefined) continue;
