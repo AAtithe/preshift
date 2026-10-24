@@ -2,9 +2,10 @@ import type { RotaState, Shift, TimeEntry } from './types';
 import { blendedShifts, loadedHourlyRate } from './actuals';
 import { breakFor } from './compliance';
 import { employeeWeekCost, shiftsInWeek } from './cost';
-import { headcountAt, requiredHeadcount } from './demand';
+import { calendarHour, headcountAt, requiredHeadcount, tradingDayHours } from './demand';
 import { shortNoticeCompensation, type EraPolicy } from './era';
-import { weekStart } from './time';
+import { assessShortNotice, snapshot, type EraSettings } from './employmentRights';
+import { addDays, weekStart } from './time';
 
 export interface CutOptions {
   /** Share of the day's forecast that must have traded before the call is trusted. */
@@ -19,6 +20,12 @@ export interface CutOptions {
    * compensation. A cut on the day is always short notice.
    */
   era?: EraPolicy;
+  /**
+   * The organisation's Employment Rights Act settings and the moment of the call. A cut to a published
+   * shift for a covered worker is priced with the short notice pay it owes once the measure has started,
+   * and shown as what it would owe before then. Takes the place of `era` when given.
+   */
+  rights?: { settings: EraSettings; at: Date };
 }
 
 export const DEFAULT_CUT_OPTIONS: CutOptions = { minTradedShare: 0.1, paceFloor: 0.5, paceCeiling: 1.5, minMinutesSaved: 45 };
@@ -35,6 +42,8 @@ export interface CutRecommendation {
   minutesSaved: number;
   /** Short-notice compensation owed for the cut, when Employment Rights Act pricing is on. */
   compensation: number;
+  /** Short notice pay the cut would owe once the measure starts: shown, not deducted. */
+  wouldOwe?: number;
   /** Loaded saving to the week, after guaranteed hours, on-cost thresholds and any compensation. */
   saving: number;
 }
@@ -86,13 +95,22 @@ export function cutCall(
 ): CutCall {
   const opts = { ...DEFAULT_CUT_OPTIONS, ...options };
   const site = state.sites.find((s) => s.id === siteId);
-  const forecast = state.forecast.filter((f) => f.siteId === siteId && f.date === date);
+  // The trading day runs from opening to closing, past midnight where the site trades late or round
+  // the clock: hours from 24 are the next date's early hours, and `now` counts on from 1440 after midnight.
+  const hours = site ? tradingDayHours(site) : 24;
+  const inDay = (h: number) => !site || (h * 60 >= site.openMinute && h * 60 < site.closeMinute);
+  const next = addDays(date, 1);
+  const forecast = state.forecast
+    .filter((f) => f.siteId === siteId && (f.date === date || (hours > 24 && f.date === next)))
+    .map((f) => (f.date === date ? f : { ...f, hour: f.hour + 24 }))
+    .filter((f) => f.hour < hours && (f.hour < 24 || inDay(f.hour)));
   const forecastDay = forecast.reduce((sum, f) => sum + f.sales, 0);
   const traded = (hour: number) => (hour + 1) * 60 <= now;
   const forecastSoFar = forecast.filter((f) => traded(f.hour)).reduce((sum, f) => sum + f.sales, 0);
   // Hourly takings come from a connected till. Without them there is no pace to read, and a missing
   // figure must never be read as a quiet day: that would send the whole floor home.
-  const tillHours = state.sales?.find((d) => d.siteId === siteId && d.date === date)?.hours ?? [];
+  const lateTill = hours > 24 ? (state.sales?.find((d) => d.siteId === siteId && d.date === next)?.hours ?? []).map((h) => ({ ...h, hour: h.hour + 24 })).filter((h) => inDay(h.hour)) : [];
+  const tillHours = [...(state.sales?.find((d) => d.siteId === siteId && d.date === date)?.hours ?? []), ...lateTill];
   const salesSoFar = tillHours.filter((h) => traded(h.hour)).reduce((sum, h) => sum + h.netSales, 0);
   const rawPace = forecastSoFar > 0 ? salesSoFar / forecastSoFar : 1;
   const pace = tillHours.length ? Math.min(opts.paceCeiling, Math.max(opts.paceFloor, rawPace)) : 1;
@@ -127,7 +145,7 @@ export function cutCall(
   const rules = state.demandRules.filter((r) => r.siteId === siteId);
   const required = (roleId: string, hour: number) => {
     const rule = rules.find((r) => r.roleId === roleId);
-    if (!rule || hour >= 24) return 0;
+    if (!rule || hour >= hours) return 0;
     const f = byHour.get(hour);
     const scaled = f ? { ...f, sales: f.sales * pace, covers: f.covers * pace } : undefined;
     return requiredHeadcount(rule, site, scaled, hour);
@@ -135,10 +153,15 @@ export function cutCall(
 
   const nextHour = Math.ceil(now / 60);
   let shifts = [...state.shifts];
+  // Headcount at an hour of the trading day, reading the next date for the small hours.
+  const onAt = (all: Shift[], hour: number, roleId: string) => {
+    const at = calendarHour(date, hour);
+    return headcountAt(all, at.date, at.hour, roleId, siteId);
+  };
   const short: ShortHour[] = [];
   for (const rule of rules) {
-    for (let hour = nextHour; hour < 24; hour++) {
-      const gap = required(rule.roleId, hour) - headcountAt(shifts, date, hour, rule.roleId, siteId);
+    for (let hour = nextHour; hour < hours; hour++) {
+      const gap = required(rule.roleId, hour) - onAt(shifts, hour, rule.roleId);
       if (gap > 0) short.push({ roleId: rule.roleId, hour, short: gap });
     }
   }
@@ -163,7 +186,7 @@ export function cutCall(
       const others = shifts.filter((s) => s.id !== shift.id);
       let covered = true;
       for (let hour = Math.floor(newEnd / 60); hour * 60 < shift.endMinute; hour++) {
-        if (headcountAt(others, date, hour, shift.roleId, siteId) < required(shift.roleId, hour)) {
+        if (onAt(others, hour, shift.roleId) < required(shift.roleId, hour)) {
           covered = false;
           break;
         }
@@ -178,7 +201,14 @@ export function cutCall(
       const before = employeeWeekCost(employee, weekOf(shifts, employee.id)).total;
       const after = employeeWeekCost(employee, weekOf(shifts.map((s) => (s.id === shift.id ? next : s)), employee.id)).total;
       const minutesSaved = shift.endMinute - newEnd;
-      const compensation = opts.era ? shortNoticeCompensation(minutesSaved, loadedHourlyRate(employee), opts.era) : 0;
+      let compensation = opts.era && !opts.rights ? shortNoticeCompensation(minutesSaved, loadedHourlyRate(employee), opts.era) : 0;
+      let wouldOwe: number | undefined;
+      if (opts.rights && shift.published) {
+        const owed = assessShortNotice(snapshot(shift), snapshot(next), employee, opts.rights.at, opts.rights.settings);
+        // Pay owed carries on-costs like any pay, so it is priced at the person's loaded rate.
+        if (owed?.owed) compensation = round2(owed.amount * (employee.hourlyRate > 0 ? loadedHourlyRate(employee) / employee.hourlyRate : 1));
+        else if (owed) wouldOwe = owed.amount;
+      }
       const saving = round2(before - after - compensation);
       if (saving <= 0) {
         keptAtNoCost.add(employee.id);
@@ -194,6 +224,7 @@ export function cutCall(
         newBreakMinutes,
         minutesSaved,
         compensation,
+        ...(wouldOwe ? { wouldOwe } : {}),
         saving,
       };
       if (!best || rec.saving > best.rec.saving) best = { rec, next };

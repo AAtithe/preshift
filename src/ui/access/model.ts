@@ -14,6 +14,8 @@ export interface Me {
   withoutRecord?: boolean;
   authenticator?: AuthenticatorState;
   simulator?: boolean;
+  /** Features the organisation has switched off for everyone (src/engine/features.ts). */
+  featuresOff?: string[];
 }
 
 /** Whether a person can sign in: from their account, which holds the password. Never the hash. */

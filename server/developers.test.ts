@@ -6,6 +6,9 @@ import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore, PgStore, type Store } from './store';
 import { codeAt, stepAt } from './totp';
 import { checkWebhookUrl, signWebhook, type Fetch } from './webhooks';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 const WEEK = '2026-10-19';

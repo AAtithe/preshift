@@ -68,12 +68,15 @@ describe('trading past midnight', () => {
     expect(missingForecast(spill, [state.sites[0].id], addDays(lastWeek, 7)).length).toBeGreaterThan(0);
   });
 
-  it('accepts a close up to 04:00 and refuses one that runs into the next opening', () => {
+  it('accepts a close as late as the next opening and refuses one that runs into it', () => {
     const ok = bar();
     expect(validateSetup(ok).filter((i) => i.severity === 'block')).toEqual([]);
     const late = bar();
     late.sites[0].closeMinute = 29 * 60;
-    expect(validateSetup(late).some((i) => i.message.includes('up to 04:00'))).toBe(true);
+    expect(validateSetup(late).filter((i) => i.severity === 'block')).toEqual([]);
+    const roundTheClock = bar();
+    roundTheClock.sites[0].closeMinute = 40 * 60;
+    expect(validateSetup(roundTheClock).filter((i) => i.severity === 'block')).toEqual([]);
     const overlap = bar();
     overlap.sites[0].openMinute = 60;
     overlap.sites[0].closeMinute = 26 * 60;

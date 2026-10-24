@@ -113,3 +113,21 @@ describe('customers', () => {
     for (const r of ['owner', 'ws_partner', 'ws_accountant', 'finance_director']) expect(shown(person(r))).not.toContain('Customers');
   });
 });
+
+describe('features switched off', () => {
+  it('leave the bar for everyone, owner included, and nothing else changes', () => {
+    const owner = person('owner');
+    const before = visibleNav(allowFor(owner), SITES).flatMap((g) => g.items.map((t) => t.id));
+    const after = visibleNav(allowFor(owner), SITES, owner.audience, new Set(['tronc', 'hr', 'absence'])).flatMap((g) => g.items.map((t) => t.id));
+    expect(before).toEqual(expect.arrayContaining(['tronc', 'hr', 'absence', 'features']));
+    expect(after).toEqual(before.filter((t) => !['tronc', 'hr', 'absence'].includes(t)));
+    expect(offered(NAV_ITEMS.find((t) => t.id === 'profile')!, allowFor(owner), SITES, owner.audience, new Set(['profile']))).toBe(false);
+  });
+
+  it('offers the features screen only to those who manage settings', () => {
+    expect(seen(person('owner'))).toContain('Features');
+    expect(seen(person('ops_director'))).not.toContain('Features');
+    expect(seen(person('general_manager', ['a']))).not.toContain('Features');
+  });
+});
+

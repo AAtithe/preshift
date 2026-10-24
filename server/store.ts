@@ -162,6 +162,8 @@ export interface OrgData {
   rotaSeen?: Record<string, SeenRecord>;
   /** Reminders and no-show alerts sent per shift, kept a couple of days. */
   shiftAlerts?: Record<string, ShiftAlertRecord>;
+  /** Cut call alerts sent, by `siteId|date`: when trading fell behind, and when it ran ahead. */
+  cutAlerts?: Record<string, { behind?: string; ahead?: string }>;
   /** The London day the managers' morning digest last went out, so it goes once a day. */
   lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
@@ -257,6 +259,8 @@ export interface OrgSettings {
   digestOff?: string[];
   /** Sites whose open shift claims are approved without a manager when inside the rules and the labour budget. */
   openShiftAutoApprove?: string[];
+  /** Features switched off for everyone in the organisation (src/engine/features.ts). Absent means all on. */
+  featuresOff?: string[];
 }
 
 export type UserRole = 'admin' | 'member';

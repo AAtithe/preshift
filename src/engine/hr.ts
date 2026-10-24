@@ -2,6 +2,7 @@ import { employeeStatus, isEmployedOn, LOOKAHEAD_DAYS, type RecordCheck } from '
 import { addDays, daysBetween } from './time';
 import type { Absence, AbsenceType, CaseType, Department, Employee, HrRecord, ReviewType, Role, Shift } from './types';
 import { workingDates, workPattern } from './workPattern';
+import { currentHealthOffer, isNightShift } from './night';
 
 export const ABSENCE_LABEL: Record<AbsenceType, string> = {
   sickness: 'Sickness',
@@ -236,6 +237,17 @@ export function hrChecks(employee: Employee, records: HrRecord[], roles: Role[],
   for (const course of COURSES.filter((c) => !requiredCourses(employee, roles).includes(c))) {
     const { status: s, latest } = trainingStatus(mine, employee.id, course.name, today);
     if (s === 'expired') push(`training:${course.name}`, 'warn', `${course.name} expired on ${latest!.expiresOn}.`);
+  }
+
+  // Night work: three or more night shifts on the rota either side of today means a health
+  // assessment must have been offered, and offered again when it falls due.
+  if (shifts) {
+    const near = shifts.filter((s) => s.employeeId === employee.id && s.date >= addDays(today, -28) && s.date <= addDays(today, 28));
+    if (near.filter(isNightShift).length >= 3) {
+      const offer = currentHealthOffer(mine, employee.id, today);
+      if (!offer) push('night-health', 'warn', 'Works nights: offer a free health assessment before nights start, and record it here.');
+      else if (offer.nextDue && offer.nextDue <= addDays(today, LOOKAHEAD_DAYS)) push('night-health', 'warn', `Night work health assessment due to be offered again by ${offer.nextDue}.`);
+    }
   }
 
   const reviews = mine.filter((r) => r.kind === 'review').sort((a, b) => b.date.localeCompare(a.date));

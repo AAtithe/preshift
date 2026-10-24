@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { DEMO_TOTP_SECRET } from './seedUsers';
 import { enterCode, kit, TODAY } from './testkit';
 import { MemoryStore } from './store';
+import { holdClock } from './testClock';
+
+holdClock();
 
 // Shifts going: one open shift, put out to everyone eligible or to the cheapest first in rounds,
 // decided by a manager or by the first legal yes. Main's untargeted flow is in requests.test.ts.
