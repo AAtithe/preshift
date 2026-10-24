@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 // Dragging a shift's finish past midnight. It moves a shift, which only a local development build
 // allows, so it never runs against a deployed site. It drags the shift back when it is done.
@@ -47,14 +47,28 @@ test('the finish of a closing shift drags past midnight and the day widens to sh
   const before = hoursOf(title);
   const who = title.slice(0, title.search(/\d\d:\d\d-/));
   const same = (t: string) => t.startsWith(who) && hoursOf(t).start === before.start;
-  const shift = await barWith(title);
-  await shift.scrollIntoViewIfNeeded();
+  await (await barWith(title)).scrollIntoViewIfNeeded();
   const hoursBefore = await page.locator('.tl-hour').count();
 
   // Drag the finish three hours on, a step at a time: the day widens as it goes past the edge.
   const hour = (await page.locator('.tl-hour').nth(1).boundingBox())!.x - (await page.locator('.tl-hour').nth(0).boundingBox())!.x;
-  const edge = (await shift.locator('.tl-edge.end').boundingBox())!;
-  const at = { x: edge.x + edge.width / 2, y: edge.y + edge.height / 2 };
+  // Banners arriving and other checks saving re-render the rota, which can move it under the pointer:
+  // aim only once the grip has held still, and press only where the grip really is.
+  let at = { x: 0, y: 0 };
+  await expect
+    .poll(async () => {
+      await page.waitForLoadState('networkidle');
+      // Found by its title each time: bars can re-sort when another check moves a shift.
+      const grip = (await barWith(title)).locator('.tl-edge.end');
+      // To the middle of the window: at the foot it would sit under the command bar.
+      await grip.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      const box = (await grip.boundingBox())!;
+      const next = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const still = Math.abs(next.x - at.x) < 1 && Math.abs(next.y - at.y) < 1;
+      at = next;
+      return still && (await grip.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, at));
+    }, { intervals: [250], timeout: 15_000 })
+    .toBe(true);
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
   await page.mouse.move(at.x + 3 * hour, at.y, { steps: 30 });
