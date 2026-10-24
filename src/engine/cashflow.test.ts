@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cashCalendar, cashCsv, deductions, payPeriods, payScheduleProblem, workingDayOnOrBefore } from './cashflow';
+import { cashCalendar, cashCsv, deductions, payPeriods, payScheduleProblem, troncDeductions, workingDayOnOrBefore } from './cashflow';
 import { newEmployee } from './employees';
 import { addDays } from './time';
-import type { Employee, Entity, RotaState, Shift } from './types';
+import type { Employee, Entity, RotaState, Shift, TimeEntry, TipsTaken, TroncScheme } from './types';
 
 const TODAY = '2026-10-22'; // a Thursday
 const entity = (extra: Partial<Entity> = {}): Entity => ({ id: 'wdl', name: 'West End Dining Ltd', companyNumber: '1', payeReference: '120/WE1', intercompanyCode: '1351', ...extra });
@@ -75,7 +75,7 @@ describe('the cash calendar', () => {
     // Tax month 6 October to 5 November: pay days 9, 16, 23 and 30 October. The 22nd of November is a Sunday.
     const hmrc = cal.items.find((i) => i.kind === 'hmrc' && i.covers.from === '2026-10-06')!;
     expect(hmrc).toMatchObject({ date: '2026-11-20', covers: { to: '2026-11-05' } });
-    expect(hmrc.parts).toEqual({ tax: 633.24, employeeNi: 234.68, employerNi: 542.4, allowance: 0 });
+    expect(hmrc.parts).toEqual({ tax: 633.24, employeeNi: 234.68, employerNi: 542.4, allowance: 0, tronc: 0 });
     expect(hmrc.amount).toBe(1410.32);
 
     // October's five pay days, employer 3% and employee 4% of qualifying earnings each.
@@ -119,3 +119,67 @@ describe('the cash calendar', () => {
     expect(cashCsv(cal, () => 'West End Dining Ltd').split('\n')[0]).toBe('Date,Company,Payment,Amount,Covers from,Covers to,People,Basis');
   });
 });
+
+describe('tronc in the cash calendar', () => {
+  // Priya earns £1,000 a week, already past the basic rate band (£725 a week above the allowance) and the
+  // upper earnings limit (£966.73 a week), so every pound of tronc is taxed at 40% and pays 2% employee NI.
+  const scheme = (extra: Partial<TroncScheme> = {}): TroncScheme => ({ siteId: 'mar', troncmaster: 'Head server', independent: true, pointsPerHour: { server: 10 }, serviceCharge: 'discretionary', ...extra });
+  const tip = (date: string, amount: number, extra: Partial<TipsTaken> = {}): TipsTaken => ({ id: `t-${date}-${amount}`, siteId: 'mar', date, source: 'service-charge', amount, ...extra });
+  const clocked = (date: string): TimeEntry => ({ id: `c-${date}`, employeeId: 'gm', siteId: 'mar', roleId: 'server', date, clockIn: 720, clockOut: 1200, breakMinutes: 0, status: 'approved', source: 'clock' });
+  const withTips = (tips: TipsTaken[], s: TroncScheme = scheme()) => ({ ...state([salaried()]), roles: [], tips, troncSchemes: [s] });
+
+  it('pays an independent tronc with the pay for the week the tips were taken, taxed but free of NI', () => {
+    const cal = cashCalendar(withTips([tip('2026-10-13', 200)]), [clocked('2026-10-13')], TODAY);
+    const tronc = cal.items.filter((i) => i.kind === 'tronc');
+    // £200 less £80 tax, on the pay day for the week to 18 October.
+    expect(tronc[0]).toMatchObject({ date: '2026-10-23', amount: 120, covers: { from: '2026-10-13', to: '2026-10-13' }, bases: ['worked'], people: 1 });
+    // Days still to trade repeat her last four weeks of tronc, £50 a week: the four days left of this week, then whole weeks.
+    expect(tronc[1]).toMatchObject({ date: '2026-10-30', amount: 17.14, bases: ['run-rate'] });
+    expect(tronc[2]).toMatchObject({ date: '2026-11-06', amount: 30 });
+    // Tax month 6 October to 5 November: tax on the payouts of 23 and 30 October, and no NI.
+    const hmrc = cal.items.find((i) => i.kind === 'hmrc' && i.covers.from === '2026-10-06')!;
+    expect(hmrc.parts).toEqual({ tax: 724.67, employeeNi: 234.68, employerNi: 542.4, allowance: 0, tronc: 91.43 });
+    expect(cal.items.find((i) => i.kind === 'pension' && i.covers.from === '2026-10-01')!.amount).toBe(296.45);
+    expect(cal.weeks[1].byKind.tronc).toBe(17.14);
+    expect(cal.totals.total).toBe(round(cal.totals['net-pay'] + cal.totals.tronc + cal.totals.hmrc + cal.totals.pension));
+    expect(cal.notes.join(' ')).toMatch(/independent troncmaster they are not/);
+  });
+
+  it('pays NI on an employer-run tronc, on the scheme’s payout day', () => {
+    // September's tips, paid on 25 October, a Sunday, so on Friday the 23rd.
+    const cal = cashCalendar(withTips([tip('2026-09-14', 200)], scheme({ independent: false, payoutDay: 25 })), [clocked('2026-09-14')], TODAY);
+    // £80 tax and £4 employee NI come off; £30 employer NI goes to HMRC with them. She is past the pension band already.
+    expect(cal.items.find((i) => i.kind === 'tronc')).toMatchObject({ date: '2026-10-23', amount: 116, covers: { from: '2026-09-14', to: '2026-09-14' } });
+    expect(cal.items.find((i) => i.kind === 'hmrc' && i.covers.from === '2026-10-06')!.parts!.tronc).toBe(114);
+  });
+
+  it('pays late tips in the next pay run and says they are late, and still shows HMRC on tips already paid', () => {
+    const tips = [tip('2026-08-10', 200), tip('2026-09-01', 300, { paidOn: '2026-09-25' })];
+    const cal = cashCalendar(withTips(tips), [clocked('2026-08-10'), clocked('2026-09-01')], TODAY);
+    // August's tips were due by 30 September; the next pay day is 23 October.
+    expect(cal.items.filter((i) => i.kind === 'tronc')).toEqual([expect.objectContaining({ date: '2026-10-23', amount: 120, covers: { from: '2026-08-10', to: '2026-08-10' } })]);
+    expect(cal.notes.join(' ')).toMatch(/£200.00 of tips is past the end of the month after it was taken/);
+    // The £300 paid on 25 September carries £120 of tax, due to HMRC on 22 October.
+    expect(cal.items.find((i) => i.kind === 'hmrc' && i.covers.from === '2026-09-06')).toMatchObject({ date: '2026-10-22', parts: expect.objectContaining({ tronc: 120 }) });
+    // A monthly scheme that missed its payout day puts it right in the next pay run, not a month later.
+    const monthly = cashCalendar(withTips([tip('2026-08-10', 200)], scheme({ payoutDay: 25 })), [clocked('2026-08-10')], TODAY);
+    expect(monthly.items.find((i) => i.kind === 'tronc')).toMatchObject({ date: '2026-10-23', amount: 120 });
+  });
+
+  it('leaves out tips with no clocked hours to share across, and says so', () => {
+    const cal = cashCalendar(withTips([tip('2026-09-15', 100)]), [], TODAY);
+    expect(cal.items.some((i) => i.kind === 'tronc')).toBe(false);
+    expect(cal.notes.join(' ')).toMatch(/£100.00 of unpaid tips at Marylebone has no clocked hours/);
+  });
+
+  it('works tax on tronc over the weeks it was earned in, as cumulative PAYE does', () => {
+    const e = salaried({ pensionEnrolled: false });
+    // £2,000 in one week on £300 of pay: most of it at 40%. Earned over four weeks: all of it at 20%.
+    expect(troncDeductions(e, 300, 2000, 0, 'weekly').tax).toBe(666.66);
+    expect(troncDeductions(e, 300, 2000, 0, 'weekly', 4)).toMatchObject({ tax: 400, employeeNi: 0, employerNi: 0, net: 1600 });
+    // An employer-run tronc pays NI on the week's pay as payroll works it, and pension on qualifying earnings.
+    expect(troncDeductions(salaried(), 300, 200, 200, 'weekly')).toEqual({ tax: 40, employeeNi: 16, employeePension: 8, employerNi: 30, employerPension: 6, net: 136 });
+  });
+});
+
+const round = (n: number) => Math.round(n * 100) / 100;

@@ -68,6 +68,9 @@ describe('recording a tronc scheme', () => {
     expect(org.state.troncSchemes?.[0].pointsPerHour.kp).toBe(8);
     const saved = org.audit.filter((a) => a.action === 'tronc.scheme_saved');
     expect(saved.map((a) => a.detail?.fields)).toEqual([expect.arrayContaining(['troncmaster', 'pointsPerHour']), ['pointsPerHour', 'departmentShares']]);
+
+    // Paid monthly, on the 25th of the month after.
+    expect((await put('ravi', { ...scheme, payoutDay: 25 })).json().payoutDay).toBe(25);
   });
 
   it('keeps it from the site and the owner, and from payroll without an authenticator', async () => {
@@ -90,6 +93,7 @@ describe('recording a tronc scheme', () => {
     const bad = await put('ravi', { ...scheme, pointsPerHour: { sommelier: 10 }, departmentShares: { FOH: 0.5, BOH: 0.3 }, lastReviewedOn: '2027-01-01' });
     expect(bad.statusCode).toBe(422);
     expect(bad.json().details.join(' ')).toMatch(/roles that do not exist.*at least one role.*add up to 80%.*in the future/);
+    expect((await put('ravi', { ...scheme, payoutDay: 40 })).json().details).toEqual(['The payout day is a day of the month, from 1 to 31.']);
     expect((await put('ravi', scheme, 'nowhere')).statusCode).toBe(404);
     expect((await put('ravi', { ...scheme, troncmaster: '' })).statusCode).toBe(400);
   });

@@ -33,6 +33,7 @@ export function TroncSchemeEditor({ siteId, siteName, roles, scheme, today, onSa
   const [shares, setShares] = useState<Record<string, string>>(
     Object.fromEntries(DEPARTMENTS.map((d) => [d.id, scheme?.departmentShares?.[d.id] !== undefined ? String(Math.round(scheme.departmentShares[d.id]! * 100)) : ''])),
   );
+  const [payoutDay, setPayoutDay] = useState(scheme?.payoutDay ? String(scheme.payoutDay) : '');
   const [policyPublishedOn, setPolicyPublishedOn] = useState(scheme?.policyPublishedOn ?? '');
   const [lastReviewedOn, setLastReviewedOn] = useState(scheme?.lastReviewedOn ?? '');
   const [busy, setBusy] = useState(false);
@@ -54,6 +55,7 @@ export function TroncSchemeEditor({ siteId, siteName, roles, scheme, today, onSa
         serviceCharge,
         pointsPerHour: Object.fromEntries(roles.map((r) => [r.id, Number(points[r.id]) || 0])),
         ...(departmentShares && Object.keys(departmentShares).length ? { departmentShares } : {}),
+        ...(payoutDay ? { payoutDay: Number(payoutDay) } : {}),
         ...(policyPublishedOn ? { policyPublishedOn } : {}),
         ...(lastReviewedOn ? { lastReviewedOn } : {}),
       });
@@ -91,6 +93,14 @@ export function TroncSchemeEditor({ siteId, siteName, roles, scheme, today, onSa
           </select>
         </label>
         <span className="hint">{independent ? 'Independent: tronc payments carry PAYE, no Class 1 NI.' : 'The business allocates: Class 1 NI is due on every payment.'}</span>
+        <label>
+          Paid out
+          <select value={payoutDay} onChange={(e) => setPayoutDay(e.target.value)}>
+            <option value="">In each pay run</option>
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>Monthly, on day {n} of the month after</option>)}
+          </select>
+        </label>
+        <span className="hint">Tips must reach staff by the end of the month after they were taken. The labour cash calendar uses this for when tronc leaves the bank.</span>
         <label>
           Written policy published
           <input type="date" max={today} value={policyPublishedOn} onChange={(e) => setPolicyPublishedOn(e.target.value)} />

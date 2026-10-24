@@ -4,6 +4,8 @@ import { checkFence } from '../../src/engine/clocking';
 import { requiredBreakMinutes } from '../../src/engine/compliance';
 import { addDays, ageOn, weekStart } from '../../src/engine/time';
 import { fortnight } from '../../src/engine/rotaViews';
+import { confirmWeek, pruneSeen, weeksSeen } from '../../src/engine/rotaSeen';
+import { dayLabel } from '../../src/engine/requests';
 import { PULSE_RETENTION_DAYS, RECOGNITION_LABEL, welfarePolicy, type PulseResponse } from '../../src/engine/welfare';
 import type { Employee, GeoFix, RightToWorkDocument, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
@@ -172,7 +174,12 @@ function selfService(org: OrgData, employee: Employee, today: string) {
   const r1 = (n: number) => Math.round(n * 10) / 10;
   const sick = (employee.absences ?? []).find((a) => a.type === 'sickness' && !a.to);
   const recentSick = (employee.absences ?? []).filter((a) => a.type === 'sickness' && (!a.to || a.to >= addDays(today, -60))).at(-1);
+  // Weeks from this one on that they have not confirmed as they now stand, one entry per week across sites.
+  const thisWeek = weekStart(today);
+  const toConfirm = weeksSeen(org.toldWeeks ?? {}, org.rotaSeen ?? {}, (w) => w.employeeId === employee.id && w.weekStart >= thisWeek).filter((w) => !w.seen);
+  const weeks = [...new Set(toConfirm.map((w) => w.weekStart))].sort();
   return {
+    rotaToConfirm: weeks.map((ws) => ({ weekStart: ws, label: `Week of ${dayLabel(ws)}`, changed: toConfirm.some((w) => w.weekStart === ws && w.changed) })),
     unread: (org.notifications ?? []).filter((n) => n.employeeId === employee.id && !n.read).length,
     holiday: {
       remainingHours: r1(balance.remainingHours),
@@ -716,6 +723,23 @@ function pushRoutes(app: FastifyInstance, store: Store) {
         await store.save(org);
       }
       return { ok: true, devices: push.length };
+    },
+  );
+
+  // "Seen it": the person confirms their week as it now reads. A later change needs confirming again.
+  app.post<{ Body: { weekStart: string } }>(
+    '/v1/staff/rota/seen',
+    { schema: { hide: true, body: { type: 'object', required: ['weekStart'], properties: { weekStart: { type: 'string', format: 'date' } }, additionalProperties: false } } },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const at = new Date().toISOString();
+      org.rotaSeen = pruneSeen(org.rotaSeen ?? {}, addDays(weekStart(londonParts(new Date()).date), -7 * 26));
+      const confirmed = confirmWeek(org.toldWeeks ?? {}, org.rotaSeen, employee.id, req.body.weekStart, at);
+      if (confirmed === 0) throw new HttpError(404, 'not_found', 'There is no published week of yours to confirm.');
+      audit(org, `staff:${employee.id}`, 'rota.seen', { employeeId: employee.id, weekStart: req.body.weekStart });
+      await store.save(org);
+      return overview(staff, store);
     },
   );
 
