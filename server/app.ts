@@ -229,6 +229,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       storage: store instanceof PgStore ? 'postgres' : 'memory',
       database,
       documents: documents.status,
+      // Which build is live, so a check run after a deploy can wait for it. Vercel sets this on git deployments.
+      ...(env.VERCEL_GIT_COMMIT_SHA ? { commit: env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) } : {}),
     });
   });
 
