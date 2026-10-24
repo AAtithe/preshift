@@ -80,7 +80,7 @@ function toPennies(raw: Map<string, number>, total: number): Map<string, number>
  * tronc is the real one, not 15% of the pool.
  */
 export function troncRun(
-  state: RotaState,
+  state: Pick<RotaState, 'roles' | 'employees' | 'tips' | 'troncSchemes'>,
   entries: TimeEntry[],
   siteId: string,
   weekStartDate: string,
@@ -315,6 +315,9 @@ export function troncSchemeProblems(scheme: TroncScheme, roles: Pick<Role, 'id' 
     const total = shares.reduce((s, [, v]) => s + (v ?? 0), 0);
     if (shares.length > 0 && Math.abs(total - 1) > 0.001) problems.push(`Department shares add up to ${Math.round(total * 100)}%. They must share all of the pool.`);
   }
+  if (scheme.payoutDay !== undefined && !(Number.isInteger(scheme.payoutDay) && scheme.payoutDay >= 1 && scheme.payoutDay <= 31)) {
+    problems.push('The payout day is a day of the month, from 1 to 31.');
+  }
   for (const [label, date] of [['policy published', scheme.policyPublishedOn], ['last reviewed', scheme.lastReviewedOn]] as const) {
     if (date === undefined) continue;
     if (!ISO_DATE.test(date) || toISODate(parseISODate(date)) !== date) problems.push(`The ${label} date is not a date.`);
@@ -325,7 +328,8 @@ export function troncSchemeProblems(scheme: TroncScheme, roles: Pick<Role, 'id' 
 
 /**
  * The tips a payroll submission for one company and week should carry: each person's share at each
- * site, for weeks whose tips are all still to pay or went with a submission since replaced. A week
+ * site that pays tips in each pay run (no monthly payout day), for weeks whose tips are all still to
+ * pay or went with a submission since replaced. A week
  * already marked paid by hand is left out, so nobody is paid twice. Returns the lines and the tips they cover.
  */
 export function troncForPayroll(
@@ -339,6 +343,8 @@ export function troncForPayroll(
   const lines: PayrollTroncLine[] = [];
   const tipIds: string[] = [];
   for (const siteId of new Set((state.tips ?? []).filter((t) => days.has(t.date)).map((t) => t.siteId))) {
+    // A site that pays tronc monthly, on its payout day, does not pay it with each week's hours.
+    if ((state.troncSchemes ?? []).find((x) => x.siteId === siteId)?.payoutDay !== undefined) continue;
     const tips = (state.tips ?? []).filter((t) => t.siteId === siteId && days.has(t.date));
     const owed = (t: TipsTaken) => !t.paidOn || (t.sentIn !== undefined && replaced.has(t.sentIn));
     if (tips.length === 0 || !tips.every(owed)) continue;

@@ -389,6 +389,15 @@ describe('tips through payroll', () => {
     const sent = () => payroll.calls.filter((c) => c.method === 'submitHours').map((c) => (c.detail as PayrollHoursBatch).tronc);
     expect(sent().at(-1)![0]).toMatchObject({ amount: 40, niable: true });
 
+    // A site that pays tronc on a monthly payout day does not pay it with the week's hours.
+    org.state.troncSchemes = [{ ...scheme(false), payoutDay: 15 }];
+    org.state.tips = [{ id: 'tip3', siteId: 'mar', date: WEEK, source: 'card-tip', amount: 25 }];
+    await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' });
+    await ctx.dispatcher.processDue();
+    expect(sent().at(-1)).toEqual([]);
+    expect(org.state.tips[0].paidOn).toBeUndefined();
+    org.state.troncSchemes = [scheme(false)];
+
     // Paid by hand, outside payroll: a later send for that week must not pay it again.
     org.state.tips = [{ id: 'tip2', siteId: 'mar', date: WEEK, source: 'cash-pooled', amount: 40, paidOn: '2026-10-24' }];
     await call('POST', '/v1/payroll/submissions', { weekStart: WEEK, entityId: 'wdl' });
