@@ -29,7 +29,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       // One round trip for everything, who is asking included, rather than asking that first.
-      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
+      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights] = await Promise.all([
         api.get<Me>('/v1/me'),
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
@@ -41,10 +41,12 @@ export function useRotaStore() {
         api.get<DaySales[]>('/v1/sales'),
         api.get<RestOverride[]>('/v1/rota/overrides'),
         api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
+        // Only for warnings: the rota still loads without it.
+        api.get<NonNullable<RotaState['employmentRights']>>('/v1/employment-rights/settings').catch(() => undefined),
       ]);
       setMe(me);
       // Till actuals stay on the server: the screens that need them ask for them.
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
