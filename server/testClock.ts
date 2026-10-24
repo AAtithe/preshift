@@ -21,5 +21,5 @@ export function holdClock(day = '2026-10-21') {
  */
 export function freezeClock(at: string) {
   vi.useRealTimers();
-  vi.useFakeTimers({ toFake: ['Date'], now: new Date(at) });
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date(at), shouldAdvanceTime: false });
 }

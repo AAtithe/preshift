@@ -17,6 +17,10 @@ import type { Store } from './store';
 // - A failed payment is a grace period, not a pause: Stripe retries the card, and only marks the
 //   subscription unpaid or cancelled once its retries are spent.
 // - What Stripe says is believed only with its signature over the exact bytes it sent.
+// - A customer can move between the two. To a WS engagement: the Stripe subscription ends at the close of
+//   the period already paid for, and from that day WS bills them and nothing here can pause them. To card:
+//   a former WS client gets a date by which to subscribe, with no free trial. Both are kept on the record,
+//   with who moved them and when, so the hand-off between the two businesses can be counted.
 
 export interface StripeConfig {
   secretKey: string;
@@ -65,6 +69,15 @@ export interface BillingRecord {
   lastInvoice?: { status: 'paid' | 'failed'; amountPence: number; currency: string; at: string; url?: string };
   /** Stripe's created time (unix seconds) of the newest event applied, so an older one arriving late is ignored. */
   lastEventAt?: number;
+  /**
+   * Moved to billing under a Williams, Stanley & Co. engagement. From `from` (ISO) WS invoices them, Stripe
+   * no longer charges and nothing pauses them. Before it, the period already paid for runs out as normal.
+   */
+  engagement?: { from: string; at: string; by: string; note?: string };
+  /** Came off a WS engagement onto paying by card: who moved them, and when. `trialEndsAt` is the date to subscribe by. */
+  fromEngagement?: { at: string; by: string };
+  /** The subscription that ended when they last moved to a WS engagement: late news about it is ignored. */
+  previousSubscriptionId?: string;
 }
 
 export const billingSetting = (orgId: string) => `billing:${orgId}`;
@@ -93,16 +106,21 @@ export interface BillingStanding {
   trialEndsAt?: string;
   /** Whole days of trial left, rounded up; 0 once it has ended. */
   trialDaysLeft?: number;
+  /** A former WS client: the "trial" is the time left to subscribe after the engagement, not a free trial. */
+  fromEngagement?: boolean;
 }
 
 const PAYING: SubscriptionStatus[] = ['active', 'trialing'];
 /** Statuses that mean no subscription is in force: the trial, if any is left, still counts. */
 const NOT_STARTED: SubscriptionStatus[] = ['incomplete', 'incomplete_expired'];
 
+/** Billed under a WS engagement from today, so Stripe charges nothing and nothing here pauses them. */
+export const engaged = (record: BillingRecord | null, now: Date) => !!record?.engagement && Date.parse(record.engagement.from) <= now.getTime();
+
 export function standingOf(record: BillingRecord | null, now: Date, stripe: boolean): BillingStanding {
-  if (!record) return { standing: 'managed', locked: false };
+  if (!record || engaged(record, now)) return { standing: 'managed', locked: false };
   const left = Date.parse(record.trialEndsAt) - now.getTime();
-  const trial = { trialEndsAt: record.trialEndsAt, trialDaysLeft: Math.max(0, Math.ceil(left / 86_400_000)) };
+  const trial = { trialEndsAt: record.trialEndsAt, trialDaysLeft: Math.max(0, Math.ceil(left / 86_400_000)), ...(record.fromEngagement ? { fromEngagement: true } : {}) };
   if (record.status && PAYING.includes(record.status)) return { standing: 'active', locked: false, ...trial };
   if (record.status === 'past_due') return { standing: 'past_due', locked: false, ...trial };
   const subscribed = record.status && !NOT_STARTED.includes(record.status);

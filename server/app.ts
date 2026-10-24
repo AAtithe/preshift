@@ -517,10 +517,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     accountingRoutes(api, ctx, { xero: xeroFromEnv(env), simulatorAllowed: demo || !!payroll.simulator });
     welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
-    clientRoutes(api, ctx);
+    clientRoutes(api, ctx, { stripe: !!stripe });
     supportRoutes(api, ctx);
     billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
-    customerRoutes(api, ctx, { stripe: !!stripe });
+    customerRoutes(api, ctx, { stripe });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);

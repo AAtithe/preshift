@@ -28,7 +28,19 @@ export interface ClientSummary {
   attention: string[];
   /** Nobody at the client has signed in yet, and nothing is set up: a client partner may remove it. */
   removable: boolean;
+  billing: { mode: 'engagement' | 'card' | 'to-engagement' | 'to-card'; from?: string; standing: 'managed' | 'trial' | 'active' | 'past_due' | 'lapsed' };
 }
+
+/** How the client pays Preshift, in words. */
+function billingText(b: ClientSummary['billing']) {
+  const on = (iso?: string) => (iso ? day(iso) : '');
+  if (b.mode === 'engagement') return 'Under the WS engagement';
+  if (b.mode === 'to-engagement') return `By card until ${on(b.from)}, then under the WS engagement`;
+  if (b.mode === 'to-card') return `Off the engagement: to subscribe by card by ${on(b.from)}`;
+  return { trial: 'Card: free trial', active: 'Card: paying through Stripe', past_due: 'Card: payment failed', lapsed: 'Card: lapsed, changes paused', managed: 'Under the WS engagement' }[b.standing];
+}
+
+const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
 const STAGE: Record<ClientSummary['stage'], { label: string; tone: string }> = {
   invited: { label: 'Owner invited', tone: 'warn' },
@@ -55,6 +67,8 @@ export function ClientsView() {
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  /** The client being moved to card billing, and the date it has to subscribe by. */
+  const [toCard, setToCard] = useState<{ orgId: string; payBy: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -100,6 +114,15 @@ export function ClientsView() {
     void run(async () => {
       const res = await api.post<{ emailed: boolean; emailProblem?: string; expiresAt: string }>(`/v1/clients/${encodeURIComponent(c.orgId)}/owner-invite`);
       setNotice(res.emailed ? `A new invitation has gone to ${c.owner?.name}, valid until ${day(res.expiresAt)}.` : res.emailProblem ?? 'The email did not go.');
+      await refresh();
+    });
+  }
+
+  function moveToCard(c: ClientSummary, payBy: string) {
+    void run(async () => {
+      await api.post(`/v1/clients/${encodeURIComponent(c.orgId)}/card-billing`, { payBy });
+      setToCard(null);
+      setNotice(`${c.name} now pays Preshift by card. Its owner sees a Billing page asking them to subscribe by ${day(`${payBy}T12:00:00Z`)}. Send the engagement's final invoice as usual.`);
       await refresh();
     });
   }
@@ -263,6 +286,8 @@ export function ClientsView() {
                             <dd className={c.notInPayroll ? 'warn-text' : undefined}>{c.notInPayroll}</dd>
                             <dt>Email</dt>
                             <dd>{c.emailReady ? 'Set up' : 'Not set up'}</dd>
+                            <dt>Pays Preshift</dt>
+                            <dd className={c.billing.standing === 'lapsed' || c.billing.standing === 'past_due' ? 'bad-text' : undefined}>{billingText(c.billing)}</dd>
                           </dl>
                           {c.attention.length > 0 && (
                             <ul className="issues">
@@ -274,10 +299,30 @@ export function ClientsView() {
                             {canAdd && c.owner && c.owner.status !== 'active' && c.roles.includes('ws_partner') && (
                               <button disabled={busy} onClick={() => resend(c)}>Send the owner a new invitation</button>
                             )}
+                            {canAdd && c.billing.mode === 'engagement' && c.owner?.status === 'active' && c.roles.includes('ws_partner') && !c.current && toCard?.orgId !== c.orgId && (
+                              <button disabled={busy} onClick={() => setToCard({ orgId: c.orgId, payBy: inDays(14) })}>Engagement ending: move to card billing</button>
+                            )}
                             {canAdd && c.removable && c.roles.includes('ws_partner') && !c.current && (
                               <button className="danger" disabled={busy} onClick={() => remove(c)}>Remove client</button>
                             )}
                           </div>
+                          {toCard?.orgId === c.orgId && (
+                            <form className="client-to-card form" onSubmit={(e) => { e.preventDefault(); moveToCard(c, toCard.payBy); }}>
+                              <p className="span2 small">
+                                From now on {c.name} pays Preshift by card through Stripe, not under the engagement. Its owner gets a Billing page and a
+                                banner asking them to subscribe, with no free trial. If they have not subscribed by the date below, changes pause
+                                until they do; everything stays readable. Tell the client before you do this, and send the engagement's final invoice as usual.
+                              </p>
+                              <label>
+                                Subscribe by
+                                <input type="date" required min={inDays(1)} max={inDays(90)} value={toCard.payBy} onChange={(e) => setToCard({ ...toCard, payBy: e.target.value })} />
+                              </label>
+                              <div className="row-actions">
+                                <button type="submit" className="primary" disabled={busy}>Move to card billing</button>
+                                <button type="button" disabled={busy} onClick={() => setToCard(null)}>Cancel</button>
+                              </div>
+                            </form>
+                          )}
                         </div>
                       </td>
                     </tr>

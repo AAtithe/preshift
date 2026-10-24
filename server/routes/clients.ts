@@ -4,6 +4,7 @@ import { canOrgWide, INVITE_DAYS, live, roleOf, type User } from '../../src/engi
 import { isNewStarter } from '../../src/engine/onboarding';
 import { SAMPLE_SITE_IDS } from '../../src/engine/seed';
 import { addDays } from '../../src/engine/time';
+import { engaged, getBilling, putBilling, standingOf, type Standing } from '../billing';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorOf } from '../guard';
 import { emailSetting, inviteEmail, linkFor, parseEmailSettings, sendMail } from '../mail';
@@ -29,8 +30,14 @@ import { issueInvite } from './users';
 // - A client is removed only while nobody on the client's side has ever signed in to it, so WS can
 //   never take away a business that is using Preshift. Removing closes it: every record there is
 //   suspended, its links stop working and it leaves everyone's list, but nothing is deleted.
+// - How a client pays is on its row: under the WS engagement, or by card through Stripe. When an
+//   engagement ends, the client partner moves the client to card billing with a date to subscribe by;
+//   the reverse, taking on a card customer, is customer operations' (server/routes/customers.ts).
 
 const RESENDS_PER_HOUR = 3;
+/** Days a former WS client has to subscribe by card, unless the partner sets another date. */
+export const CARD_GRACE_DAYS = 14;
+const CARD_GRACE_MAX_DAYS = 90;
 /** No change for this long and a live client is flagged as quiet. */
 export const QUIET_DAYS = 14;
 
@@ -98,6 +105,11 @@ export interface ClientSummary {
   attention: string[];
   /** Nobody on the client's side has ever signed in and nothing has been set up: it can be removed. */
   removable: boolean;
+  /**
+   * How the client pays Preshift: under the WS engagement, by card through Stripe, or moving between the
+   * two from `from`. `standing` is the card side's (trial, paying, lapsed), or 'managed' under the engagement.
+   */
+  billing: { mode: 'engagement' | 'card' | 'to-engagement' | 'to-card'; from?: string; standing: Standing };
 }
 
 /** Why this client cannot be removed, or null. Once the client has signed in, it is theirs. */
@@ -125,6 +137,16 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
   const notInPayroll = staff.filter((e) => !e.payrollId).length;
   const emailReady = !!parseEmailSettings(await ctx.store.getSetting(emailSetting(org.orgId)));
   const lastActivity = org.audit.length ? org.audit[org.audit.length - 1].at : null;
+  const record = await getBilling(ctx.store, org.orgId);
+  const now = ctx.now();
+  const standing = standingOf(record, now, true).standing;
+  const billing: ClientSummary['billing'] = !record || engaged(record, now)
+    ? { mode: 'engagement', standing }
+    : record.engagement
+      ? { mode: 'to-engagement', from: record.engagement.from, standing }
+      : record.fromEngagement && standing === 'trial'
+        ? { mode: 'to-card', from: record.trialEndsAt, standing }
+        : { mode: 'card', standing };
 
   const steps: ClientStep[] = [
     { code: 'owner', label: 'Owner has accepted the invitation', done: owner?.status === 'active' },
@@ -143,6 +165,12 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
   if (sample) attention.push('Still on the sample group.');
   if (owner?.status === 'active' && notInPayroll > 0 && !sample) attention.push(`${notInPayroll} ${notInPayroll === 1 ? 'person is' : 'people are'} not set up in payroll.`);
   if (stage === 'live' && lastActivity && lastActivity.slice(0, 10) < addDays(today, -QUIET_DAYS)) attention.push(`Nothing changed since ${lastActivity.slice(0, 10)}.`);
+  // WS on a card customer: if the firm now bills them too, they would pay twice.
+  if (roles.length && billing.mode === 'card' && standing !== 'lapsed') {
+    attention.push('Pays Preshift by card through Stripe. If the firm now bills them, customer operations moves them to engagement billing.');
+  }
+  if (billing.mode === 'to-card' && standing === 'trial') attention.push(`Off the engagement: to subscribe by card by ${billing.from!.slice(0, 10)}.`);
+  if (record?.fromEngagement && standing === 'lapsed') attention.push('Left the engagement and has not subscribed: changes are paused.');
 
   return {
     orgId: org.orgId,
@@ -161,7 +189,8 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
     lastActivity,
     steps,
     attention,
-    removable: removalBlock(org) === null,
+    removable: removalBlock(org) === null && !record,
+    billing,
   };
 }
 
@@ -189,7 +218,7 @@ async function emailOwner(ctx: AppContext, home: OrgData, client: OrgData, owner
   return { emailed: true };
 }
 
-export function clientRoutes(app: FastifyInstance, ctx: AppContext) {
+export function clientRoutes(app: FastifyInstance, ctx: AppContext, options: { stripe: boolean } = { stripe: false }) {
   const tags = ['Clients'];
   const today = () => ctx.store.todayISO();
 
@@ -326,6 +355,54 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext) {
       audit(client, partner.name, 'invite.resent', { userId: owner.id, emailed: sent.emailed });
       await ctx.store.save(client);
       return { expiresAt: link.expiresAt, ...sent };
+    },
+  );
+
+  // An engagement ends and the client carries on with Preshift on its own: from now on it pays by card. It
+  // gets a date to subscribe by (no free trial: it has used the product for real), after which changes pause
+  // until it does, exactly as for any card customer. The engagement's own last invoice is the firm's to send.
+  app.post<{ Params: { orgId: string }; Body: { payBy?: string } | undefined }>(
+    '/v1/clients/:orgId/card-billing',
+    {
+      schema: {
+        tags,
+        description:
+          'Moves a client off billing under its WS engagement onto paying by card through Stripe, with a date to subscribe by ' +
+          `(default ${CARD_GRACE_DAYS} days, at most ${CARD_GRACE_MAX_DAYS}). Only the client's WS client partner, once its owner has signed in.`,
+        params: { type: 'object', required: ['orgId'], properties: { orgId: { type: 'string' } } },
+        body: { type: ['object', 'null'], additionalProperties: false, properties: { payBy: { type: 'string', format: 'date' } } },
+      },
+    },
+    async (req) => {
+      const home = orgOf(req);
+      const account = await accountOf(ctx, req);
+      const partner = clientPartner(req, home, account, today());
+      const client = await partnersClient(account, home, req.params.orgId);
+      if (!options.stripe) throw new HttpError(503, 'billing_not_set_up', 'Card payments are not set up on this system, so the client could not pay. Keep billing them under the engagement.');
+      const existing = await getBilling(ctx.store, client.orgId);
+      const now = ctx.now();
+      if (existing && !engaged(existing, now)) {
+        throw new HttpError(409, 'card', existing.engagement ? 'This client is still moving onto the engagement. Wait until that date, then move it back.' : 'This client already pays by card.');
+      }
+      const owner = client.users.find((u) => u.audience === 'operator' && u.status === 'active' && u.memberships.some((m) => m.roleId === 'owner' && live(m, today())));
+      if (!owner) throw new HttpError(409, 'no_owner', 'Nobody at the client has signed in as owner yet, so nobody could subscribe. Keep billing them under the engagement.');
+      const payBy = req.body?.payBy ?? addDays(today(), CARD_GRACE_DAYS);
+      if (payBy <= today() || payBy > addDays(today(), CARD_GRACE_MAX_DAYS)) {
+        throw new HttpError(400, 'invalid_date', `Give a date after today and within ${CARD_GRACE_MAX_DAYS} days.`);
+      }
+      // A Stripe customer made before, while it last paid by card, is kept so its invoices stay together.
+      await putBilling(ctx.store, client.orgId, {
+        trialEndsAt: new Date(`${payBy}T23:59:59.000Z`).toISOString(),
+        createdAt: now.toISOString(),
+        ...(existing?.customerId ? { customerId: existing.customerId } : {}),
+        ...(existing?.subscriptionId ? { previousSubscriptionId: existing.subscriptionId } : {}),
+        ...(existing?.lastEventAt ? { lastEventAt: existing.lastEventAt } : {}),
+        fromEngagement: { at: now.toISOString(), by: partner.name },
+      });
+      audit(client, partner.name, 'billing.moved_to_card', { payBy });
+      await ctx.store.save(client);
+      audit(home, partner.name, 'client.moved_to_card', { orgId: client.orgId, name: orgName(client), payBy });
+      return summarise(ctx, client, wsRolesIn(client, account.email, today()), false, today());
     },
   );
 

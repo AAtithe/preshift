@@ -1302,6 +1302,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .client-detail { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px 24px; }
 .client-detail .issues, .client-detail .row-actions { grid-column: 1 / -1; }
 .client-add { margin-bottom: 16px; }
+.client-detail .client-to-card { grid-column: 1 / -1; border-top: 1px solid var(--rule); padding-top: 12px; }
 @media (max-width: 720px) {
   .client-detail { grid-template-columns: 1fr; }
   .client-add .form { grid-template-columns: 1fr; }
