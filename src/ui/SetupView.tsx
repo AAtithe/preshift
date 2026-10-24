@@ -14,6 +14,7 @@ import {
   type PastedPerson,
   type SetupDraft,
 } from '../engine/setup';
+import { isAroundTheClock } from '../engine/demand';
 import { formatMinute, parseClock, toISODate } from '../engine/time';
 import type { DemandRule, Department, Employee, RotaState, Role, Site } from '../engine/types';
 import { api, ApiError } from './api';
@@ -262,17 +263,36 @@ function SitesStep({ draft, setDraft }: StepProps) {
               {draft.entities.map((e) => <option key={e.id} value={e.id}>{e.name || 'Unnamed company'}</option>)}
             </select>
           </Field>
-          <Field label="Opens"><input type="time" value={formatMinute(site.openMinute)} onChange={(e) => update(site.id, { openMinute: parseClock(e.target.value) })} /></Field>
-          <Field label="Closes" hint={site.closeMinute > 1440 ? 'The next morning' : 'After midnight is fine, up to 04:00'}>
+          <Field label="Opens">
+            <input
+              type="time"
+              value={formatMinute(site.openMinute)}
+              onChange={(e) => {
+                const at = parseClock(e.target.value);
+                // A site open round the clock stays open round the clock from its new opening time.
+                update(site.id, isAroundTheClock(site) ? { openMinute: at, closeMinute: at + 1440 } : { openMinute: at });
+              }}
+            />
+          </Field>
+          <Field label="Closes" hint={isAroundTheClock(site) ? 'Open round the clock' : site.closeMinute > 1440 ? 'The next morning' : 'After midnight is fine'}>
             <input
               type="time"
               value={formatMinute(site.closeMinute)}
+              disabled={isAroundTheClock(site)}
               // A closing time at or before opening is after midnight: 02:00 for a site opening at noon.
               onChange={(e) => {
                 const at = parseClock(e.target.value);
                 update(site.id, { closeMinute: at <= site.openMinute ? at + 1440 : at });
               }}
             />
+            <label className="check-inline small">
+              <input
+                type="checkbox"
+                checked={isAroundTheClock(site)}
+                onChange={(e) => update(site.id, { closeMinute: e.target.checked ? site.openMinute + 1440 : Math.min(site.openMinute + 12 * 60, 1440) })}
+              />{' '}
+              Open round the clock
+            </label>
           </Field>
           <Field label="Labour target %">
             <Num label="Labour target percent" step={0.5} width={80} value={Math.round(site.labourTargetPct * 1000) / 10} onChange={(n) => update(site.id, { labourTargetPct: n / 100 })} />
@@ -430,7 +450,7 @@ function ReviewStep({ draft, issues }: { draft: SetupDraft; issues: ReturnType<t
               <tr key={s.id}>
                 <td>{s.name || 'Unnamed site'}</td>
                 <td className="muted">{draft.entities.find((e) => e.id === s.entityId)?.name || 'None'}</td>
-                <td className="tnum">{formatMinute(s.openMinute)} to {formatMinute(s.closeMinute)}</td>
+                <td className="tnum">{isAroundTheClock(s) ? 'Round the clock' : `${formatMinute(s.openMinute)} to ${formatMinute(s.closeMinute)}`}</td>
                 <td className="num">{money(week)}</td>
                 <td className="num">{(s.labourTargetPct * 100).toFixed(1)}%</td>
                 <td className="num strong">{money(week * s.labourTargetPct)}</td>

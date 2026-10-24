@@ -10,8 +10,14 @@ export interface HourDemand {
   gap: number; // positive = short, negative = over
 }
 
-/** Latest closing time set-up accepts: four in the morning, after a late licence. */
-export const LATEST_CLOSE = 28 * 60;
+/**
+ * Latest closing time set-up accepts: the end of the next day. A site may trade past midnight or round
+ * the clock, as long as it closes no later than its own opening time the next day.
+ */
+export const LATEST_CLOSE = 48 * 60;
+
+/** Open round the clock: the trading day is the full 24 hours from opening. */
+export const isAroundTheClock = (site: Pick<Site, 'openMinute' | 'closeMinute'>) => site.closeMinute - site.openMinute >= 1440;
 
 /**
  * Hours in a site's trading day. A site closing at 02:00 trades to hour 26: hours 24 and 25 are the

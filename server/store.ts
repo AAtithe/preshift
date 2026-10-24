@@ -162,6 +162,8 @@ export interface OrgData {
   rotaSeen?: Record<string, SeenRecord>;
   /** Reminders and no-show alerts sent per shift, kept a couple of days. */
   shiftAlerts?: Record<string, ShiftAlertRecord>;
+  /** Cut call alerts sent, by `siteId|date`: when trading fell behind, and when it ran ahead. */
+  cutAlerts?: Record<string, { behind?: string; ahead?: string }>;
   /** The London day the managers' morning digest last went out, so it goes once a day. */
   lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */

@@ -757,13 +757,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 <EmploymentRightsView state={state} siteId={single.id} showCost={allow('costs.view', single.id)} onChanged={() => void actions.reload()} />
               )}
               {shown === 'cutcall' && single && (
-                <CutCallView
-                  state={state}
-                  site={single}
-                  today={londonParts(new Date()).date}
-                  now={londonParts(new Date()).minute}
-                  onApply={allow('rota.edit', single.id) ? (shift) => actions.saveShift(shift, false) : undefined}
-                />
+                <CutCallView state={state} site={single} canApply={allow('rota.edit', single.id)} onApplied={() => void actions.refreshShifts()} />
               )}
               {shown === 'pay' && (
                 <PayApprovalsView

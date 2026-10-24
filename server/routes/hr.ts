@@ -59,7 +59,7 @@ const recordBody = {
   additionalProperties: false,
   properties: {
     employeeId: { type: 'string' },
-    kind: { type: 'string', enum: ['training', 'review', 'case', 'document', 'note'] },
+    kind: { type: 'string', enum: ['training', 'review', 'case', 'document', 'note', 'health_assessment'] },
     date: isoDate,
     title: { type: 'string', minLength: 1, maxLength: 200 },
     expiresOn: isoDate,
@@ -174,6 +174,10 @@ function validateRecord(org: OrgData, r: RecordInput) {
   }
   if (r.kind === 'case' && !r.caseType) throw new HttpError(422, 'case_type', 'Say what kind of case this is');
   if (r.kind === 'review' && !r.reviewType) throw new HttpError(422, 'review_type', 'Say what kind of review this is');
+  // Only the offer and whether it was taken: never the findings, which are health data for the person and their doctor.
+  if (r.kind === 'health_assessment' && !['Offered', 'Taken', 'Declined'].includes(r.outcome ?? '')) {
+    throw new HttpError(422, 'health_outcome', 'Say whether the health assessment was offered, taken or declined. Do not record what it found.');
+  }
 }
 
 export function hrRoutes(app: FastifyInstance, ctx: AppContext) {

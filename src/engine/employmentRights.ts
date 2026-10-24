@@ -116,8 +116,8 @@ export interface ShortNoticeAssessment {
 
 /**
  * Whether changing a shift from what the worker was told to `after` (null to cancel it) at `now` is
- * short notice, and what it owes. Nothing for people the measures do not cover, shifts already
- * started (those are timesheet matters), changes with enough notice, or changes that take nothing away.
+ * short notice, and what it owes. Nothing for people the measures do not cover, time already gone
+ * (a timesheet matter), changes with enough notice, or changes that take nothing away.
  */
 export function assessShortNotice(
   original: ShiftSnapshot,
@@ -127,7 +127,12 @@ export function assessShortNotice(
   settings: EraSettings = DEFAULT_ERA_SETTINGS,
 ): ShortNoticeAssessment | null {
   if (!qualifiesForEra(employee, settings)) return null;
-  const notice = noticeHours(original.date, original.startMinute, now);
+  // Notice runs to the first minute the worker loses: the start for a cancelled or moved shift, the new
+  // finish for one cut short. So sending someone home mid-shift is short notice, and correcting hours
+  // already gone is not (that is the timesheet).
+  const cutShort = !!after && changeKind(original, after) === 'cut' && after.startMinute === original.startMinute && after.date === original.date;
+  const firstLost = cutShort ? after!.endMinute : original.startMinute;
+  const notice = noticeHours(original.date, firstLost, now);
   if (notice <= 0 || notice >= settings.shortNoticeHours) return null;
   const minutesLost = lostMinutes(original, after);
   if (minutesLost <= 0) return null;
