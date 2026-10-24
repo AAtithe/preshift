@@ -115,6 +115,9 @@ export function assertRotaOpen(org: OrgData, shifts: Pick<Shift, 'id' | 'employe
   }
 }
 
+/** Why this person cannot be offered a shift on this day: their rota for it is locked for payroll. */
+export const LOCKED_FOR_PAYROLL = 'Their rota for that day is locked for payroll.';
+
 /** Whether a shift sits in a locked period: used to keep such shifts as they are in bulk changes. */
 export const isRotaLocked = (org: OrgData, s: Pick<Shift, 'employeeId' | 'date'>) => !!org.payPeriods?.some((r) => r.rotaLock) && !!rotaLockOn(org, s.employeeId, s.date);
 

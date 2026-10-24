@@ -10,7 +10,7 @@ import { claimCheck, decisionText, namesOf, shiftLine } from '../src/engine/requ
 import type { Employee, OpenShift, Shift, StaffRequest } from '../src/engine/types';
 import { randomUUID } from 'node:crypto';
 import { HttpError, londonParts, type AppContext } from './context';
-import { assertRotaOpen } from './payPeriods';
+import { assertRotaOpen, isRotaLocked, LOCKED_FOR_PAYROLL } from './payPeriods';
 import { managerLink, notifyTeam, outboundFor } from './messaging';
 import { notify, syncTold } from './notify';
 import { addRequest, openShiftsOf, requestsOf } from './routes/requests';
@@ -203,7 +203,8 @@ export function askNextRound(org: OrgData, o: OpenShift, by: string, now: Date, 
   const { title, body } = offerText(o, names.role(o.roleId), names.site(o.siteId));
   let asked = 0;
   for (const offer of queue) {
-    const problem = mayTake(org.state, offer.employeeId, slotOf(o));
+    // Locked for payroll since the shift was put out: passed over rather than asked and then refused.
+    const problem = mayTake(org.state, offer.employeeId, slotOf(o)) ?? (isRotaLocked(org, { employeeId: offer.employeeId, date: o.date }) ? LOCKED_FOR_PAYROLL : null);
     if (problem) {
       offer.skipped = problem;
       continue;
@@ -241,7 +242,7 @@ export function shiftsGoingFor(org: OrgData, employee: Employee, now: Date) {
   const mine = new Set(requestsOf(org).filter((r) => r.employeeId === employee.id && openClaim(r) && r.openShiftId).map((r) => r.openShiftId));
   return openShiftsOf(org)
     .filter((o) => goingStatus(o, london) === 'open')
-    .filter((o) => mine.has(o.id) || (wasAsked(o, employee.id) && o.heldBy?.employeeId !== employee.id && o.releasedFrom?.employeeId !== employee.id && !mayTake(org.state, employee.id, slotOf(o))))
+    .filter((o) => mine.has(o.id) || (wasAsked(o, employee.id) && o.heldBy?.employeeId !== employee.id && o.releasedFrom?.employeeId !== employee.id && !mayTake(org.state, employee.id, slotOf(o)) && !isRotaLocked(org, { employeeId: employee.id, date: o.date })))
     .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
     .map((o) => ({ open: o, claimed: mine.has(o.id) }));
 }
