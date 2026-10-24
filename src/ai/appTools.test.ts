@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it } from 'vitest';
 import { seedState } from '../engine/seed';
+import { autoSchedule } from '../engine/autoschedule';
 import { runAppAgent } from './appAgent';
 import { executeAppTool, SCREENS, type AppToolContext, type Proposal } from './appTools';
 import { NAV_ITEMS } from '../ui/nav';
@@ -86,6 +87,68 @@ describe('Shifty and command bar tools', () => {
     expect(JSON.stringify((await executeAppTool(c, 'propose_publish', { site_ids: null, week_start: null })).result)).toMatch(/no shifts/);
     const found = (await executeAppTool(c, 'find_people', { query: 'gra', site_id: null, include_leavers: false })).result as { name: string }[];
     expect(found.map((p) => p.name)).toContain('Grace Mensah');
+  });
+});
+
+describe('asking for cover from Shifty', () => {
+  /** A shift later in the week with people free to cover it. */
+  async function coverable(c: AppToolContext) {
+    c.state.shifts.push(...autoSchedule(c.state, 'mar', WEEK).added);
+    for (const s of c.state.shifts.filter((x) => x.siteId === 'mar' && x.date > WEEK)) {
+      const out = await executeAppTool(c, 'propose_ask_cover', { shift_id: s.id, note: null, first_to_accept: null, urgent: null });
+      if (!out.isError) return { s, out };
+    }
+    throw new Error('No coverable shift in the seed');
+  }
+
+  it('proposes asking only those who could legally work it, and sends nothing until confirmed', async () => {
+    const c = ctx();
+    const { s, out } = await coverable(c);
+    const p = out.proposal as Extract<Proposal, { kind: 'ask_cover' }>;
+    expect(p).toMatchObject({ kind: 'ask_cover', shiftId: s.id, firstToAccept: true, urgent: false, note: null });
+    expect(p.employeeIds.length).toBeGreaterThan(0);
+    expect(p.employeeIds).not.toContain(s.employeeId);
+    const result = out.result as { would_ask: { name: string }[]; not_asked: { why: string }[] };
+    expect(result.would_ask.map((w) => w.name)).toEqual(p.employeeIds.map((id) => c.state.employees.find((e) => e.id === id)!.name));
+    expect(result.not_asked.every((n) => n.why)).toBe(true);
+    // The shift is untouched until the manager confirms.
+    expect(c.state.shifts.find((x) => x.id === s.id)!.employeeId).toBe(s.employeeId);
+  });
+
+  it('keeps who is off and why out of the note everyone reads', async () => {
+    const c = ctx();
+    const { s } = await coverable(c);
+    const first = c.state.employees.find((e) => e.id === s.employeeId)!.name.split(' ')[0];
+    for (const note of [`${first} cannot make it`, 'Off sick today', 'Ben is ill', 'At the hospital']) {
+      const out = await executeAppTool(c, 'propose_ask_cover', { shift_id: s.id, note, first_to_accept: null, urgent: null });
+      expect(out.isError, note).toBe(true);
+    }
+    const ok = await executeAppTool(c, 'propose_ask_cover', { shift_id: s.id, note: 'Busy night: Illuminations party of 30 at 7', first_to_accept: false, urgent: true });
+    expect(ok.isError).toBeFalsy();
+    expect(ok.proposal).toMatchObject({ note: 'Busy night: Illuminations party of 30 at 7', firstToAccept: false, urgent: true });
+  });
+
+  it('asks the cheapest few first when there is time, and everyone at once when told to', async () => {
+    const c = ctx();
+    const { s } = await coverable(c);
+    const base = { shift_id: s.id, note: null, first_to_accept: null, urgent: null };
+    const def = (await executeAppTool(c, 'propose_ask_cover', base)).proposal as Extract<Proposal, { kind: 'ask_cover' }>;
+    // Days ahead with more than three to ask: three at a time, every half hour.
+    expect(def.employeeIds.length).toBeGreaterThan(3);
+    expect(def.rounds).toEqual({ size: 3, everyMinutes: 30 });
+    const all = (await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 0 })).proposal as Extract<Proposal, { kind: 'ask_cover' }>;
+    expect(all.rounds).toBeNull();
+    const two = await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 1, round_minutes: 60 });
+    expect((two.proposal as Extract<Proposal, { kind: 'ask_cover' }>).rounds).toEqual({ size: 1, everyMinutes: 60 });
+    expect(two.proposal!.details[0].value).toMatch(/first, the cheapest; then 1 more every 60 minutes/);
+    expect((await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 2, round_minutes: 45 })).isError).toBe(true);
+  });
+
+  it('refuses a shift that has started or does not exist', async () => {
+    const c = ctx();
+    const started = c.state.shifts.find((x) => x.date < WEEK || (x.date === WEEK && x.startMinute <= 9 * 60));
+    if (started) expect((await executeAppTool(c, 'propose_ask_cover', { shift_id: started.id, note: null, first_to_accept: null, urgent: null })).isError).toBe(true);
+    expect((await executeAppTool(c, 'propose_ask_cover', { shift_id: 'nope', note: null, first_to_accept: null, urgent: null })).isError).toBe(true);
   });
 });
 

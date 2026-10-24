@@ -83,11 +83,11 @@ export function resetEmail(to: string, link: string, minutes: number): Mail {
 /** A link into the app: on the address saved under Settings, else relative, for the person handing it over. */
 export const linkFor = (settings: EmailSettings | null, path: string) => (settings ? `${settings.appUrl}${path}` : path);
 
-function letter(paragraphs: string[], button: { label: string; link: string }, notes: string[]): string {
+function letter(paragraphs: string[], button: { label: string; link: string } | null, notes: string[]): string {
   const p = (t: string, muted = false) => `<p${muted ? ' style="color:#6d6a63;font-size:14px"' : ''}>${escape(t)}</p>`;
   return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#1c1b19;line-height:1.5;max-width:520px;margin:0 auto;padding:24px">
 ${paragraphs.map((t) => p(t)).join('\n')}
-<p><a href="${escape(button.link)}" style="display:inline-block;background:#1f4d3a;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">${escape(button.label)}</a></p>
+${button ? `<p><a href="${escape(button.link)}" style="display:inline-block;background:#1f4d3a;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">${escape(button.label)}</a></p>` : ''}
 ${notes.map((t) => p(t, true)).join('\n')}
 <p style="color:#6d6a63;font-size:12px">Preshift, by Preshift and Williams, Stanley &amp; Co.</p>
 </body></html>`;
@@ -205,6 +205,18 @@ export function signupExistingEmail(to: string, link: string): Mail {
   const notes = ['If it was not you, ignore this email. Nothing has changed.'];
   const text = [opening, setUp, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
   return { to, subject: 'You already have a Preshift account', text, html: letter([opening, setUp], { label: 'Sign in to Preshift', link }, notes) };
+}
+
+/**
+ * A message or rota notice from work, for someone who chose email. The text is the message itself,
+ * as the app shows it; the button opens the staff app, where the whole thread is and they can reply.
+ */
+export function noticeEmail(to: string, subject: string, body: string, link: string | null): Mail {
+  const paragraphs = body.split('\n').filter((l) => l.trim());
+  const notes = ['Choose how messages from work reach you, or turn email off, in the Preshift staff app.'];
+  const text = [...paragraphs, '', ...(link ? [link, ''] : []), ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  const html = letter(paragraphs, link ? { label: 'Open the staff app', link } : null, notes);
+  return { to, subject: oneLine(subject), text, html };
 }
 
 /**

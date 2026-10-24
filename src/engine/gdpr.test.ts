@@ -131,6 +131,10 @@ describe('retention', () => {
   it('refuses periods below the statutory minimums', () => {
     expect(retentionPolicyProblem(DEFAULT_RETENTION)).toBeNull();
     expect(retentionPolicyProblem({ ...DEFAULT_RETENTION, rightToWorkYearsAfterLeaving: 1 })).toMatch(/two years/);
+    // Messages: 13 months at least, and never past the six years a contract claim can run.
+    expect(retentionPolicyProblem({ ...DEFAULT_RETENTION, messageMonths: 12 })).toMatch(/13 months/);
+    expect(retentionPolicyProblem({ ...DEFAULT_RETENTION, messageMonths: 72 })).toBeNull();
+    expect(retentionPolicyProblem({ ...DEFAULT_RETENTION, messageMonths: 73 })).toMatch(/six years/);
     expect(retentionPolicyProblem({ ...DEFAULT_RETENTION, payrollYearsAfterTaxYear: 2 })).toMatch(/HMRC/);
   });
 });

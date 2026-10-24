@@ -1,3 +1,5 @@
+import type { ShiftOffer } from './cover';
+
 // Core domain model. Times are minutes from midnight on the shift's date;
 // an end time past 1440 means the shift runs over midnight.
 
@@ -454,6 +456,21 @@ export interface OpenShift {
   /** The shift released to make this one, when a manager posted someone's shift for cover. */
   releasedFrom?: { shiftId: string; employeeId: string };
   /**
+   * Someone's shift put out while it stays theirs: it moves to whoever takes it, and stays with them
+   * if nobody does. Instead of releasedFrom, which takes it off them when it is posted.
+   */
+  heldBy?: { shiftId: string; employeeId: string };
+  /** How it is decided. claim, the default: staff ask and a manager approves. first_yes: the first legal yes gets it at once. */
+  fill?: 'claim' | 'first_yes';
+  /** Put to these people only, cheapest first, perhaps in rounds. Absent: offered to everyone eligible, in waves (`offer`). */
+  offers?: ShiftOffer[];
+  /** Asking in rounds: `size` at a time, the next round every `everyMinutes` until someone takes it. */
+  rounds?: { size: number; everyMinutes: number };
+  /** When the next round goes, while there is one to come. */
+  nextRoundAt?: string;
+  /** Told through quiet hours. */
+  urgent?: boolean;
+  /**
    * Offered in waves, cheapest first: `waves` are the people in each, `told` everyone told so far,
    * `released` how many waves are out, `nextAt` when the next goes. Once every wave is out, anyone
    * eligible may claim.
@@ -486,6 +503,10 @@ export interface StaffNotification {
   /** pending until the request that raised it is saved; then sent, none (no email set up or no address) or failed. */
   /** skip: never emailed, such as a shift reminder, which goes to the phone only. */
   email?: 'pending' | 'sent' | 'none' | 'failed' | 'skip';
+  /** Carried by WhatsApp or text instead of email, for someone who chose that in the staff app. */
+  via?: 'whatsapp' | 'sms';
+  /** Goes through quiet hours: a shift put out as urgent. */
+  urgent?: boolean;
   /** Pushed to the person's phones: sent to at least one, none (not turned on), or failed on every one. */
   push?: 'sent' | 'none' | 'failed';
 }

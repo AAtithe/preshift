@@ -116,7 +116,8 @@ export function standingOf(record: BillingRecord | null, now: Date, stripe: bool
  */
 export function allowedWhileLocked(route: string | undefined): boolean {
   if (!route) return false;
-  return route.startsWith('/v1/billing') || route === '/v1/me' || route.startsWith('/v1/me/') || route.startsWith('/v1/privacy/');
+  // Marking a message read changes nothing anyone relies on: reading stays open, as everything else does.
+  return route.startsWith('/v1/billing') || route === '/v1/me' || route.startsWith('/v1/me/') || route.startsWith('/v1/privacy/') || route === '/v1/messages/:id/read';
 }
 
 export const LOCKED_MESSAGE =

@@ -57,7 +57,7 @@ describe('who sees which sections', () => {
   it('shows a supervisor the rota and clock in, and nothing with money or people in it', () => {
     const shown = seen(person('supervisor', ['a']));
     expect(shown).toEqual(expect.arrayContaining(['Rota', 'Calendar', 'Clock in']));
-    for (const hidden of ['Sites', 'Forecast', 'Demand', 'Coach', 'Staff', 'HR overview', 'Cases', 'Labour cost', 'Reports', 'Programme', 'Close', 'Pay approvals', 'Set-up', 'Access', 'GDPR', 'Integrations', 'Settings']) {
+    for (const hidden of ['Sites', 'Forecast', 'Demand', 'Coach', 'Staff', 'Messages', 'HR overview', 'Cases', 'Labour cost', 'Reports', 'Programme', 'Close', 'Pay approvals', 'Set-up', 'Access', 'GDPR', 'Integrations', 'Settings']) {
       expect(shown).not.toContain(hidden);
     }
   });

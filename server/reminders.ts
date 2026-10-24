@@ -69,7 +69,13 @@ async function emailLate(store: Store, org: OrgData, late: DueAlert[], now: { da
  * The scheduled run across every organisation, every few minutes. Demo sandboxes are left out; one
  * organisation failing never stops the rest, and the run stops before the function's time runs out.
  */
-export async function runShiftAlerts(store: Store, at = new Date(), log: (msg: string, detail: Record<string, unknown>) => void = () => {}) {
+export async function runShiftAlerts(
+  store: Store,
+  at = new Date(),
+  log: (msg: string, detail: Record<string, unknown>) => void = () => {},
+  // Sends notices to people who chose WhatsApp or text there instead of push and email.
+  carry: (org: OrgData) => Promise<void> = async () => {},
+) {
   const started = Date.now();
   let reminders = 0;
   let late = 0;
@@ -81,6 +87,7 @@ export async function runShiftAlerts(store: Store, at = new Date(), log: (msg: s
       const before = JSON.stringify([org.shiftAlerts ?? {}, (org.openShifts ?? []).map((o) => o.offer)]);
       // Open shifts whose cheaper wave has had its time go to the next.
       const offered = releaseDueWaves(org, at);
+      if (offered) await carry(org);
       const result = await shiftAlerts(store, org, at);
       if (offered && !result) await deliverNotifications(store, org);
       offers += offered;

@@ -4,6 +4,8 @@ import { formatMinute } from '../engine/time';
 import type { Fortnight } from '../engine/rotaViews';
 import type { GeoFence, GeoFix } from '../engine/types';
 import { dayLabel } from '../ui/format';
+import { call, Problem, say } from './http';
+import { StaffCover, StaffMessages, StaffReach } from './StaffMessages';
 import { registerWorker, turnOff } from './push';
 import { RotaConfirm, SignDocuments, PayTab, InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
@@ -46,25 +48,6 @@ interface Welfare {
 }
 
 type GeoState = { status: 'locating' | 'denied' | 'unavailable' } | { status: 'ok'; fix: GeoFix };
-
-class Problem extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
-  }
-}
-
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Problem(res.status, data.error ?? 'http_error', data.message ?? 'Something went wrong. Try again.');
-  return data as T;
-}
-
-const say = (e: unknown) => (e instanceof Problem ? e.message : 'Could not reach Preshift. Check your signal and try again.');
 
 /**
  * The invite in the link, read once. Links carry it after #, which never reaches a server; links
@@ -176,7 +159,14 @@ function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o:
       {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} shifts={data.shifts} fortnight={data.fortnight} />}
       {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
       {tab === 'pay' && <PayTab call={call} />}
-      {tab === 'inbox' && <InboxTab call={call} say={say} refresh={reload} />}
+      {tab === 'inbox' && (
+        <>
+          <InboxTab call={call} say={say} refresh={reload} />
+          {/* Messages with their managers, and how work reaches them beyond the app. */}
+          <StaffMessages onSignedOut={onSignedOut} />
+          <StaffReach onSignedOut={onSignedOut} />
+        </>
+      )}
       <nav className="staff-tabs" aria-label="Staff app">
         {tabs.map(([id, label, count]) => (
           <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
@@ -394,6 +384,8 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         </button>
         {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
       </section>
+
+      <StaffCover onSignedOut={onSignedOut} onChanged={() => void refresh()} />
 
       <section className="staff-card">
         <h2>My shifts</h2>

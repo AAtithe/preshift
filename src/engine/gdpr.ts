@@ -21,6 +21,11 @@ export interface RetentionPolicy {
    * HMRC needs three; six covers the Limitation Act period for contract and wage claims.
    */
   payrollYearsAfterTaxYear: number;
+  /**
+   * Months messages between staff and managers are kept. Thirteen covers the usual three month
+   * tribunal window and a year of who was told what; six years covers contract claims.
+   */
+  messageMonths: number;
 }
 
 export const DEFAULT_RETENTION: RetentionPolicy = {
@@ -28,6 +33,7 @@ export const DEFAULT_RETENTION: RetentionPolicy = {
   contactMonthsAfterLeaving: 3,
   rightToWorkYearsAfterLeaving: 2,
   payrollYearsAfterTaxYear: 6,
+  messageMonths: 13,
 };
 
 /** The statutory floors a policy may not go below. */
@@ -36,7 +42,11 @@ export const RETENTION_FLOORS: RetentionPolicy = {
   contactMonthsAfterLeaving: 0,
   rightToWorkYearsAfterLeaving: 2,
   payrollYearsAfterTaxYear: 3,
+  messageMonths: 13,
 };
+
+/** Six years, the Limitation Act period for contract claims: no dispute needs messages older. */
+export const MESSAGE_MONTHS_MAX = 72;
 
 export function retentionPolicyProblem(policy: RetentionPolicy): string | null {
   if (policy.rightToWorkYearsAfterLeaving < RETENTION_FLOORS.rightToWorkYearsAfterLeaving) {
@@ -44,6 +54,12 @@ export function retentionPolicyProblem(policy: RetentionPolicy): string | null {
   }
   if (policy.payrollYearsAfterTaxYear < RETENTION_FLOORS.payrollYearsAfterTaxYear) {
     return 'HMRC requires payroll records for at least three years after the end of the tax year they relate to.';
+  }
+  if (policy.messageMonths < RETENTION_FLOORS.messageMonths) {
+    return 'Messages are kept at least 13 months: the tribunal window and a year of who was told what.';
+  }
+  if (policy.messageMonths > MESSAGE_MONTHS_MAX) {
+    return 'Messages are not needed for more than six years, the period for contract claims.';
   }
   if (policy.locationMonths > 24 || policy.contactMonthsAfterLeaving > 24) {
     return 'Location and contact details are not needed for more than two years. Keep the periods short.';
@@ -308,6 +324,8 @@ export interface ProcessingFlags {
   email: boolean;
   /** Payroll goes to the live TeamPay rather than the built-in simulator. */
   payrollLive: boolean;
+  /** Messaging channels connected under Settings, and how many messages are held. */
+  messaging?: { whatsapp: boolean; sms: boolean; slack: boolean; teams: boolean; messages: number; consents: number };
   /** Hospitality Rewards is connected to a live account rather than the simulator. */
   rewards?: boolean;
 }
@@ -450,6 +468,23 @@ export function processingRegister(
       held: flags.assistant ? live.length : 0,
     },
     {
+      activity: 'Messages and rota notices',
+      purpose: 'Telling staff their shifts and changes to them, and messages between staff and their managers',
+      lawfulBasis:
+        'Contract (6(1)(b)) for rota notices; legitimate interests (6(1)(f)) for messages. WhatsApp and text only with the person’s own consent, ' +
+        'given and withdrawn in the staff app (PECR does not apply to messages that are not marketing, but consent is kept as the record of their choice)',
+      categories: 'Message text, who sent it, when it was read, mobile number for WhatsApp or text, delivery reports. Team channels get a notice and a link, never what staff wrote',
+      recipients: [
+        flags.messaging?.whatsapp && 'Meta (WhatsApp)',
+        flags.messaging?.sms && 'Twilio (text)',
+        flags.email && 'Resend (email, for those who choose it)',
+        flags.messaging?.slack && 'Slack (notices only)',
+        flags.messaging?.teams && 'Microsoft (Teams notices only)',
+      ].filter(Boolean).join(', ') || 'None: staff app only',
+      retention: `${policy.messageMonths} months from the message; the number and choices removed on erasure`,
+      held: flags.messaging?.messages ?? 0,
+    },
+    {
       activity: 'Recognition and staff benefits',
       purpose: 'Thanking people for good work, crediting recognition points, and giving staff discounts and wellbeing support through Hospitality Rewards',
       lawfulBasis: 'Legitimate interests (6(1)(f)). Anyone can opt out of the benefits platform from the staff app; a thank you is still recorded',
@@ -513,6 +548,30 @@ export function processingRegister(
       location: 'United States',
       safeguard: 'Article 28 contract and the UK addendum or IDTA, with a transfer risk assessment',
       active: flags.email,
+    },
+    {
+      name: 'Meta (WhatsApp Business)',
+      role: 'Messages to staff who chose WhatsApp, and their replies',
+      data: 'Mobile number and message text',
+      location: 'United States and elsewhere',
+      safeguard: 'Meta’s WhatsApp Business data processing terms with the UK addendum or IDTA, and a transfer risk assessment',
+      active: !!flags.messaging?.whatsapp,
+    },
+    {
+      name: 'Twilio',
+      role: 'Text messages to staff who chose them',
+      data: 'Mobile number and message text',
+      location: 'United States',
+      safeguard: 'Article 28 contract and the UK addendum or IDTA, with a transfer risk assessment',
+      active: !!flags.messaging?.sms,
+    },
+    {
+      name: 'Slack and Microsoft Teams',
+      role: 'Notices to managers’ team channels',
+      data: 'Names of staff who sent a message or were told of a rota, with a link; never what staff wrote',
+      location: 'As the workspace is set up',
+      safeguard: 'The organisation’s own contract with Slack or Microsoft for its workspace',
+      active: !!flags.messaging?.slack || !!flags.messaging?.teams,
     },
     {
       name: 'Hospitality Rewards',

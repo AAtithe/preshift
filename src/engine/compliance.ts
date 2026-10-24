@@ -253,12 +253,12 @@ export function checkEmployeeWeek(
       if (dayPaid > 8 * H) {
         push({ ...base, code: 'young-daily', severity: 'block', message: 'Under 18s cannot work more than 8 hours a day.' });
       }
-      // Hotels and catering may roster 16 and 17 year olds at night, supervised and with rest, but
-      // never between midnight and 04:00. Checked on every day the shift touches, so a shift that
+      // Working Time Regulations 1998, regulation 27A: hotels, restaurants and bars may keep an under 18
+      // on between 22:00 and 06:00 where needed and supervised, but never between midnight and 04:00. Checked on every day the shift touches, so a shift that
       // runs past midnight or starts in the small hours is caught.
       const small = nightOverlap(shift, 0, 4 * H);
       if (small > 0) {
-        push({ ...base, code: 'young-small-hours', severity: 'block', message: 'Under 18s cannot work between midnight and 04:00, even in hospitality.' });
+        push({ ...base, code: 'young-midnight', severity: 'block', message: 'Under 18s cannot work between midnight and 04:00, even in hospitality.' });
       } else if (nightOverlap(shift, 22 * H, 6 * H) > 0) {
         push({ ...base, code: 'young-night', severity: 'warn', message: 'Under 18 working between 22:00 and 06:00. Allowed in hospitality only when supervised, with compensatory rest.' });
       }
