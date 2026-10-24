@@ -67,8 +67,23 @@ function RequestsGuide() {
       <ul>
         <li>Post an open shift for an extra need, such as a private party, or release one from someone who cannot work it.</li>
         <li>Only people trained for the role, set up for the site and free to work it legally are told or can claim it.</li>
+        <li>
+          It is offered cheapest first. First to anyone short of their contracted hours that week, whose pay you are already
+          committed to. Then to the three cheapest to add. Then to everyone eligible. Each wave gets two hours, and the next only
+          goes while nobody has claimed. Inside a day of the start, everyone is told at once. Tick Tell everyone eligible now, or
+          press Tell everyone now on a posted shift, when speed matters more than cost.
+        </li>
+        <li>Claims list cheapest first, each with the wave it came from and, if you see costs, what it adds to the week's labour.</li>
         <li>Press Give it to them on one claim. The break is raised to what that person is owed, and everyone else who claimed is told it has gone.</li>
       </ul>
+
+      <h3>Approve claims automatically</h3>
+      <p>
+        Below Open shifts, tick a site to let claims there approve themselves. A claim is approved the moment it is made only
+        when it breaks no rule, raises nothing to review, and the site's labour for that week stays at or under its target
+        share of forecast sales with the shift added. Without a forecast for the week it always waits for you. Turn it on once
+        your labour targets and forecasts are ones you trust.
+      </p>
 
       <h3>The morning email</h3>
       <p>

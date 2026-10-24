@@ -396,6 +396,7 @@ export function hrFileRoutes(app: FastifyInstance, ctx: AppContext) {
       const { record, employee } = recordFor(req, g, org, req.params.id);
       const doc = record.files?.find((d) => d.id === req.params.fileId);
       if (!doc) throw notFound(`File ${req.params.fileId}`);
+      if (record.signing?.fileId === doc.id) throw new HttpError(409, 'sent_to_sign', 'This copy was sent to sign, so it is kept as the copy they were given.');
       record.files = record.files!.filter((d) => d.id !== doc.id);
       deleteCopiesAfterSave(req, [{ employeeId: employee.id, documentId: doc.id }]);
       audit(org, actorName(g), 'hr.record.file_deleted', { id: record.id, employeeId: employee.id, documentId: doc.id, sha256: doc.sha256 });
