@@ -9,6 +9,7 @@ import { addDays, toISODate } from '../src/engine/time';
 import type { MoveRecord } from '../src/engine/coach';
 import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
+import type { AccountingData } from './integrations/accounting/provider';
 import type { Publication } from '../src/engine/scorecard';
 import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
@@ -182,6 +183,8 @@ export interface OrgData {
   epos?: EposConnection;
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
   welfare?: WelfareData;
+  /** The accounting ledger the labour journal posts to, which company posts where, and what has been posted. Absent until connected. */
+  accounting?: AccountingData;
   /**
    * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.
@@ -210,6 +213,8 @@ export interface WelfareData {
   /** The benefits platform, if connected. Its API key lives in the settings store. */
   rewards?: RewardsConnection;
 }
+
+export const accountingOf = (org: OrgData): AccountingData => (org.accounting ??= { ledgers: {}, postings: [] });
 
 export const welfareOf = (org: OrgData): WelfareData =>
   (org.welfare ??= { recognitions: [], pulses: [], pulseAnswered: [], chats: [], rewardsOptOut: [], rewardsEnrolled: [] });

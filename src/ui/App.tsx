@@ -730,7 +730,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onSave={allow('pay.approve') ? actions.setPremiums : undefined}
                 />
               )}
-              {shown === 'close' && <CloseView state={state} week={week} entityIds={entityIds} />}
+              {shown === 'close' && <CloseView state={state} week={week} entityIds={entityIds} canSettings={allow('settings.manage')} />}
               {shown === 'reports' && (
                 <ReportsView
                   state={state}
