@@ -4,6 +4,7 @@ import { api } from './api';
 import { describeSync, syncedAt, type EposStatus } from './EposSetup';
 import type { Account } from './SettingsView';
 import { describeRewardsSync, type RewardsStatus } from './WelfareSettings';
+import type { XeroStatus } from './XeroPanel';
 
 // One page that answers "what is Preshift connected to, and is each connection healthy".
 // Nothing is configured here: each card reads live status and points to where the setting lives.
@@ -59,6 +60,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
   const [logins, setLogins] = useState<StaffLogin[] | null>(null);
   const [epos, setEpos] = useState<EposStatus | null>(null);
   const [rewards, setRewards] = useState<RewardsStatus | null>(null);
+  const [xero, setXero] = useState<XeroStatus | null>(null);
   const admin = canSettings;
 
   useEffect(() => {
@@ -66,6 +68,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
     api.get<StaffLogin[]>('/v1/staff-logins').then(setLogins).catch(() => setLogins(null));
     api.get<EposStatus>('/v1/integrations/epos').then(setEpos).catch(() => setEpos(null));
     api.get<RewardsStatus>('/v1/integrations/rewards').then(setRewards).catch(() => setRewards(null));
+    api.get<XeroStatus>('/v1/integrations/xero').then(setXero).catch(() => setXero(null));
   }, []);
   // Keys are admin only; members see that a connection exists but not its details.
   useEffect(() => {
@@ -129,7 +132,11 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         ? 'attention'
         : rewardsConn.environment === 'simulator' ? 'partial' : 'live';
 
-  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth, eposHealth, rewardsHealth].filter((h): h is Health => h !== null);
+  // Xero: connected, and every company posting somewhere; otherwise the journal still goes by file.
+  const xeroUnmapped = xero?.ledgers.filter((l) => !l.tenantId) ?? [];
+  const xeroHealth: Health = !xero?.connection ? 'file' : xeroUnmapped.length ? 'attention' : xero.connection.environment === 'simulator' ? 'partial' : 'live';
+
+  const known = [payrollHealth, clockHealth, staffHealth, claudeHealth, emailHealth, eposHealth, rewardsHealth, xeroHealth].filter((h): h is Health => h !== null);
   const connected = known.filter((h) => h === 'live').length;
   const attention = known.filter((h) => h === 'attention').length;
 
@@ -253,9 +260,9 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         <Card
           name="Xero"
           kind="Accounting"
-          health="file"
-          purpose="The weekly labour accrual, by role nominal and site tracking category, one journal per company, in Xero's manual journal import format. This is what lets the P&L carry true labour before payroll has run."
-          action={<button onClick={() => onOpen('close')}>Open Close</button>}
+          health={xeroHealth}
+          purpose="The weekly labour accrual, by role nominal and site tracking category, one journal per company, posted straight into each company's Xero with its reversal on the Monday after. This is what lets the P&L carry true labour before payroll has run."
+          action={<button onClick={() => onOpen('close')}>{admin && !xero?.connection ? 'Connect on Close' : 'Open Close'}</button>}
         >
           <dl className="facts">
             <dt>Journals per week</dt>
@@ -263,7 +270,20 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
             <dt>Tracking categories</dt>
             <dd>{state.sites.map((s) => `${s.name} (${s.trackingCode})`).join(', ')}</dd>
             <dt>How it gets there</dt>
-            <dd>Download from Close and import in Xero under Manual Journals</dd>
+            <dd>
+              {xero?.connection
+                ? `Posted from Close${xero.connection.environment === 'simulator' ? ' into the simulated Xero' : ''}`
+                : 'Download from Close and import in Xero under Manual Journals, until Xero is connected'}
+            </dd>
+            {xero?.connection && (
+              <>
+                <dt>Companies posting</dt>
+                <dd className={xeroUnmapped.length ? 'warn-text' : undefined}>
+                  {xero.ledgers.length - xeroUnmapped.length} of {xero.ledgers.length}
+                  {xeroUnmapped.length ? `: ${xeroUnmapped.map((l) => l.name).join(', ')} not yet` : ''}
+                </dd>
+              </>
+            )}
           </dl>
         </Card>
       </div>
