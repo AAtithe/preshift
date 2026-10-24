@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { seedHistory } from '../src/engine/seedHistory';
 import { enrol, kit } from './testkit';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
@@ -37,6 +38,28 @@ describe('set-up', () => {
     // The sample's fictional people and HR files go with it; the real owner stays.
     expect(org.users.map((u) => u.email)).toEqual([OWNER.email]);
     expect(org.hrRecords).toEqual([]);
+  });
+
+  it('clears the sample’s own trading history with it, but not time anyone really clocked', async () => {
+    const { call, store } = await boot();
+    const org = await store.load('demo');
+    const history = seedHistory(org.state, store.todayISO());
+    org.state = history.state;
+    org.timeEntries = history.timeEntries;
+    await store.save(org);
+    expect((await call('GET', '/v1/setup/status')).body).toMatchObject({ canStartFresh: true, startFreshBlocks: [] });
+
+    const real = { ...org.timeEntries[0], id: 'te_real' };
+    org.timeEntries.push(real);
+    await store.save(org);
+    const refused = await call('POST', '/v1/setup/start-fresh');
+    expect(refused.status).toBe(409);
+    expect(refused.body.details.join(' ')).toMatch(/Time has been clocked/);
+
+    org.timeEntries = org.timeEntries.filter((e) => e.id !== real.id);
+    await store.save(org);
+    expect((await call('POST', '/v1/setup/start-fresh')).status).toBe(200);
+    expect((await store.load('demo')).timeEntries).toEqual([]);
   });
 
   it('will not clear the sample once a real person has access tied to one of its sites', async () => {

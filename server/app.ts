@@ -10,7 +10,7 @@ import { TeamPayProvider } from './integrations/payroll/teampay';
 import { OutboxDispatcher } from './outbox';
 import { settingsRoutes, signInRoutes } from './routes/access';
 import { assistantRoutes } from './routes/assistant';
-import { demoRoutes, sandboxGuard, sweepSandboxes } from './demo';
+import { demoRoutes, keepSandboxTrading, sandboxGuard, sweepSandboxes } from './demo';
 import { isSandbox } from './sandbox';
 import { devRoutes } from './routes/dev';
 import { developerRoutes } from './routes/developers';
@@ -26,6 +26,7 @@ import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
 import { timeRoutes } from './routes/time';
+import { labourRoutes } from './routes/labour';
 import { authenticatorRoutes } from './routes/authenticator';
 import { userRoutes } from './routes/users';
 import { clientRoutes } from './routes/clients';
@@ -48,6 +49,7 @@ import { sendManagerDigests } from './digest';
 import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
+import { cashRoutes } from './routes/cash';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -385,6 +387,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (isWebhook(req.url) && !(await store.has(orgId))) return;
       req.org = await store.load(orgId);
     });
+    // A demo sandbox's takings move on with the clock, so the cut call has a day to read whenever it is opened.
+    api.addHook('preHandler', async (req) => {
+      if (req.method === 'GET' && req.routeOptions.url === '/v1/sales' && req.org && keepSandboxTrading(req.org, ctx.now())) req.orgTouched = true;
+    });
     // An organisation whose trial or subscription has lapsed keeps reading everything, and changes
     // nothing until someone pays. Paying, the person's own sign-in and data protection duties go on.
     api.addHook('preHandler', async (req) => {
@@ -441,6 +447,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);
     timeRoutes(api, ctx);
+    labourRoutes(api, ctx);
     clockingRoutes(api, ctx);
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
@@ -449,6 +456,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
+    cashRoutes(api, ctx);
     welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);

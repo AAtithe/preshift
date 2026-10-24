@@ -186,6 +186,33 @@ describe('compliance', () => {
     expect(codes(person({ hourlyRate: 10.85, dateOfBirth: '2007-06-01' }), [shift(WEEK, 12, 16)])).not.toContain('minimum-wage');
   });
 
+  it('warns when a salary spread over the hours rostered falls below the minimum wage', () => {
+    // £25,000 a year is £480.77 a week: 37.8 hours at the £12.71 National Living Wage.
+    const salaried = (over: Partial<Employee> = {}) => person({ payBasis: 'salaried', hourlyRate: 0, annualSalary: 25_000, contractedHours: 40, ...over });
+    const days = (n: number, start: number, end: number) => Array.from({ length: n }, (_, i) => shift(addDays(WEEK, i), start, end, 30));
+    // Five days of 9.5 paid hours: 47.5h, £10.12 an hour.
+    const long = checkEmployeeWeek(salaried(), WEEK, days(5, 10, 20)).find((i) => i.code === 'salaried-minimum-wage');
+    expect(long).toMatchObject({ severity: 'warn' });
+    expect(long?.message).toMatch(/£480\.77 a week over 47\.5h rostered is £10\.12\/h.*covers 37\.8h a week/);
+    // Five days of 7.5 paid hours: 37.5h, just inside it.
+    expect(codes(salaried(), days(5, 10, 18))).not.toContain('salaried-minimum-wage');
+    // A deduction that counts against the minimum wage, a uniform at £10 a week, takes the same 37.5h under.
+    expect(codes(salaried({ nmwReducingDeductionsWeekly: 10 }), days(5, 10, 18))).toContain('salaried-minimum-wage');
+    // 42.5h is £11.31 an hour: under the £12.71 for 21 and over, clear of the £10.85 for 18 to 20.
+    expect(codes(salaried(), days(5, 10, 19))).toContain('salaried-minimum-wage');
+    expect(codes(salaried({ dateOfBirth: '2007-06-01' }), days(5, 10, 19))).not.toContain('salaried-minimum-wage');
+  });
+
+  it('leaves salaried minimum wage alone where it would be a guess', () => {
+    const salaried = (over: Partial<Employee> = {}) => person({ payBasis: 'salaried', hourlyRate: 0, annualSalary: 25_000, contractedHours: 40, ...over });
+    const week = Array.from({ length: 5 }, (_, i) => shift(addDays(WEEK, i), 10, 20, 30));
+    // Pay withheld from this reader reads as nought; an age withheld reads as a guess.
+    expect(codes(salaried({ payHidden: true, annualSalary: 0 }), week)).not.toContain('salaried-minimum-wage');
+    expect(codes(salaried({ personalHidden: true }), week)).not.toContain('salaried-minimum-wage');
+    // Starting mid-week, the week's salary is only part of a week's.
+    expect(codes(salaried({ startDate: addDays(WEEK, 2) }), week.slice(2))).not.toContain('salaried-minimum-wage');
+  });
+
   it('applies young worker limits', () => {
     const teen = person({ dateOfBirth: '2009-06-01', hourlyRate: 8 });
     const c = codes(teen, [shift(WEEK, 14, 23, 30)]);

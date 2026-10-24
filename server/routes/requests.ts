@@ -8,6 +8,7 @@ import {
   blocking, claimCheck, datesBetween, dayLabel, decisionText, eligibleFor, holidayHours, MAX_REQUEST_DAYS, namesOf,
   REQUESTABLE_ABSENCE, shiftLine, swapCheck, swapped,
 } from '../../src/engine/requests';
+import { shiftEffect } from '../../src/engine/rotaViews';
 import { hasStarted } from '../../src/engine/rotaWeek';
 import { absoluteMinute, addDays, londonParts } from '../../src/engine/time';
 import { clockedFor } from '../../src/engine/reminders';
@@ -591,6 +592,10 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
         shiftId: s.id,
         date: s.date,
         line: shiftLine(s, names),
+        startMinute: s.startMinute,
+        endMinute: s.endMinute,
+        role: names.role(s.roleId),
+        siteName: names.site(s.siteId),
         team: published
           .filter((x) => x.siteId === s.siteId && x.date === s.date && x.employeeId !== employee.id && x.startMinute < s.endMinute && s.startMinute < x.endMinute)
           .sort((a, b) => a.startMinute - b.startMinute)
@@ -612,7 +617,13 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
         return !check.problem && blocking(check.issues).length === 0;
       })
       .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
-      .map((o) => ({ id: o.id, line: shiftLine(o, names), note: o.note ?? null, claimed: mine.has(o.id) }));
+      .map((o) => {
+        // What taking it would do to them: their week's hours with it, the rest either side, and anything to review.
+        const own = org.state.shifts.filter((s) => s.employeeId === employee.id && s.published);
+        const effect = shiftEffect(employee, own, { ...slotOf(o), employeeId: employee.id });
+        const warnings = mine.has(o.id) ? [] : claimCheck(org.state, employee, slotOf(o)).issues.filter((i) => i.severity === 'warn').map((i) => i.message);
+        return { id: o.id, line: shiftLine(o, names), note: o.note ?? null, claimed: mine.has(o.id), effect: { ...effect, warnings } };
+      });
     const offers = requestsOf(org)
       .filter((r) => r.kind === 'swap' && r.status === 'pending' && r.employeeId !== employee.id)
       .filter((r) => (r.toEmployeeId ? r.toEmployeeId === employee.id : true))
