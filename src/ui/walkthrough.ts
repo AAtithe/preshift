@@ -30,6 +30,64 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    week: '2026-10-26',
+    test: 'Publish next week at one site, then move one shift. By Monday, check Rota seen on Staff requests: everyone working that week should have confirmed the version they will turn up to, and anyone who has not is the first conversation of the week.',
+    steps: [
+      {
+        for: 'GMs',
+        title: 'Rota seen',
+        body: 'When a week is published, or a published shift moves, the staff app asks each person to confirm their week as it now reads. Staff requests shows who has confirmed this week and next, who saw an earlier version, and who has no app. Nobody can say they were not told.',
+        tryIt: 'Open Rota seen and find who has not confirmed this week.',
+        tab: 'requests',
+      },
+      {
+        for: 'Staff',
+        title: 'Seen it, in the staff app',
+        body: 'A published week, or a change to it, now asks each person to tap Seen it. A later change asks again. It takes a second, and it is the record that they knew.',
+      },
+      {
+        for: 'Operators',
+        title: 'Overdue requests go up a level',
+        body: 'A request still waiting after two days is marked Overdue and goes into the morning email of whoever sits above the site\'s manager, named with the GM as the person to decide. Area managers stop getting every request and see only what has stalled.',
+        tab: 'requests',
+      },
+      {
+        for: 'Operators',
+        title: 'Saw the rota, by site',
+        body: 'Staff app adoption gains Saw the rota: the share of each site\'s team who confirmed their week. A site where people do not read the rota is a site where people miss shifts.',
+        tab: 'adoption',
+      },
+      {
+        for: 'Finance',
+        title: 'Tronc in Labour cash',
+        body: 'Each person\'s share of the tips now leaves on the scheme\'s payout day, or with the pay for the days it was taken, and the HMRC payment shows how much of it is on tronc. An employer allocation carries NI and pension; an independent tronc carries neither. Tips past the legal deadline are flagged.',
+        tab: 'cash',
+      },
+      {
+        for: 'Finance',
+        title: 'Tronc payout day',
+        body: 'Each tronc scheme records the day it pays out, set in the scheme editor and shown on the Tronc screen. The cash calendar uses it, so tips leave the bank on the day they really do.',
+        tab: 'tronc',
+      },
+      {
+        for: 'Staff',
+        title: 'Tips and payslips in the staff app',
+        body: 'A Pay tab shows each person their own tips week by week, paid or the date they must be paid by, and how tips are shared at their site. Payslips and P60s come straight from payroll when asked. It is the tips record the Employment (Allocation of Tips) Act 2023 entitles them to, without a request to the office.',
+      },
+      {
+        for: 'Finance',
+        title: 'Tips through payroll',
+        body: 'Where a site pays tips in each pay run, each person\'s share now goes to TeamPay with their hours, free of Class 1 NI where an independent troncmaster allocated it, and is marked paid at the period end. Tips are paid on time, in full and on the payslip.',
+        tab: 'payroll',
+      },
+      {
+        for: 'Everyone',
+        title: 'A calmer look',
+        body: 'Labels read as words instead of small capitals, notices are quiet cards marked by a coloured dot, cards and controls are rounder, and Shifty sits at the end of the command bar instead of over the P&L. Same screens, easier to read on a busy shift.',
+      },
+    ],
+  },
+  {
     week: '2026-10-19',
     test: 'Take one site through a full cycle: build the week, publish it, clock two people in on the tablet and one on a phone, approve the hours, send them to payroll and post the accrual. If any step needs an explanation, that is the next thing to fix.',
     steps: [
