@@ -7,7 +7,7 @@ interface Adoption {
   weeks: number;
   from: string;
   to: string;
-  targets: { onAppPct: number; pushPct: number; decisionHours: number; fillPct: number; noShowPct: number };
+  targets: { onAppPct: number; pushPct: number; decisionHours: number; fillPct: number; noShowPct: number; seenPct: number };
   sites: SiteAdoption[];
   total: { team: number; onApp: number; withPush: number; decided: number; waiting: number; openShiftsPosted: number; openShiftsFilled: number; noShows: number | null; shiftsChecked: number };
 }
@@ -97,6 +97,7 @@ export function AdoptionView({ state, siteIds }: { state: RotaState; siteIds: st
               <th>Site</th>
               <th className="num">On the app</th>
               <th className="num">Notifications on</th>
+              <th className="num">Saw the rota</th>
               <th className="num">Decided in a day</th>
               <th className="num">Median to decide</th>
               <th className="num">Waiting now</th>
@@ -106,7 +107,7 @@ export function AdoptionView({ state, siteIds }: { state: RotaState; siteIds: st
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={9} className="muted">No sites you run in this view.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={10} className="muted">No sites you run in this view.</td></tr>}
             {rows.map((s) => {
               const app = pct(s.onApp, s.team);
               const push = pct(s.withPush, s.team);
@@ -126,6 +127,10 @@ export function AdoptionView({ state, siteIds }: { state: RotaState; siteIds: st
                   </td>
                   <td className={`num ${cell(app === null ? null : app >= t.onAppPct)}`}>{app ?? 0}%<div className="muted small">{s.onApp} of {s.team}</div></td>
                   <td className={`num ${cell(push === null ? null : push >= t.pushPct)}`}>{push ?? 0}%</td>
+                  <td className={`num ${cell(s.rotaWeeks ? (pct(s.rotaSeen, s.rotaWeeks) ?? 0) >= t.seenPct : null)}`}>
+                    {s.rotaWeeks ? `${pct(s.rotaSeen, s.rotaWeeks)}%` : 'None'}
+                    <div className="muted small">{s.rotaSeen} of {s.rotaWeeks} weeks</div>
+                  </td>
                   <td className={`num ${cell(s.decidedInADayPct === null ? null : s.decidedInADayPct >= 90)}`}>{s.decidedInADayPct === null ? 'None' : `${s.decidedInADayPct}%`}<div className="muted small">{s.decided} decided</div></td>
                   <td className={`num ${cell(s.medianDecisionHours === null ? null : s.medianDecisionHours <= t.decisionHours)}`}>{hours(s.medianDecisionHours)}{s.slowestDecisionHours !== null && <div className="muted small">slowest {hours(s.slowestDecisionHours)}</div>}</td>
                   <td className={`num ${cell(s.waiting === 0 ? true : (s.oldestWaitingHours ?? 0) <= t.decisionHours)}`}>{s.waiting}{s.oldestWaitingHours !== null && <div className="muted small">oldest {hours(s.oldestWaitingHours)}</div>}</td>
@@ -140,6 +145,7 @@ export function AdoptionView({ state, siteIds }: { state: RotaState; siteIds: st
       </div>
       <p className="muted small">
         On the app: people based at the site with a staff app login they have set up. Notifications on: on at least one phone.
+        Saw the rota: published weeks of people on the app that they pressed Seen it on, as the week stood.
         Decided in a day: holiday, time off, availability, swaps once the colleague agreed, and open shift claims, answered within 24
         hours. No-shows: published shifts with nothing clocked, leaving out leave and sickness, at sites where people clock in.
       </p>

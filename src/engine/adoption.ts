@@ -6,10 +6,11 @@ import { isEmployedOn } from './employees';
 import { isAbsentOn } from './hr';
 import { clockedFor, clockingSites } from './reminders';
 import { addDays } from './time';
+import type { WeekSeen } from './rotaSeen';
 import type { Employee, OpenShift, RotaState, StaffRequest, TimeEntry } from './types';
 
 /** What good looks like, used to colour the screen. */
-export const TARGETS = { onAppPct: 90, pushPct: 70, decisionHours: 24, fillPct: 80, noShowPct: 2 };
+export const TARGETS = { onAppPct: 90, pushPct: 70, decisionHours: 24, fillPct: 80, noShowPct: 2, seenPct: 90 };
 
 export interface LoginSummary {
   employeeId: string;
@@ -37,6 +38,9 @@ export interface SiteAdoption {
   /** Published shifts at a clocking site with nothing clocked, leave and sickness excepted. Null where nobody clocks. */
   noShows: number | null;
   shiftsChecked: number;
+  /** Published weeks of people on the app in the period, and how many they pressed Seen it on as they stood. */
+  rotaWeeks: number;
+  rotaSeen: number;
   /** People not yet on the app, or on it without notifications, for those who may see names. */
   notOnApp?: string[];
   noNotifications?: string[];
@@ -58,7 +62,7 @@ const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : null);
  */
 export function adoption(
   state: Pick<RotaState, 'sites' | 'employees' | 'shifts'>,
-  input: { logins: LoginSummary[]; requests: StaffRequest[]; openShifts: OpenShift[]; entries: TimeEntry[] },
+  input: { logins: LoginSummary[]; requests: StaffRequest[]; openShifts: OpenShift[]; entries: TimeEntry[]; weeks?: WeekSeen[] },
   siteIds: string[],
   today: string,
   nowIso: string,
@@ -93,8 +97,13 @@ export function adoption(
       : [];
     const noShows = clocking.has(siteId) ? checked.filter((s) => !clockedFor(input.entries, s)).length : null;
 
+    // Only people who could press Seen it: those on the app, for weeks that began in the period.
+    const weeksHere = (input.weeks ?? []).filter((w) => w.siteId === siteId && w.weekStart >= from && w.weekStart <= today && logins.get(w.employeeId)?.active);
+
     return {
       siteId,
+      rotaWeeks: weeksHere.length,
+      rotaSeen: weeksHere.filter((w) => w.seen).length,
       team: team.length,
       onApp: onApp.length,
       withPush: withPush.length,
@@ -129,5 +138,7 @@ export function adoptionTotal(rows: SiteAdoption[]) {
     openShiftsFilled: sum('openShiftsFilled'),
     noShows: clocking.length ? clocking.reduce((n, r) => n + (r.noShows ?? 0), 0) : null,
     shiftsChecked: clocking.reduce((n, r) => n + r.shiftsChecked, 0),
+    rotaWeeks: sum('rotaWeeks'),
+    rotaSeen: sum('rotaSeen'),
   };
 }
