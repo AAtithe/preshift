@@ -438,8 +438,9 @@ export interface OpenShift {
   status: 'open' | 'filled' | 'withdrawn';
   postedBy: string;
   postedAt: string;
-  /** Set once filled: who and the shift it became. */
+  /** Set once filled: who, when, and the shift it became. */
   filledBy?: string;
+  filledAt?: string;
   shiftId?: string;
   /** The shift released to make this one, when a manager posted someone's shift for cover. */
   releasedFrom?: { shiftId: string; employeeId: string };
@@ -447,7 +448,8 @@ export interface OpenShift {
 
 export type StaffNotificationKind =
   | 'rota_published' | 'rota_changed' | 'shift_cancelled'
-  | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received';
+  | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received'
+  | 'shift_reminder' | 'shift_late';
 
 /** A message to one member of staff, shown in the staff app and emailed where an address is held. */
 export interface StaffNotification {
@@ -459,7 +461,8 @@ export interface StaffNotification {
   body: string;
   read?: boolean;
   /** pending until the request that raised it is saved; then sent, none (no email set up or no address) or failed. */
-  email?: 'pending' | 'sent' | 'none' | 'failed';
+  /** skip: never emailed, such as a shift reminder, which goes to the phone only. */
+  email?: 'pending' | 'sent' | 'none' | 'failed' | 'skip';
   /** Pushed to the person's phones: sent to at least one, none (not turned on), or failed on every one. */
   push?: 'sent' | 'none' | 'failed';
 }
