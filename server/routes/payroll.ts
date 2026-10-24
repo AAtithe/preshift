@@ -7,6 +7,7 @@ import { addDays, weekDates } from '../../src/engine/time';
 import { sspEstimate, sspInPeriod, type SspCheckLine } from '../../src/engine/ssp';
 import { entriesAsShifts, payrollHours, payrollVariance, type PayrollSicknessLine, type PayRunEmployee } from '../../src/engine/timesheet';
 import { describeRule } from '../../src/engine/premiums';
+import { shortNoticeOwed } from '../employmentRights';
 import type { PremiumRule, TravelPay } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -241,18 +242,32 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         const replaced = new Set(org.submissions.filter((s) => s.status === 'superseded').map((s) => s.id));
         const owed = org.payChanges.filter((c) => c.backPay && (!c.backPay.sentIn || replaced.has(c.backPay.sentIn)) &&
           org.state.employees.find((e) => e.id === c.employeeId)?.entityId === entity.id);
+        // Short notice pay owed under the Employment Rights Act goes the same way, as pay on top of the week.
+        const compensation = shortNoticeOwed(org, entity.id, periodEnd, replaced);
         const batch = {
           ...hours,
-          adjustments: owed.map((c) => {
-            const e = org.state.employees.find((x) => x.id === c.employeeId)!;
-            return {
-              employeeId: e.id,
-              ...(e.payrollId ? { payrollId: e.payrollId } : {}),
-              amount: c.backPay!.amount,
-              description: `Back pay from ${c.backPay!.from} to ${c.backPay!.to}`,
-              reference: c.id,
-            };
-          }),
+          adjustments: [
+            ...owed.map((c) => {
+              const e = org.state.employees.find((x) => x.id === c.employeeId)!;
+              return {
+                employeeId: e.id,
+                ...(e.payrollId ? { payrollId: e.payrollId } : {}),
+                amount: c.backPay!.amount,
+                description: `Back pay from ${c.backPay!.from} to ${c.backPay!.to}`,
+                reference: c.id,
+              };
+            }),
+            ...compensation.map((r) => {
+              const e = org.state.employees.find((x) => x.id === r.employeeId)!;
+              return {
+                employeeId: e.id,
+                ...(e.payrollId ? { payrollId: e.payrollId } : {}),
+                amount: r.amount,
+                description: `Short notice pay: shift on ${r.original.date} ${r.change} with ${Math.floor(r.noticeHours)} hours' notice`,
+                reference: r.id,
+              };
+            }),
+          ],
         };
         // Anyone not yet in payroll is set up first; the outbox delivers in order.
         for (const line of [...batch.lines, ...batch.adjustments]) {
@@ -278,12 +293,16 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
           accrued: Object.fromEntries([...cost.employees].filter(([id]) => people.has(id)).map(([id, c]) => [id, c.total])),
         };
         // Back pay costs what any pay costs: priced on top of the week's pay, so on-costs cross thresholds as payroll's will.
-        for (const a of batch.adjustments) {
-          const e = org.state.employees.find((x) => x.id === a.employeeId)!;
+        // All of a person's adjustments are priced together, so two of them cannot each miss a threshold they cross between them.
+        const extraBy = new Map<string, number>();
+        for (const a of batch.adjustments) extraBy.set(a.employeeId, (extraBy.get(a.employeeId) ?? 0) + a.amount);
+        for (const [id, extra] of extraBy) {
+          const e = org.state.employees.find((x) => x.id === id)!;
           const gross = cost.employees.get(e.id)?.gross ?? 0;
-          submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + a.amount).total - weekOnCosts(e, gross).total) * 100) / 100;
+          submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + extra).total - weekOnCosts(e, gross).total) * 100) / 100;
         }
         for (const c of owed) c.backPay!.sentIn = submission.id;
+        for (const r of compensation) r.sentIn = submission.id;
         org.submissions.push(submission);
         enqueue(org, {
           type: 'hours.submit',

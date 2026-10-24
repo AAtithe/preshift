@@ -42,6 +42,7 @@ simulator, which is safe, and a real client cannot be paid through Preshift.
 | 17 | Pay frequency: Preshift periods are weekly. Which schedules do clients run (weekly, fortnightly, four-weekly, monthly)? | Batches must match the client's pay schedule | |
 | 18 | `GET /pay-runs/:id` returns per employee `employee_id`, `external_ref`, `gross`, `holiday_pay`, `employer_ni`, `employer_pension` | The pay run is reconciled to the accrual | |
 | 22 | Premium lines are accepted on `POST /hours`: `pay_element: 'premium'` with `premium_code`, `hours` that qualified and `rate` as the uplift per hour, paid on top of the same hours' normal line and not counted as extra hours | Sunday, bank holiday, night and overtime premiums are paid as costed, and show on the payslip as their own element | |
+| 23 | `adjustments` on `POST /hours` carry short notice pay under the Employment Rights Act as well as back pay (`description` names it, `reference` is the Preshift record id), paid as gross pay on top of the week | Short notice pay owed to zero and low hours workers is paid in the pay run it was accrued in | |
 
 ## Webhooks
 
