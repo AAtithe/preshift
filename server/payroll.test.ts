@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { employeeWeekCost } from '../src/engine/cost';
 import { seedState } from '../src/engine/seed';
 import { payrollHours, type PayrollHoursBatch } from '../src/engine/timesheet';
@@ -11,6 +11,14 @@ import { employerStatus } from './payrollEmployers';
 import { MemoryStore, upgradeState } from './store';
 
 const WEEK = '2026-10-19';
+// The sample is seeded for 21 October 2026 and the API reads the real clock, so the clock is held on
+// that day: a seeded leave date or pay date passing in real time must not change what these tests see.
+const TODAY = '2026-10-21';
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+});
+afterEach(() => vi.useRealTimers());
 const KEYS = [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] }];
 
 /** A payroll that records which employer every call was for, standing in for real TeamPay. */
@@ -46,7 +54,7 @@ class RecordingPayroll implements PayrollProvider {
 }
 
 async function setup(provider: PayrollProvider, env: Record<string, string> = {}) {
-  const store = new MemoryStore(['demo'], '2026-10-21');
+  const store = new MemoryStore(['demo'], TODAY);
   const { app, ctx } = await buildApp({ apiKeys: KEYS, store, provider, autoDispatch: false, env });
   const call = async (method: string, url: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await app.inject({
