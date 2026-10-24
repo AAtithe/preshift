@@ -1,4 +1,5 @@
-import { devices, expect, test, type Page } from '@playwright/test';
+import { devices } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 import { NAV } from '../src/ui/nav';
 
 // The rota on an iPad-sized touch screen. Chromium stands in for Safari here, so this catches
