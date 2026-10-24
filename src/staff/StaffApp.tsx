@@ -7,7 +7,7 @@ import { dayLabel } from '../ui/format';
 import { call, Problem, say } from './http';
 import { StaffCover, StaffMessages, StaffReach } from './StaffMessages';
 import { registerWorker, turnOff } from './push';
-import { RotaConfirm, InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
+import { RotaConfirm, PayTab, InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
 interface Entry {
   id: string;
@@ -129,7 +129,7 @@ export function StaffApp() {
   );
 }
 
-type Tab = 'today' | 'rota' | 'requests' | 'inbox';
+type Tab = 'today' | 'rota' | 'requests' | 'pay' | 'inbox';
 
 /** Signed in: four tabs along the bottom, where a thumb reaches. */
 function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: Overview) => void; onSignedOut: () => void }) {
@@ -150,13 +150,14 @@ function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o:
   }, [onChange, onSignedOut]);
   const reload = useCallback(() => void refresh(), [refresh]);
   const open = data.requests.filter((r) => r.status === 'pending' || r.status === 'accepted').length;
-  const tabs: [Tab, string, number][] = [['today', 'Today', 0], ['rota', 'Rota', 0], ['requests', 'Requests', open], ['inbox', 'Inbox', data.unread]];
+  const tabs: [Tab, string, number][] = [['today', 'Today', 0], ['rota', 'Rota', 0], ['requests', 'Requests', open], ['pay', 'Pay', 0], ['inbox', 'Inbox', data.unread]];
   return (
     <>
       <RotaConfirm call={call} say={say} weeks={data.rotaToConfirm ?? []} onDone={reload} />
       {tab === 'today' && <Home data={data} onChange={onChange} onSignedOut={onSignedOut} />}
       {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} shifts={data.shifts} fortnight={data.fortnight} />}
       {tab === 'requests' && <RequestsTab call={call} say={say} data={data} refresh={reload} />}
+      {tab === 'pay' && <PayTab call={call} />}
       {tab === 'inbox' && (
         <>
           <InboxTab call={call} say={say} refresh={reload} />

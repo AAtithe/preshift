@@ -2,9 +2,10 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeE
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
 import { requiredBreakMinutes } from '../../src/engine/compliance';
-import { addDays, ageOn, weekStart } from '../../src/engine/time';
+import { addDays, ageOn, weekDates, weekStart } from '../../src/engine/time';
 import { fortnight } from '../../src/engine/rotaViews';
 import { confirmWeek, pruneSeen, weeksSeen } from '../../src/engine/rotaSeen';
+import { tipsPayBy, tipsStatement } from '../../src/engine/tronc';
 import { dayLabel } from '../../src/engine/requests';
 import { PULSE_RETENTION_DAYS, RECOGNITION_LABEL, welfarePolicy, type PulseResponse } from '../../src/engine/welfare';
 import type { Employee, GeoFix, RightToWorkDocument, Site, TimeEntry } from '../../src/engine/types';
@@ -15,6 +16,7 @@ import { MAX_PUSH_DEVICES, pushSubject, sendPush, validEndpoint, vapidKeys, type
 import { emailSetting, linkFor, parseEmailSettings, sendMail, staffInviteEmail } from '../mail';
 import { latestByEmployee, recordSent } from '../maillog';
 import { setPin } from '../kioskPin';
+import { employerFor } from '../payrollEmployers';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords';
 import { cookieFrom, createStaffSession, readStaffSession, STAFF_COOKIE, staffCookie } from '../session';
 import { geoFixBody, idParam, isoDate } from '../schemas';
@@ -340,7 +342,7 @@ export function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   welfareStaffRoutes(app, store);
   staffRequestRoutes(app, ctx, (req) => requireStaff(req, store));
-  pushRoutes(app, store);
+  pushRoutes(app, ctx);
 
   // A fit note, photographed on the phone. Stored encrypted with the right to work copies, read only by
   // those who read the personnel file, and attached to the person's current or latest sickness.
@@ -688,7 +690,8 @@ const pushBody = {
  * Notifications on the person's phone. The phone subscribes with this server's public key; the
  * subscription is kept on their login, so closing it, or marking them as a leaver, ends it too.
  */
-function pushRoutes(app: FastifyInstance, store: Store) {
+function pushRoutes(app: FastifyInstance, ctx: AppContext) {
+  const { store } = ctx;
   app.get('/v1/staff/push', { schema: { hide: true } }, async (req) => {
     const { login } = await requireStaff(req, store);
     return { publicKey: (await vapidKeys(store)).publicKey, reminders: login.reminders !== false, devices: (login.push ?? []).map(({ endpoint, label, addedAt }) => ({ endpoint, label: label ?? null, addedAt })) };
@@ -723,6 +726,99 @@ function pushRoutes(app: FastifyInstance, store: Store) {
         await store.save(org);
       }
       return { ok: true, devices: push.length };
+    },
+  );
+
+  /**
+   * The person's payslips and P60s, fetched from payroll as they ask and never kept by Preshift.
+   * Only their own: the payroll id comes from their record, never from the request.
+   */
+  async function payDocuments(org: OrgData, employee: Employee) {
+    const provider = ctx.providerFor(org.orgId);
+    if (!provider.listPayDocuments) return { available: false as const, reason: 'Your payroll does not share payslips with Preshift yet.' };
+    if (!employee.payrollId) return { available: false as const, reason: 'You are not set up in payroll yet. Your first payslip will show here once you are paid.' };
+    let employerId: string;
+    try {
+      employerId = employee.payrollEmployerId ?? employerFor(org, employee.entityId, ctx.employers);
+    } catch {
+      return { available: false as const, reason: 'Payroll is not connected for your employer yet.' };
+    }
+    try {
+      const documents = await provider.listPayDocuments(employerId, employee.payrollId);
+      return { available: true as const, employerId, documents };
+    } catch (err) {
+      // Not found: the payroll has no payslips to share this way yet, which is not worth trying again.
+      if ((err as { status?: number }).status === 404) return { available: false as const, reason: 'Your payroll does not share payslips with Preshift yet.' };
+      return { available: false as const, reason: 'Payroll did not answer just now. Try again in a few minutes.' };
+    }
+  }
+
+  app.get('/v1/staff/payslips', { schema: { hide: true } }, async (req) => {
+    const { org, employee } = await requireStaff(req, store);
+    const result = await payDocuments(org, employee);
+    if (!result.available) return { available: false, reason: result.reason, payslips: [], p60s: [] };
+    const sorted = [...result.documents].sort((a, b) => (b.payDate ?? b.taxYear ?? '').localeCompare(a.payDate ?? a.taxYear ?? ''));
+    return { available: true, reason: null, payslips: sorted.filter((d) => d.kind === 'payslip'), p60s: sorted.filter((d) => d.kind === 'p60') };
+  });
+
+  app.get<{ Params: { id: string } }>('/v1/staff/payslips/:id/pdf', { schema: { hide: true, params: idParam } }, async (req, reply) => {
+    const { org, employee } = await requireStaff(req, store);
+    const result = await payDocuments(org, employee);
+    // Looked up in their own list first, so no id can reach anyone else's document.
+    const document = result.available ? result.documents.find((d) => d.id === req.params.id && d.hasPdf) : undefined;
+    const pdf = document && result.available ? await ctx.providerFor(org.orgId).payDocumentPdf?.(result.employerId, employee.payrollId!, document) : null;
+    if (!document || !pdf) throw notFound('Payslip');
+    audit(org, `staff:${employee.id}`, 'staff.pay_document_viewed', { employeeId: employee.id, kind: document.kind });
+    await store.save(org);
+    const name = document.kind === 'p60' ? `P60 ${document.taxYear ?? ''}`.trim() : `Payslip ${document.payDate ?? document.periodEnd ?? ''}`.trim();
+    return reply
+      .header('content-type', 'application/pdf')
+      .header('content-disposition', `inline; filename="${name.replace(/[^\w .-]/g, '')}.pdf"`)
+      .header('cache-control', 'private, no-store')
+      .header('x-content-type-options', 'nosniff')
+      .send(pdf);
+  });
+
+  // Their own tips record and the site's written tipping policy, which the Employment (Allocation of Tips)
+  // Act 2023 entitles every worker to. Up to three years back, the period the record must be kept.
+  app.get<{ Querystring: { weeks?: number } }>(
+    '/v1/staff/tips',
+    { schema: { hide: true, querystring: { type: 'object', properties: { weeks: { type: 'integer', minimum: 1, maximum: 156 } } } } },
+    async (req) => {
+      const { org, employee } = await requireStaff(req, store);
+      const today = londonParts(new Date()).date;
+      const lastWeek = addDays(weekStart(today), -7);
+      const weeks = req.query.weeks ?? 13;
+      const scheme = (org.state.troncSchemes ?? []).find((x) => x.siteId === employee.siteId);
+      const rows = tipsStatement(org.state, org.timeEntries, employee.id, addDays(lastWeek, -7 * (weeks - 1)), lastWeek, today)
+        .filter((r) => r.amount > 0)
+        .reverse()
+        .map((r) => {
+          const days = new Set(weekDates(r.weekStartDate));
+          const tips = (org.state.tips ?? []).filter((t) => t.siteId === employee.siteId && days.has(t.date));
+          const paid = tips.length > 0 && tips.every((t) => t.paidOn);
+          return {
+            weekStart: r.weekStartDate,
+            hours: Math.round(r.hours * 100) / 100,
+            amount: r.amount,
+            paidOn: paid ? tips.map((t) => t.paidOn!).sort().at(-1)! : null,
+            payBy: tipsPayBy(addDays(r.weekStartDate, 6)),
+          };
+        });
+      const roleName = (id: string) => org.state.roles.find((r) => r.id === id)?.name ?? id;
+      return {
+        policy: scheme
+          ? {
+              troncmaster: scheme.troncmaster,
+              independent: scheme.independent,
+              serviceCharge: scheme.serviceCharge,
+              publishedOn: scheme.policyPublishedOn ?? null,
+              pointsPerHour: Object.entries(scheme.pointsPerHour).filter(([, p]) => p > 0).map(([role, points]) => ({ role: roleName(role), points })),
+            }
+          : null,
+        weeks: rows,
+        total: Math.round(rows.reduce((n, r) => n + r.amount, 0) * 100) / 100,
+      };
     },
   );
 

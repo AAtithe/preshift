@@ -1530,3 +1530,72 @@ button.cover-cell:hover { filter: brightness(0.88); box-shadow: inset 0 0 0 2px 
 ul.plain { list-style: none; padding: 0; margin: 6px 0; }
 .cover-requests > li { padding: 10px 0; border-top: 1px solid var(--rule); display: grid; gap: 4px; }
 .cover-requests > li:first-child { border-top: none; }
+
+/* Softer finish. The same WS navy, blue wash and ledger P&L, with the calmer touches tried in the
+   design directions: labels in sentence case rather than small capitals, notices as quiet cards
+   marked by a dot instead of yellow slabs, rounder cards and controls, lighter shift outlines,
+   and room at the foot of the page so the command bar never covers the figures. */
+.eyebrow { font: 500 12px/1.35 var(--font); letter-spacing: 0.01em; text-transform: none; color: var(--muted); }
+.wordmark-with { font: 500 12px/1.3 var(--font); letter-spacing: 0; text-transform: none; }
+.nav-heading, .op-label, .nav-where { font: 600 11px/1.3 var(--font); letter-spacing: 0.02em; text-transform: none; }
+.sp-crumbs { font: 500 13px/1.3 var(--font); letter-spacing: 0; text-transform: none; }
+.wp-range, .sp-meta { font: 500 12px/1.3 var(--font); letter-spacing: 0; }
+
+button, select, input { border-radius: 8px; }
+.toggle { border-color: var(--rule-strong); border-radius: 10px; padding: 3px; gap: 2px; }
+.toggle button { border-radius: 7px; }
+
+.panel, .rail { border-radius: 14px; }
+.rail { border-top: 1px solid var(--rule); max-height: calc(100vh - 150px); overflow-y: auto; }
+.rail-pct { font-size: 52px; }
+.rail-call { border-left: none; padding-left: 0; }
+.shell { padding-bottom: 140px; }
+
+.notice { position: relative; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow); padding: 12px 16px 12px 34px; margin-bottom: 10px; color: var(--body-ink); }
+.notice::before { content: ''; position: absolute; left: 16px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn-fill); }
+.notice.error { background: var(--bad-bg); border-color: var(--bad-line); }
+.notice.error::before { background: var(--bad-fill); }
+.notice.good { background: var(--card); color: var(--body-ink); }
+.notice.good::before { background: var(--good-fill); }
+
+.gaps { border-left-width: 1px; border-radius: 12px; box-shadow: var(--shadow); }
+.gaps-icon { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--bad-fill); font-size: 0; color: transparent; }
+.gap-chip { font: 500 12px/1 var(--font); padding: 5px 9px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--rule); }
+
+.tl-bar { border-width: 1px; border-color: color-mix(in srgb, var(--ink) 40%, transparent); border-radius: 6px; background: var(--card); }
+.tl-bar.warn { box-shadow: none; border-color: var(--warn-line); background: var(--warn-bg); }
+.tl-bar.block { box-shadow: none; }
+/* Headings over tables, forms and groups read as words too; small status tags keep their capitals. */
+.table thead th, .table tr.entity-head th, .kpi-label, .group-label, .modal h3.section, .form label, .setup-field, .travel-source, .lens-sub, .premium-form fieldset.days legend {
+  font-family: var(--font); font-size: 12px; letter-spacing: 0.01em; text-transform: none;
+}
+.day-head .dt, .tl-group { font-family: var(--font); letter-spacing: 0.01em; text-transform: none; }
+.tl-group { font-size: 11px; }
+.section-title, .section-inline, .integrations-group, .access-group, .attention .sev { text-transform: none; letter-spacing: 0.01em; }
+.gaps { border-left-color: var(--rule); }
+/* Shifty sits at the end of the command bar rather than over the figures. */
+@media (min-width: 901px) {
+  .command-bar { padding-right: 150px; }
+  .shifty-launcher { bottom: 10px; }
+}
+
+/* What's new: the notice in a week with something unseen, and the walkthrough docked above the command bar. */
+.whatsnew-notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--surface-2); border-color: var(--rule-strong); }
+.whatsnew-actions { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+.walkthrough { position: fixed; right: 24px; bottom: 132px; z-index: 31; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 160px); display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--rule-strong); border-radius: 14px; box-shadow: 0 16px 48px rgb(0 51 89 / 0.22); overflow: hidden; animation: rise 0.2s ease-out; }
+.walkthrough-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: var(--ink); color: var(--card); }
+.walkthrough-head .eyebrow, .walkthrough-head .link { color: var(--card); }
+.walkthrough-head select { font: inherit; font-size: 12px; padding: 4px 6px; border-radius: var(--radius); border: 1px solid var(--rule-strong); background: var(--card); color: var(--body-ink); }
+.walkthrough-body { padding: 14px; overflow-y: auto; }
+.walkthrough-body h3 { margin: 10px 0 6px; font-size: 16px; color: var(--ink); }
+.walkthrough-body p { margin: 0 0 10px; line-height: 1.5; }
+.walkthrough-body .badge { background: var(--surface-2); color: var(--ink); }
+.walkthrough-try { padding: 8px 10px; border-radius: var(--radius); background: var(--surface-2); }
+.walkthrough-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--rule); }
+.walkthrough-dots { flex: 1; display: flex; gap: 4px; justify-content: center; }
+.walkthrough-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--rule-strong); }
+.walkthrough-dots span.on { background: var(--ink); }
+@media (max-width: 720px) {
+  .whatsnew-notice { flex-direction: column; align-items: flex-start; }
+  .walkthrough { right: 16px; bottom: 16px; }
+}

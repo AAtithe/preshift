@@ -23,7 +23,7 @@
 .staff-breaks p { margin: 0; }
 /* Self-service: tabs, requests and the inbox. */
 .staff { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
-.staff-tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 10; }
+.staff-tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--surface); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 10; }
 .staff-tabs button { background: none; border: none; padding: 10px 4px; font-size: 14px; font-weight: 600; color: var(--muted); border-radius: 8px; position: relative; }
 .staff-tabs button.active { color: var(--ink); background: var(--ws-tint, var(--bg)); }
 .staff-badge { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: var(--bad-fill); color: #fff; font-size: 12px; line-height: 18px; }
@@ -100,3 +100,6 @@
 .staff-confirm { display: grid; gap: 10px; border-color: var(--warn-line, var(--border)); background: var(--warn-bg, var(--surface)); }
 .staff-confirm-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
 .staff-confirm-row button { flex: none; padding: 10px 14px; }
+
+.staff-tabs button { font-size: 13px; padding: 10px 2px; }
+.staff-buttons a.button { display: inline-block; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; text-decoration: none; color: var(--ink); }

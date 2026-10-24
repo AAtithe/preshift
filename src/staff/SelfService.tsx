@@ -679,3 +679,141 @@ export function RotaConfirm({ call, say, weeks, onDone }: { call: Call; say: Say
     </section>
   );
 }
+
+// ------------------------------------------------------------------------------------------------
+// Pay: their own tips record and payslips. Nobody else's, and no pay rates of anyone else.
+
+interface TipsRecord {
+  policy: { troncmaster: string; independent: boolean; serviceCharge: 'none' | 'discretionary' | 'mandatory'; publishedOn: string | null; pointsPerHour: { role: string; points: number }[] } | null;
+  weeks: { weekStart: string; hours: number; amount: number; paidOn: string | null; payBy: string }[];
+  total: number;
+}
+
+interface PayDoc {
+  id: string;
+  kind: 'payslip' | 'p60';
+  periodStart?: string;
+  periodEnd?: string;
+  payDate?: string;
+  taxYear?: string;
+  gross: number;
+  tax: number;
+  employeeNi: number;
+  pension?: number;
+  net?: number;
+  hasPdf: boolean;
+  sample?: boolean;
+}
+
+const money = (n: number) => `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export function PayTab({ call }: { call: Call }) {
+  const [tips, setTips] = useState<TipsRecord | null>(null);
+  const [weeks, setWeeks] = useState(13);
+  const [pay, setPay] = useState<{ available: boolean; reason: string | null; payslips: PayDoc[]; p60s: PayDoc[] } | null>(null);
+  useEffect(() => {
+    call<TipsRecord>('GET', `/v1/staff/tips?weeks=${weeks}`).then(setTips).catch(() => setTips({ policy: null, weeks: [], total: 0 }));
+  }, [call, weeks]);
+  useEffect(() => {
+    call<typeof pay>('GET', '/v1/staff/payslips').then(setPay).catch(() => setPay({ available: false, reason: 'Could not reach Preshift. Try again.', payslips: [], p60s: [] }));
+  }, [call]);
+
+  const slip = (d: PayDoc) => (
+    <li key={d.id}>
+      <span className="staff-day">{d.kind === 'p60' ? d.taxYear : d.payDate ? day(d.payDate) : ''}</span>
+      <span>
+        <span className="strong">{d.net !== undefined ? `${money(d.net)} take home` : money(d.gross)}</span>
+        <span className="muted small">
+          {' '}{d.kind === 'p60' ? 'P60. ' : d.periodStart && d.periodEnd ? `For ${day(d.periodStart)} to ${day(d.periodEnd)}. ` : ''}
+          Gross {money(d.gross)}, tax {money(d.tax)}, NI {money(d.employeeNi)}{d.pension ? `, pension ${money(d.pension)}` : ''}.
+          {d.sample ? ' Sample figures from the test payroll.' : ''}
+        </span>
+        {d.hasPdf && (
+          <span className="staff-buttons">
+            <a className="button" href={`/v1/staff/payslips/${encodeURIComponent(d.id)}/pdf`} target="_blank" rel="noreferrer">Open {d.kind === 'p60' ? 'P60' : 'payslip'}</a>
+          </span>
+        )}
+      </span>
+    </li>
+  );
+
+  return (
+    <>
+      <Card title="Payslips">
+        {pay === null ? (
+          <p className="muted">Loading</p>
+        ) : !pay.available ? (
+          <p className="muted small">{pay.reason}</p>
+        ) : pay.payslips.length === 0 ? (
+          <p className="muted small">No payslips yet. They show here once payroll has paid you.</p>
+        ) : (
+          <ul className="staff-list">{pay.payslips.slice(0, 12).map(slip)}</ul>
+        )}
+        {pay?.p60s.length ? (
+          <>
+            <h2>P60s</h2>
+            <ul className="staff-list">{pay.p60s.map(slip)}</ul>
+          </>
+        ) : null}
+      </Card>
+
+      <Card title="My tips">
+        {tips === null ? (
+          <p className="muted">Loading</p>
+        ) : (
+          <>
+            {tips.weeks.length === 0 ? (
+              <p className="muted small">No tips for you in this period.</p>
+            ) : (
+              <>
+                <p className="staff-figure"><span className="strong">{money(tips.total)}</span><span className="muted small">over the last {weeks} weeks</span></p>
+                <ul className="staff-list">
+                  {tips.weeks.map((w) => (
+                    <li key={w.weekStart}>
+                      <span className="staff-day">{day(w.weekStart)}</span>
+                      <span>
+                        <span className="strong">{money(w.amount)}</span>
+                        <span className="muted small">
+                          {' '}for {w.hours} hours. {w.paidOn ? `Paid ${day(w.paidOn)}.` : `Due by ${day(w.payBy)}.`}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <label className="muted small">
+              Show{' '}
+              <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
+                <option value={13}>3 months</option>
+                <option value={52}>a year</option>
+                <option value={156}>3 years</option>
+              </select>
+            </label>
+          </>
+        )}
+      </Card>
+
+      <Card title="How tips are shared here">
+        {!tips?.policy ? (
+          <p className="muted small">Your site has not recorded its tipping policy in Preshift yet. Ask your manager for it: the law says you can see it.</p>
+        ) : (
+          <>
+            <p className="small">
+              Every tip and service charge is passed on to staff in full. Who decides the share: {tips.policy.troncmaster}.
+              {tips.policy.independent ? ' They decide it independently of the business, so it is paid free of National Insurance.' : ' It is paid through payroll with tax and National Insurance.'}
+              {tips.policy.serviceCharge === 'mandatory' ? ' A service charge is added to bills.' : tips.policy.serviceCharge === 'discretionary' ? ' A discretionary service charge is added to bills.' : ''}
+            </p>
+            {tips.policy.pointsPerHour.length > 0 && (
+              <p className="muted small">Points for each hour clocked: {tips.policy.pointsPerHour.map((p) => `${p.role} ${p.points}`).join(', ')}.</p>
+            )}
+            <p className="muted small">
+              Tips are paid by the end of the month after they were left.{tips.policy.publishedOn ? ` Policy published ${day(tips.policy.publishedOn)}.` : ''} You can ask
+              your manager for your tips record at any time; it is kept for three years.
+            </p>
+          </>
+        )}
+      </Card>
+    </>
+  );
+}
