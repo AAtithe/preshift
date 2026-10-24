@@ -412,6 +412,7 @@ function Retention({ retention, isAdmin, act }: { retention: { policy: Retention
         {field('contactMonthsAfterLeaving', 'Contact details after leaving, months')}
         {field('rightToWorkYearsAfterLeaving', 'Right to work after leaving, years (min 2)')}
         {field('payrollYearsAfterTaxYear', 'Payroll after the tax year, years (min 3)')}
+        {field('messageMonths', 'Messages, months (13 to 72)')}
         {isAdmin && <button type="submit" disabled={!changed}>Save periods</button>}
       </form>
     </section>

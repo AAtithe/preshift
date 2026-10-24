@@ -153,7 +153,7 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   // An hour later, the same person and role: find it by its new title and slide it back.
-  const later = (title ?? '').replace(/(\d\d):00-(\d\d):00/, (_m, a: string, b: string) => `${String(Number(a) + 1).padStart(2, '0')}:00-${String(Number(b) + 1).padStart(2, '0')}:00`);
+  const later = (title ?? '').replace(/(\d\d):00-(\d\d):00/, (_m, a: string, b: string) => `${String((Number(a) + 1) % 24).padStart(2, '0')}:00-${String((Number(b) + 1) % 24).padStart(2, '0')}:00`);
   const moved = page.locator(`.tl-bar[title="${later}"]`).first();
   await expect(moved).toHaveCount(1);
   // The drop saves and re-renders, which moves things again: settle before aiming at the moved shift.
@@ -179,7 +179,7 @@ test('dragging the end of a shift changes its hours, and dragging it back restor
 
   await finger.drag(from, { x: from.x + hour, y: from.y }, 0);
   await expect.poll(() => withTitle(page, title)).toBe(count - 1);
-  const longer = (title ?? '').replace(/-(\d\d):00/, (_m, b: string) => `-${String(Number(b) + 1).padStart(2, '0')}:00`);
+  const longer = (title ?? '').replace(/-(\d\d):00/, (_m, b: string) => `-${String((Number(b) + 1) % 24).padStart(2, '0')}:00`);
   const stretched = page.locator(`.tl-bar[title="${longer}"]`).first();
   await expect(stretched).toHaveCount(1);
   await stretched.scrollIntoViewIfNeeded();

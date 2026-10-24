@@ -3,6 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 import { ApiKeys, Webhooks } from './DeveloperSettings';
 import type { BillingStanding } from './BillingView';
+import { MessagingSetup } from './MessagingSetup';
+import type { Site } from '../engine/types';
 
 /** The signed-in account, from /auth/me. What it may do is its access record, on the Access tab. */
 export interface Account {
@@ -36,14 +38,14 @@ const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD',
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
-export function SettingsView({ account, canSettings, onSalesChanged }: { account: Account | null; canSettings: boolean; onSalesChanged?: () => void }) {
+export function SettingsView({ account, canSettings, sites = [], onSalesChanged }: { account: Account | null; canSettings: boolean; sites?: Site[]; onSalesChanged?: () => void }) {
   if (account?.demo) {
     return (
       <div className="settings">
         <section className="settings-card">
           <h2>Settings in the demo</h2>
           <p className="small muted">
-            In the live product this is where the Claude API key and email are set up, where API keys and webhooks are made for other systems to plug in. Each person changes their own password under
+            In the live product this is where the Claude API key, email and messaging channels (WhatsApp, text, Slack and Teams) are set up, where API keys and webhooks are made for other systems to plug in. Each person changes their own password under
             Your profile. People and their roles are on the Access tab. The demo has no accounts to manage: you hold full access to
             your own copy of the demo group, kept apart from every customer, and it is wiped at midnight UK time.
           </p>
@@ -69,6 +71,7 @@ export function SettingsView({ account, canSettings, onSalesChanged }: { account
       {canSettings && <EposSetup onSynced={onSalesChanged} />}
       {canSettings && <ClaudeKey />}
       {canSettings && <EmailSetup />}
+      {canSettings && <MessagingSetup sites={sites} />}
       {canSettings && <ApiKeys />}
       {canSettings && <Webhooks />}
     </div>

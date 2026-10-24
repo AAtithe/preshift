@@ -17,9 +17,11 @@ interface Props {
   onSave: (shift: Shift) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  /** Offers the shift to the people who could legally work it instead. Absent for those who may not. */
+  onAskCover?: (shiftId: string) => void;
 }
 
-export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose }: Props) {
+export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose, onAskCover }: Props) {
   const [draft, setDraft] = useState<Shift>(shift);
   const isNew = !state.shifts.some((s) => s.id === shift.id);
   const employee = state.employees.find((e) => e.id === draft.employeeId)!;
@@ -197,6 +199,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose 
               Delete
             </button>
           )}
+          {!isNew && onAskCover && <button onClick={() => onAskCover(shift.id)}>Ask for cover</button>}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={length <= 0} onClick={() => onSave(draft)}>Save</button>

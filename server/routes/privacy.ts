@@ -24,6 +24,7 @@ import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../con
 import { emailSetting } from '../mail';
 import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
+import { getMessagingSettings } from '../messaging';
 import { claudeKeySetting } from './access';
 import { deleteCopiesAfterSave, deleteCopiesOnSave, droppedCopies, recordCopies } from './documents';
 
@@ -47,6 +48,7 @@ const policyBody = {
     contactMonthsAfterLeaving: { type: 'integer', minimum: 0 },
     rightToWorkYearsAfterLeaving: { type: 'integer', minimum: 0 },
     payrollYearsAfterTaxYear: { type: 'integer', minimum: 0 },
+    messageMonths: { type: 'integer', minimum: 0 },
   },
 } as const;
 
@@ -84,6 +86,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
         email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
         payrollLive: !ctx.simulatorFor(org.orgId),
+        messaging: await messagingFlags(ctx, org),
         rewards: org.welfare?.rewards?.environment === 'production',
       },
       policyOf(org),
@@ -158,10 +161,12 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.put<{ Body: RetentionPolicy }>('/v1/privacy/policy', { ...admin, schema: { tags: ['Privacy'], body: policyBody } }, async (req) => {
-    const problem = retentionPolicyProblem(req.body);
+    // Clients that saved a policy before messages had a period keep the default for them.
+    const policy = { ...DEFAULT_RETENTION, ...req.body };
+    const problem = retentionPolicyProblem(policy);
     if (problem) throw new HttpError(400, 'retention_too_short', problem);
     const org = orgOf(req);
-    privacyOf(org).policy = { ...req.body };
+    privacyOf(org).policy = policy;
     audit(org, actor(req), 'privacy.policy_set', { ...req.body });
     return { policy: policyOf(org) };
   });
@@ -232,6 +237,7 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
           assistant: Boolean(await ctx.store.getSetting(claudeKeySetting(org.orgId))),
           email: Boolean(await ctx.store.getSetting(emailSetting(org.orgId))),
           payrollLive: !ctx.simulatorFor(org.orgId),
+          messaging: await messagingFlags(ctx, org),
           rewards: org.welfare?.rewards?.environment === 'production',
         },
         policyOf(org),
@@ -270,6 +276,13 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
         staffLogin: login
           ? { email: login.email ?? null, createdAt: login.createdAt, activatedAt: login.activatedAt ?? null, lastSignInAt: login.lastSignInAt ?? null }
           : null,
+        messages: messagesOf(org, e.id),
+        // Shifts put to them by name, and their answers. Never what others were asked or answered.
+        shiftsOffered: (org.openShifts ?? []).flatMap((o) =>
+          (o.offers ?? [])
+            .filter((x) => x.employeeId === e.id && x.offeredAt)
+            .map((x) => ({ date: o.date, startMinute: o.startMinute, endMinute: o.endMinute, siteId: o.siteId, askedAt: x.offeredAt, declinedAt: x.declinedAt ?? null, given: o.filledBy === e.id })),
+        ),
         changes: org.audit.filter((a) => about(a.detail) && (a.detail?.kind !== 'case' || g.can('hr.cases'))),
         requests: (org.privacy?.requests ?? []).filter((r) => r.employeeId === e.id).map(requestView),
         howWeUseIt: register,
@@ -308,6 +321,9 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       });
       await ctx.store.deleteStaffLogin(org.orgId, e.id);
       await clearPin(ctx.store, org.orgId, org.state.employees[i]);
+      // Their number and their choices about messages go with their login. The messages stay for
+      // their retention period: they are what each side was told.
+      if (org.messaging?.prefs[e.id]) delete org.messaging.prefs[e.id];
       audit(org, actor(req), 'privacy.subject_erased', { employeeId: e.id, locations });
       return { employee: org.state.employees[i], locationsRemoved: locations };
     },
@@ -387,4 +403,41 @@ export function privacyRoutes(app: FastifyInstance, ctx: AppContext) {
       return requestView(r);
     },
   );
+}
+
+/** Everything in messaging about one person: their thread, announcements to them, and how they chose to hear. */
+function messagesOf(org: OrgData, employeeId: string) {
+  const data = org.messaging;
+  if (!data) return { threads: [], preferences: null };
+  const theirs = data.conversations.filter((c) => (c.kind === 'direct' && c.employeeId === employeeId) || c.recipients?.includes(employeeId));
+  return {
+    threads: theirs.map((c) => ({
+      kind: c.kind,
+      title: c.title ?? null,
+      readAt: data.reads[`${c.id}|staff:${employeeId}`] ?? null,
+      messages: data.messages
+        .filter((m) => m.conversationId === c.id)
+        .map((m) => ({
+          at: m.at,
+          from: m.from.name,
+          body: m.body,
+          via: m.via,
+          deliveries: m.deliveries.filter((d) => !d.employeeId || d.employeeId === employeeId),
+        })),
+    })),
+    preferences: data.prefs[employeeId] ?? null,
+  };
+}
+
+async function messagingFlags(ctx: AppContext, org: OrgData) {
+  const s = await getMessagingSettings(ctx.store, org.orgId);
+  const prefs = Object.values(org.messaging?.prefs ?? {});
+  return {
+    whatsapp: !!s.whatsapp,
+    sms: !!s.sms,
+    slack: Object.keys(s.slack ?? {}).length > 0,
+    teams: Object.keys(s.teams ?? {}).length > 0,
+    messages: org.messaging?.messages.length ?? 0,
+    consents: prefs.filter((p) => p.whatsappConsentAt || p.smsConsentAt).length,
+  };
 }

@@ -22,6 +22,7 @@ import type { ShiftAlertRecord } from '../src/engine/reminders';
 import type { SeenRecord } from '../src/engine/rotaSeen';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
+import type { MessagingData } from '../src/engine/messaging';
 import type { RewardsConnection } from './integrations/rewards/provider';
 import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
 import type { OutboxItem } from './outbox';
@@ -197,6 +198,8 @@ export interface OrgData {
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
+  /** Messages between managers and staff, rota notices, and how each person wants to hear. Absent until first used. */
+  messaging?: MessagingData;
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
   welfare?: WelfareData;
   /** The accounting ledger the labour journal posts to, which company posts where, and what has been posted. Absent until connected. */

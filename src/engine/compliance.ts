@@ -252,8 +252,11 @@ export function checkEmployeeWeek(
       if (dayPaid > 8 * H) {
         push({ ...base, code: 'young-daily', severity: 'block', message: 'Under 18s cannot work more than 8 hours a day.' });
       }
-      // Hospitality may roster under 18s until midnight in limited cases; flag rather than block.
-      if (shift.endMinute > 22 * H || shift.startMinute < 6 * H) {
+      // Working Time Regulations 1998, regulation 27A: hotels, restaurants and bars may keep an under 18
+      // on between 22:00 and 06:00 where needed and supervised, but never between midnight and 04:00.
+      if (shift.startMinute < 4 * H || (shift.endMinute > 24 * H && shift.startMinute < 28 * H)) {
+        push({ ...base, code: 'young-midnight', severity: 'block', message: 'Under 18s cannot work between midnight and 04:00, even under the hospitality exemption.' });
+      } else if (shift.endMinute > 22 * H || shift.startMinute < 6 * H) {
         push({ ...base, code: 'young-night', severity: 'warn', message: 'Under 18 working between 22:00 and 06:00. Check the hospitality exemption applies and is supervised.' });
       }
     }

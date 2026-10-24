@@ -48,6 +48,9 @@ import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
 import { signingRoutes } from './routes/signing';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
+import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
+import { askDueRounds } from './cover';
+import { carryNotifications, keepMessages, releaseHeld } from './messaging';
 import { requestRoutes } from './routes/requests';
 import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
@@ -247,6 +250,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await syncAllRewards(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
+    await releaseAllHeld();
     await store.purgeApiCalls(new Date(Date.now() - API_CALL_RETENTION_DAYS * 86_400_000).toISOString());
     // Once a day per organisation: weather, event feeds and the forecast ahead. This route also ticks the
     // payroll outbox and may run often, so organisations already refreshed today are skipped, the longest
@@ -323,11 +327,36 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, refreshed, failed: failed.length, waiting: due.length - refreshed - failed.length, journeys, payRuns };
   });
 
+  // Messages held for someone's quiet hours go once those hours are over, and cover asked for in
+  // rounds widens to the next round. Run every quarter hour with the webhook retries, and daily with
+  // the dispatch for a plan without frequent cron jobs.
+  async function releaseAllHeld() {
+    for (const orgId of await store.orgIds()) {
+      if (isSandbox(orgId)) continue;
+      try {
+        const org = await store.load(orgId);
+        const released = await releaseHeld(ctx, org);
+        // Shifts put out in rounds: the next round goes when its time comes, told as any notice is.
+        const asked = askDueRounds(org, ctx.now());
+        if (asked) {
+          await carryNotifications(ctx, org);
+          await deliverNotifications(store, org);
+        }
+        // Messages past the organisation's retention period go even where nobody has written lately.
+        const dropped = keepMessages(org, ctx.now());
+        if (released || asked || dropped) await store.save(org);
+      } catch (err) {
+        app.log.error({ orgId, err: (err as Error).message }, 'held messages not released');
+      }
+    }
+  }
+
   // Every 15 minutes: webhook retries that no request has picked up, so a partner that was down
   // hears within the quarter hour of coming back, even from an organisation nobody is editing.
   app.get('/internal/webhooks', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await deliverAllWebhooks(store, options.webhookFetch);
+    await releaseAllHeld();
     return { ok: true };
   });
 
@@ -342,7 +371,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // that has started. Each is sent once, however often this runs.
   app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
-    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg), (org) => carryNotifications(ctx, org))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
@@ -367,6 +396,9 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
   oauthRoutes(app, store);
   staffRoutes(app, ctx);
+  // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
+  staffMessageRoutes(app, ctx);
+  whatsappWebhookRoutes(app, ctx);
   kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -424,6 +456,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
+        await carryNotifications(ctx, req.org);
         await deliverNotifications(store, req.org);
         await store.save(req.org);
         return payload;
@@ -490,6 +523,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     developerRoutes(api, ctx, { production: env.NODE_ENV === 'production' || env.VERCEL === '1', fetcher: options.webhookFetch });
     // People who manage are on userRoutes; staff app logins answer to the same access rules.
     staffAdminRoutes(api, ctx);
+    messageRoutes(api, ctx);
     // What staff ask for in the staff app, decided here by whoever runs their rota or team.
     requestRoutes(api, ctx);
     kioskAdminRoutes(api, ctx);
