@@ -203,8 +203,11 @@ describe('open shifts', () => {
   });
 
   it('shows the cancellation on top even when it lands in the same millisecond as the publish', async () => {
-    // Freeze the clock so every notification ties: the order written must decide, newest first.
-    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T12:00:00Z') });
+    // Freeze the clock so every notification ties: the order written must decide, newest first. The
+    // file's held clock (holdClock) keeps running, and faking over it keeps it running, so it is put
+    // away first; otherwise a slow run spreads the notifications over two milliseconds.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T12:00:00Z'), shouldAdvanceTime: false });
     try {
       const { k, join, me } = await boot();
       const ben = await join('mar-12');
