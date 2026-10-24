@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { buildApp, storeFromEnv } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore, PgStore, type Query } from './store';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const WEEK = '2026-10-19';
 const KEYS = [{ key: 'admin', orgId: 'demo', name: 'Admin', scopes: ['*' as const] }];

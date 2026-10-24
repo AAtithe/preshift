@@ -4,6 +4,9 @@ import type { Shift, TimeEntry } from '../src/engine/types';
 import { buildApp } from './app';
 import { TeamPaySimulator } from './integrations/payroll/simulator';
 import { MemoryStore } from './store';
+import { holdClock } from './testClock';
+
+holdClock();
 
 const WEEK = '2026-10-19';
 const FUTURE_WEEK = '2027-03-01'; // a Monday, after the real clock, so no shift here has started
