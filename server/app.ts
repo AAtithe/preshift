@@ -46,6 +46,7 @@ import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { requestRoutes } from './routes/requests';
 import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
+import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
 import { cashRoutes } from './routes/cash';
@@ -327,6 +328,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
+  });
+
+  // Every five minutes: shift reminders, and an alert when someone has not clocked in for a shift
+  // that has started. Each is sent once, however often this runs.
+  app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
+    if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after

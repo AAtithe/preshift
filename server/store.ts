@@ -15,6 +15,7 @@ import type { PayrollVariance } from '../src/engine/timesheet';
 import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { PushDevice } from './push';
+import type { ShiftAlertRecord } from '../src/engine/reminders';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { RewardsConnection } from './integrations/rewards/provider';
@@ -142,6 +143,8 @@ export interface OrgData {
   notifications?: StaffNotification[];
   /** Each person's published week at a site as they were last told it, by `employeeId|siteId|weekStart`. */
   toldWeeks?: Record<string, string[]>;
+  /** Reminders and no-show alerts sent per shift, kept a couple of days. */
+  shiftAlerts?: Record<string, ShiftAlertRecord>;
   /** The London day the managers' morning digest last went out, so it goes once a day. */
   lastDigest?: string;
   /** Events waiting to reach, or recently sent to, those systems. */
@@ -329,6 +332,8 @@ export interface StaffLogin {
   lockedUntil: number;
   /** Phones the person turned notifications on for. Closing the login forgets them with it. */
   push?: PushDevice[];
+  /** False when the person has turned off shift reminders. Not-clocked-in nudges still come. */
+  reminders?: boolean;
 }
 
 /**

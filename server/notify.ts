@@ -10,8 +10,9 @@ import { pushSubject, sendPush, vapidKeys, type PushMessage } from './push';
  * Tells one member of staff something. It shows in their staff app at once, and is emailed once
  * the request that raised it has saved (see emailNotifications), so a refused change tells nobody.
  */
-export function notify(org: OrgData, employeeId: string, kind: StaffNotificationKind, title: string, body: string, at = new Date()) {
-  const note: StaffNotification = { id: `ntf_${randomUUID().slice(0, 12)}`, employeeId, kind, at: at.toISOString(), title, body, email: 'pending' };
+export function notify(org: OrgData, employeeId: string, kind: StaffNotificationKind, title: string, body: string, at = new Date(), options: { email?: boolean } = {}) {
+  // Reminders go to the phone only: an email for every shift would bury the ones that matter.
+  const note: StaffNotification = { id: `ntf_${randomUUID().slice(0, 12)}`, employeeId, kind, at: at.toISOString(), title, body, email: options.email === false ? 'skip' : 'pending' };
   org.notifications = pruneNotifications([...(org.notifications ?? []), note], londonParts(at).date);
   return note;
 }
@@ -86,7 +87,7 @@ export function syncTold(org: OrgData, employeeIds: string[], shifts: Pick<Shift
  * Without either, the notice stays in the app's inbox, which always has it.
  */
 export async function deliverNotifications(store: Store, org: OrgData, fetcher: typeof fetch = fetch) {
-  const pending = (org.notifications ?? []).filter((n) => n.email === 'pending');
+  const pending = (org.notifications ?? []).filter((n) => n.email === 'pending' || (n.email === 'skip' && !n.push));
   if (pending.length === 0) return;
   const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
   const byPerson = new Map<string, StaffNotification[]>();
@@ -114,7 +115,9 @@ export async function deliverNotifications(store: Store, org: OrgData, fetcher: 
     if (fresh) await store.putStaffLogin({ ...fresh, push: (fresh.push ?? []).filter((d) => !gone.has(d.endpoint)) });
   }));
 
-  for (const { notes, e } of people) {
+  for (const { notes: all, e } of people) {
+    const notes = all.filter((n) => n.email === 'pending');
+    if (notes.length === 0) continue;
     const login = e ? logins.get(e.id) : null;
     const to = (login?.email ?? e?.email ?? '').trim().toLowerCase();
     if (!settings || !e || e.status === 'leaver' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
