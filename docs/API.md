@@ -35,6 +35,10 @@ locally. Set these to connect to real TeamPay:
 | `STRIPE_PRICE_ID` | The monthly Stripe price, graduated per site from `src/engine/pricing.ts`. Make it with `npm run stripe:prices`, which prints the value. The subscription's quantity is the organisation's site count |
 | `STRIPE_PRICE_ID_ANNUAL` | The yearly price made by the same script (two months free). Without it only monthly billing is offered |
 | `PRESHIFT_APP_URL` | Optional. The address Stripe returns people to after Checkout and the customer portal; defaults to the address they came in on |
+| `XERO_CLIENT_ID` | The Preshift app's client id from the Xero developer portal (a Web app). With the secret set, settings people can connect Xero on Close; without them only the simulated Xero is offered, in the demo and development |
+| `XERO_CLIENT_SECRET` | The app's client secret |
+| `XERO_REDIRECT_URI` | Optional. Where Xero returns people: must match the redirect URI registered on the app exactly. Defaults to `PRESHIFT_APP_URL` followed by `/v1/integrations/xero/callback`, so one of the two must be set |
+| `XERO_SCOPES` | Optional. Defaults to `openid profile email offline_access accounting.transactions accounting.settings.read`. An app created under Xero's granular scopes sets the equivalents for manual journals, accounts and tracking |
 | `CRON_SECRET` | Lets Vercel Cron call `/internal/dispatch` (daily, undelivered payroll changes), `/internal/webhooks` (every 15 minutes, webhook retries) `/internal/demo-reset` (the demo's midnight reset) and `/internal/digest` (06:35 UTC, the managers' morning email of staff requests) |
 
 ## Authentication and tenancy
