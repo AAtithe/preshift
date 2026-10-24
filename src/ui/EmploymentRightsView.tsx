@@ -145,7 +145,7 @@ export function EmploymentRightsView({ state, siteId, showCost, onChanged }: Pro
                 <td className="num">{c.suggestedHours}h</td>
                 {showCost && <td className="num">{money2(c.weeklyFixedCost)}</td>}
                 <td>{c.due ? 'Due now' : offersStarted ? `Needs ${settings.referenceWeeks} weeks` : 'Would be due'}{c.lastOffer ? ` (last offer lapsed)` : ''}</td>
-                <td>{pos.canOffer && <button onClick={() => setDrafting({ candidate: c, hours: c.suggestedHours })}>Make an offer</button>}</td>
+                <td>{pos.canOffer && <button onClick={() => setDrafting({ candidate: c, hours: Math.min(c.suggestedHours, 60) })}>Make an offer</button>}</td>
               </tr>
             ))}
           </tbody>
