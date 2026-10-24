@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finishedWeeks, maturity, overstaffing, scoreWeek, type WeekScore } from './scorecard';
+import { finishedWeeks, maturity, overstaffing, scorecardLeague, scoreWeek, type Scorecard, type WeekScore } from './scorecard';
 import { seedState } from './seed';
 import { autoSchedule } from './autoschedule';
 import { addDays, weekDates } from './time';
@@ -113,5 +113,42 @@ describe('week score', () => {
 
   it('lists the finished weeks before this one, oldest first', () => {
     expect(finishedWeeks(WEEK, 2)).toEqual([addDays(WEEK, -14), addDays(WEEK, -7)]);
+  });
+});
+
+describe('scorecard league', () => {
+  const card = (siteId: string, weeks: WeekScore[]): Scorecard => ({ siteId, weeks, maturity: maturity(weeks), summary: {} as Scorecard['summary'] });
+
+  it('ranks on the rung before the labour figure', () => {
+    // On target every week but published late: lucky, not run. The site that publishes on time ranks above it.
+    const lucky = card('lucky', [week({ publishedOnTime: false }), week({ publishedOnTime: false }), week({ publishedOnTime: false }), week({ publishedOnTime: false })]);
+    const run = card('run', [week({ onTarget: false }), week({ onTarget: false }), week({ onTarget: false }), week()]);
+    const top = card('top', [week(), week(), week(), week()]);
+    const league = scorecardLeague([lucky, run, top]);
+    expect(league.map((r) => [r.siteId, r.rank, r.level])).toEqual([['top', 1, 4], ['run', 2, 1], ['lucky', 3, 0]]);
+    expect(league[2].onTimeRate).toBe(0);
+    expect(league[2].onTargetRate).toBe(1);
+  });
+
+  it('weights labour by sales, pools hours over demand, and leaves out weeks that did not trade', () => {
+    const [row] = scorecardLeague([
+      card('mar', [
+        week({ plannedLabourPct: 0.3, actualLabourPct: 0.32, sales: 30000, overstaffedHours: 30, rosteredHours: 300, rotaToPayrollVariance: -0.02 }),
+        week({ plannedLabourPct: 0.24, sales: 10000, overstaffedHours: 0, rosteredHours: 100, rotaToPayrollVariance: 0.04, forecastWape: null }),
+        week({ plannedLabourPct: 0, sales: 0, rosteredHours: 0, overstaffedHours: 0, publishedAt: undefined, movesOffered: 0, movesTaken: 0, realisedSaving: 0 }),
+      ]),
+    ]);
+    expect(row.scoredWeeks).toBe(2);
+    expect(row.labourPct).toBeCloseTo((0.32 * 30000 + 0.24 * 10000) / 40000, 6);
+    expect(row.overstaffedShare).toBeCloseTo(30 / 400, 6);
+    expect(row.rotaToPayrollVariance).toBeCloseTo(0.03, 6);
+    expect(row.forecastWape).toBeCloseTo(0.1, 6);
+    expect(row.movesTakenRate).toBeCloseTo(4 / 6, 6);
+    expect(row.realisedSaving).toBe(80);
+  });
+
+  it('shows a site with nothing scored as blank, not as perfect', () => {
+    const [row] = scorecardLeague([card('new', [])]);
+    expect(row).toMatchObject({ scoredWeeks: 0, onTimeRate: 0, labourPct: null, overstaffedShare: null, forecastWape: null, movesTakenRate: null });
   });
 });
