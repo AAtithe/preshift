@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { EventEffect } from '../engine/events';
-import type { CalendarDay, Reminder } from '../engine/plan';
-import { addDays, daysBetween, formatMinute, weekStart } from '../engine/time';
+import type { CalendarDay } from '../engine/plan';
+import { addDays, formatMinute, weekStart } from '../engine/time';
 import type { RotaState, Site } from '../engine/types';
 import type { WeatherEffect } from '../engine/weather';
 import type { SchoolEffect } from '../engine/school';
 import type { SchoolPeriod } from '../engine/types';
 import { api, ApiError } from './api';
 import { dayLabel } from './format';
+import { inDays, type StatefulReminder } from './RemindersBanner';
 
 interface Feed { id: string; siteId: string; kind: 'ics' | 'ticketmaster' | 'school'; label: string; url?: string; lastRefreshedAt?: string; lastError?: string }
-type StatefulReminder = Reminder & { siteId: string; status: 'open' | 'done' | 'dismissed'; decidedBy?: string };
 interface CalendarResponse { days: CalendarDay[]; reminders: StatefulReminder[]; weatherEffect: WeatherEffect; eventEffects: EventEffect[]; schoolEffects: SchoolEffect[] }
 interface BookingStatus { siteId: string; bookingsAhead: number; coversAhead: number; furthestAhead: string | null; historyDays: number; lastLoadedAt: string | null }
 interface Imported { imported: number; from?: string; to?: string; skipped: number; notRead: string[]; problems: { line: number; reason: string }[] }
@@ -26,10 +26,6 @@ interface Props {
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 const pctText = (f: number) => `${f >= 1 ? '+' : ''}${Math.round((f - 1) * 100)}%`;
 const hoursText = (from?: number, to?: number) => (from === undefined && to === undefined ? '' : ` ${String(from ?? 0).padStart(2, '0')}:00 to ${String(to ?? 24).padStart(2, '0')}:00`);
-const inDays = (today: string, date: string) => {
-  const n = daysBetween(today, date);
-  return n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`;
-};
 
 /**
  * The coming weeks at a site, plotted: the trading calendar, local events and
@@ -443,40 +439,6 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
         </section>
       </div>
       {state.sites.length > 1 && <p className="muted small">Feeds and events are set per site.</p>}
-    </div>
-  );
-}
-
-/** What is due across the sites in view, as one line under the top bar. */
-export function RemindersBanner({ siteIds, sites, today, onOpen }: { siteIds: string[]; sites: Site[]; today: string; onOpen: (siteId: string) => void }) {
-  const [due, setDue] = useState<StatefulReminder[]>([]);
-  const key = siteIds.join(',');
-  useEffect(() => {
-    let live = true;
-    api
-      .get<StatefulReminder[]>(`/v1/reminders?siteIds=${key}`)
-      .then((r) => live && setDue(r))
-      .catch(() => live && setDue([]));
-    return () => {
-      live = false;
-    };
-  }, [key]);
-  if (due.length === 0) return null;
-  const name = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
-  const action = due.filter((r) => r.needsInput).length;
-  return (
-    <div className="notice reminders-banner">
-      <strong>Coming up.</strong>{' '}
-      {due.slice(0, 4).map((r, i) => (
-        <span key={`${r.siteId}${r.key}`}>
-          {i > 0 ? '; ' : ''}
-          <button className="link" onClick={() => onOpen(r.siteId)}>
-            {siteIds.length > 1 ? `${name(r.siteId)}: ` : ''}{r.title} {inDays(today, r.date)}
-          </button>
-        </span>
-      ))}
-      {due.length > 4 ? `; and ${due.length - 4} more` : ''}.
-      {action > 0 && ` ${action} need${action === 1 ? 's' : ''} your view.`}
     </div>
   );
 }
