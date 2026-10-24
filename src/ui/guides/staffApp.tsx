@@ -39,6 +39,22 @@ function StaffAppGuide() {
         moved shift when they next open the app or their email. Chase them.
       </p>
 
+      <h3>Sign the written statement and handbook on day one</h3>
+      <p>
+        Every employee is entitled to a written statement of their terms on or before their first day. A tribunal can add two to
+        four weeks' pay where one was not given. Do it from the phone, not on paper.
+      </p>
+      <ol className="guide-steps">
+        <li>Open the person's personnel file from People or Onboarding, then Documents and notes. Press Add document, name it, for example Statement of particulars, and attach the PDF.</li>
+        <li>Choose Written statement or Handbook and press Send to sign in the staff app. Sending the statement records it as issued that day.</li>
+        <li>They get a notification, open the document in the app, tick that they have read it and type their name to sign.</li>
+        <li>The record then shows when they signed, the name typed and where from. Onboarding marks the contract and handbook steps done.</li>
+      </ol>
+      <p>
+        A signed copy cannot be changed, sent again or deleted. For a new version, add a new record. The person can open what they
+        signed at any time from Inbox.
+      </p>
+
       <h3>Reminders</h3>
       <p>
         With notifications on, each person is reminded the evening before a shift and two hours before it starts, on their phone
@@ -59,7 +75,8 @@ function StaffAppGuide() {
         <li><strong>Seen it:</strong> when a week is published or changes, a banner asks them to check their shifts and confirm.</li>
         <li><strong>Rota:</strong> their shifts for the next two weeks and who they are on with. Swap or give away a shift, and pick up open shifts and swaps offered to them.</li>
         <li><strong>Requests:</strong> holiday with their balance shown first, other time off, report sickness and send a fit note, change their usual week, and add days they cannot work.</li>
-        <li><strong>Inbox:</strong> every message about their rota and requests, and the notifications switch.</li>
+        <li><strong>Inbox:</strong> every message about their rota and requests, the documents they have signed, and the notifications switch.</li>
+        <li><strong>To read and sign:</strong> a banner on every tab while a document sent to them is unsigned.</li>
       </ul>
       <p>They never see pay, anyone else's records, or anyone's reason for being off.</p>
 
