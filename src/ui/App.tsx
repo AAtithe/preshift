@@ -48,6 +48,7 @@ const BillingView = screen(() => import('./BillingView'), 'BillingView', ['billi
 const CalendarView = screen(() => import('./CalendarView'), 'CalendarView', ['calendar']);
 const CasesView = screen(() => import('./ReviewsView'), 'CasesView', ['cases']);
 const ClientsView = screen(() => import('./ClientsView'), 'ClientsView', ['clients']);
+const CustomersView = screen(() => import('./CustomersView'), 'CustomersView', ['customers']);
 const ClockView = screen(() => import('./ClockView'), 'ClockView', ['clock']);
 const CloseView = screen(() => import('./CloseView'), 'CloseView', ['close']);
 const CoachView = screen(() => import('./CoachView'), 'CoachView', ['coach']);
@@ -799,6 +800,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'privacy' && <PrivacyView state={state} canManage={allow('privacy.manage')} today={today} onChanged={actions.reload} />}
               {shown === 'access' && <AccessView state={state} />}
               {shown === 'clients' && <ClientsView />}
+              {shown === 'customers' && <CustomersView />}
               {shown === 'billing' && <BillingView canSettings={allow('settings.manage')} />}
               {shown === 'settings' && <SettingsView account={account} canSettings={allow('settings.manage')} sites={state.sites} onSalesChanged={() => void actions.refreshSales()} />}
               {shown === 'profile' && <ProfileView me={me} account={account} state={state} onSaved={actions.reload} />}

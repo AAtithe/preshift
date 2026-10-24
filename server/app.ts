@@ -37,6 +37,7 @@ import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
 import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
+import { customerRoutes } from './routes/customers';
 import { exemptFromShortNotice, trackShortNotice } from './employmentRights';
 import { employmentRightsRoutes } from './routes/employmentRights';
 import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
@@ -512,6 +513,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     clientRoutes(api, ctx);
     supportRoutes(api, ctx);
     billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
+    customerRoutes(api, ctx, { stripe: !!stripe });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);
     devRoutes(api, ctx);

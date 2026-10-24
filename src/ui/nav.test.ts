@@ -105,3 +105,11 @@ describe('who sees which sections', () => {
     for (const strong of ['Close', 'Cases', 'Set-up', 'GDPR']) expect(shown).not.toContain(strong);
   });
 });
+
+describe('customers', () => {
+  it('is offered to WS customer operations alone, not the owner or a client partner', () => {
+    const shown = (u: User) => visibleNav(allowFor(u), SITES, u.audience).flatMap((g) => g.items.map((t) => t.label));
+    expect(shown(person('ws_customers'))).toContain('Customers');
+    for (const r of ['owner', 'ws_partner', 'ws_accountant', 'finance_director']) expect(shown(person(r))).not.toContain('Customers');
+  });
+});
