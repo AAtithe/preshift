@@ -22,7 +22,7 @@ export type Permission =
   | 'users.manage' | 'users.sites' | 'audit.view'
   | 'settings.manage' | 'privacy.manage'
   | 'programme.lead'
-  | 'customers.view';
+  | 'customers.view' | 'customers.billing';
 
 export interface PermissionDef {
   area: 'Rota' | 'Labour cost' | 'Time' | 'Team' | 'HR' | 'Payroll' | 'Finance' | 'Access' | 'Settings';
@@ -54,12 +54,13 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
   'privacy.manage': { area: 'Settings', label: "Answer staff data requests, export or erase a person's data, set retention" },
   'programme.lead': { area: 'Finance', label: 'Sign off the labour programme: its baseline, milestones, verified saving and gain share' },
   'customers.view': { area: 'Finance', label: "See every self sign-up customer's trial, subscription and revenue, as counts and billing standing only" },
+  'customers.billing': { area: 'Finance', label: 'Move a card-paying customer onto a WS engagement, ending their Stripe subscription at the period end' },
 };
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
 /** Refused to a session without an authenticator when the role requires one. */
-export const STRONG: Permission[] = ['pay.edit', 'pay.approve', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage', 'programme.lead', 'customers.view'];
+export const STRONG: Permission[] = ['pay.edit', 'pay.approve', 'payroll.send', 'time.lock', 'close.export', 'users.manage', 'users.sites', 'settings.manage', 'hr.cases', 'privacy.manage', 'programme.lead', 'customers.view', 'customers.billing'];
 
 export interface RoleDef {
   id: string;
@@ -82,7 +83,7 @@ export const ROLES: RoleDef[] = [
   {
     id: 'owner', name: 'Owner', audience: 'operator', scope: 'org', mfa: true, appoints: ['operator', 'external'],
     about: 'Runs the business. Everything except approving hours, approving pay changes and sending pay, which stay with the people who check them, and signing off the labour programme, which sets the WS fee.',
-    permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve' && p !== 'pay.approve' && p !== 'programme.lead' && p !== 'customers.view'),
+    permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve' && p !== 'pay.approve' && p !== 'programme.lead' && p !== 'customers.view' && p !== 'customers.billing'),
   },
   {
     id: 'ops_director', name: 'Operations director', audience: 'operator', scope: 'org', mfa: true,
@@ -153,8 +154,8 @@ export const ROLES: RoleDef[] = [
     // Every customer at once, so one named role, held by the fewest people, and only ever counted in the
     // system's own organisation (server/routes/customers.ts): granted in a client's organisation it shows nothing.
     id: 'ws_customers', name: 'WS customer operations', audience: 'ws', scope: 'org', mfa: true,
-    about: "Williams, Stanley & Co. commercial lead: sees every self sign-up customer's trial, subscription and revenue in one place. Counts and billing standing only, never a customer's staff or pay.",
-    permissions: ['customers.view'],
+    about: "Williams, Stanley & Co. commercial lead: sees every self sign-up customer's trial, subscription and revenue in one place, and moves a customer onto a WS engagement when the firm takes them on. Counts and billing standing only, never a customer's staff or pay.",
+    permissions: ['customers.view', 'customers.billing'],
   },
   {
     id: 'external_auditor', name: 'External auditor', audience: 'external', scope: 'org', mfa: true, requiresEnd: true,

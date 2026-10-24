@@ -250,6 +250,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/clients': false,
   'POST /v1/clients/:orgId/owner-invite': false,
   'DELETE /v1/clients/:orgId': false,
+  'POST /v1/clients/:orgId/card-billing': false,
+  'POST /v1/customers/:orgId/engagement': false,
   'POST /v1/users/bulk': false,
   'POST /v1/users/:id/reactivate': false,
   'POST /v1/users/:id/resend-invite': false,

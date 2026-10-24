@@ -15,6 +15,8 @@ export interface BillingStanding {
   locked: boolean;
   trialEndsAt?: string;
   trialDaysLeft?: number;
+  /** A former WS client: the days left are the time to subscribe after the engagement, not a free trial. */
+  fromEngagement?: boolean;
 }
 
 interface Billing extends BillingStanding {
@@ -26,6 +28,8 @@ interface Billing extends BillingStanding {
   lastInvoice: { status: 'paid' | 'failed'; amountPence: number; currency: string; at: string; url?: string } | null;
   canSubscribe: boolean;
   canManage: boolean;
+  /** Moving to billing under a WS engagement from this date. */
+  engagement: { from: string } | null;
 }
 
 const STANDING: Record<Standing, { label: string; tone: string }> = {
@@ -117,13 +121,26 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
             about your fees go to your client partner.
           </p>
         )}
-        {billing.standing === 'trial' && (
+        {billing.engagement && billing.standing !== 'managed' && (
+          <p className="small">
+            Moving to billing under your engagement with Williams, Stanley & Co. on {day(billing.engagement.from)}. Your card subscription
+            ends then and is not renewed; the firm bills you from that date. Nothing changes in how you use Preshift.
+          </p>
+        )}
+        {billing.standing === 'trial' && billing.fromEngagement && (
+          <p className="small">
+            Your billing under the Williams, Stanley & Co. engagement has ended. To carry on, subscribe by card by{' '}
+            {day(billing.trialEndsAt)}, in {plural(billing.trialDaysLeft ?? 0, 'day')}. After that, changes pause until you do; everything
+            stays readable.
+          </p>
+        )}
+        {billing.standing === 'trial' && !billing.fromEngagement && (
           <p className="small">
             Your free trial ends on {day(billing.trialEndsAt)}, in {plural(billing.trialDaysLeft ?? 0, 'day')}. Subscribe at any time:
             you are not charged until the trial ends, and the days you have left are kept.
           </p>
         )}
-        {billing.standing === 'active' && billing.subscription && (
+        {billing.standing === 'active' && billing.subscription && !billing.engagement && (
           <p className="small">
             {billing.subscription.cancelAtPeriodEnd
               ? `Cancelled. Everything works until ${day(billing.subscription.currentPeriodEnd)}, then changes pause and everything stays readable. Restart it from Manage billing.`

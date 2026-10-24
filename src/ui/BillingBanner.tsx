@@ -24,7 +24,9 @@ export function BillingBanner({ billing, canSettings, onOpen }: { billing?: Bill
   }
   if (billing.standing === 'past_due' && canSettings) return <div className="notice error">The last payment failed. Update the card so nothing pauses.{open}</div>;
   if (billing.standing === 'trial' && canSettings && (billing.trialDaysLeft ?? 0) <= 7) {
-    return <div className="notice">Your free trial ends in {plural(billing.trialDaysLeft ?? 0, 'day')}. Subscribe to carry on without a break.{open}</div>;
+    return billing.fromEngagement
+      ? <div className="notice">Your billing under the Williams, Stanley & Co. engagement has ended. Subscribe by card within {plural(billing.trialDaysLeft ?? 0, 'day')} to carry on without a break.{open}</div>
+      : <div className="notice">Your free trial ends in {plural(billing.trialDaysLeft ?? 0, 'day')}. Subscribe to carry on without a break.{open}</div>;
   }
   return null;
 }

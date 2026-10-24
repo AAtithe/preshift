@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatPence } from '../engine/pricing';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { csvLine, download } from './format';
 
 // Customers, for Williams, Stanley & Co. customer operations: every organisation that signed itself up,
-// its trial, subscription and revenue, and who needs a call this week. Counts and billing standing only;
-// paying, refunds and cancelling stay in Stripe, so nothing here moves money. See server/routes/customers.ts.
+// its trial, subscription and revenue, and who needs a call this week. Counts and billing standing only.
+// One action: moving a customer onto a WS engagement when the firm takes them on, which ends their Stripe
+// subscription at the period end so they never pay twice. See server/routes/customers.ts.
 
 type Standing = 'trial' | 'active' | 'past_due' | 'lapsed' | 'managed';
 
@@ -29,6 +30,8 @@ interface Customer {
   rotaPublished: boolean;
   lastActivity: string | null;
   attention: string[];
+  engagement: { from: string; by: string; at: string } | null;
+  fromEngagement: boolean;
 }
 
 interface Totals {
@@ -44,7 +47,11 @@ interface Totals {
   arrPence: number;
   sitesBilled: number;
   trialsWithRota: number;
+  toEngagement: number;
+  fromEngagement: number;
 }
+
+interface Data { customers: Customer[]; totals: Totals; stripe: boolean; canMove: boolean }
 
 const STANDING: Record<Standing, { label: string; tone: string }> = {
   trial: { label: 'Trial', tone: 'warn' },
@@ -61,19 +68,41 @@ const FILTERS: { id: 'all' | 'attention' | Standing; label: string }[] = [
   { id: 'active', label: 'Paying' },
   { id: 'past_due', label: 'Payment failed' },
   { id: 'lapsed', label: 'Lapsed' },
+  { id: 'managed', label: 'WS engagement' },
 ];
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 export function CustomersView() {
-  const [data, setData] = useState<{ customers: Customer[]; totals: Totals; stripe: boolean } | null>(null);
+  const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
   const [query, setQuery] = useState('');
 
-  useEffect(() => {
-    api.get<{ customers: Customer[]; totals: Totals; stripe: boolean }>('/v1/customers').then(setData).catch((e) => setError((e as Error).message));
-  }, []);
+  const load = () => api.get<Data>('/v1/customers').then(setData).catch((e) => setError((e as Error).message));
+  useEffect(() => void load(), []);
+
+  // The firm takes on a card customer: Stripe stops at the end of the period they have paid for.
+  async function moveToEngagement(c: Customer) {
+    const when = c.standing === 'active' || c.standing === 'past_due'
+      ? `Their Stripe subscription ends on ${day(c.currentPeriodEnd) || 'the last day they have paid for'} and is not renewed; WS bills them from then.`
+      : 'They have no subscription in force, so WS bills them from today.';
+    const note = prompt(`Move ${c.name} to billing under a WS engagement?\n\n${when} Nothing is refunded or charged now.\n\nNote for the record (optional, e.g. the engagement letter reference):`, '');
+    if (note === null) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const row = await api.post<Customer>(`/v1/customers/${encodeURIComponent(c.orgId)}/engagement`, note.trim() ? { note: note.trim() } : {});
+      setNotice({ text: `${c.name} moves to WS engagement billing on ${day(row.engagement?.from ?? null)}.` });
+      await load();
+    } catch (e) {
+      setNotice({ text: e instanceof ApiError || e instanceof Error ? e.message : String(e), bad: true });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const visible = useMemo(() => {
     const list = data?.customers ?? [];
@@ -107,9 +136,11 @@ export function CustomersView() {
     <div className="clients customers">
       <p className="muted small">
         Every business that signed itself up, its trial, subscription and revenue. Counts and billing standing only, never a customer's
-        staff or pay. Paying, refunds and cancelling are in Stripe. Clients billed under a WS engagement are under Clients. Each time this page
-        opens it is recorded in the audit trail.
+        staff or pay. Paying, refunds and cancelling are in Stripe. When the firm takes a customer on, move them to WS engagement billing
+        here so they never pay twice. Clients who started under a WS engagement are under Clients. Each time this page opens it is recorded
+        in the audit trail.
       </p>
+      {notice && <p className={`small ${notice.bad ? 'bad-text' : 'good-text'}`} role="status">{notice.text}</p>}
       {!data.stripe && <p className="notice small">Card payments are not set up on this system yet, so nobody can subscribe and nothing is paused.</p>}
 
       <div className="kpis people-kpis">
@@ -137,6 +168,11 @@ export function CustomersView() {
           <div className="kpi-label">Sign-ups</div>
           <div className="kpi-value">{t.signups7}</div>
           <div className="kpi-hint">Last 7 days, {t.signups30} in 30</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Taken on by WS</div>
+          <div className="kpi-value">{t.toEngagement}</div>
+          <div className="kpi-hint">Moved from card to an engagement; {t.fromEngagement} the other way</div>
         </div>
         <div className={`kpi ${attention ? 'bad' : 'good'}`}>
           <div className="kpi-label">Need attention</div>
@@ -173,6 +209,7 @@ export function CustomersView() {
                 <th className="num">MRR</th>
                 <th>Onboarding</th>
                 <th>Needs</th>
+                {data.canMove && <th />}
               </tr>
             </thead>
             <tbody>
@@ -189,8 +226,10 @@ export function CustomersView() {
                   <td>
                     <span className={`pill tone-${STANDING[c.standing].tone}`}>{STANDING[c.standing].label}</span>
                     <div className="muted small">
-                      {c.standing === 'trial'
-                        ? `${c.trialDaysLeft} day${c.trialDaysLeft === 1 ? '' : 's'} left`
+                      {c.engagement
+                        ? `${c.standing === 'managed' ? 'Since' : 'From'} ${day(c.engagement.from)}`
+                        : c.standing === 'trial'
+                        ? `${c.trialDaysLeft} day${c.trialDaysLeft === 1 ? '' : 's'} ${c.fromEngagement ? 'to subscribe, off a WS engagement' : 'left'}`
                         : c.interval
                           ? `${c.interval === 'year' ? 'Yearly' : 'Monthly'}${c.cancelAtPeriodEnd ? ', cancelled' : ''}`
                           : ''}
@@ -204,6 +243,13 @@ export function CustomersView() {
                     {c.onboarding.next && <div className="muted small">Next: {c.onboarding.next}</div>}
                   </td>
                   <td className="small">{c.attention.length ? c.attention.map((a) => <div key={a}>{a}</div>) : <span className="muted">Nothing</span>}</td>
+                  {data.canMove && (
+                    <td>
+                      {!c.engagement && (
+                        <button disabled={busy} onClick={() => void moveToEngagement(c)}>Move to WS engagement</button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
