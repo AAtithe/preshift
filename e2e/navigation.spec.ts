@@ -49,12 +49,11 @@ async function choose(page: Page, name: string) {
 }
 
 async function signIn(page: Page) {
-  // A deployed site with a public demo: each test gets a sandbox of its own, as any visitor would.
+  // A deployed site with a public demo: the run's one sandbox, its session already in this browser
+  // (e2e/demo.setup.ts).
   if (process.env.PRESHIFT_E2E_DEMO) {
-    await page.goto('/demo');
-    await page.getByRole('button', { name: 'Start the demo' }).click();
-    // Building a fresh sandbox takes the live site around six seconds, longer than a check's usual wait.
-    await expect(bar(page)).toBeVisible({ timeout: 30_000 });
+    await page.goto('/app/');
+    await expect(bar(page)).toBeVisible();
     return;
   }
   await page.goto('/login?next=/app/');
