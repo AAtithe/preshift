@@ -87,6 +87,13 @@ export const RELEASES: Release[] = [
         tab: 'clients',
       },
       {
+        for: 'Owners',
+        title: 'Choose which features you use',
+        body: 'Organisation, then Features: switch off the parts of Preshift your business does not use, such as Tronc, Prime cost or HR files, and they leave the left-hand bar for everyone. Nothing is deleted and nobody\'s access changes; switching one back on restores it as it was. Benchmarking and open shifts approved without a manager sit on the same screen, and every change is recorded with who made it.',
+        tryIt: 'Count the sections your team never opens, then switch them off once your GMs know.',
+        tab: 'features',
+      },
+      {
         for: 'Everyone',
         title: 'A calmer look',
         body: 'Labels read as words instead of small capitals, notices are quiet cards marked by a coloured dot, cards and controls are rounder, and Shifty sits at the end of the command bar instead of over the P&L. Same screens, easier to read on a busy shift.',
