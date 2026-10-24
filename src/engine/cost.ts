@@ -3,6 +3,7 @@ import { UK_RATES_2026_27, type UkRates } from './ukRates';
 import { weekDates } from './time';
 import { employedShare } from './employees';
 import { travelMinutesInto, travelPay as travelPayFor, travelRate, unpricedMoves } from './travel';
+import { rulesFor, weekPremiums } from './premiums';
 
 export function shiftPaidMinutes(shift: Shift): number {
   return Math.max(0, shift.endMinute - shift.startMinute - shift.breakMinutes);
@@ -30,6 +31,8 @@ export interface EmployeeWeekCost {
   travelHours: number;
   /** Added to travel pay so the week averages the minimum wage, where the company averages. */
   minimumWageTopUp: number;
+  /** Sunday, bank holiday, night and overtime premiums, within gross. */
+  premium: number;
   gross: number;
   holiday: number;
   employerNi: number;
@@ -42,6 +45,8 @@ export interface ShiftCost {
   paidHours: number;
   /** Paid travel to this shift from another site earlier that day, costed with it. */
   travelHours: number;
+  /** Premiums earned on this shift itself, within gross. */
+  premium: number;
   gross: number;
   holiday: number;
   employerNi: number;
@@ -62,6 +67,8 @@ export interface WeekCost {
   unallocated: number;
   /** Paid travel between sites in scope: hours, the loaded cost they carry, and moves with no journey time to cost. */
   travel: { hours: number; cost: number; unpriced: number };
+  /** Premium pay on shifts in scope, before on-costs. */
+  premium: number;
 }
 
 function round2(n: number) {
@@ -91,16 +98,20 @@ export function employeeWeekCost(
   const firstDate = shifts.reduce((min, s) => (s.date < min ? s.date : min), shifts[0]?.date ?? '9999-12-31');
   const workPay = workedHours * employee.hourlyRate;
   const travel = travelPayFor(employee, entities, firstDate, { workHours: workedHours, workPay, travelHours }, rates);
+  // Premiums are paid on the hours that earn them, on top of everything else. They do not count
+  // towards the minimum wage, so the travel top-up above is worked without them.
+  const premium = weekPremiums(employee, shifts, rulesFor(employee, entities)).reduce((sum, p) => sum + p.amount, 0);
   // Guaranteed contracted hours are a floor on pay, met by work and travel alike.
   const gross =
     employee.payBasis === 'salaried'
       ? (employee.annualSalary / 52) * share
-      : Math.max(workPay + travel.pay + travel.topUp, employee.contractedHours * share * employee.hourlyRate);
+      : Math.max(workPay + travel.pay + travel.topUp, employee.contractedHours * share * employee.hourlyRate) + premium;
   return {
     employeeId: employee.id,
     paidHours: round2(paidHours),
     travelHours: round2(travelHours),
     minimumWageTopUp: round2(travel.topUp),
+    premium: round2(premium),
     ...weekOnCosts(employee, gross, rates),
   };
 }
@@ -145,6 +156,7 @@ export function weekCost(
   let total = 0;
   let unallocated = 0;
   const travel = { hours: 0, cost: 0, unpriced: 0 };
+  let premiumTotal = 0;
   const sites = state.sites ?? [];
   const parts = { gross: 0, holiday: 0, employerNi: 0, pension: 0 };
   const addParts = (c: { gross: number; holiday: number; employerNi: number; pension: number }) => {
@@ -175,15 +187,29 @@ export function weekCost(
     if (siteId && scoped.length === 0 && !(unrostered && employee.siteId === siteId)) continue;
 
     employees.set(employee.id, cost);
-    // Spread by exact weighted hours: the rounded figure would leave pennies unallocated once travel is in.
+    // Each shift carries its own premium; the rest of the week's pay is spread by exact weighted hours
+    // (the rounded figure would leave pennies unallocated once travel is in). Weighing in money rather
+    // than hours puts a Sunday shift's share of NI and pension where its premium is.
+    const premiumByShift = new Map<string, number>();
+    for (const p of weekPremiums(employee, own, rulesFor(employee, state.entities ?? []))) {
+      premiumByShift.set(p.shiftId, (premiumByShift.get(p.shiftId) ?? 0) + p.amount);
+    }
+    const premiumWeek = [...premiumByShift.values()].reduce((a, b) => a + b, 0);
     const hours = own.reduce((sum, s) => sum + shiftPaidHours(s), 0) + allTravel * travelWeight;
+    const basePay = cost.gross - premiumWeek;
+    const weightOf = (h: number, p: number) => (hours > 0 ? (basePay * h) / hours : 0) + p;
+    const totalWeight = weightOf(hours, premiumWeek);
     for (const shift of scoped) {
       const travelHours = (travelInto.get(shift.id) ?? 0) / 60;
-      const share = hours > 0 ? (shiftPaidHours(shift) + travelHours * travelWeight) / hours : 0;
+      const shiftHours = shiftPaidHours(shift) + travelHours * travelWeight;
+      const premium = premiumByShift.get(shift.id) ?? 0;
+      const share = totalWeight > 0 ? weightOf(shiftHours, premium) / totalWeight : hours > 0 ? shiftHours / hours : 0;
+      premiumTotal += premium;
       const sc: ShiftCost = {
         shiftId: shift.id,
         paidHours: round2(shiftPaidHours(shift)),
         travelHours: round2(travelHours),
+        premium: round2(premium),
         gross: round2(cost.gross * share),
         holiday: round2(cost.holiday * share),
         employerNi: round2(cost.employerNi * share),
@@ -195,7 +221,7 @@ export function weekCost(
       addParts(sc);
       if (travelHours > 0) {
         travel.hours += travelHours;
-        travel.cost += hours > 0 ? cost.total * ((travelHours * travelWeight) / hours) : 0;
+        travel.cost += totalWeight > 0 ? cost.total * weightOf(travelHours * travelWeight, 0) / totalWeight : 0;
       }
     }
     if (unrostered) {
@@ -217,5 +243,6 @@ export function weekCost(
     unallocated: round2(unallocated),
     parts: rounded,
     travel: { hours: round2(travel.hours), cost: round2(travel.cost), unpriced: travel.unpriced },
+    premium: round2(premiumTotal),
   };
 }
