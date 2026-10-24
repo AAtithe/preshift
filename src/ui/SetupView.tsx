@@ -48,7 +48,7 @@ const problem = (e: unknown) => {
 };
 
 export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
-  const initial = useMemo(() => (state.sites.length ? draftFromState(state) : emptyDraft()), [state]);
+  const initial = useMemo(() => (state.sites.length ? draftFromState(state) : emptyDraft(state.entities)), [state]);
   const [draft, setDraft] = useState<SetupDraft>(initial);
   const [saved, setSaved] = useState(state.sites.length ? JSON.stringify(initial) : '');
   const [step, setStep] = useState(startOnTeam && state.sites.length ? TEAM_STEP : 0);

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { customerSetting, formEncode, getBilling, putBilling, signStripePayload, standingOf, verifyStripeSignature, type BillingRecord } from './billing';
 import { emailSetting } from './mail';
-import { kit, type Kit } from './testkit';
+import { enrol, kit, type Kit } from './testkit';
 
 // Self sign-up and billing: a business starts a trial from the sign-in page, proving its email
 // first; when the trial ends it pays through Stripe Checkout, per site, or its changes pause while
@@ -123,6 +123,19 @@ describe('self sign-up', () => {
 
     // The link works once.
     expect((await k.form('/auth/signup/complete', { token, password: 'another long password', confirm: 'another long password' })).location).toContain('error=badlink');
+  });
+
+  it('lets the new owner, once their authenticator is set up, start set-up from the business they named', async () => {
+    const k = await boot({ signup: true });
+    await k.form('/auth/signup', { business: 'Harbour Kitchens Ltd', name: 'Ben Shaw', email: 'ben@harbour.example' });
+    const done = await k.form('/auth/signup/complete', { token: tokenIn(mails[0].text), password: 'bens own long password', confirm: 'bens own long password' });
+    // Set-up needs the authenticator: until then it is held but off, which the app walks them through.
+    const me = await k.call('GET', '/v1/me', done.cookie!);
+    expect(me.body.authenticator).toMatchObject({ required: true, enrolled: false });
+    const proved = (await enrol(k, done.cookie!)).cookie;
+    // No sites yet, and still their own company comes back, so set-up starts from its name.
+    const companies = await k.call('GET', '/v1/entities', proved);
+    expect(companies.body.map((e: { name: string }) => e.name)).toEqual(['Harbour Kitchens Ltd']);
   });
 
   it('answers the same for an email that already has an account, and tells only its inbox', async () => {

@@ -21,7 +21,7 @@ import { BillingBanner } from './BillingBanner';
 import { RestBreaches } from './RestBreaches';
 import type { Account } from './SettingsView';
 import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, type AtAll, type NavItem, type Tab } from './nav';
-import { allowFor, NOT_YOURS } from './permissions';
+import { allowFor, heldOnceVerified, NOT_YOURS } from './permissions';
 import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
 import { SideNav } from './SideNav';
@@ -166,6 +166,33 @@ export function App() {
         <Suspense fallback={<ScreenLoading />}>
           <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
         </Suspense>
+        <p className="small muted"><a className="link" href="/auth/logout">Sign out</a></p>
+      </div>
+    );
+  }
+  // A new organisation's owner, typically straight from sign-up: they hold set-up, but it stays off
+  // until their authenticator is set up and proved. Walk them through that first, never a dead end.
+  if (state.sites.length === 0 && heldOnceVerified(me)('settings.manage')) {
+    return (
+      <div className="first-run">
+        <div className="wordmark">
+          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+        </div>
+        <section className="settings-card first-run-welcome">
+          <h2>Welcome{me?.user?.name ? `, ${me.user.name.split(' ')[0]}` : ''}. Two steps and you are ready to build your first rota.</h2>
+          <ol className="small">
+            <li>
+              <strong>Set up your authenticator app.</strong> As owner you can change pay, payroll and who has access, so Preshift
+              asks for a code from your phone before switching those on. It takes two minutes: scan a QR code, type the code it shows,
+              and keep the recovery codes somewhere safe.
+            </li>
+            <li>
+              <strong>Set up your business.</strong> Your companies, sites, roles and a typical trading week, then your team. Set-up
+              opens here as soon as the code is confirmed.
+            </li>
+          </ol>
+        </section>
+        <AuthenticatorBar me={me} />
         <p className="small muted"><a className="link" href="/auth/logout">Sign out</a></p>
       </div>
     );
