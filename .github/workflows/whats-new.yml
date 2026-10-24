@@ -1,0 +1,91 @@
+name: What's new
+
+# Every Thursday, drafts next week's What's new from the pull requests merged into main that week:
+# the walkthrough the app shows everyone from Monday, live and in the demo, and the README card it
+# goes out with. The draft is opened as a pull request, never merged here: whoever owns the card
+# reads each step on the screen it opens, corrects it and merges it before Monday. The app holds a
+# release back until its Monday, so merging early is safe.
+#
+# Claude writes the copy when the repository has an ANTHROPIC_API_KEY secret; without one the draft
+# is one plain row per pull request, to rewrite by hand. A pull request opened with the workflow's
+# own token does not start CI, so this job runs the checks the draft could break before opening it;
+# set a WHATS_NEW_TOKEN secret (a token that may push and open pull requests) to have CI run as well.
+on:
+  schedule:
+    - cron: '23 7 * * 4'
+  workflow_dispatch:
+    inputs:
+      week:
+        description: 'The Monday to draft for (YYYY-MM-DD). Defaults to the coming Monday.'
+        required: false
+      since:
+        description: 'Count pull requests merged on or after this day (YYYY-MM-DD). Defaults to seven days ago.'
+        required: false
+
+concurrency:
+  group: whats-new
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  draft:
+    name: Draft next week
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.WHATS_NEW_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.WHATS_NEW_TOKEN || github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Skip a week already being drafted
+        id: open
+        run: |
+          week="${{ inputs.week }}"
+          [ -n "$week" ] || week=$(node -e "const d=new Date();d.setUTCDate(d.getUTCDate()+((8-d.getUTCDay())%7||7));console.log(d.toISOString().slice(0,10))")
+          echo "week=$week" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "whats-new/$week" >/dev/null; then
+            echo "A draft for $week is already open on whats-new/$week; nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Draft from this week's pull requests
+        id: draft
+        if: steps.open.outputs.exists != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -- --week "${{ steps.open.outputs.week }}"
+          [ -z "${{ inputs.since }}" ] || set -- "$@" --since "${{ inputs.since }}"
+          npm run whats-new -- "$@"
+
+      - name: Check the draft
+        if: steps.draft.outputs.drafted == 'true'
+        run: |
+          npm run typecheck
+          npx vitest run src/ui/walkthrough.test.ts src/ui/whatsNewDraft.test.ts
+
+      - name: Open the draft for review
+        if: steps.draft.outputs.drafted == 'true'
+        env:
+          WEEK: ${{ steps.draft.outputs.week }}
+          SUMMARY: ${{ steps.draft.outputs.summary }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "whats-new/$WEEK"
+          git add src/ui/walkthrough.ts README.md docs/WHATS_NEW.md
+          git commit -m "What's new for the week of $WEEK" -m "$SUMMARY"
+          git push -u origin "whats-new/$WEEK"
+          gh pr create --base main --head "whats-new/$WEEK" --title "What's new for the week of $WEEK" --body "$SUMMARY"

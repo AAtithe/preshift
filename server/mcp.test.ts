@@ -55,6 +55,14 @@ describe('MCP connector', () => {
     expect((await app.inject({ method: 'GET', url: '/mcp', headers: { authorization: 'Bearer admin' } })).statusCode).toBe(405);
   });
 
+  it('lists the one organisation a key belongs to, and refuses any other', async () => {
+    const { tool } = await setup();
+    const listed = await tool('list_organisations');
+    expect(listed.structuredContent.organisations.map((o: { id: string }) => o.id)).toEqual(['demo']);
+    expect((await tool('list_sites', { organisation: 'demo' })).isError).toBe(false);
+    expect((await tool('list_sites', { organisation: 'acme' })).content[0].text).toContain('does not reach');
+  });
+
   it('lists only the tools the key may run', async () => {
     const { rpc } = await setup();
     const all = (await rpc('tools/list')).body.result.tools.map((t: { name: string }) => t.name);

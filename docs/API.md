@@ -83,6 +83,10 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 | Sync, send hours, retry | `payroll.send` |
 | A company's TeamPay employer and PAYE reference | `settings.manage`: it decides where that company's hours are sent |
 | A company's pay premiums | `pay.approve`: a premium raises the pay of everyone it touches, so it sits with whoever approves pay |
+| Employment rights: the site's position | `rota.view` at the site; pay amounts need `costs.view` |
+| Employment rights: settings and start dates | `settings.manage` |
+| Guaranteed hours offers and answers | `team.manage` at the person's home site |
+| Waiving short notice pay | `pay.approve`: waiving pay owed is a pay decision |
 | Labour accrual journal | `close.export` |
 
 ## Plugging in: API keys
@@ -239,8 +243,23 @@ claude mcp add --transport http preshift https://<your Preshift address>/mcp \
 claude.ai connects with no key at all. Add a custom connector (Settings, Connectors) with the
 address `https://<your Preshift address>/mcp` and press Connect. Claude finds Preshift's sign-in
 on its own, opens it, and the person signs in to Preshift as they normally do. They then see
-what Claude will be able to do and tick the boxes, and Claude is connected. Claude Code and
-Claude Desktop use the same sign-in when added without a key header.
+every organisation they work in and what Claude will be able to do, tick the boxes, and Claude is
+connected. Claude Code and Claude Desktop use the same sign-in when added without a key header.
+
+One connection reaches every organisation the person ticked, so someone at Williams, Stanley & Co.
+who looks after twenty clients connects once, at the one Preshift address, not twenty times.
+
+- The consent page lists each organisation where the person has an active access record, all
+  ticked, and names the others with the reason they are left out (no access record, invitation
+  not accepted, access not active). The demo is never offered.
+- Claude calls `list_organisations` first, then passes `organisation` to every other tool. With
+  more than one organisation and none named, a tool refuses rather than guess; with one, it is
+  used. A key reaches its own organisation only, as before.
+- Each call acts as the person's own access record in that organisation, checked on the call. An
+  organisation the person leaves drops out of the connection at once; the others carry on.
+- Calling the API directly with such a token, name the organisation in the
+  `x-preshift-organisation` header. Without it, a token reaching several answers
+  `400 organisation_required` with the list.
 
 - Standards: OAuth 2.1 with PKCE (S256 only), dynamic client registration (RFC 7591),
   protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`,
@@ -251,18 +270,18 @@ Claude Desktop use the same sign-in when added without a key header.
   decide, site by site: a GM's connection reaches their own site only. It never counts as having
   passed the authenticator, so strong rights (pay changes and approval, payroll, settings, access,
   HR cases, close export) stay in the app, whatever the person holds.
-- The person ticks what Claude may do from `rota:read` (ticked by default), `employees:read`,
-  `rota:write` and `time:approve`. Nothing else is offered.
-- Only someone with an active access record in the organisation can connect. The public demo
-  refuses.
+- The person ticks what Claude may do, the same in every organisation: View the rota
+  (`rota:read`, ticked by default), See staff and pay (`employees:read`), Change the rota
+  (`rota:write`) and Approve clocked time (`time:approve`). Nothing else is offered.
 - Access tokens last an hour; refresh tokens 30 days and rotate on every use. A refresh token
   used twice ends the whole connection, as it means someone holds a copy. Codes last five
   minutes and work once, with their own verifier, for their own app and address.
-- A connection ends at once when the person disconnects it at `/oauth/connections`, when it is
-  revoked, when the person is removed or suspended, or when their password is reset.
+- A connection ends at once when the person disconnects it from Connected apps
+  (`/oauth/connections`, linked at the bottom left of Preshift, listing every connection with the
+  organisations it reaches), when it is revoked, or when their password is reset.
 - Redirect addresses must be https, or http on `localhost` for desktop clients, and must match
   what the app registered exactly. A bad one is shown as an error, never followed.
-- Every connection and disconnection is in the organisation's audit trail (`oauth.connected`,
+- Every connection and disconnection is in each organisation's audit trail (`oauth.connected`,
   `oauth.revoked`). Calls made through it are logged like any key's, as `oauth:<grant id>`.
 - Clients, codes and tokens are kept in the settings table, hashed, so nothing new needs setting
   up. Set `PRESHIFT_PUBLIC_URL` if Preshift sits behind a proxy that changes the host name;
@@ -340,6 +359,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Support | `GET /v1/support/tickets` (the organisation's questions, bug reports and feature ideas, open and blocking first, with `desk`, the names who answer, and `youAreDesk`), `POST /v1/support/tickets` `{kind: question|bug|feature, title, detail, impact?, steps?, hoursSavedPerWeek?, context?}` (a bug's `impact` sets its severity; 30 a day per organisation), `POST /v1/support/answered`, `POST /v1/support/tickets/:id/vote`, `POST /v1/support/tickets/:id/comments`, `PATCH /v1/support/tickets/:id` `{status}`. People signed in only, never an integration key. The desk is the client's WS client partner (the `ws_partner` role across the organisation): only their reply stops the response clock and only they change a status. A new ticket emails each partner through their own WS organisation's email, and records `notified` (emailed, failed, not_set_up, no_desk). First response targets are London working hours, Monday to Friday, bank holidays excepted: blocking 4 working hours, major and questions 1 working day, minor 3, ideas 5. Closed tickets are deleted two years after closing and are listed in the record of processing. Off in the public demo |
 | Travel | `PUT /v1/sites/:id/location` (`{postcode}`, looked up on postcodes.io, or `{lat, lng}`; clears looked-up journeys to and from the site), `POST /v1/sites/travel/refresh` (TfL journey planner for every pair of located sites, each way, weekday 17:00, public transport or walking; hand-set times kept; a labelled straight-line estimate where TfL has no answer), `PUT`/`DELETE /v1/sites/:id/travel/:toId` (`{minutes}` set by hand, both ways). Journeys are kept on each site as `travel: {siteId: {minutes, source: tfl\|estimate\|manual, mode, checkedAt}}`. Shift responses carry `travel` (blocking: cannot get there in time), `travel-tight` and `travel-unknown` issues. A same-day journey between sites is paid working time: costs, journals and payroll submissions include it, charged to the shift travelled to, and payroll hours lines carry `travelHours` (already inside `hours`). What a company pays for travel is set with `PATCH /v1/entities/:id` `{travelPay: {basis: normal\|minimum\|fixed, hourly?}}`: `minimum` is the minimum wage for each person's age, `fixed` needs `hourly` and is lifted to the minimum wage where it is lower, and `normal` clears the policy. Travel at a rate other than the person's normal rate is its own hours line with `travel: true` and that `rate`. `TFL_APP_KEY` is optional; the planner works without one at low volume. |
 | Payroll | `GET /v1/integrations/payroll` (overall and per PAYE scheme), `POST /sync-employees`, `GET /outbox`, `POST /outbox/:id/retry`, `POST/GET /v1/payroll/submissions` (one batch per company; `entityId` for one company), `GET /v1/payroll/runs`, `PATCH /v1/entities/:id` (a company's TeamPay employer and PAYE reference), `PUT /v1/entities/:id/premiums` (`{premiums: [{id?, name, kind: day\|bank_holiday\|night\|overtime, multiplier? \| perHour?, weekdays?, fromMinute?, toMinute?, afterHours?, roleIds?}]}`, replaces the company's pay premiums for hourly staff; exactly one of `multiplier` (1 to 4) and `perHour` (0 to 50); `day` needs `weekdays` (0 Monday to 6 Sunday), `night` a window that may run past midnight, `overtime` pays after `afterHours` weekly hours or, without it, after contracted hours; where several apply to one hour only the highest is paid; audited as `entity.premiums_set` with each rule before and after in words). Costs, journals and the rota week (`metrics.cost.premium`) include them, and each hours batch carries premium lines with `premium: {ruleId, name}`, `hours` that qualified and `rate` as the uplift, on top of the normal line and left out of `totalHours`. Bank holidays follow England and Wales |
+| Employment rights | Employment Rights Act 2025 measures for zero and low hours workers (hourly, contracted below `lowHoursThreshold`). `GET /v1/employment-rights?siteId=` answers `{settings, assumptions, canEditSettings, canOffer, canWaive, shortNotice, totals: {owed, paid, wouldHaveCost, waived}, candidates, offers}`. `GET/PUT /v1/employment-rights/settings` (`lowHoursThreshold`, `referenceWeeks`, `compensationShare`, `shortNoticeHours`, `responseDays`, `shortNoticeFrom`, `guaranteedHoursFrom`; a start date of `null` clears it). The numbers are assumptions until the regulations are made, and nothing is owed until a start date is set: before then each figure is what it would cost. Short notice: after every write (except staff requests, the staff app and employee records, which are the worker's own requests or the end of the job), each published shift is compared with what it was; one cancelled, cut or moved inside `shortNoticeHours` of its start for a covered worker is logged against what they were first told, as `era.short_notice`, and an edit that gives the time back clears it. Owed pay goes to TeamPay with the next hours batch for the employing company as an `adjustment` (`reference` is the record id), accrued with its on-costs, and the record carries `sentIn`. `POST /v1/employment-rights/short-notice/:id/waive` (`{reason}`) before it is paid. Guaranteed hours: candidates are worked out on clocked hours over the reference weeks, `due` once the measure has started and a full period is in, and left out for a reference period after an offer unless it lapsed. `POST /v1/employment-rights/offers` (`{employeeId, offeredHours}`, more than their contract) records the offer and returns the letter; `POST /v1/employment-rights/offers/:id/response` (`{response: accepted\|declined}`) before `respondBy`; accepting raises contracted hours to the offer and queues the change for TeamPay. The rota week also carries a `wtr-average` warning when the week's rota takes a person's rolling 17 week average (clocked hours for the previous 16 weeks, any site) over 48 without an opt-out |
 | Linking existing TeamPay staff | `GET /v1/integrations/payroll/link?entityId=` (`payroll.view`: the company's TeamPay records beside its people, with suggested matches, held starters and links awaiting a decision), `POST /v1/employees/:id/payroll-link` `{payrollId, keep?: 'payroll' \| 'preshift'}` (`payroll.send`; also settles an existing link's differences. Pay follows the two-person rule: `keep: 'payroll'` raises TeamPay's pay as a pay change for finance to approve and the person's hours wait until then; `keep: 'preshift'` overrides what TeamPay pays, so it needs `pay.approve`; never on your own pay; a business with nobody else who can approve applies either at once), `POST /v1/employees/:id/payroll-new-starter` (confirms a held starter is not on TeamPay), `DELETE /v1/employees/:id/payroll-link` (only before any hours have gone to TeamPay under it). Before creating a starter the outbox reads the employer's TeamPay employees: Preshift's own reference or exactly one record with the same name and date of birth is linked, not created; a near match (same date of birth and surname, or same name) is held with reason `possible_match`, two exact matches with `ambiguous_match`. Differences are never overwritten either way: the person carries `payrollReview`, nothing is sent to TeamPay for them, their name, date of birth, pay and hours cannot be edited, and an hours batch including anyone with an undecided pay difference is refused with `payroll_review`. |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Appropriate policy document | `GET /v1/privacy/policy-documents` (with the register): each employing company's document for sickness and other health data and where it stands (`block` when sickness is held with none on record, `warn` when not reviewed, not signed or past review, else `ok`). `PUT /v1/privacy/policy-documents/:entityId` (privacy.manage, a person): `{title, url?, reviewedBy?, reviewedOn?, signedBy?, signedOn?, reviewDue?}`; a signature needs the director and the date, after the review. Review is due a year after signing unless set |

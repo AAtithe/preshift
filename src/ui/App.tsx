@@ -25,6 +25,8 @@ import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
 import { SideNav } from './SideNav';
 import { useHrRecords, useRotaStore } from './store';
+import { Walkthrough, WhatsNewNotice } from './Walkthrough';
+import { markSeen, releasesOut, seenWeek, stepsFor, type WalkStep } from './walkthrough';
 
 // Every screen is its own chunk, so the first paint waits on the shell alone. The section being opened
 // is asked for alongside the data; the rest follow once the app is up, before anyone opens them.
@@ -91,6 +93,7 @@ const TrainingView = screen(() => import('./TrainingView'), 'TrainingView', ['tr
 const TravelPanel = screen(() => import('./TravelPanel'), 'TravelPanel', ['sites']);
 const TroncView = screen(() => import('./TroncView'), 'TroncView', ['tronc']);
 const WelfareView = screen(() => import('./WelfareView'), 'WelfareView', ['welfare']);
+const EmploymentRightsView = screen(() => import('./EmploymentRightsView'), 'EmploymentRightsView', ['rights']);
 const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 
 // Loaded on first use so the Claude SDK stays out of the main bundle.
@@ -272,6 +275,32 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const fallback = nav[0]?.items[0]?.id ?? 'profile';
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
+  const offeredTab = (t: Tab) => NAV_ITEMS.some((i) => i.id === t && offered(i, allow, allSiteIds, me?.user?.audience));
+
+  // What's new: this week's release is offered once to each person, and can be walked again from the bar.
+  const released = useMemo(() => releasesOut(today), [today]);
+  const release = released[0];
+  const seenBy = me?.user?.id ?? 'you';
+  const [walking, setWalking] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const newSteps = release ? stepsFor(release, offeredTab).length : 0;
+  const unseen = !!release && !dismissed && newSteps > 0 && seenWeek(seenBy) !== release.week;
+  function finishWalk() {
+    setWalking(false);
+    setDismissed(true);
+    if (release) markSeen(seenBy, release.week);
+  }
+  function walkTo(step: WalkStep) {
+    const item = NAV_ITEMS.find((i) => i.id === step.tab);
+    if (!item) return;
+    // A site-only screen opens at the first site the person is offered it at, rather than asking.
+    if (item.siteOnly && !single) {
+      const first = sitesFor(item, allow, allSiteIds)[0];
+      if (first) setSiteId(first);
+    }
+    if (step.lens) chooseView(step.lens);
+    setTab(item.id);
+  }
   // Within the scope, the section reaches only the sites it is offered at.
   const sectionSites = sitesFor(section, allow, siteIds);
   const notHere = section.access !== 'everyone' && !offered(section, allow, siteIds, me?.user?.audience);
@@ -435,6 +464,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         <DemoPicker me={me} />
         <SideNav groups={nav} active={activeTab} onOpen={openSection} />
         <div className="side-foot">
+          {released.length > 0 && <button className="link" onClick={() => setWalking(true)}>What's new</button>}
           <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
           {account && !account.demo && (
             <>
@@ -503,6 +533,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   <a className="button primary" href="mailto:hello@preshift.co.uk?subject=Preshift%20Rota%20demo">Book a demo</a>
                 </span>
               </div>
+            )}
+
+            {unseen && !walking && activeTab !== 'setup' && (
+              <WhatsNewNotice count={newSteps} onStart={() => setWalking(true)} onDismiss={finishWalk} />
             )}
 
             {section.scope !== 'org' ? (
@@ -703,6 +737,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               {shown === 'prime' && single && <PrimeView state={state} siteId={single.id} week={week} asOf={today} />}
               {shown === 'risk' && single && <RiskView state={state} siteId={single.id} week={week} asOf={today} />}
               {shown === 'retention' && single && <RetentionView state={state} siteId={single.id} asOf={today} />}
+              {shown === 'rights' && single && (
+                <EmploymentRightsView state={state} siteId={single.id} showCost={allow('costs.view', single.id)} onChanged={() => void actions.reload()} />
+              )}
               {shown === 'cutcall' && single && (
                 <CutCallView
                   state={state}
@@ -871,6 +908,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           onClose={() => setEditingPerson(null)}
         />
       )}
+
+      {walking && released.length > 0 && <Walkthrough releases={released} offeredTab={offeredTab} onGo={walkTo} onClose={finishWalk} />}
 
       <Suspense fallback={null}>
         <CommandBar view={agentView} deps={agentDeps} />

@@ -725,6 +725,8 @@ export interface RotaState {
   dishSales?: DishSales[];
   purchases?: Purchase[];
   stockCounts?: StockCount[];
+  /** Employment Rights Act settings in force, loaded for warnings before a change is saved. */
+  employmentRights?: import('./employmentRights').EraSettings;
 }
 
 /**

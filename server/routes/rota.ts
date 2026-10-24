@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
+import { rollingAverageIssues } from '../../src/engine/employmentRights';
 import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
 import { forecastFromTakings, type DayForecast } from '../../src/engine/forecasting';
 import { weekMetrics, type WeekMetrics } from '../../src/engine/metrics';
@@ -277,7 +278,8 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       shifts: org.state.shifts.filter((s) => s.siteId === siteId && dates.includes(s.date)),
       // Labour cost is worked from pay rates, so it goes only to those who see them.
       metrics: g.can('costs.view', siteId) ? serialiseMetrics(weekMetrics(org.state, siteId, ws), hasScope(req, 'employees:read')) : null,
-      issues: checkWeek(org.state, ws, siteId),
+      // The rolling 48 hour average needs clocked history, which the rota alone does not hold.
+      issues: [...checkWeek(org.state, ws, siteId), ...rollingAverageIssues(org.state, org.timeEntries, ws, siteId)],
     };
   });
 
