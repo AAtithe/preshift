@@ -232,6 +232,7 @@ const ACTUAL_COMPLIANCE_CODES = new Set([
   'double-booked',
   'young-daily',
   'young-night',
+  'young-small-hours',
   'weekly-rest',
   'young-weekly',
   'right-to-work',

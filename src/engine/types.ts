@@ -490,7 +490,7 @@ export interface StaffNotification {
   push?: 'sent' | 'none' | 'failed';
 }
 
-export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note';
+export type HrRecordKind = 'training' | 'review' | 'case' | 'document' | 'note' | 'health_assessment';
 export type ReviewType = 'probation' | 'appraisal' | 'one-to-one';
 export type CaseType = 'investigation' | 'disciplinary' | 'grievance' | 'capability';
 

@@ -87,9 +87,11 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
   const deptOf = (roleId: string) => base.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
   const siteShifts = base.shifts.filter((s) => s.siteId === site.id && dates.includes(s.date));
 
-  // The axis covers trading hours with an hour either side, widened for any shift outside them.
-  const from = Math.floor(Math.min(site.openMinute - 60, ...siteShifts.map((s) => s.startMinute)) / 60) * 60;
-  const to = Math.ceil(Math.max(site.closeMinute + 60, ...siteShifts.map((s) => s.endMinute)) / 60) * 60;
+  // The axis covers trading hours with an hour either side, widened for any shift outside them,
+  // including one being dragged past the edge: a shift pulled on past midnight takes the axis with it.
+  const shown = [...siteShifts, ...state.shifts.filter((s) => s.siteId === site.id && dates.includes(s.date))];
+  const from = Math.floor(Math.min(site.openMinute - 60, ...shown.map((s) => s.startMinute)) / 60) * 60;
+  const to = Math.ceil(Math.max(site.closeMinute + 60, ...shown.map((s) => s.endMinute)) / 60) * 60;
   const span = to - from;
   const x = (m: number) => ((m - from) / span) * 100;
   const hours = Array.from({ length: span / 60 + 1 }, (_, i) => from + i * 60);

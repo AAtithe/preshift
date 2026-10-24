@@ -1,7 +1,7 @@
 import { can } from '../src/engine/access';
 import { cutCall, type CutCall } from '../src/engine/cutcall';
 import { intradayFlash, type IntradayFlash } from '../src/engine/labourFlash';
-import { formatMinute, londonParts } from '../src/engine/time';
+import { addDays, formatMinute, londonParts } from '../src/engine/time';
 import { eraSettings } from './employmentRights';
 import { callInEmail, cutCallEmail, emailSetting, linkFor, parseEmailSettings, sendMail } from './mail';
 import { isSandbox } from './sandbox';
@@ -9,9 +9,22 @@ import { audit, type OrgData, type Store } from './store';
 
 /** A site's cut call and labour flash at an instant, priced with the organisation's Employment Rights Act settings. */
 export function siteCall(org: OrgData, siteId: string, at: Date): { date: string; call: CutCall; flash: IntradayFlash } {
-  const { date, minute } = londonParts(at);
+  const { date, minute } = tradingNow(org, siteId, at);
   const call = cutCall(org.state, org.timeEntries, siteId, date, minute, { rights: { settings: eraSettings(org), at } });
   return { date, call, flash: intradayFlash(org.state, org.timeEntries, siteId, date, minute, call) };
+}
+
+/**
+ * Where a site's trading day stands at an instant. In the small hours of a site that trades past
+ * midnight it is still the night before: 01:00 on Tuesday is minute 1500 of Monday's trading day.
+ */
+export function tradingNow(org: OrgData, siteId: string, at: Date): { date: string; minute: number } {
+  const here = londonParts(at);
+  const site = org.state.sites.find((s) => s.id === siteId);
+  if (site && here.minute + 1440 < site.closeMinute && here.minute < site.openMinute) {
+    return { date: addDays(here.date, -1), minute: here.minute + 1440 };
+  }
+  return here;
 }
 
 /** An alert is worth a manager's attention only for a saving at least this size. */
@@ -28,15 +41,17 @@ const money = (n: number) => `£${n.toFixed(0)}`;
  */
 export async function cutCallAlerts(store: Store, org: OrgData, at: Date) {
   const now = londonParts(at);
-  const sent = Object.fromEntries(Object.entries(org.cutAlerts ?? {}).filter(([k]) => k.endsWith(`|${now.date}`)));
-  const due: { siteId: string; kind: 'behind' | 'ahead'; call: CutCall }[] = [];
+  // Kept for today and yesterday, since a late site's trading day began yesterday.
+  const sent = Object.fromEntries(Object.entries(org.cutAlerts ?? {}).filter(([k]) => k.endsWith(`|${now.date}`) || k.endsWith(`|${addDays(now.date, -1)}`)));
+  const due: { siteId: string; kind: 'behind' | 'ahead'; call: CutCall; date: string; minute: number }[] = [];
   for (const site of org.state.sites) {
-    if (now.minute < site.openMinute || now.minute > site.closeMinute - 60) continue;
-    const key = `${site.id}|${now.date}`;
+    const day = tradingNow(org, site.id, at);
+    if (day.minute < site.openMinute || day.minute > site.closeMinute - 60) continue;
+    const key = `${site.id}|${day.date}`;
     const { call } = siteCall(org, site.id, at);
     if (!call.confident) continue;
-    if (!sent[key]?.behind && call.totalSaving >= ALERT_MIN_SAVING) due.push({ siteId: site.id, kind: 'behind', call });
-    else if (!sent[key]?.ahead && call.pace >= AHEAD_PACE && call.short.length > 0) due.push({ siteId: site.id, kind: 'ahead', call });
+    if (!sent[key]?.behind && call.totalSaving >= ALERT_MIN_SAVING) due.push({ siteId: site.id, kind: 'behind', call, ...day });
+    else if (!sent[key]?.ahead && call.pace >= AHEAD_PACE && call.short.length > 0) due.push({ siteId: site.id, kind: 'ahead', call, ...day });
   }
   const changed = Object.keys(sent).length !== Object.keys(org.cutAlerts ?? {}).length;
   if (due.length === 0) {
@@ -44,7 +59,7 @@ export async function cutCallAlerts(store: Store, org: OrgData, at: Date) {
     return null;
   }
   // Marked before sending, so an overlapping run never sends twice.
-  for (const d of due) sent[`${d.siteId}|${now.date}`] = { ...(sent[`${d.siteId}|${now.date}`] ?? {}), [d.kind]: at.toISOString() };
+  for (const d of due) sent[`${d.siteId}|${d.date}`] = { ...(sent[`${d.siteId}|${d.date}`] ?? {}), [d.kind]: at.toISOString() };
   org.cutAlerts = sent;
 
   const settings = parseEmailSettings(await store.getSetting(emailSetting(org.orgId)));
@@ -55,7 +70,7 @@ export async function cutCallAlerts(store: Store, org: OrgData, at: Date) {
     const site = org.state.sites.find((s) => s.id === d.siteId)!;
     const behindBy = Math.round((1 - d.call.pace) * 100);
     const link = settings ? linkFor(settings, `/app/?view=cutcall&site=${encodeURIComponent(site.id)}`) : '';
-    const managers = org.users.filter((u) => u.status === 'active' && !off.has(u.id) && can(u, 'rota.publish', now.date, site.id));
+    const managers = org.users.filter((u) => u.status === 'active' && !off.has(u.id) && can(u, 'rota.publish', d.date, site.id));
     audit(org, 'system', `cutcall.alert_${d.kind}`, { siteId: site.id, pace: d.call.pace, saving: d.call.totalSaving, managers: managers.length });
     if (!settings) continue;
     for (const u of managers) {

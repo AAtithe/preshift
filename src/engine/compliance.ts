@@ -3,6 +3,7 @@ import { isSchoolDay } from './school';
 import { employeeWeekCost, shiftPaidMinutes, shiftsInWeek } from './cost';
 import { employedShare, isEmployedOn, ruleAge } from './employees';
 import { isAbsentOn } from './hr';
+import { nightOverlap } from './night';
 import { absoluteMinute, addDays, ageOn, weekDates, weekday } from './time';
 import { travelIssues, travelMinutesInto } from './travel';
 import { UK_RATES_2026_27, minimumWageFor, type UkRates } from './ukRates';
@@ -252,9 +253,14 @@ export function checkEmployeeWeek(
       if (dayPaid > 8 * H) {
         push({ ...base, code: 'young-daily', severity: 'block', message: 'Under 18s cannot work more than 8 hours a day.' });
       }
-      // Hospitality may roster under 18s until midnight in limited cases; flag rather than block.
-      if (shift.endMinute > 22 * H || shift.startMinute < 6 * H) {
-        push({ ...base, code: 'young-night', severity: 'warn', message: 'Under 18 working between 22:00 and 06:00. Check the hospitality exemption applies and is supervised.' });
+      // Hotels and catering may roster 16 and 17 year olds at night, supervised and with rest, but
+      // never between midnight and 04:00. Checked on every day the shift touches, so a shift that
+      // runs past midnight or starts in the small hours is caught.
+      const small = nightOverlap(shift, 0, 4 * H);
+      if (small > 0) {
+        push({ ...base, code: 'young-small-hours', severity: 'block', message: 'Under 18s cannot work between midnight and 04:00, even in hospitality.' });
+      } else if (nightOverlap(shift, 22 * H, 6 * H) > 0) {
+        push({ ...base, code: 'young-night', severity: 'warn', message: 'Under 18 working between 22:00 and 06:00. Allowed in hospitality only when supervised, with compensatory rest.' });
       }
     }
   }
@@ -401,3 +407,4 @@ export function overrideTrend(state: RotaState, weekStartDate: string, siteIds: 
   });
   return { weekStarts, bySite };
 }
+

@@ -7,8 +7,11 @@ export const SNAP_MINUTES = 15;
 /** Horizontal pixels of pointer travel per snap step when resizing. */
 export const PX_PER_SNAP = 6;
 export const MIN_SHIFT_MINUTES = 60;
-/** Latest finish allowed: 06:00 the next morning. */
-export const LATEST_END = 1440 + 6 * 60;
+/**
+ * Latest finish allowed: the end of the next day, as far as a shift can run. Night shifts finish in
+ * the morning (22:00 to 08:00) and a site open round the clock can have one finish later still.
+ */
+export const LATEST_END = 2 * 1440;
 
 export type Edge = 'start' | 'end';
 

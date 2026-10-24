@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { namesOf, shiftLine } from '../../src/engine/requests';
-import { formatMinute, londonParts } from '../../src/engine/time';
+import { formatMinute } from '../../src/engine/time';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
-import { siteCall } from '../cutCall';
+import { siteCall, tradingNow } from '../cutCall';
 import { actorName, guard } from '../guard';
 import { notify, syncTold } from '../notify';
 import { audit } from '../store';
@@ -70,7 +70,8 @@ export function cutCallRoutes(app: FastifyInstance, ctx: AppContext) {
       const g = guard(ctx, req, org);
       g.allow('rota.edit', siteId);
       const at = ctx.now();
-      const now = londonParts(at);
+      // Today's trading day: after midnight at a late site, still the night before.
+      const now = tradingNow(org, siteId, at);
       const names = namesOf(org.state);
       // All checked before any change, so a bad cut leaves the rest untouched.
       const plan = cuts.map((c) => {

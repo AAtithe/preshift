@@ -97,3 +97,24 @@ describe('cut call alerts', () => {
     expect(await cutCallAlerts(store, org, new Date(AT))).toBeNull();
   });
 });
+
+describe('cut call past midnight', () => {
+  it("calls the small hours of a late site on the night before's trading day", async () => {
+    // Marylebone trading until 03:00; at 00:20 on Thursday it is still Wednesday's trading day.
+    const t = await setup('2027-03-04T00:20:00Z', 0.6);
+    const site = t.org.state.sites.find((s) => s.id === 'mar')!;
+    site.closeMinute = 27 * 60;
+    for (const s of t.org.state.shifts.filter((x) => x.date === DATE && x.id.startsWith('cc'))) s.endMinute = 27 * 60;
+    for (let hour = 0; hour < 3; hour++) t.org.state.forecast.push({ siteId: 'mar', date: '2027-03-04', hour, sales: 1200, covers: 30 });
+    const day = t.org.state.sales!.find((d) => d.siteId === 'mar' && d.date === DATE)!;
+    day.hours = Array.from({ length: 13 }, (_, i) => ({ hour: 11 + i, netSales: 1200 * 0.6, orders: 0 }));
+    const res = await t.call('GET', '/v1/cut-call?siteId=mar');
+    expect(res.body.date).toBe(DATE);
+    expect(res.body.call.now).toBe(24 * 60 + 20);
+    expect(res.body.call.forecastDay).toBe(1200 * 15);
+    const rec = res.body.call.recommendations[0];
+    expect(rec.newEnd).toBe(25 * 60);
+    const applied = await t.call('POST', '/v1/cut-call/apply', { siteId: 'mar', cuts: [{ shiftId: rec.shiftId, endMinute: rec.newEnd, breakMinutes: rec.newBreakMinutes }] });
+    expect(applied.status).toBe(200);
+  });
+});
