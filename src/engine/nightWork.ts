@@ -18,6 +18,9 @@ const REFERENCE_WEEKS = 17;
 const NORMAL_SHARE = 1 / 3;
 const MIN_NIGHT_DAYS = 3;
 
+/** Weeks before the average is taken as settled rather than as the pattern so far. */
+const SETTLED_WEEKS = 3;
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface NightWorkStatus {
@@ -31,14 +34,23 @@ export interface NightWorkStatus {
   /** Average hours in each 24 over the reference period, the weekly rest day left out. */
   averagePer24: number;
   weeksUsed: number;
+  /** Earlier weeks read from the rota because nothing was clocked that week. */
+  rotaWeeks: number;
+  /**
+   * Fewer weeks than make a settled average: the figure is the pattern so far, and the warning says what
+   * the 17 week average comes to if it carries on.
+   */
+  early: boolean;
   /** The latest health assessment offer still in date, if any. */
   healthOffer?: HrRecord;
 }
 
 /**
- * Night work for one person in the week starting `weekStartDate`: clocked hours for the previous 16
- * weeks (any site) and this week's rota. Someone rostered onto three or more night shifts this week is
- * treated as a night worker from the start, since the health assessment is owed before nights begin.
+ * Night work for one person in the week starting `weekStartDate`: the previous 16 weeks (any site) and
+ * this week's rota. An earlier week reads clocked hours where any were clocked, else that week's rota,
+ * so a site that does not clock in is measured too. Someone rostered onto three or more night shifts
+ * this week is treated as a night worker from the start, since the health assessment is owed before
+ * nights begin.
  */
 export function nightWorkStatus(
   employee: Employee,
@@ -49,17 +61,23 @@ export function nightWorkStatus(
 ): NightWorkStatus {
   const clocked = clockedShifts(entries).filter((s) => s.employeeId === employee.id);
   const priorWeeks = Array.from({ length: REFERENCE_WEEKS - 1 }, (_, i) => addDays(weekStartDate, -7 * (i + 1)));
-  const history = priorWeeks.flatMap((w) => shiftsInWeek(clocked, w));
-  const rota = shiftsInWeek(state.shifts, weekStartDate).filter((s) => s.employeeId === employee.id);
+  const rostered = state.shifts.filter((s) => s.employeeId === employee.id);
+  const worked = priorWeeks.map((w) => {
+    const clock = shiftsInWeek(clocked, w);
+    return clock.length > 0 ? { shifts: clock, fromRota: false } : { shifts: shiftsInWeek(rostered, w), fromRota: true };
+  });
+  const history = worked.flatMap((w) => w.shifts);
+  const rota = shiftsInWeek(rostered, weekStartDate);
   const days = [...history, ...rota];
   const nightDays = days.filter(isNightShift).length;
   const nightShiftsThisWeek = rota.filter(isNightShift).length;
   const nightWorker =
     nightShiftsThisWeek >= MIN_NIGHT_DAYS || (nightDays >= MIN_NIGHT_DAYS && days.length > 0 && nightDays / days.length >= NORMAL_SHARE);
   // Weeks from their first worked week: a new starter's average is over the weeks they have.
-  const weekly = priorWeeks.map((w) => shiftsInWeek(clocked, w).reduce((h, s) => h + shiftPaidMinutes(s), 0) / 60);
+  const weekly = worked.map((w) => w.shifts.reduce((h, s) => h + shiftPaidMinutes(s), 0) / 60);
   const firstWorked = weekly.map((h, i) => (h > 0 ? i : -1)).filter((i) => i >= 0).pop();
   const weeksUsed = (firstWorked === undefined ? 0 : firstWorked + 1) + 1;
+  const rotaWeeks = worked.slice(0, weeksUsed - 1).filter((w, i) => w.fromRota && weekly[i] > 0).length;
   const hours = weekly.slice(0, weeksUsed - 1).reduce((a, b) => a + b, 0) + rota.reduce((h, s) => h + shiftPaidMinutes(s), 0) / 60;
   return {
     employeeId: employee.id,
@@ -69,11 +87,12 @@ export function nightWorkStatus(
     nightShiftsThisWeek,
     averagePer24: round2(hours / (6 * weeksUsed)),
     weeksUsed,
+    rotaWeeks,
+    early: weeksUsed < SETTLED_WEEKS,
     healthOffer: currentHealthOffer(records, employee.id, weekStartDate),
   };
 }
 
-const MIN_HISTORY_WEEKS = 3;
 
 /**
  * Warnings on the rota week for night workers: an average over eight hours in each 24 (raised for those
@@ -87,12 +106,17 @@ export function nightWorkIssues(state: RotaState, entries: TimeEntry[], records:
     if (rota.length === 0 || (siteId && !rota.some((s) => s.siteId === siteId))) continue;
     const status = nightWorkStatus(employee, state, entries, records, weekStartDate);
     if (!status.nightWorker) continue;
-    if (employee.optedOutOf48 && status.weeksUsed >= MIN_HISTORY_WEEKS && status.averagePer24 > 8 + 1e-9) {
+    if (employee.optedOutOf48 && status.averagePer24 > 8 + 1e-9) {
+      // A new night worker is warned on the pattern so far: waiting for weeks of history would let the
+      // breach build up before anyone is told, and only lighter weeks to come could bring it back down.
+      const weeks = `${status.weeksUsed} week${status.weeksUsed === 1 ? '' : 's'}`;
       issues.push({
         code: 'night-average',
         severity: 'warn',
         employeeId: employee.id,
-        message: `Night worker: ${status.averagePer24}h on average in each 24 hours over 17 weeks, over the limit of 8. The 48 hour opt-out does not cover this.`,
+        message: status.early
+          ? `Night worker: ${status.averagePer24}h on average in each 24 hours over the ${weeks} so far. Kept up, the 17 week average goes over the limit of 8. The 48 hour opt-out does not cover this.`
+          : `Night worker: ${status.averagePer24}h on average in each 24 hours over ${weeks} of the 17, over the limit of 8. The 48 hour opt-out does not cover this.`,
       });
     }
     if (!status.healthOffer) {

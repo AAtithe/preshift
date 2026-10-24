@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { forecastSalesForDay } from '../engine/demand';
 import { parseTakingsCsv, type TakingsImport } from '../engine/reports';
 import { weekDates } from '../engine/time';
 import type { DaySales, RotaState } from '../engine/types';
@@ -27,7 +28,7 @@ export function TakingsEntry({ state, siteIds, week, today, onSave, onSynced }: 
   const dates = weekDates(week);
   const sites = state.sites.filter((s) => siteIds.includes(s.id));
   const recorded = (siteId: string, date: string) => state.sales?.find((x) => x.siteId === siteId && x.date === date);
-  const forecastFor = (siteId: string, date: string) => state.forecast.filter((f) => f.siteId === siteId && f.date === date).reduce((s, f) => s + f.sales, 0);
+  const forecastFor = (siteId: string, date: string) => forecastSalesForDay(state, siteId, date);
 
   // Shown to the pound. A till figure with pence only counts as changed if someone retypes it.
   const shown = (siteId: string, date: string) => {

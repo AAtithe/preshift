@@ -64,6 +64,33 @@ describe('night workers', () => {
     expect(issues[0].message).toContain('8.33h');
   });
 
+  it('warns a new night worker on the pattern so far, from the first week', () => {
+    // Five ten-hour nights in their first week: 50 hours, 8.33 in each 24 once the rest day is left out.
+    const week = [0, 1, 2, 3, 4].map((d) => shift(addDays(WEEK, d), 21, 31));
+    const issues = nightWorkIssues(state([person({ optedOutOf48: true })], week), [], [offer('2026-10-01')], WEEK);
+    expect(issues.map((i) => i.code)).toEqual(['night-average']);
+    expect(issues[0].message).toContain('over the 1 week so far');
+    expect(nightWorkStatus(person(), { shifts: week }, [], [], WEEK)).toMatchObject({ weeksUsed: 1, early: true });
+    // Four nights stay inside the limit: no warning.
+    const lighter = week.slice(0, 4);
+    expect(nightWorkIssues(state([person({ optedOutOf48: true })], lighter), [], [offer('2026-10-01')], WEEK)).toEqual([]);
+  });
+
+  it('reads earlier weeks from the rota where nothing was clocked', () => {
+    // A site that does not clock in: five weeks of rostered nights, then this week.
+    const past = [1, 2, 3, 4, 5].flatMap((w) => [0, 1, 2, 3, 4].map((d) => shift(addDays(addDays(WEEK, -7 * w), d), 21, 31)));
+    const week = [0, 1, 2, 3, 4].map((d) => shift(addDays(WEEK, d), 21, 31));
+    const status = nightWorkStatus(person(), { shifts: [...past, ...week] }, [], [], WEEK);
+    expect(status).toMatchObject({ weeksUsed: 6, rotaWeeks: 5, early: false, averagePer24: 8.33 });
+    // Where a week was clocked, the clock wins over what was rostered: one short clocked week brings the average down.
+    const short = [0, 1].map((d) => shift(addDays(addDays(WEEK, -7), d), 21, 31));
+    const mixed = nightWorkStatus(person(), { shifts: [...past, ...week] }, short.map(clocked), [], WEEK);
+    expect(mixed.rotaWeeks).toBe(4);
+    expect(mixed.averagePer24).toBeLessThan(status.averagePer24);
+    const issues = nightWorkIssues(state([person({ optedOutOf48: true })], [...past, ...week]), [], [offer('2026-10-01')], WEEK);
+    expect(issues[0].message).toContain('over 6 weeks of the 17');
+  });
+
   it('shows in the HR checks for someone with night shifts on the rota and no offer', () => {
     const today = WEEK;
     const codes = (records: HrRecord[]) => hrChecks(person(), records, [], today, nightWeek).map((c) => c.code);

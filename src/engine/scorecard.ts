@@ -2,7 +2,7 @@ import type { RotaState, TimeEntry } from './types';
 import { realisedSaving, type MoveRecord } from './coach';
 import { checkWeek } from './compliance';
 import { weekCost } from './cost';
-import { dayDemand } from './demand';
+import { dayDemand, tradingDate } from './demand';
 import { forecastAccuracy } from './forecast';
 import { weekMetrics } from './metrics';
 import { entriesAsShifts } from './timesheet';
@@ -147,7 +147,9 @@ export function scoreWeek(input: ScorecardInput, ws: string): WeekScore {
   const siteEntries = input.timeEntries.filter((e) => e.siteId === siteId && dates.includes(e.date) && e.status !== 'rejected');
   const hasTime = siteEntries.length > 0 && siteEntries.every((e) => e.status === 'approved' && e.clockOut !== undefined);
   const approved = input.timeEntries.filter((e) => e.status === 'approved' && dates.includes(e.date));
-  const actualSales = (state.actuals ?? []).filter((a) => a.siteId === siteId && a.date >= ws && a.date <= to);
+  // By trading day: Sunday night's hours after midnight belong to this week, Monday's small hours do not.
+  const site = state.sites.find((s) => s.id === siteId);
+  const actualSales = (state.actuals ?? []).filter((a) => a.siteId === siteId && tradingDate(site, a) >= ws && tradingDate(site, a) <= to);
   const sales = actualSales.reduce((s, a) => s + a.sales, 0);
   const actualCost = hasTime ? weekCost({ employees: state.employees, shifts: entriesAsShifts(approved) }, ws, siteId).total : 0;
   const actualLabourPct = hasTime && sales > 0 ? actualCost / sales : null;

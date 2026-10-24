@@ -1,3 +1,4 @@
+import { tradingDate } from './demand';
 import type { RotaState, TimeEntry } from './types';
 import { weekCost } from './cost';
 import type { Scorecard } from './scorecard';
@@ -148,7 +149,9 @@ export const newProgramme = (siteId: string, startWeek: string): Programme => ({
 export function baselineFromHistory(state: RotaState, timeEntries: TimeEntry[], siteId: string, from: string, to: string): { sales: number; labourCost: number; overstaffedShare: number | null } {
   // Fixed pay (salaries, guaranteed hours) is a whole week's cost, so the period must be whole weeks.
   if (!wholeWeeks(from, to)) throw new Error('A baseline from till and payroll must run Monday to Sunday');
-  const sales = (state.actuals ?? []).filter((a) => a.siteId === siteId && a.date >= from && a.date <= to).reduce((s, a) => s + a.sales, 0);
+  // By trading day, so the period's last night keeps its hours after midnight and its first gives up the night before's.
+  const site = state.sites.find((s) => s.id === siteId);
+  const sales = (state.actuals ?? []).filter((a) => a.siteId === siteId && tradingDate(site, a) >= from && tradingDate(site, a) <= to).reduce((s, a) => s + a.sales, 0);
   const approved = timeEntries.filter((e) => e.status === 'approved' && e.date >= from && e.date <= to);
   const shifts = entriesAsShifts(approved);
   let labourCost = 0;

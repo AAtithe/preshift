@@ -1,6 +1,7 @@
 import type { SspCheckLine } from './ssp';
 import type { DaySales, Department, RotaState, Shift, Site, TimeEntry } from './types';
 import { shiftPaidHours, weekCost } from './cost';
+import { forecastSalesForDay } from './demand';
 import type { PayrollVariance } from './timesheet';
 import { addDays, weekDates } from './time';
 
@@ -17,7 +18,7 @@ export function salesEstimate(state: RotaState, siteId: string, dates: string[])
   let estimate = 0;
   let actualDays = 0;
   for (const date of dates) {
-    const f = state.forecast.filter((x) => x.siteId === siteId && x.date === date).reduce((s, x) => s + x.sales, 0);
+    const f = forecastSalesForDay(state, siteId, date);
     const a = state.sales?.find((x) => x.siteId === siteId && x.date === date);
     forecast += f;
     if (a) {

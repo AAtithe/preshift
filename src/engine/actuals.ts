@@ -1,7 +1,7 @@
 import type { Employee, RotaState, Shift, TimeEntry } from './types';
 import { checkWeek, type Issue } from './compliance';
 import { shiftPaidMinutes, weekCost, type WeekCost } from './cost';
-import { forecastSalesForDay } from './demand';
+import { forecastSalesForDay, salesForTradingDay } from './demand';
 import { ageOn, weekDates } from './time';
 import { UK_RATES_2026_27, type UkRates } from './ukRates';
 
@@ -36,10 +36,11 @@ export function blendedShifts(state: Pick<RotaState, 'shifts'>, entries: TimeEnt
 }
 
 /** Net takings for a day: the recorded day's sales, or the till's hours when only those are held. */
-export function actualSalesForDay(state: Pick<RotaState, 'sales' | 'actuals'>, siteId: string, date: string): number {
+export function actualSalesForDay(state: Pick<RotaState, 'sales' | 'actuals' | 'sites'>, siteId: string, date: string): number {
+  // A till's day is its trading day, closed after the last guest: taken as it comes.
   const day = state.sales?.find((d) => d.siteId === siteId && d.date === date);
   if (day) return day.netSales;
-  return (state.actuals ?? []).filter((a) => a.siteId === siteId && a.date === date).reduce((sum, a) => sum + a.sales, 0);
+  return salesForTradingDay(state.actuals ?? [], state.sites.find((s) => s.id === siteId), siteId, date);
 }
 
 export type VarianceKind =
