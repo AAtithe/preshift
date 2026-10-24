@@ -118,10 +118,26 @@ export function onboardingFor(
     visible: sight.hr, ok: !!hr.contractIssuedOn,
     detail: hr.contractIssuedOn ? `Issued on ${hr.contractIssuedOn}` : 'Due on or before the first day. A tribunal can add two to four weeks\' pay without one.',
   });
+  // Sent to sign in the staff app: the newest of each kind, so the step can say where it stands.
+  const sent = (kind: 'statement' | 'handbook') =>
+    records.filter((r) => r.employeeId === e.id && r.signing?.kind === kind).sort((a, b) => b.signing!.sentAt.localeCompare(a.signing!.sentAt))[0]?.signing;
+  const waiting = (s: ReturnType<typeof sent>, otherwise: string) =>
+    s && !s.signedAt ? `Sent to sign in the staff app on ${s.sentAt.slice(0, 10)}${s.openedAt ? ', opened, not yet signed.' : ', not yet opened.'}` : otherwise;
+  const statement = sent('statement');
   add({
     code: 'contract-signed', label: 'Signed contract on file', area: 'profile', blocking: false, due: byDay(14),
     visible: sight.hr, ok: !!hr.contractSignedOn,
-    detail: hr.contractSignedOn ? `Signed on ${hr.contractSignedOn}` : 'Chase the signed copy in the first fortnight.',
+    detail: hr.contractSignedOn
+      ? `Signed on ${hr.contractSignedOn}${statement?.signedAt ? ' in the staff app' : ''}`
+      : waiting(statement, 'Send it to sign in the staff app on day one, or chase the signed copy in the first fortnight.'),
+  });
+  const handbook = sent('handbook');
+  add({
+    code: 'handbook', label: 'Handbook read and signed', area: 'profile', blocking: false, due: byDay(7),
+    visible: sight.hr, ok: !!hr.handbookAcknowledgedOn,
+    detail: hr.handbookAcknowledgedOn
+      ? `Signed on ${hr.handbookAcknowledgedOn}${handbook?.signedAt ? ' in the staff app' : ''}`
+      : waiting(handbook, 'Send the handbook to sign in the staff app, so the rules they work to are on record.'),
   });
   add({
     code: 'ni-number', label: 'National Insurance number', area: 'profile', blocking: false, due: first,

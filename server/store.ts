@@ -1,4 +1,5 @@
 import type { PayPolicy } from '../src/engine/payPolicy';
+import type { EraSettings, HoursOffer, ShortNoticeRecord } from '../src/engine/employmentRights';
 import { randomBytes } from 'node:crypto';
 import type { AccessReview, User } from '../src/engine/access';
 import type { LoginCaseReview, StaffLoginEvent } from '../src/engine/loginreview';
@@ -9,6 +10,7 @@ import { addDays, toISODate } from '../src/engine/time';
 import type { MoveRecord } from '../src/engine/coach';
 import type { Programme } from '../src/engine/programme';
 import type { EventFeed } from './integrations/feeds';
+import type { AccountingData } from './integrations/accounting/provider';
 import type { Publication } from '../src/engine/scorecard';
 import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
@@ -111,6 +113,13 @@ export interface Kiosk {
   lastSeenAt?: string;
 }
 
+export interface EraData {
+  /** Absent means the assumptions in DEFAULT_ERA_SETTINGS, with neither measure started. */
+  settings?: EraSettings;
+  shortNotice: ShortNoticeRecord[];
+  offers: HoursOffer[];
+}
+
 export interface OrgData {
   orgId: string;
   state: RotaState;
@@ -169,6 +178,8 @@ export interface OrgData {
   payChanges: PayChange[];
   /** How fast finance decides pay changes, and the day hours go to payroll. Defaults apply when absent. */
   payPolicy?: PayPolicy;
+  /** Employment Rights Act settings, short notice changes and guaranteed hours offers. Absent until first used. */
+  era?: EraData;
   /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
   payDailyOn?: string;
   /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
@@ -185,6 +196,8 @@ export interface OrgData {
   messaging?: MessagingData;
   /** Looking after the team: the welfare policy, recognition, the pulse and Hospitality Rewards. Absent until first used. */
   welfare?: WelfareData;
+  /** The accounting ledger the labour journal posts to, which company posts where, and what has been posted. Absent until connected. */
+  accounting?: AccountingData;
   /**
    * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.
@@ -214,6 +227,8 @@ export interface WelfareData {
   rewards?: RewardsConnection;
 }
 
+export const accountingOf = (org: OrgData): AccountingData => (org.accounting ??= { ledgers: {}, postings: [] });
+
 export const welfareOf = (org: OrgData): WelfareData =>
   (org.welfare ??= { recognitions: [], pulses: [], pulseAnswered: [], chats: [], rewardsOptOut: [], rewardsEnrolled: [] });
 
@@ -234,6 +249,8 @@ export interface OrgSettings {
   benchmarking?: boolean;
   /** People (user ids) who have turned off the morning email of staff requests waiting for them. */
   digestOff?: string[];
+  /** Sites whose open shift claims are approved without a manager when inside the rules and the labour budget. */
+  openShiftAutoApprove?: string[];
 }
 
 export type UserRole = 'admin' | 'member';

@@ -23,7 +23,7 @@ import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil,
 export const SCREENS = [
   'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'pay', 'close', 'reports', 'hr', 'absence',
   'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'billing', 'requests', 'adoption', 'cash',
-  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages',
+  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages', 'rights',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 

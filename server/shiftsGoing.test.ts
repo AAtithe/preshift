@@ -112,6 +112,33 @@ describe('putting a shift out to named people', () => {
     expect((await t.notes(first))[0]).toMatchObject({ title: "It's yours" });
   });
 
+  it('reaches the people named whatever the waves, while an open post waits for each wave', async () => {
+    const t = await boot();
+    const { shift, preview } = await t.coverable(5);
+    // Someone from this site, so its manager can invite them to the app.
+    const local = new Set((preview.candidates as (Row & { borrowed: boolean })[]).filter((c) => c.eligible && !c.borrowed).map((c) => c.employeeId));
+    // Put out to everyone: offered in waves, cheapest first, so the last wave has not heard yet.
+    const all = await t.call('POST', '/v1/open-shifts', t.priya, { fromShiftId: shift.id, keepUntilTaken: true });
+    expect(all.status).toBe(201);
+    expect(all.body.offer.allTold).toBe(false);
+    const o = (await t.store.load('demo')).openShifts!.find((x) => x.id === all.body.id)!;
+    const later = o.offer!.waves.slice(o.offer!.released).flatMap((w) => w.employeeIds).find((id) => local.has(id))!;
+    expect(later).toBeDefined();
+    const them = await t.staff(later);
+    expect((await t.board(them)).map((x) => x.id)).not.toContain(all.body.id);
+    expect((await t.call('POST', `/v1/staff/open-shifts/${all.body.id}/claim`, them)).body.error).toBe('not_offered');
+
+    // Put to them by name instead: asked at once, and theirs to take.
+    expect((await t.call('DELETE', `/v1/open-shifts/${all.body.id}`, t.priya)).status).toBe(204);
+    const named = await t.call('POST', '/v1/open-shifts', t.priya, { fromShiftId: shift.id, keepUntilTaken: true, employeeIds: [later], fill: 'first_yes' });
+    expect(named.status).toBe(201);
+    expect(named.body.offer).toBeNull();
+    expect((await t.board(them)).map((x) => x.id)).toContain(named.body.id);
+    const yes = await t.call('POST', `/v1/staff/open-shifts/${named.body.id}/claim`, them);
+    expect(yes.body.outcome).toBe('filled');
+    expect((await t.shiftById(shift.id))?.employeeId).toBe(later);
+  });
+
   it('refuses a yes that has become illegal since it was put out, and the next person can still take it', async () => {
     const t = await boot();
     const { shift, eligible } = await t.coverable();

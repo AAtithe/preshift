@@ -23,7 +23,7 @@ interface Preview {
   candidates: CandidateRow[];
 }
 
-type Who = 'everyone' | 'rounds' | 'chosen';
+type Who = 'waves' | 'everyone' | 'rounds' | 'chosen';
 
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
@@ -57,7 +57,7 @@ export function CoverPanel({
   const [chosenShift, setChosenShift] = useState(shiftId ?? '');
   const [gap, setGap] = useState({ siteId: siteIds[0] ?? '', roleId: state.roles[0]?.id ?? '', date: today, start: '17:00', end: '23:00', breakMinutes: 0 });
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [who, setWho] = useState<Who>('everyone');
+  const [who, setWho] = useState<Who>('waves');
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [rounds, setRounds] = useState({ size: 3, everyMinutes: 30 });
   const [form, setForm] = useState({ note: '', firstYes: false, urgent: false, keep: keepDefault });
@@ -93,11 +93,9 @@ export function CoverPanel({
         setPreview(p);
         const able = p.candidates.filter((c) => c.eligible);
         setTicked(new Set(able.map((c) => c.employeeId)));
-        // With time to spare and more than a few to ask, the cheapest first; at short notice, everyone.
-        if (p.suggestedRounds) {
-          setWho('rounds');
-          setRounds(p.suggestedRounds);
-        } else setWho('everyone');
+        // Offered in waves by default, cheapest first; rounds keep their suggested pace if chosen.
+        setWho('waves');
+        if (p.suggestedRounds) setRounds(p.suggestedRounds);
         setMessage(null);
       })
       .catch((e) => {
@@ -113,12 +111,13 @@ export function CoverPanel({
     if (!body || !preview) return;
     const eligible = preview.candidates.filter((c) => c.eligible).map((c) => c.employeeId);
     try {
-      const res = await api.post<{ told: number; line: string }>('/v1/open-shifts', {
+      const res = await api.post<{ told: number; line: string; offer: { allTold: boolean; waves: { label: string; released: boolean }[] } | null }>('/v1/open-shifts', {
         ...body,
         ...(source === 'shift' ? { keepUntilTaken: form.keep } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
         fill: form.firstYes ? 'first_yes' : 'claim',
         urgent: form.urgent,
+        ...(who === 'everyone' ? { everyone: true } : {}),
         ...(who === 'chosen' ? { employeeIds: eligible.filter((id) => ticked.has(id)) } : {}),
         ...(who === 'rounds' ? { employeeIds: eligible, rounds } : {}),
       });
@@ -126,7 +125,9 @@ export function CoverPanel({
         text:
           who === 'rounds'
             ? `Put out. Asked the ${res.told} cheapest; ${rounds.size} more every ${rounds.everyMinutes} minutes until someone takes it.`
-            : `Put out. ${res.told} ${res.told === 1 ? 'person has' : 'people have'} been told.`,
+            : res.offer && !res.offer.allTold
+              ? `Put out. Offered first to ${res.told} ${res.told === 1 ? 'person' : 'people'}: ${res.offer.waves.find((w) => w.released)?.label.toLowerCase() ?? 'the cheapest'}. Everyone else eligible is told if nobody claims it within two hours.`
+              : `Put out. ${res.told} ${res.told === 1 ? 'person has' : 'people have'} been told.`,
       });
       setChosenShift('');
       setForm({ note: '', firstYes: false, urgent: false, keep: keepDefault });
@@ -195,6 +196,7 @@ export function CoverPanel({
             <>
               <div className="compose-actions small">
                 <span>
+                  <label><input type="radio" checked={who === 'waves'} onChange={() => setWho('waves')} /> Cheapest first, in waves</label>{' '}
                   <label><input type="radio" checked={who === 'everyone'} onChange={() => setWho('everyone')} /> Tell all {eligible.length} eligible now</label>{' '}
                   <label><input type="radio" checked={who === 'rounds'} onChange={() => setWho('rounds')} /> Cheapest first, in rounds</label>{' '}
                   <label><input type="radio" checked={who === 'chosen'} onChange={() => setWho('chosen')} /> Only those I tick</label>
@@ -266,9 +268,14 @@ export function CoverPanel({
                   <label className="small"><input type="checkbox" checked={form.urgent} onChange={(e) => setForm({ ...form, urgent: e.target.checked })} /> Urgent: through quiet hours</label>
                 </span>
                 <button className="primary" type="submit" disabled={count === 0}>
-                  {who === 'rounds' && rounds.size < count ? `Ask the ${rounds.size} cheapest first` : `Tell ${count} ${count === 1 ? 'person' : 'people'}`}
+                  {who === 'rounds' && rounds.size < count ? `Ask the ${rounds.size} cheapest first` : who === 'waves' ? 'Offer it, cheapest first' : `Tell ${count} ${count === 1 ? 'person' : 'people'}`}
                 </button>
               </div>
+              {who === 'waves' && (
+                <p className="muted small">
+                  It goes first to anyone short of their contracted hours that week, then to the three cheapest to add, then to everyone, two hours apart while nobody claims. Inside a day of the start everyone is told at once.
+                </p>
+              )}
               {who === 'rounds' && (
                 <p className="muted small">
                   Nobody further down the list hears anything unless their round comes. A round goes early if everyone asked says no, and everyone left is asked once there is not time for another round.

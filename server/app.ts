@@ -37,11 +37,14 @@ import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
 import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
+import { exemptFromShortNotice, trackShortNotice } from './employmentRights';
+import { employmentRightsRoutes } from './routes/employmentRights';
 import { allowedWhileLocked, getBilling, LOCKED_MESSAGE, standingOf, stripeFromEnv, trialDaysFromEnv } from './billing';
 import { applyOutside, feedConfig, fetchOutside } from './forecasting';
 import { publicFetch } from './integrations/feeds';
 import { refreshStaleTravel, travelRoutes } from './routes/travel';
 import { kioskAdminRoutes, kioskRoutes } from './routes/kiosk';
+import { signingRoutes } from './routes/signing';
 import { staffAdminRoutes, staffRoutes } from './routes/staff';
 import { messageRoutes, staffMessageRoutes, whatsappWebhookRoutes } from './routes/messages';
 import { askDueRounds } from './cover';
@@ -53,6 +56,7 @@ import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
 import { cashRoutes } from './routes/cash';
+import { accountingRoutes, xeroFromEnv } from './routes/accounting';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
@@ -361,11 +365,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
   });
 
-  // Every five minutes: shift reminders, and an alert when someone has not clocked in for a shift
+  // Every five minutes: shift reminders, the next wave of open shift offers, and an alert when someone has not clocked in for a shift
   // that has started. Each is sent once, however often this runs.
   app.get('/internal/reminders', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
-    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg))) };
+    return { ok: true, ...(await runShiftAlerts(store, ctx.now(), (msg, detail) => app.log.error(detail, msg), (org) => carryNotifications(ctx, org))) };
   });
 
   // The demo's midnight reset, scheduled either side of midnight UTC so it lands just after
@@ -431,6 +435,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       if (req.method === 'GET' || !req.org || isWebhook(req.url) || isSandbox(req.org.orgId) || allowedWhileLocked(req.routeOptions.url)) return;
       if (standingOf(await getBilling(store, req.org.orgId), ctx.now(), !!stripe).locked) throw new HttpError(402, 'billing_required', LOCKED_MESSAGE);
     });
+    // What every shift looked like before a write, so a published shift changed at short notice is
+    // logged however the change was made.
+    api.addHook('preHandler', async (req) => {
+      if (req.method !== 'GET' && req.org && !isWebhook(req.url) && !exemptFromShortNotice(req.url)) {
+        req.shiftsBefore = new Map(req.org.state.shifts.map((s) => [s.id, s]));
+      }
+    });
     // Save once, only after a successful write, so a failed request leaves nothing half done.
     api.addHook('onSend', async (req, reply, payload) => {
       if (req.org && req.method === 'GET' && req.orgTouched && !req.orgChanged && reply.statusCode < 400) {
@@ -439,6 +450,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       }
       if (!req.org || (req.method === 'GET' && !req.orgChanged) || reply.statusCode >= 400) return payload;
       try {
+        if (req.shiftsBefore) trackShortNotice(req.org, req.shiftsBefore, ctx.now(), req.principal?.name ?? 'system');
         // Events this request raised go out now, inside it, so they are saved as sent with it.
         if (ctx.autoDispatch) await deliverWebhooks(req.org, options.webhookFetch);
         // Staff hear about a change only once it is certain to save: emailed here, recorded as sent with it.
@@ -475,12 +487,14 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       return payload;
     });
     rotaRoutes(api, ctx);
+    employmentRightsRoutes(api, ctx);
     employeeRoutes(api, ctx);
     payRoutes(api, ctx);
     setupRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);
+    signingRoutes(api, ctx);
     timeRoutes(api, ctx);
     labourRoutes(api, ctx);
     clockingRoutes(api, ctx);
@@ -492,6 +506,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     payrollRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
     cashRoutes(api, ctx);
+    accountingRoutes(api, ctx, { xero: xeroFromEnv(env), simulatorAllowed: demo || !!payroll.simulator });
     welfareRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     userRoutes(api, ctx);
     clientRoutes(api, ctx);

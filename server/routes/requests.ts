@@ -8,6 +8,7 @@ import {
   blocking, claimCheck, datesBetween, dayLabel, decisionText, eligibleFor, holidayHours, MAX_REQUEST_DAYS, namesOf,
   REQUESTABLE_ABSENCE, shiftLine, swapCheck, swapped,
 } from '../../src/engine/requests';
+import { offerCost, OFFER_TIER_LABEL, OFFER_WAVE_MINUTES, offerWaves, rankOffer, tierOf, tooCloseForWaves } from '../../src/engine/offers';
 import { shiftEffect } from '../../src/engine/rotaViews';
 import { hasStarted } from '../../src/engine/rotaWeek';
 import { absoluteMinute, addDays, londonParts, weekStart } from '../../src/engine/time';
@@ -93,6 +94,53 @@ const issueView = (org: OrgData) => (i: Issue) => ({
 });
 
 
+/**
+ * Tells the next wave of an open shift, or everyone left when `all` is set or it is the last wave.
+ * A wave nobody in it can still take is passed over for the next. Returns how many were told.
+ */
+export function releaseWave(org: OrgData, o: OpenShift, now: Date, all = false): number {
+  const offer = o.offer;
+  if (!offer || o.status !== 'open') return 0;
+  const names = namesOf(org.state);
+  const { title, body } = offerText(o, names.role(o.roleId), names.site(o.siteId));
+  const exclude = [o.releasedFrom?.employeeId, o.heldBy?.employeeId].filter((x): x is string => !!x);
+  const eligible = new Set(eligibleFor(org.state, slotOf(o), exclude).map((e) => e.id));
+  let told = 0;
+  while (offer.released < offer.waves.length) {
+    const last = all || offer.released === offer.waves.length - 1;
+    // The last wave is everyone eligible now, including anyone who has become eligible since it was posted.
+    const targets = last ? [...eligible] : offer.waves[offer.released].employeeIds.filter((id) => eligible.has(id));
+    const fresh = targets.filter((id) => !offer.told.includes(id));
+    offer.released = last ? offer.waves.length : offer.released + 1;
+    offer.told = [...offer.told, ...fresh];
+    for (const id of fresh) {
+      const note = notify(org, id, 'open_shift', title, body, now);
+      if (o.urgent) note.urgent = true;
+    }
+    told += fresh.length;
+    if (fresh.length) break;
+  }
+  if (offer.released < offer.waves.length) offer.nextAt = new Date(now.getTime() + OFFER_WAVE_MINUTES * 60_000).toISOString();
+  else delete offer.nextAt;
+  return told;
+}
+
+/**
+ * The scheduled step: each open shift whose wave has had its time goes to the next, unless a claim
+ * is waiting for the manager. Inside a day of the start, everyone left is told whatever is waiting.
+ */
+export function releaseDueWaves(org: OrgData, now: Date): number {
+  const at = londonParts(now);
+  let told = 0;
+  for (const o of org.openShifts ?? []) {
+    if (goingStatus(o, at) !== 'open' || !o.offer || o.offer.released >= o.offer.waves.length) continue;
+    const close = tooCloseForWaves(o, at);
+    const waiting = requestsOf(org).some((r) => r.openShiftId === o.id && open(r));
+    if (close || (!waiting && o.offer.nextAt && o.offer.nextAt <= now.toISOString())) told += releaseWave(org, o, now, close);
+  }
+  return told;
+}
+
 
 /** What the request would do now, checked again: anything that has changed since it was made shows here. */
 function currentCheck(org: OrgData, r: StaffRequest): { problem: string | null; issues: Issue[] } {
@@ -106,6 +154,17 @@ function currentCheck(org: OrgData, r: StaffRequest): { problem: string | null; 
     return claimCheck(org.state, employeeOf(org, r.employeeId), slotOf(o));
   }
   return { problem: null, issues: [] };
+}
+
+function offerView(g: Guard, org: OrgData, o: OpenShift, e: Employee) {
+  const tier = tierOf(o, e.id);
+  const cost = offerCost(org.state, slotOf(o), e);
+  return {
+    tier,
+    tierLabel: tier ? OFFER_TIER_LABEL[tier] : null,
+    shortHours: cost.shortHours,
+    cost: g.can('costs.view', o.siteId) ? cost.marginal : null,
+  };
 }
 
 /** One request as a manager sees it. Notes on sickness and time off go only to those who read the personnel file. */
@@ -141,6 +200,8 @@ function managerView(req: FastifyRequest, g: Guard, org: OrgData, r: StaffReques
     shift: shift ? { id: shift.id, line: shiftLine(shift, names) } : null,
     returnShift: back ? { id: back.id, line: shiftLine(back, names) } : null,
     openShift: os ? { id: os.id, line: shiftLine(os, names), status: os.status } : null,
+    // For a claim: the tier they were offered it in, and what adding it costs, to those who see cost.
+    offer: os && e && r.kind === 'open_shift' ? offerView(g, org, os, e) : null,
     toName: name(r.toEmployeeId) ?? null,
     takerName: name(r.takerId) ?? null,
     decidedBy: r.decidedBy ?? null,
@@ -440,7 +501,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       claims: requestsOf(org)
         .filter((r) => r.openShiftId === o.id)
         .map((r) => managerView(req, g, org, r, today())),
-      // Untargeted: everyone eligible was told. Whoever it was released from or held by is not offered it.
+      // Untargeted: offered in waves to everyone eligible. Whoever it was released from or held by is not offered it.
       eligible: o.status === 'open' && !o.offers ? eligibleFor(org.state, slotOf(o), [o.releasedFrom?.employeeId, o.heldBy?.employeeId].filter((x): x is string => !!x)).map((e) => e.name) : [],
       // Targeted: who is asked, in what round, and how each answered.
       asked: o.offers
@@ -460,6 +521,16 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       round: currentRound(o),
       nextRoundAt: goingStatus(o, now) === 'open' ? o.nextRoundAt ?? null : null,
       waiting: waiting(o).length,
+      // Who has been told so far, wave by wave, and when the next goes.
+      offer: o.offer
+        ? {
+            waves: o.offer.waves.map((w, i) => ({ tier: w.tier, label: OFFER_TIER_LABEL[w.tier], count: w.employeeIds.length, released: i < o.offer!.released })),
+            told: o.offer.told.length,
+            allTold: o.offer.released >= o.offer.waves.length,
+            nextAt: o.offer.nextAt ?? null,
+          }
+        : null,
+      autoApproved: Boolean(o.autoApproved),
     };
   };
 
@@ -484,6 +555,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
     rounds?: { size?: number; everyMinutes?: number } | null;
     fill?: 'claim' | 'first_yes';
     urgent?: boolean;
+    everyone?: boolean;
   };
 
   /**
@@ -549,8 +621,11 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags,
         description:
-          'Puts a shift out for staff to take. By default everyone eligible (trained for the role, set up for the site, free and legal) is told, ' +
-          'and each who asks for it waits for a manager to approve. `fill: "first_yes"` gives it to the first legal yes instead. ' +
+          'Puts a shift out for staff to take. By default it is offered to everyone eligible (trained for the role, set up for the site, free and legal) in waves, ' +
+          'cheapest first: people short of their contracted hours that week, then the three cheapest to add, then everyone, ' +
+          `each wave ${OFFER_WAVE_MINUTES} minutes after the last while nobody has claimed. Inside a day of the start, or with \`everyone\`, all are told at once. ` +
+          'Each who asks for it waits for a manager to approve, unless the site approves claims automatically inside the rules and the labour budget; ' +
+          '`fill: "first_yes"` gives it to the first legal yes instead. ' +
           '`employeeIds` puts it to those people only, cheapest first; `rounds: {size, everyMinutes}` asks them a few at a time, every 15, 30, 60 or 120 minutes, ' +
           'until someone takes it. With `fromShiftId`, the shift is taken off whoever has it (they are told) and put out as it was: how a sick person\'s shift is put out for cover; ' +
           'add `keepUntilTaken: true` to leave it with them until someone takes it. `urgent` reaches people through their quiet hours.',
@@ -565,6 +640,7 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
             rounds: { type: ['object', 'null'], properties: { size: { type: 'integer' }, everyMinutes: { type: 'integer' } }, additionalProperties: false },
             fill: { type: 'string', enum: ['claim', 'first_yes'] },
             urgent: { type: 'boolean' },
+            everyone: { type: 'boolean' },
           },
           additionalProperties: false,
         },
@@ -630,13 +706,10 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       let told: number;
       if (offers) told = askNextRound(org, o, actorName(g), now);
       else {
+        // Offered cheapest first: those short of their contracted hours, then the cheapest few, then everyone.
         const eligible = eligibleFor(org.state, slotOf(o), exclude);
-        const { title, body: text } = offerText(o, names.role(o.roleId), names.site(o.siteId));
-        for (const e of eligible) {
-          const note = notify(org, e.id, 'open_shift', title, text, now);
-          if (o.urgent) note.urgent = true;
-        }
-        told = eligible.length;
+        o.offer = { waves: offerWaves(rankOffer(org.state, slotOf(o), eligible)), released: 0, told: [] };
+        told = releaseWave(org, o, now, body.everyone === true || tooCloseForWaves(o, londonParts(now)));
       }
       return reply.code(201).send({ ...openShiftView(req, org, o), told });
     },
@@ -671,6 +744,60 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       if (o.status !== 'open') throw new HttpError(409, 'not_open', `This open shift was ${o.status} already.`);
       withdraw(org, o, actorName(g), ctx.now());
       return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/v1/open-shifts/:id/offer-all',
+    { ...write, schema: { tags, description: 'Tells everyone eligible now, without waiting for the cheaper waves to claim.', params: idParam } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const o = openShiftsOf(org).find((x) => x.id === req.params.id);
+      if (!o) throw notFound(`Open shift ${req.params.id}`);
+      g.allow('rota.publish', o.siteId);
+      if (o.status !== 'open') throw new HttpError(409, 'not_open', `This open shift was ${o.status} already.`);
+      const told = releaseWave(org, o, ctx.now(), true);
+      audit(org, actorName(g), 'open_shift.offered_all', { id: o.id, told });
+      return { ...openShiftView(req, org, o), told };
+    },
+  );
+
+  // Approving claims without a manager, site by site: off until someone who publishes the rota turns it on.
+  app.get(
+    '/v1/open-shifts/auto-approve',
+    { ...read, schema: { tags, description: 'The sites, of those where the caller publishes the rota, whose open shift claims are approved automatically when inside the rules and the labour budget.' } },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const on = new Set(org.settings.openShiftAutoApprove ?? []);
+      return org.state.sites.filter((x) => g.can('rota.publish', x.id)).map((x) => ({ siteId: x.id, siteName: x.name, on: on.has(x.id), labourTargetPct: x.labourTargetPct }));
+    },
+  );
+
+  app.put<{ Body: { siteId: string; on: boolean } }>(
+    '/v1/open-shifts/auto-approve',
+    {
+      ...write,
+      schema: {
+        tags,
+        description:
+          'Turns automatic approval of open shift claims on or off for a site. When on, a claim is approved the moment it is made if it breaks no rule, ' +
+          "raises nothing to review, and the site's labour for that week stays at or under its target share of forecast sales. Anything else waits for a manager.",
+        body: { type: 'object', required: ['siteId', 'on'], properties: { siteId: { type: 'string' }, on: { type: 'boolean' } }, additionalProperties: false },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      if (!org.state.sites.some((x) => x.id === req.body.siteId)) throw notFound(`Site ${req.body.siteId}`);
+      g.allow('rota.publish', req.body.siteId);
+      const on = new Set(org.settings.openShiftAutoApprove ?? []);
+      if (req.body.on) on.add(req.body.siteId);
+      else on.delete(req.body.siteId);
+      org.settings.openShiftAutoApprove = [...on];
+      audit(org, actorName(g), 'open_shift.auto_approve_set', { siteId: req.body.siteId, on: req.body.on });
+      return { siteId: req.body.siteId, on: req.body.on };
     },
   );
 }
@@ -933,7 +1060,7 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
     const o = openShiftsOf(org).find((x) => x.id === req.params.id);
     if (!o || goingStatus(o, londonParts(ctx.now())) !== 'open') throw new HttpError(409, 'not_open', 'This shift has been filled or withdrawn.');
     if (requestsOf(org).some((r) => r.openShiftId === o.id && r.employeeId === employee.id && open(r))) throw new HttpError(409, 'already_claimed', 'You have already asked for this shift.');
-    if (!wasAsked(o, employee.id)) throw new HttpError(409, 'not_offered', 'This shift was not offered to you.');
+    if (!wasAsked(o, employee.id)) throw new HttpError(409, 'not_offered', 'This shift has not been offered to you yet.');
     const check = claimCheck(org.state, employee, slotOf(o));
     if (check.problem) throw new HttpError(409, 'not_eligible', check.problem);
     const blocks = blocking(check.issues);
@@ -946,7 +1073,12 @@ export function staffRequestRoutes(app: FastifyInstance, ctx: AppContext, signed
       await done(org, null);
       throw new HttpError(409, 'not_given', taken.reason);
     }
-    if (taken.kind === 'filled') return done(org, { outcome: 'filled', line: shiftLine(o, namesOf(org.state)) });
+    if (taken.kind === 'filled') {
+      // A request approved by the site's rule was made, as any claim is; the first yes makes none.
+      if (taken.request) reply.code(201);
+      // Approved by the site's own rule shows as the request it was; the first yes as the shift it gave.
+      return done(org, { ...(taken.request ? ownRequestView(org, taken.request) : {}), outcome: 'filled', line: shiftLine(o, namesOf(org.state)) });
+    }
     reply.code(201);
     return done(org, { ...ownRequestView(org, taken.request), outcome: 'claimed' });
   });

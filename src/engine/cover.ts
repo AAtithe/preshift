@@ -10,6 +10,7 @@
 // set up for the site, employed that day, and nothing in the rota rules blocking it.
 
 import { candidates, type Candidate } from './candidates';
+import { offeredTo } from './offers';
 import { blocking, claimCheck } from './requests';
 import { formatMinute } from './time';
 import type { OpenShift, RotaState, Shift } from './types';
@@ -108,9 +109,12 @@ export function offerText(o: OpenShift, roleName: string, siteName: string): { t
 /** Replies taken as yes on WhatsApp. Anything else is an ordinary message to the manager. */
 export const isYes = (text: string) => /^\s*(yes|y|yep|yeah|yes please|i can|i'll do it|ill do it)\s*[.!]*\s*$/i.test(text);
 
-/** Whether the person was asked: everyone eligible for an untargeted shift, only those asked for a targeted one. */
+/**
+ * Whether the person was asked: for an untargeted shift, everyone eligible once the waves reach them;
+ * for a targeted one, only those asked so far.
+ */
 export function wasAsked(o: OpenShift, employeeId: string): boolean {
-  if (!o.offers) return true;
+  if (!o.offers) return offeredTo(o, employeeId);
   const offer = o.offers.find((x) => x.employeeId === employeeId);
   return !!offer?.offeredAt && !offer.declinedAt;
 }

@@ -29,7 +29,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       // One round trip for everything, who is asking included, rather than asking that first.
-      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments] = await Promise.all([
+      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights] = await Promise.all([
         api.get<Me>('/v1/me'),
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
@@ -41,10 +41,12 @@ export function useRotaStore() {
         api.get<DaySales[]>('/v1/sales'),
         api.get<RestOverride[]>('/v1/rota/overrides'),
         api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
+        // Only for warnings: the rota still loads without it.
+        api.get<NonNullable<RotaState['employmentRights']>>('/v1/employment-rights/settings').catch(() => undefined),
       ]);
       setMe(me);
       // Till actuals stay on the server: the screens that need them ask for them.
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -355,7 +357,7 @@ export function useHrRecords(setError: (message: string | null) => void) {
     save: (record: HrRecord, isNew: boolean) =>
       run(async () => {
         // Copies on the record are the server's: they are added and removed through their own routes.
-        const { id, createdBy: _b, createdAt: _a, history: _h, files: _f, ...body } = record;
+        const { id, createdBy: _b, createdAt: _a, history: _h, files: _f, signing: _s, ...body } = record;
         const saved = isNew
           ? await api.post<HrRecord>('/v1/hr/records', body as RecordInput)
           : await api.patch<HrRecord>(`/v1/hr/records/${id}`, body);
@@ -366,6 +368,13 @@ export function useHrRecords(setError: (message: string | null) => void) {
     attach: (recordId: string, file: Blob, fileName: string) =>
       run(async () => {
         const saved = await api.upload<HrRecord>(`/v1/hr/records/${recordId}/files?fileName=${encodeURIComponent(fileName)}`, file);
+        setRecords((list) => (list ?? []).map((r) => (r.id === recordId ? saved : r)));
+        return saved;
+      }),
+    /** Sends a copy on a document record to the person to read and sign in the staff app. */
+    sendToSign: (recordId: string, fileId: string, kind: 'statement' | 'handbook') =>
+      run(async () => {
+        const saved = await api.post<HrRecord>(`/v1/hr/records/${recordId}/send-to-sign`, { fileId, kind });
         setRecords((list) => (list ?? []).map((r) => (r.id === recordId ? saved : r)));
         return saved;
       }),

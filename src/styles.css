@@ -762,6 +762,10 @@ button.link.site-link { padding: 0; color: var(--ink); font-weight: 600; }
 .close-intro { max-width: 820px; margin-bottom: 16px; }
 .close-intro h2 { margin: 0 0 6px; font: 650 26px/1.1 var(--serif); letter-spacing: -0.02em; color: var(--ink); }
 .ea-note { padding: 0 16px 12px; }
+.xero-post { padding: 0 16px 14px; display: grid; gap: 8px; }
+.xero-post p { margin: 0; }
+.xero-settings { margin-top: 24px; max-width: 980px; }
+.xero-settings select { max-width: 280px; }
 .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
 .step { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
 .step.done { border-color: var(--good-fill); }
@@ -1318,6 +1322,9 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .requests-post { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px; }
 .requests-post label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .requests-post p { grid-column: 1 / -1; margin: 0; }
+.requests-auto { margin: 12px 0; display: grid; gap: 6px; }
+.requests-auto h4, .requests-auto p { margin: 0; }
+.hr-signing { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .requests-digest { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; }
 .requests-digest input { margin-top: 3px; }
 .login-flags { margin: 4px 0 0; padding-left: 16px; }
@@ -1531,6 +1538,9 @@ ul.plain { list-style: none; padding: 0; margin: 6px 0; }
 .cover-requests > li { padding: 10px 0; border-top: 1px solid var(--rule); display: grid; gap: 4px; }
 .cover-requests > li:first-child { border-top: none; }
 
+/* Employment rights (People) */
+.rights-settings { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 4px; }
+.rights pre.letter { white-space: pre-wrap; font: 14px/1.5 var(--font); margin: 8px 0 0; padding: 12px; background: var(--surface-2, var(--surface)); border-radius: var(--radius); }
 /* Softer finish. The same WS navy, blue wash and ledger P&L, with the calmer touches tried in the
    design directions: labels in sentence case rather than small capitals, notices as quiet cards
    marked by a dot instead of yellow slabs, rounder cards and controls, lighter shift outlines,

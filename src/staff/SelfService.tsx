@@ -18,6 +18,8 @@ export interface SelfServiceData {
   sick: { from: string } | null;
   fitNoteFor: { from: string; to: string | null; uploaded: number } | null;
   requests: OwnRequest[];
+  /** Documents sent to them to sign and not yet signed. */
+  toSign?: number;
 }
 
 export interface OwnRequest {
@@ -619,6 +621,7 @@ export function InboxTab({ call, say, refresh }: { call: Call; say: Say; refresh
   return (
     <>
     <PushCard call={call} say={say} />
+    <SignDocuments call={call} say={say} count={0} all onDone={refresh} />
     <section className="staff-card">
       <h2>Messages</h2>
       {list === null ? (
@@ -640,6 +643,81 @@ export function InboxTab({ call, say, refresh }: { call: Call; say: Say; refresh
       )}
     </section>
     </>
+  );
+}
+
+interface SignDoc {
+  id: string;
+  title: string;
+  kindLabel: string;
+  fileName: string | null;
+  sentAt: string;
+  openedAt: string | null;
+  signedAt: string | null;
+  signedName: string | null;
+}
+
+/**
+ * Documents to read and sign: the written statement and the handbook. Open it first, then confirm
+ * and type your name. With `all`, the signed ones too, to open again whenever they like.
+ */
+export function SignDocuments({ call, say, count, all = false, onDone }: { call: Call; say: Say; count: number; all?: boolean; onDone: () => void }) {
+  const [docs, setDocs] = useState<SignDoc[] | null>(null);
+  const load = useCallback(() => void call<SignDoc[]>('GET', '/v1/staff/documents').then(setDocs).catch(() => setDocs([])), [call]);
+  useEffect(() => {
+    if (all || count > 0) load();
+  }, [all, count, load]);
+  const shown = (docs ?? []).filter((d) => all || !d.signedAt);
+  if (!all && (count === 0 || shown.length === 0)) return null;
+  if (all && shown.length === 0) return null;
+  return (
+    <section className={`staff-card${all ? '' : ' staff-confirm'}`}>
+      <h2>{all ? 'Your documents' : 'To read and sign'}</h2>
+      {shown.map((d) => <SignRow key={d.id} doc={d} call={call} say={say} onSigned={() => { load(); onDone(); }} onOpened={load} />)}
+    </section>
+  );
+}
+
+function SignRow({ doc, call, say, onSigned, onOpened }: { doc: SignDoc; call: Call; say: Say; onSigned: () => void; onOpened: () => void }) {
+  const [read, setRead] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const href = `/v1/staff/documents/${encodeURIComponent(doc.id)}/file`;
+  if (doc.signedAt) {
+    return (
+      <div className="staff-confirm-row">
+        <span><span className="strong">{doc.title}</span><span className="muted small"> Signed {day(doc.signedAt.slice(0, 10))} as {doc.signedName}.</span></span>
+        <a className="button" href={href} target="_blank" rel="noreferrer">Open</a>
+      </div>
+    );
+  }
+  function sign(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    call('POST', `/v1/staff/documents/${encodeURIComponent(doc.id)}/sign`, { name, read })
+      .then(onSigned)
+      .catch((err) => setError(say(err)))
+      .finally(() => setBusy(false));
+  }
+  return (
+    <form className="staff-sign" onSubmit={sign}>
+      <span className="strong">{doc.kindLabel}: {doc.title}</span>
+      <a className="button" href={href} target="_blank" rel="noreferrer" onClick={() => setTimeout(onOpened, 1500)}>
+        {doc.openedAt ? 'Open it again' : 'Open and read it'}
+      </a>
+      {doc.openedAt ? (
+        <>
+          <label className="check"><input type="checkbox" checked={read} onChange={(e) => setRead(e.target.checked)} /> I have read it</label>
+          <label>Type your full name to sign <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} /></label>
+          <button className="primary" disabled={busy || !read || !name.trim()}>Sign</button>
+        </>
+      ) : (
+        <span className="muted small">Open it first. You can sign once you have read it.</span>
+      )}
+      {error && <p className="staff-msg bad">{error}</p>}
+    </form>
   );
 }
 

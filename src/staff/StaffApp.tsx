@@ -7,7 +7,7 @@ import { dayLabel } from '../ui/format';
 import { call, Problem, say } from './http';
 import { StaffCover, StaffMessages, StaffReach } from './StaffMessages';
 import { registerWorker, turnOff } from './push';
-import { RotaConfirm, PayTab, InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
+import { RotaConfirm, SignDocuments, PayTab, InboxTab, RequestsTab, RotaTab, type SelfServiceData } from './SelfService';
 
 interface Entry {
   id: string;
@@ -153,6 +153,7 @@ function Signed({ data, onChange, onSignedOut }: { data: Overview; onChange: (o:
   const tabs: [Tab, string, number][] = [['today', 'Today', 0], ['rota', 'Rota', 0], ['requests', 'Requests', open], ['pay', 'Pay', 0], ['inbox', 'Inbox', data.unread]];
   return (
     <>
+      {tab !== 'inbox' && <SignDocuments call={call} say={say} count={data.toSign ?? 0} onDone={reload} />}
       <RotaConfirm call={call} say={say} weeks={data.rotaToConfirm ?? []} onDone={reload} />
       {tab === 'today' && <Home data={data} onChange={onChange} onSignedOut={onSignedOut} />}
       {tab === 'rota' && <RotaTab call={call} say={say} today={data.today} requests={data.requests} refresh={reload} shifts={data.shifts} fortnight={data.fortnight} />}

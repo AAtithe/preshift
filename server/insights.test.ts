@@ -160,6 +160,20 @@ describe('scorecard and programme', () => {
     expect(card.body.weeks.at(-1).forecastWape).toBeGreaterThan(0);
   });
 
+  it('scores every site the caller can see, ranked, and never a week still being worked', async () => {
+    const { call } = await setup();
+    const all = await call('GET', '/v1/scorecards?weeks=3');
+    expect(all.status).toBe(200);
+    expect(all.body.cards.length).toBeGreaterThan(1);
+    expect(all.body.league.map((r: { rank: number }) => r.rank)).toEqual(all.body.cards.map((_: unknown, i: number) => i + 1));
+    expect(all.body.cards[0].weeks.map((w: { weekStart: string }) => w.weekStart)).toEqual(['2026-09-28', '2026-10-05', '2026-10-12']);
+    // Asking to end on this week or later still stops at last week.
+    const ahead = await call('GET', `/v1/scorecards?weeks=1&endWeek=${NEXT}`);
+    expect(ahead.body.cards[0].weeks.map((w: { weekStart: string }) => w.weekStart)).toEqual(['2026-10-12']);
+    const earlier = await call('GET', '/v1/scorecards?weeks=1&endWeek=2026-10-01');
+    expect(earlier.body.cards[0].weeks.map((w: { weekStart: string }) => w.weekStart)).toEqual(['2026-09-28']);
+  });
+
   it('runs a site through the programme with sign-offs for the WS lead only', async () => {
     const { call } = await setup();
     // Neither the GM nor the operator's own full-access key can set the terms of the fee.

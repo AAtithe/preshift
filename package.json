@@ -16,7 +16,8 @@
     "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
     "eval:assistant": "tsx scripts/eval-assistant.ts",
     "test:e2e": "playwright test",
-    "stripe:prices": "tsx scripts/stripe-prices.ts"
+    "stripe:prices": "tsx scripts/stripe-prices.ts",
+    "whats-new": "tsx scripts/whats-new.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",

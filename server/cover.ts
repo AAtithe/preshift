@@ -5,7 +5,8 @@
 
 import { breakFor, complianceOptions } from '../src/engine/compliance';
 import { currentRound, goingStatus, mayTake, nextRoundOffers, offerText, roomForRounds, roundDue, shiftLabel, slotOf, waiting, wasAsked } from '../src/engine/cover';
-import { namesOf, shiftLine } from '../src/engine/requests';
+import { withinBudget } from '../src/engine/offers';
+import { claimCheck, decisionText, namesOf, shiftLine } from '../src/engine/requests';
 import type { Employee, OpenShift, Shift, StaffRequest } from '../src/engine/types';
 import { randomUUID } from 'node:crypto';
 import { londonParts, type AppContext } from './context';
@@ -31,6 +32,17 @@ function tell(org: OrgData, o: OpenShift, employeeId: string, kind: Parameters<t
 export function claimedShift(org: OrgData, o: OpenShift, e: Employee): Shift {
   const owed = breakFor(e, o.date, o.endMinute - o.startMinute, complianceOptions(org.state, e).nation);
   return { id: `s_${randomUUID()}`, employeeId: e.id, siteId: o.siteId, roleId: o.roleId, date: o.date, startMinute: o.startMinute, endMinute: o.endMinute, breakMinutes: Math.max(o.breakMinutes, owed), published: true };
+}
+
+/**
+ * Whether a claim can be approved without a manager: the site has it turned on, the claim breaks no
+ * rule and raises nothing to review, and the site's labour for the week stays within its target.
+ */
+function autoApproval(org: OrgData, o: OpenShift, e: Employee): boolean {
+  if (!(org.settings.openShiftAutoApprove ?? []).includes(o.siteId)) return false;
+  const check = claimCheck(org.state, e, slotOf(o));
+  if (check.problem || check.issues.length) return false;
+  return withinBudget(org.state, claimedShift(org, o, e)).ok;
 }
 
 /**
@@ -104,7 +116,7 @@ export function withdraw(org: OrgData, o: OpenShift, by: string, now: Date, why 
 
 /** What came of someone's yes. */
 export type Taken =
-  | { kind: 'filled'; open: OpenShift; employee: Employee; shift: Shift }
+  | { kind: 'filled'; open: OpenShift; employee: Employee; shift: Shift; request?: StaffRequest }
   | { kind: 'claimed'; open: OpenShift; employee: Employee; request: StaffRequest }
   | { kind: 'refused'; open: OpenShift; employee: Employee; reason: string };
 
@@ -129,6 +141,14 @@ export function takeOpenShift(org: OrgData, o: OpenShift, employee: Employee, vi
   audit(org, `staff:${employee.id}`, 'open_shift.yes', { id: o.id, employeeId: employee.id, via });
   if (o.fill === 'first_yes') return { kind: 'filled', open: o, employee, shift: fillOpenShift(org, o, employee, `${employee.name} (took it)`, now) };
   const request = addRequest(org, { kind: 'open_shift', employeeId: employee.id, siteId: o.siteId, openShiftId: o.id }, londonParts(now).date);
+  if (autoApproval(org, o, employee)) {
+    const by = 'Preshift, automatically';
+    const shift = fillOpenShift(org, o, employee, by, now);
+    o.autoApproved = true;
+    Object.assign(request, { status: 'approved', decidedBy: by, decidedAt: now.toISOString(), decisionNote: 'Inside the rules and the labour budget, so approved straight away.' });
+    audit(org, by, 'request.approved', { id: request.id, kind: request.kind, employeeId: request.employeeId, automatic: true });
+    return { kind: 'filled', open: o, employee, shift, request };
+  }
   return { kind: 'claimed', open: o, employee, request };
 }
 
@@ -142,7 +162,11 @@ export async function afterYes(ctx: Pick<AppContext, 'store' | 'fetch' | 'now'>,
     return;
   }
   if (t.kind === 'claimed') return;
-  notify(org, t.employee.id, 'request_decided', "It's yours", `${label}. It is on your rota now. Thank you.`, now);
+  // Approved by the site's own rule: told as any decision on their request is.
+  if (t.request) {
+    const { title, body } = decisionText(t.request, namesOf(org.state), t.open);
+    notify(org, t.employee.id, 'request_decided', title, body, now);
+  } else notify(org, t.employee.id, 'request_decided', "It's yours", `${label}. It is on your rota now. Thank you.`, now);
   const out = await outboundFor(ctx, org);
   await notifyTeam(out, t.open.siteId, `Covered: ${t.employee.name} takes ${label}.`, managerLink(out, t.open.siteId));
 }

@@ -453,7 +453,7 @@ export interface OpenShift {
   heldBy?: { shiftId: string; employeeId: string };
   /** How it is decided. claim, the default: staff ask and a manager approves. first_yes: the first legal yes gets it at once. */
   fill?: 'claim' | 'first_yes';
-  /** Put to these people only, cheapest first, perhaps in rounds. Absent: everyone eligible is told when it is posted. */
+  /** Put to these people only, cheapest first, perhaps in rounds. Absent: offered to everyone eligible, in waves (`offer`). */
   offers?: ShiftOffer[];
   /** Asking in rounds: `size` at a time, the next round every `everyMinutes` until someone takes it. */
   rounds?: { size: number; everyMinutes: number };
@@ -461,12 +461,26 @@ export interface OpenShift {
   nextRoundAt?: string;
   /** Told through quiet hours. */
   urgent?: boolean;
+  /**
+   * Offered in waves, cheapest first: `waves` are the people in each, `told` everyone told so far,
+   * `released` how many waves are out, `nextAt` when the next goes. Once every wave is out, anyone
+   * eligible may claim.
+   */
+  offer?: { waves: OfferWave[]; released: number; told: string[]; nextAt?: string };
+  /** Set when a claim was approved automatically, inside the rules and the site's labour budget. */
+  autoApproved?: boolean;
+}
+
+/** One wave of an open shift offer: why these people come at this point, and who they are. */
+export interface OfferWave {
+  tier: 'contracted' | 'cheapest' | 'everyone';
+  employeeIds: string[];
 }
 
 export type StaffNotificationKind =
   | 'rota_published' | 'rota_changed' | 'shift_cancelled'
   | 'open_shift' | 'swap_offered' | 'swap_accepted' | 'request_decided' | 'request_received'
-  | 'shift_reminder' | 'shift_late';
+  | 'shift_reminder' | 'shift_late' | 'document_to_sign';
 
 /** A message to one member of staff, shown in the staff app and emailed where an address is held. */
 export interface StaffNotification {
@@ -526,6 +540,28 @@ export interface HrRecord {
    * Encrypted and stored apart from the record, like right to work copies. Managed by the server.
    */
   files?: RightToWorkDocument[];
+  /** A document sent to the person to read and sign in the staff app. Managed by the server. */
+  signing?: DocumentSigning;
+}
+
+/**
+ * Signing in the staff app: which copy was sent, when the person first opened it, and how they
+ * signed it. The fingerprint ties the signature to the exact file, which cannot change after it is sent.
+ */
+export interface DocumentSigning {
+  kind: 'statement' | 'handbook';
+  /** The copy on the record that was sent, and its SHA-256. */
+  fileId: string;
+  sha256: string;
+  sentAt: string;
+  sentBy: string;
+  /** First opened in the app: a document has to be opened before it can be signed. */
+  openedAt?: string;
+  signedAt?: string;
+  /** The name the person typed to sign. */
+  signedName?: string;
+  ip?: string;
+  userAgent?: string;
 }
 
 /** One change to an HR record: who made it, when, and the values it replaced. */
@@ -710,6 +746,8 @@ export interface RotaState {
   dishSales?: DishSales[];
   purchases?: Purchase[];
   stockCounts?: StockCount[];
+  /** Employment Rights Act settings in force, loaded for warnings before a change is saved. */
+  employmentRights?: import('./employmentRights').EraSettings;
 }
 
 /**

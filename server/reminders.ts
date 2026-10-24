@@ -4,6 +4,7 @@ import { namesOf, shiftLine } from '../src/engine/requests';
 import { formatMinute, londonParts } from '../src/engine/time';
 import { emailSetting, lateAlertEmail, linkFor, parseEmailSettings, sendMail } from './mail';
 import { deliverNotifications, notify } from './notify';
+import { releaseDueWaves } from './routes/requests';
 import { isSandbox } from './sandbox';
 import { audit, type OrgData, type Store } from './store';
 
@@ -68,22 +69,34 @@ async function emailLate(store: Store, org: OrgData, late: DueAlert[], now: { da
  * The scheduled run across every organisation, every few minutes. Demo sandboxes are left out; one
  * organisation failing never stops the rest, and the run stops before the function's time runs out.
  */
-export async function runShiftAlerts(store: Store, at = new Date(), log: (msg: string, detail: Record<string, unknown>) => void = () => {}) {
+export async function runShiftAlerts(
+  store: Store,
+  at = new Date(),
+  log: (msg: string, detail: Record<string, unknown>) => void = () => {},
+  // Sends notices to people who chose WhatsApp or text there instead of push and email.
+  carry: (org: OrgData) => Promise<void> = async () => {},
+) {
   const started = Date.now();
   let reminders = 0;
   let late = 0;
+  let offers = 0;
   for (const orgId of await store.orgIds()) {
     if (isSandbox(orgId) || Date.now() - started > 40_000) continue;
     try {
       const org = await store.load(orgId);
-      const before = JSON.stringify(org.shiftAlerts ?? {});
+      const before = JSON.stringify([org.shiftAlerts ?? {}, (org.openShifts ?? []).map((o) => o.offer)]);
+      // Open shifts whose cheaper wave has had its time go to the next.
+      const offered = releaseDueWaves(org, at);
+      if (offered) await carry(org);
       const result = await shiftAlerts(store, org, at);
-      if (result || JSON.stringify(org.shiftAlerts ?? {}) !== before) await store.save(org);
+      if (offered && !result) await deliverNotifications(store, org);
+      offers += offered;
+      if (result || JSON.stringify([org.shiftAlerts ?? {}, (org.openShifts ?? []).map((o) => o.offer)]) !== before) await store.save(org);
       reminders += result?.reminders ?? 0;
       late += result?.late ?? 0;
     } catch (err) {
       log('shift alerts failed', { orgId, err: (err as Error).message });
     }
   }
-  return { reminders, late };
+  return { reminders, late, offers };
 }

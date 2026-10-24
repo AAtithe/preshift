@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'messages';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'messages' | 'rights';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -103,6 +103,8 @@ export const NAV: NavGroup[] = [
       { id: 'cases', label: 'Cases', scope: 'people', access: { org: ['hr.cases'] } },
       // Who may leave, from clocked hours, and what replacing them costs: personnel and pay together.
       { id: 'retention', label: 'Retention', scope: 'people', siteOnly: true, access: { ...READS_TIME, also: ['costs.view', 'hr.view'] } },
+      // Employment Rights Act: short notice pay owed, guaranteed hours offers, and the settings they run on.
+      { id: 'rights', label: 'Employment rights', scope: 'people', siteOnly: true, access: { scope: ['team.manage', 'costs.view'] } },
     ],
   },
   {
