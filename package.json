@@ -16,13 +16,15 @@
     "build:vercel": "tsc -p tsconfig.json && node scripts/build-vercel.mjs",
     "eval:assistant": "tsx scripts/eval-assistant.ts",
     "test:e2e": "playwright test",
-    "stripe:prices": "tsx scripts/stripe-prices.ts"
+    "stripe:prices": "tsx scripts/stripe-prices.ts",
+    "whats-new": "tsx scripts/whats-new.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^4.1.0",
     "@neondatabase/serverless": "^0.10.4",
+    "@vercel/analytics": "^2.0.1",
     "fastify": "^4.28.1",
     "qrcode": "1.5.4",
     "react": "^18.3.1",

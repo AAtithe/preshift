@@ -159,6 +159,9 @@ export class OutboxDispatcher {
             ...l,
             payrollId: org.state.employees.find((e) => e.id === l.employeeId)?.payrollId,
           })),
+          ...(item.payload.batch.tronc
+            ? { tronc: item.payload.batch.tronc.map((t) => ({ ...t, payrollId: org.state.employees.find((e) => e.id === t.employeeId)?.payrollId })) }
+            : {}),
         };
         const entityId = item.payload.entityId ?? org.state.entities[0]?.id ?? '';
         const employerId = employerOf(entityId);

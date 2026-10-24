@@ -332,7 +332,9 @@ describe('webhooks', () => {
     expect(event.type).toBe('pay.change_proposed');
     expect(Object.keys(event.data).sort()).toEqual(['employeeId', 'id']);
     expect(event.data.employeeId).toBe('mar-2');
-    expect(t.sent[0].body).not.toContain('14.5');
+    // The time is left out: a timestamp such as 07:16:14.588 would match the rate by chance.
+    const { createdAt: _at, ...rest } = event;
+    expect(JSON.stringify(rest)).not.toContain('14.5');
   });
 
   it('keeps a failed event queued and retries it with the next change, in order', async () => {

@@ -19,7 +19,8 @@ function RequestsGuide() {
       </p>
       <p>
         Decide the same day. A request left for a week teaches the team that the app gets no answer, and they go back to
-        messaging you.
+        messaging you. Anything still waiting after two days is marked Overdue and goes into your area manager's morning email
+        too, with your name as the person to decide it.
       </p>
 
       <h3>Holiday and time off</h3>
@@ -44,6 +45,14 @@ function RequestsGuide() {
         <li>After seven days off they need a fit note. They can photograph it in the app; only people who read HR files can open it.</li>
         <li>When they come back, hold the return to work conversation and record it in their HR file.</li>
       </ol>
+
+      <h3>Who has seen the rota</h3>
+      <p>
+        After you publish, each person gets Seen it on their phone. Rota seen, on Staff requests, shows for this week and next
+        who has confirmed their week as it now stands. Change a published shift and that person has to confirm again. Anyone
+        marked no app cannot confirm: tell them yourself. Your morning email lists who has not seen this week's rota, and next
+        week's from Friday.
+      </p>
 
       <h3>Someone has not turned up</h3>
       <ol className="guide-steps">

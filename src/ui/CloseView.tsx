@@ -6,6 +6,7 @@ import { weekDates } from '../engine/time';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
 import { download, hours, money2 } from './format';
+import { XeroPost, XeroSettings, type XeroStatus } from './XeroPanel';
 
 interface Journal {
   basis: 'rota' | 'actual';
@@ -20,11 +21,19 @@ interface Props {
   week: string;
   /** Entities in scope; each one is its own ledger and its own Xero file. */
   entityIds: string[];
+  /** Holds settings.manage: connects Xero and chooses where each company posts. */
+  canSettings: boolean;
 }
 
-export function CloseView({ state, week, entityIds }: Props) {
+export function CloseView({ state, week, entityIds, canSettings }: Props) {
   const [data, setData] = useState<Journal | null>(null);
   const [basis, setBasis] = useState<'auto' | 'rota' | 'actual'>('auto');
+  const [xero, setXero] = useState<XeroStatus | null>(null);
+
+  useEffect(() => {
+    api.get<XeroStatus>('/v1/integrations/xero').then(setXero).catch(() => setXero(null));
+  }, []);
+  const postsTo = (entityId: string) => !!xero?.connection && !!xero.ledgers.find((l) => l.entityId === entityId)?.tenantId;
 
   // Shifts are in the dependencies so the journal follows a build or an edit without a reload.
   useEffect(() => {
@@ -213,8 +222,9 @@ export function CloseView({ state, week, entityIds }: Props) {
                     <h3>{entity.name}</h3>
                     <span className="muted small">Company {entity.companyNumber || 'not set'} · PAYE {entity.payeReference || 'not set'}</span>
                   </div>
-                  <button className="primary" onClick={() => void downloadCsv(entity.id)}>Download Xero journal</button>
+                  <button className={postsTo(entity.id) ? undefined : 'primary'} onClick={() => void downloadCsv(entity.id)}>Download Xero journal</button>
                 </div>
+                {postsTo(entity.id) && <XeroPost key={`${entity.id}-${week}-${basis}-${state.shifts.length}`} entityId={entity.id} week={week} basis={basis} />}
                 <table className="table">
                   <thead>
                     <tr>
@@ -249,6 +259,8 @@ export function CloseView({ state, week, entityIds }: Props) {
           })}
         </>
       )}
+
+      {canSettings && xero && <XeroSettings status={xero} onChange={setXero} />}
     </div>
   );
 }
