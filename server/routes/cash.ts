@@ -8,7 +8,7 @@ import { idParam } from '../schemas';
 import { audit } from '../store';
 
 /**
- * The labour cash calendar: net pay, PAYE and NI, and pension contributions by company and date. Pay
+ * The labour cash calendar: net pay, tronc, PAYE and NI, and pension contributions by company and date. Pay
  * totals for the whole business, so it answers to the people who see payroll or run the close.
  */
 export function cashRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -36,7 +36,8 @@ export function cashRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Finance'],
         description:
-          'What each employing company must pay out for labour, and when, over the weeks ahead: net pay on each pay day, PAYE and NI to HMRC ' +
+          'What each employing company must pay out for labour, and when, over the weeks ahead: net pay on each pay day, tronc on the pay day ' +
+          "or the scheme's payout day, PAYE and NI to HMRC " +
           'by the 22nd of the month after the tax month (less Employment Allowance on the claiming company), and pension contributions by the ' +
           '22nd of the month after deduction. Costed as the labour accrual is, with deductions estimated on the standard tax code.',
         querystring: query,

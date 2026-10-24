@@ -1,3 +1,4 @@
+import { workingDayOnOrBefore } from './cashflow';
 import { tipsPayBy } from './tronc';
 import { addDays, ageOn, weekDates, weekStart } from './time';
 import type { DaySales, Department, Dish, DishSales, Employee, Purchase, RotaState, Shift, StockCount, TimeEntry, TipsTaken, TroncScheme } from './types';
@@ -265,6 +266,7 @@ const SCHEMES: TroncScheme[] = [
     independent: true,
     pointsPerHour: { server: 10, host: 8, bar: 10, chef: 8, kp: 6 },
     serviceCharge: 'discretionary',
+    payoutDay: 25,
   },
   {
     siteId: 'shd',
@@ -272,6 +274,7 @@ const SCHEMES: TroncScheme[] = [
     independent: false,
     pointsPerHour: { server: 10, host: 8, bar: 10, chef: 7, kp: 5 },
     serviceCharge: 'mandatory',
+    payoutDay: 25,
   },
   {
     siteId: 'fitz',
@@ -280,6 +283,7 @@ const SCHEMES: TroncScheme[] = [
     pointsPerHour: { server: 10, host: 8, bar: 10, chef: 8, kp: 6 },
     departmentShares: { FOH: 0.6, BOH: 0.4 },
     serviceCharge: 'none',
+    payoutDay: 25,
   },
 ];
 
@@ -292,7 +296,7 @@ export function seedTroncSchemes(today: string): TroncScheme[] {
 
 /**
  * Tips by day: a service charge at Marylebone and Shoreditch, card tips everywhere, cash pooled on
- * Friday and Saturday. Paid in the payroll on the 25th of the month after; Shoreditch's payroll
+ * Friday and Saturday. Paid in the payroll on the 25th of the month after, or the working day before; Shoreditch's payroll
  * missed the card and cash tips of the latest month that has fallen due, so those are overdue.
  */
 export function seedTips(state: RotaState, today: string): TipsTaken[] {
@@ -308,7 +312,7 @@ export function seedTips(state: RotaState, today: string): TipsTaken[] {
       const paidOn = (d: string, source: TipsTaken['source']) => {
         // Shoreditch's payroll took the service charge that month but not the card and cash tips.
         if (site.id === 'shd' && d.slice(0, 7) === missedMonth && source !== 'service-charge') return undefined;
-        const on = `${tipsPayBy(d).slice(0, 8)}25`;
+        const on = workingDayOnOrBefore(`${tipsPayBy(d).slice(0, 8)}25`);
         return on < today ? on : undefined;
       };
       const add = (source: TipsTaken['source'], amount: number) => {
