@@ -87,10 +87,17 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
   const deptOf = (roleId: string) => base.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
   const siteShifts = base.shifts.filter((s) => s.siteId === site.id && dates.includes(s.date));
 
-  // The axis covers trading hours with an hour either side, widened for any shift outside them.
-  const from = Math.floor(Math.min(site.openMinute - 60, ...siteShifts.map((s) => s.startMinute)) / 60) * 60;
-  const to = Math.ceil(Math.max(site.closeMinute + 60, ...siteShifts.map((s) => s.endMinute)) / 60) * 60;
+  // The axis covers trading hours with an hour either side, widened for any shift outside them,
+  // including one being dragged past the edge: a shift pulled on past midnight takes the axis with it.
+  const shown = [...siteShifts, ...state.shifts.filter((s) => s.siteId === site.id && dates.includes(s.date))];
+  const from = Math.floor(Math.min(site.openMinute - 60, ...shown.map((s) => s.startMinute)) / 60) * 60;
+  const to = Math.ceil(Math.max(site.closeMinute + 60, ...shown.map((s) => s.endMinute)) / 60) * 60;
   const span = to - from;
+  // Pointer travel is measured against the axis as it stood before the drag. Measured against the
+  // widening axis, each step would stretch the scale and the shift would run away from the pointer.
+  const baseSpan =
+    Math.ceil(Math.max(site.closeMinute + 60, ...siteShifts.map((s) => s.endMinute)) / 60) * 60 -
+    Math.floor(Math.min(site.openMinute - 60, ...siteShifts.map((s) => s.startMinute)) / 60) * 60;
   const x = (m: number) => ((m - from) / span) * 100;
   const hours = Array.from({ length: span / 60 + 1 }, (_, i) => from + i * 60);
   const minuteAt = (d: Draw, clientX: number) => from + ((clientX - d.left) / d.width) * span;
@@ -176,7 +183,7 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
   const resolve: Resolve = (d, e, dx) => {
     const box = layer.current?.getBoundingClientRect();
     if (!box) return { next: d.current, blocked: null };
-    const minutes = (dx / box.width) * span;
+    const minutes = (dx / box.width) * baseSpan;
     const person = state.employees.find((p) => p.id === d.original.employeeId);
     const wasAllowed = person && !dropBlocker(person, d.original);
     if (d.mode !== 'move') {
@@ -361,10 +368,9 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
                   onClick={() => !wasDrag() && onEdit(live)}
                   onKeyDown={(ev) => keyMove(ev, live)}
                   onContextMenu={(ev) => ev.preventDefault()}
-                  title={
-                    flagged.map((i) => i.message).join('\n') ||
-                    `${name(shift.employeeId)}, ${role?.name} ${formatMinute(shift.startMinute)}-${formatMinute(shift.endMinute)}. Drag to move, drag the ends to change the hours.`
-                  }
+                  title={`${name(shift.employeeId)}, ${role?.name} ${formatMinute(shift.startMinute)}-${formatMinute(shift.endMinute)}. ${
+                    flagged.map((i) => i.message).join('\n') || 'Drag to move, drag the ends to change the hours.'
+                  }`}
                 >
                   <span className="tl-edge start" data-edge="start" aria-hidden />
                   <span className="tl-name">{short(name(shift.employeeId))}</span>

@@ -207,8 +207,8 @@ export function validateSetup(draft: SetupDraft): SetupIssue[] {
     if (!site.name.trim()) block('Every site needs a name.');
     if (!draft.entities.some((e) => e.id === site.entityId)) block(`${label}: choose the company it trades in.`);
     if (site.closeMinute <= site.openMinute) block(`${label}: closing time must be after opening time.`);
-    if (site.closeMinute > LATEST_CLOSE) block(`${label}: closing can be after midnight, up to 04:00.`);
-    if (site.closeMinute - 1440 > site.openMinute) block(`${label}: trading would run into the next day's opening.`);
+    if (site.closeMinute > LATEST_CLOSE) block(`${label}: closing can be after midnight, as late as opening time the next day.`);
+    if (site.closeMinute - 1440 > site.openMinute) block(`${label}: trading would run into the next day's opening. Set it to open round the clock instead.`);
     if (!(site.labourTargetPct > 0 && site.labourTargetPct < 1)) block(`${label}: labour target must be between 0% and 100%.`);
     const profile = site.salesProfile;
     if (!profile || !profile.dailySales.some((d) => d > 0)) block(`${label}: enter typical net sales for at least one day.`);

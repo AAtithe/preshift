@@ -221,14 +221,15 @@ describe('compliance', () => {
     expect(c).not.toContain('young-midnight');
   });
 
-  it('never lets an under 18 work between midnight and 04:00', () => {
+  it('blocks under 18s between midnight and 04:00, however the shift falls', () => {
     const teen = person({ dateOfBirth: '2009-06-01', hourlyRate: 8 });
-    const late = codes(teen, [shift(WEEK, 18, 24.5, 30)]);
-    expect(late).toContain('young-midnight');
-    expect(late).not.toContain('young-night');
-    expect(codes(teen, [shift(WEEK, 3, 8, 30)])).toContain('young-midnight');
-    expect(codes(teen, [shift(WEEK, 16, 24, 30)])).not.toContain('young-midnight');
-    expect(codes(teen, [shift(WEEK, 4, 10, 30)])).toContain('young-night');
+    const severity = (s: Shift) => checkEmployeeWeek(teen, WEEK, [s]).filter((i) => i.code.startsWith('young-'));
+    // Running past midnight, starting in the small hours, and inside the hours either side.
+    expect(severity(shift(WEEK, 18, 25, 30)).map((i) => [i.code, i.severity])).toContainEqual(['young-midnight', 'block']);
+    expect(severity(shift(WEEK, 3, 8, 30)).map((i) => i.code)).toContain('young-midnight');
+    expect(severity(shift(WEEK, 17, 24, 30)).map((i) => [i.code, i.severity])).toContainEqual(['young-night', 'warn']);
+    expect(severity(shift(WEEK, 4, 9, 30)).map((i) => i.code)).toEqual(['young-night']);
+    expect(severity(shift(WEEK, 10, 16, 30))).toEqual([]);
   });
 
   it('flags no day off and hours over 48 without opt-out', () => {

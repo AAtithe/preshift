@@ -251,6 +251,22 @@ export function payApprovalEmail(
  * Someone has not clocked in for a shift that started more than ten minutes ago. Sent to whoever
  * publishes that site's rota, at once, so cover can be found while the shift is still running.
  */
+/** The cut call, sent to whoever publishes a site's rota when trading falls behind and early finishes would save real money. */
+export function cutCallEmail(to: string, name: string, site: string, opening: string, lines: string[], link: string): Mail {
+  const next = 'Open the cut call to see each early finish with what it saves on the week, and apply them in one go. Each person is told at once.';
+  const notes = ['Savings are worked on each person\'s whole week, after guaranteed hours. Turn these emails off on the Staff requests screen.'];
+  const text = [`Hello ${name},`, '', opening, '', ...lines.map((l) => `- ${l}`), '', next, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: `Cut call: ${oneLine(site)}`, text, html: letter([`Hello ${name},`, opening, ...lines, next], { label: 'Open the cut call', link }, notes) };
+}
+
+/** Trading well ahead of forecast with hours still short on the reforecast: call someone in. */
+export function callInEmail(to: string, name: string, site: string, opening: string, link: string): Mail {
+  const next = 'Open the cut call to see the short hours by role, then put out an open shift: everyone trained, free and legal to work it is told at once.';
+  const notes = ['Turn these emails off on the Staff requests screen.'];
+  const text = [`Hello ${name},`, '', opening, next, '', link, '', ...notes, '', 'Preshift, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return { to, subject: `Trading ahead: ${oneLine(site)}`, text, html: letter([`Hello ${name},`, opening, next], { label: 'Open the cut call', link }, notes) };
+}
+
 export function lateAlertEmail(to: string, name: string, person: string, line: string, minutesLate: number, link: string): Mail {
   const opening = `${person} has not clocked in for ${line}. The shift started ${minutesLate} minutes ago.`;
   const next = 'They have been sent a reminder. If they are not coming, put the rest of the shift out as an open shift from Staff requests: everyone trained, free and legal to work it is told at once.';
