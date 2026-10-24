@@ -148,6 +148,10 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/integrations/epos': true,
   // Wellbeing on the sandbox's fictional team. Hospitality Rewards connects to the simulator only:
   // the route refuses a real platform for a sandbox, so no visitor can send names anywhere.
+  // The labour cash calendar on the sandbox's own figures, and its pay schedules.
+  'GET /v1/finance/cash-calendar': true,
+  'GET /v1/finance/cash-calendar.csv': true,
+  'PUT /v1/entities/:id/pay-schedule': true,
   'GET /v1/welfare': true,
   'PUT /v1/welfare/policy': true,
   'POST /v1/welfare/recognitions': true,

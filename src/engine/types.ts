@@ -45,6 +45,21 @@ export interface Entity {
    * chosen yet: it is paid at the normal rate meanwhile, and set-up asks for a choice.
    */
   travelPay?: TravelPay;
+  /** When this company pays its people. Weekly, paid the Friday after the week, when absent. */
+  paySchedule?: PaySchedule;
+}
+
+/**
+ * When a company pays. Weekly, fortnightly and four-weekly pay periods run Monday to Sunday in blocks
+ * counted from `anchor`, and are paid `payLagDays` after the period ends (5 is the Friday after).
+ * Monthly pays the calendar month on `monthlyPayDay`, or the last working day of the month.
+ */
+export interface PaySchedule {
+  frequency: 'weekly' | 'fortnightly' | 'four-weekly' | 'monthly';
+  /** A Monday that starts a pay period, for fortnightly and four-weekly. */
+  anchor?: string;
+  payLagDays?: number;
+  monthlyPayDay?: number | 'last-working';
 }
 
 /**
