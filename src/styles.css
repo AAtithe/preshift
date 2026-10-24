@@ -1556,3 +1556,24 @@ button, select, input { border-radius: 8px; }
   .command-bar { padding-right: 150px; }
   .shifty-launcher { bottom: 10px; }
 }
+
+/* What's new: the notice in a week with something unseen, and the walkthrough docked above the command bar. */
+.whatsnew-notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--surface-2); border-color: var(--rule-strong); }
+.whatsnew-actions { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+.walkthrough { position: fixed; right: 24px; bottom: 132px; z-index: 31; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 160px); display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--rule-strong); border-radius: 14px; box-shadow: 0 16px 48px rgb(0 51 89 / 0.22); overflow: hidden; animation: rise 0.2s ease-out; }
+.walkthrough-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: var(--ink); color: var(--card); }
+.walkthrough-head .eyebrow, .walkthrough-head .link { color: var(--card); }
+.walkthrough-head select { font: inherit; font-size: 12px; padding: 4px 6px; border-radius: var(--radius); border: 1px solid var(--rule-strong); background: var(--card); color: var(--body-ink); }
+.walkthrough-body { padding: 14px; overflow-y: auto; }
+.walkthrough-body h3 { margin: 10px 0 6px; font-size: 16px; color: var(--ink); }
+.walkthrough-body p { margin: 0 0 10px; line-height: 1.5; }
+.walkthrough-body .badge { background: var(--surface-2); color: var(--ink); }
+.walkthrough-try { padding: 8px 10px; border-radius: var(--radius); background: var(--surface-2); }
+.walkthrough-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--rule); }
+.walkthrough-dots { flex: 1; display: flex; gap: 4px; justify-content: center; }
+.walkthrough-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--rule-strong); }
+.walkthrough-dots span.on { background: var(--ink); }
+@media (max-width: 720px) {
+  .whatsnew-notice { flex-direction: column; align-items: flex-start; }
+  .walkthrough { right: 16px; bottom: 16px; }
+}

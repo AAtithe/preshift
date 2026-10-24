@@ -9,6 +9,10 @@ How to write a card:
 - Say what changed in plain terms, then why it matters to the operator or the P&L. If you cannot
   write the second column, question whether the change was worth shipping.
 - End with one test the team can run in the app that week.
+- Write the same week as a release in `src/ui/walkthrough.ts`: one step per change worth walking
+  through, each with the section it opens, and the week's test. The app offers it to every person,
+  live and in the demo, from that Monday. A release can be merged ahead of its week and goes out by
+  itself on the day. The tests fail if the README card's week has no release.
 
 ## Week of 19 October 2026
 
