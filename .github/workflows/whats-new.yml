@@ -19,7 +19,7 @@ on:
         description: 'The Monday to draft for (YYYY-MM-DD). Defaults to the coming Monday.'
         required: false
       since:
-        description: 'Count pull requests merged on or after this day (YYYY-MM-DD). Defaults to seven days ago.'
+        description: 'Count pull requests merged on or after this day (YYYY-MM-DD). Defaults to when the newest release reached main.'
         required: false
 
 concurrency:
@@ -41,6 +41,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          # The whole history: the job counts what reached main since the newest release did.
+          fetch-depth: 0
           token: ${{ secrets.WHATS_NEW_TOKEN || github.token }}
       - uses: actions/setup-node@v4
         with:
@@ -54,7 +56,8 @@ jobs:
           week="${{ inputs.week }}"
           [ -n "$week" ] || week=$(node -e "const d=new Date();d.setUTCDate(d.getUTCDate()+((8-d.getUTCDay())%7||7));console.log(d.toISOString().slice(0,10))")
           echo "week=$week" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --heads origin "whats-new/$week" >/dev/null; then
+          # Only an open draft counts: a branch left by a run that could not open its pull request is redone.
+          if [ "$(gh pr list --head "whats-new/$week" --state open --json number --jq length)" != "0" ]; then
             echo "A draft for $week is already open on whats-new/$week; nothing to do."
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
@@ -87,5 +90,12 @@ jobs:
           git switch -c "whats-new/$WEEK"
           git add src/ui/walkthrough.ts README.md docs/WHATS_NEW.md
           git commit -m "What's new for the week of $WEEK" -m "$SUMMARY"
-          git push -u origin "whats-new/$WEEK"
-          gh pr create --base main --head "whats-new/$WEEK" --title "What's new for the week of $WEEK" --body "$SUMMARY"
+          # The branch is the job's own; one left by an earlier run without a pull request is replaced.
+          git push --force -u origin "whats-new/$WEEK"
+          # A draft branch with no pull request would make the next run skip the week, so a refused
+          # pull request takes its branch with it. Actions must be allowed to create pull requests.
+          if ! gh pr create --base main --head "whats-new/$WEEK" --title "What's new for the week of $WEEK" --body "$SUMMARY"; then
+            git push origin --delete "whats-new/$WEEK"
+            echo "::error::Could not open the draft. In Settings, Actions, General, allow GitHub Actions to create pull requests, or set a WHATS_NEW_TOKEN secret that may."
+            exit 1
+          fi

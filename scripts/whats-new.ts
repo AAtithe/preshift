@@ -3,13 +3,15 @@
 // week by .github/workflows/whats-new.yml, which opens the draft as a pull request for a person to
 // read, correct and merge. The app holds the release back until its Monday either way.
 //
-//   npm run whats-new                       drafts the coming Monday from the last seven days
+//   npm run whats-new                       drafts the coming Monday from what reached main since
+//                                           the newest release did
 //   npm run whats-new -- --week 2026-11-02 --since 2026-10-26
 //   npm run whats-new -- --plain            without Claude: one row per change, to rewrite by hand
 //   npm run whats-new -- --dry-run          prints the draft and changes nothing
 //
 // GitHub is read with GITHUB_TOKEN when set (the workflow sets it), GITHUB_REPOSITORY names the
 // repository. Claude writes the copy when ANTHROPIC_API_KEY is set; without it the draft is plain.
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
@@ -36,12 +38,32 @@ const flag = (name: string) => {
 };
 const today = toISODate(new Date());
 const week = flag('week') ?? nextMonday(today);
-const since = flag('since') ?? addDays(today, -7);
+const since = flag('since') ?? newestReleaseLanded() ?? addDays(today, -7);
 const dryRun = args.includes('--dry-run');
 const repo = process.env.GITHUB_REPOSITORY ?? 'AAtithe/preshift';
 
-/** Pull requests merged into main on or after the day given, oldest first. */
+/**
+ * When the newest release reached main, as an ISO time: everything merged before it has been
+ * explained already, by that release or an earlier one. Needs the history (a full checkout).
+ */
+function newestReleaseLanded(): string | undefined {
+  const newest = RELEASES[0]?.week;
+  if (!newest) return undefined;
+  try {
+    const out = execFileSync('git', ['log', '--first-parent', '--format=%cI', '-S', `week: '${newest}'`, 'HEAD', '--', 'src/ui/walkthrough.ts'], { encoding: 'utf8' });
+    const added = out.trim().split('\n').filter(Boolean).pop();
+    return added ? new Date(added).toISOString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// The job's own drafts, and the pull request that set it up, are the walkthrough, not news in it.
+const OWN_DRAFT = /^What's new for the week of /;
+
+/** Pull requests merged into main after the time (or on or after the day) given, oldest first. */
 async function mergedSince(day: string): Promise<MergedChange[]> {
+  const from = new Date(day.length === 10 ? `${day}T00:00:00Z` : day).getTime();
   const headers: Record<string, string> = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' };
   if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   const found: (MergedChange & { mergedAt: string })[] = [];
@@ -51,8 +73,8 @@ async function mergedSince(day: string): Promise<MergedChange[]> {
     const res = await fetch(`https://api.github.com/repos/${repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`, { headers });
     if (!res.ok) throw new Error(`GitHub refused the list of pull requests: ${res.status} ${await res.text()}`);
     const prs = (await res.json()) as { number: number; title: string; body: string | null; merged_at: string | null; updated_at: string }[];
-    for (const pr of prs) if (pr.merged_at && pr.merged_at.slice(0, 10) >= day) found.push({ number: pr.number, title: pr.title, body: pr.body ?? '', mergedAt: pr.merged_at });
-    if (prs.length < 100 || prs.every((pr) => pr.updated_at.slice(0, 10) < day)) break;
+    for (const pr of prs) if (pr.merged_at && Date.parse(pr.merged_at) > from && !OWN_DRAFT.test(pr.title)) found.push({ number: pr.number, title: pr.title, body: pr.body ?? '', mergedAt: pr.merged_at });
+    if (prs.length < 100 || prs.every((pr) => Date.parse(pr.updated_at) <= from)) break;
   }
   return found.sort((a, b) => a.mergedAt.localeCompare(b.mergedAt)).map(({ mergedAt: _at, ...c }) => c);
 }

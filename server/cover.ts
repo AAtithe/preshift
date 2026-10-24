@@ -9,7 +9,8 @@ import { withinBudget } from '../src/engine/offers';
 import { claimCheck, decisionText, namesOf, shiftLine } from '../src/engine/requests';
 import type { Employee, OpenShift, Shift, StaffRequest } from '../src/engine/types';
 import { randomUUID } from 'node:crypto';
-import { londonParts, type AppContext } from './context';
+import { HttpError, londonParts, type AppContext } from './context';
+import { assertRotaOpen } from './payPeriods';
 import { managerLink, notifyTeam, outboundFor } from './messaging';
 import { notify, syncTold } from './notify';
 import { addRequest, openShiftsOf, requestsOf } from './routes/requests';
@@ -32,6 +33,18 @@ function tell(org: OrgData, o: OpenShift, employeeId: string, kind: Parameters<t
 export function claimedShift(org: OrgData, o: OpenShift, e: Employee): Shift {
   const owed = breakFor(e, o.date, o.endMinute - o.startMinute, complianceOptions(org.state, e).nation);
   return { id: `s_${randomUUID()}`, employeeId: e.id, siteId: o.siteId, roleId: o.roleId, date: o.date, startMinute: o.startMinute, endMinute: o.endMinute, breakMinutes: Math.max(o.breakMinutes, owed), published: true };
+}
+
+/** Why the shift could not go to this person because its pay period is locked for payroll, if it is. */
+function lockedFor(org: OrgData, o: OpenShift, e: Employee): string | null {
+  const held = o.heldBy ? org.state.shifts.find((x) => x.id === o.heldBy!.shiftId) : undefined;
+  try {
+    assertRotaOpen(org, [...(held ? [held] : []), { id: 'claim', employeeId: e.id, date: o.date }]);
+    return null;
+  } catch (err) {
+    if (err instanceof HttpError) return err.message;
+    throw err;
+  }
 }
 
 /**
@@ -70,12 +83,14 @@ export function fillOpenShift(org: OrgData, o: OpenShift, e: Employee, by: strin
     const held = org.state.shifts.find((x) => x.id === o.heldBy!.shiftId)!;
     const owed = breakFor(e, o.date, o.endMinute - o.startMinute, complianceOptions(org.state, e).nation);
     shift = { ...held, employeeId: e.id, breakMinutes: Math.max(held.breakMinutes, owed) };
+    assertRotaOpen(org, [held, shift]);
     org.state.shifts = org.state.shifts.map((x) => (x.id === held.id ? shift : x));
     audit(org, by, 'shift.updated', { id: shift.id });
     if (held.published) tell(org, o, o.heldBy.employeeId, 'shift_cancelled', 'Your shift is covered', `${shiftLine(o, names)} is covered by ${e.name}. You are off it.`, now);
     syncTold(org, [e.id, o.heldBy.employeeId], [shift]);
   } else {
     shift = claimedShift(org, o, e);
+    assertRotaOpen(org, [shift]);
     org.state.shifts.push(shift);
     audit(org, by, 'shift.created', { id: shift.id });
     syncTold(org, [e.id], [shift]);
@@ -138,6 +153,8 @@ export function takeOpenShift(org: OrgData, o: OpenShift, employee: Employee, vi
   if (held) return { kind: 'refused', open: o, employee, reason: held };
   const problem = mayTake(org.state, employee.id, slotOf(o));
   if (problem) return refuse(problem);
+  const locked = lockedFor(org, o, employee);
+  if (locked) return refuse(locked);
   audit(org, `staff:${employee.id}`, 'open_shift.yes', { id: o.id, employeeId: employee.id, via });
   if (o.fill === 'first_yes') return { kind: 'filled', open: o, employee, shift: fillOpenShift(org, o, employee, `${employee.name} (took it)`, now) };
   const request = addRequest(org, { kind: 'open_shift', employeeId: employee.id, siteId: o.siteId, openShiftId: o.id }, londonParts(now).date);

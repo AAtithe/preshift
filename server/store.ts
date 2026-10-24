@@ -14,6 +14,7 @@ import type { AccountingData } from './integrations/accounting/provider';
 import type { Publication } from '../src/engine/scorecard';
 import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
+import type { PayPeriodRecord } from './payPeriods';
 import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { PushDevice } from './push';
@@ -45,6 +46,9 @@ export interface PayrollSubmission {
   entityId?: string;
   /** The payroll employer the batch went to, once sent. */
   employerId?: string;
+  /** The company's payroll it was passed for, and its payday. Absent on weekly batches sent before pay schedules. */
+  scheduleId?: string;
+  payDate?: string;
 }
 
 export interface PayRunRecord {
@@ -176,6 +180,8 @@ export interface OrgData {
   hrRecords: HrRecord[];
   /** Pay rate changes proposed, approved, rejected or withdrawn. Nothing is ever removed: it is the pay audit trail. */
   payChanges: PayChange[];
+  /** Pay periods acted on: rota locked, time cards approved, hours passed to payroll. Absent on organisations saved before. */
+  payPeriods?: PayPeriodRecord[];
   /** How fast finance decides pay changes, and the day hours go to payroll. Defaults apply when absent. */
   payPolicy?: PayPolicy;
   /** Employment Rights Act settings, short notice changes and guaranteed hours offers. Absent until first used. */

@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'customers' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'messages' | 'rights';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'periods' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'customers' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'rights' | 'messages';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -78,6 +78,8 @@ export const NAV: NavGroup[] = [
       // Clocked hours against the rota by cause, before they are approved, and the week's labour flash.
       { id: 'actuals', label: 'Clocked vs rota', scope: 'week', siteOnly: true, access: COSTED_TIME },
       { id: 'tronc', label: 'Tronc', scope: 'week', siteOnly: true, access: COSTED_TIME },
+      // The close by pay period, across a company's sites: lock the rota, approve time cards, pass to payroll by the cutoff.
+      { id: 'periods', label: 'Pay periods', scope: 'org', title: 'Pay periods', access: { scope: ['time.approve', 'time.lock'], org: ['payroll.view'] } },
       // Proposals from whoever sets pay, decided by finance.
       { id: 'pay', label: 'Pay approvals', scope: 'people', access: { org: ['pay.approve', 'pay.edit'] } },
     ],

@@ -28,6 +28,7 @@ import {
   currentRound, defaultRounds, goingCandidates, goingStatus, wasAsked, MAX_ROUND_SIZE, minutesUntil, offerText, roomForRounds, ROUND_MINUTES, roundOf, slotOf, waiting,
 } from '../../src/engine/cover';
 import { idParam } from '../schemas';
+import { assertRotaOpen } from '../payPeriods';
 import { audit, type OrgData } from '../store';
 import { readsHr } from './hr';
 
@@ -273,7 +274,10 @@ function apply(org: OrgData, r: StaffRequest, by: string, now: Date) {
     case 'swap': {
       const touched = org.state.shifts.filter((s) => s.id === r.shiftId || s.id === r.returnShiftId);
       if (touched.some((s) => !tradeable(org, s, londonParts(now)))) throw new HttpError(409, 'request_stale', 'The shift has started or changed since the swap was agreed.');
-      org.state.shifts = swapped(org.state, r, r.takerId!);
+      const next = swapped(org.state, r, r.takerId!);
+      // A swap moves shifts between people, so neither side may sit in a pay period whose rota is locked.
+      assertRotaOpen(org, [...touched, ...next.filter((s) => touched.some((t) => t.id === s.id))]);
+      org.state.shifts = next;
       for (const s of touched) audit(org, by, 'shift.updated', { id: s.id });
       syncTold(org, [r.employeeId, r.takerId!], touched);
       break;
@@ -569,6 +573,8 @@ export function requestRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!s) throw notFound(`Shift ${body.fromShiftId}`);
       g.allow('rota.publish', s.siteId);
       if (hasStarted(s, londonParts(now)) || org.timeEntries.some((t) => t.shiftId === s.id)) throw new HttpError(409, 'worked_shift', 'This shift has started or been clocked against, so it cannot be put out for cover.');
+      // A shift in a pay period locked for payroll cannot move to anyone else.
+      assertRotaOpen(org, [s]);
       if (openShiftsOf(org).some((o) => o.status === 'open' && o.heldBy?.shiftId === s.id)) throw new HttpError(409, 'already_out', 'This shift is already out for cover. Withdraw that first to put it out again.');
       return { shift: s, slot: { siteId: s.siteId, roleId: s.roleId, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes } };
     }

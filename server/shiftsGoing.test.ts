@@ -139,6 +139,23 @@ describe('putting a shift out to named people', () => {
     expect((await t.shiftById(shift.id))?.employeeId).toBe(later);
   });
 
+  it('leaves a shift in a pay period locked for payroll where it is', async () => {
+    const t = await boot();
+    const { shift, eligible } = await t.coverable();
+    const taker = (eligible as (Row & { borrowed: boolean })[]).find((c) => !c.borrowed)!;
+    const out = await t.call('POST', '/v1/open-shifts', t.priya, { fromShiftId: shift.id, keepUntilTaken: true, employeeIds: [taker.employeeId], fill: 'first_yes' });
+    expect(out.status).toBe(201);
+    // Locked for payroll after it went out: a yes cannot move it.
+    expect((await t.call('POST', '/v1/pay-periods/wdl/weekly/2026-10-19/lock-rota', { key: 'admin' })).status).toBe(200);
+    const yes = await t.call('POST', `/v1/staff/open-shifts/${out.body.id}/claim`, await t.staff(taker.employeeId));
+    expect(yes.status).toBe(409);
+    expect(yes.body.error).toBe('not_given');
+    expect((await t.shiftById(shift.id))?.employeeId).toBe(shift.employeeId);
+    // Nor can it be put out again while the lock holds.
+    expect((await t.call('DELETE', `/v1/open-shifts/${out.body.id}`, t.priya)).status).toBe(204);
+    expect((await t.call('POST', '/v1/open-shifts', t.priya, { fromShiftId: shift.id })).body.error).toBe('rota_locked');
+  });
+
   it('refuses a yes that has become illegal since it was put out, and the next person can still take it', async () => {
     const t = await boot();
     const { shift, eligible } = await t.coverable();
