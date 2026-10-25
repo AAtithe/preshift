@@ -337,6 +337,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/integrations/epos/resync': false,
   'POST /v1/integrations/epos/feed/:orgId': false,
   'POST /v1/integrations/epos/feed-upload': false,
+  'GET /v1/integrations/ats': true,
+  'PUT /v1/integrations/ats': false,
+  'DELETE /v1/integrations/ats': false,
+  'POST /v1/integrations/ats/webhook/:orgId': false,
+  'GET /v1/hires': true,
+  'POST /v1/hires/:id/add': false,
+  'POST /v1/hires/:id/dismiss': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.

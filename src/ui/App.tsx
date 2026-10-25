@@ -80,6 +80,7 @@ const RetentionView = screen(() => import('./RetentionView'), 'RetentionView', [
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
 const PremiumsPanel = screen(() => import('./PremiumsPanel'), 'PremiumsPanel', ['pay']);
 const EarnedPayPanel = screen(() => import('./EarnedPayPanel'), 'EarnedPayPanel', ['pay']);
+const NewHiresPanel = screen(() => import('./NewHiresPanel'), 'NewHiresPanel', ['onboarding']);
 const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
 const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']);
@@ -734,6 +735,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onAdd={allow('team.manage', single.id) ? () => setEditingPerson(newEmployee(single.id, single.entityId, state.roles[0].id, today)) : undefined}
                 />
               )}
+              {shown === 'onboarding' && allow('team.manage') && <NewHiresPanel state={state} siteIds={sectionSites} onAdded={() => void actions.reload()} />}
               {shown === 'onboarding' && (
                 <OnboardingView
                   state={state}

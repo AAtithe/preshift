@@ -19,6 +19,7 @@ import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES 
 import { employeeRoutes } from './routes/employees';
 import { eposOAuthRoutes, eposRoutes, syncAllTills } from './routes/epos';
 import { earnedPayRoutes, earnedPayStaffRoutes } from './routes/earnedPay';
+import { hireRoutes } from './routes/hires';
 import { LIGHTSPEED_PRODUCTION, type LightspeedConfig } from './integrations/epos/lightspeed';
 import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
@@ -436,7 +437,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   });
   await app.register(async (api) => {
     // Called by another system with its own proof (a signature, a feed key), never with a Preshift sign-in.
-    const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/') || url.startsWith('/v1/integrations/epos/feed/');
+    const isWebhook = (url: string) =>
+      url.startsWith('/v1/integrations/teampay/webhook/') || url.startsWith('/v1/integrations/epos/feed/') || url.startsWith('/v1/integrations/ats/webhook/');
     api.addHook('onRequest', async (req, reply) => {
       if (isWebhook(req.url)) return;
       return auth(req, reply);
@@ -535,6 +537,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, tillOptions);
     earnedPayRoutes(api, ctx);
+    hireRoutes(api, ctx, { appUrl });
     payrollRoutes(api, ctx);
     payPeriodRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);

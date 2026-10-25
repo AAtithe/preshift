@@ -40,6 +40,53 @@ const ROTA_REACH_DAYS = 56;
  * running a shift needs who is on and who is under 18, not an adult's date of birth, the evidence of
  * someone's immigration status, their holiday record or the number of the card that clocks them in.
  */
+/**
+ * Adds a starter: checked, their rate set or proposed as the caller's rights allow, and queued for
+ * payroll. Used for a starter keyed in and for one handed over from recruitment.
+ */
+export function createStarter(ctx: AppContext, org: OrgData, g: Guard, body: Partial<Employee>): Employee {
+  const home = org.state.sites.find((s) => s.id === body.siteId);
+  if (!home) throw notFound(`Site ${body.siteId}`);
+  g.allow('team.manage', home.id);
+  // A starter's rate is pay like any other: without pay.edit they start at nought for someone who sets pay to fix.
+  if (body.hourlyRate || body.annualSalary) g.allow('pay.edit', home.id);
+  // A person's starter begins at nought, with their rate proposed to finance like any other change.
+  const proposal = (body.hourlyRate || body.annualSalary) && proposes(g, org, ctx.store.todayISO())
+    ? { payBasis: body.payBasis!, hourlyRate: body.hourlyRate ?? 0, annualSalary: body.annualSalary ?? 0 }
+    : null;
+  const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
+    entityId: home.entityId,
+    coverSiteIds: [],
+    hourlyRate: 0,
+    annualSalary: 0,
+    contractedHours: 0,
+    maxWeeklyHours: 48,
+    optedOutOf48: false,
+    irregularHours: true,
+    pensionEnrolled: true,
+    availability: [],
+    leave: [],
+  };
+  const e: Employee = {
+    ...defaults,
+    ...(body as Pick<Employee, 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'>),
+    id: `emp_${randomUUID().slice(0, 12)}`,
+    status: 'active',
+  };
+  // Copies are added through their own route once the record exists.
+  if (e.rightToWork) e.rightToWork = { ...e.rightToWork, documents: [] };
+  if (proposal) Object.assign(e, { hourlyRate: 0, annualSalary: 0 });
+  validateEmployment(org, e);
+  if (proposal) proposePayChange(org, g, e, proposal, undefined, ctx.store.todayISO());
+  else if (e.hourlyRate || e.annualSalary) {
+    recordDirect(org, g, e, { payBasis: e.payBasis, hourlyRate: 0, annualSalary: 0 }, approverExists(org, g, ctx.store.todayISO()) ? 'system' : 'no_approver', ctx.store.todayISO());
+  }
+  org.state.employees.push(e);
+  queueUpsert(org, e);
+  audit(org, actorName(g), 'employee.created', { id: e.id });
+  return e;
+}
+
 export function forReader(g: Guard, e: Employee): Employee {
   const sites = sitesOfPerson(e);
   // Pay follows the work: a site they cover for costs their shifts there, so its rate is needed there.
@@ -140,46 +187,8 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (req, reply) => {
       const org = orgOf(req);
-      const home = org.state.sites.find((s) => s.id === req.body.siteId);
-      if (!home) throw notFound(`Site ${req.body.siteId}`);
       const g = guard(ctx, req, org);
-      g.allow('team.manage', home.id);
-      // A starter's rate is pay like any other: without pay.edit they start at nought for someone who sets pay to fix.
-      if (req.body.hourlyRate || req.body.annualSalary) g.allow('pay.edit', home.id);
-      // A person's starter begins at nought, with their rate proposed to finance like any other change.
-      const proposal = (req.body.hourlyRate || req.body.annualSalary) && proposes(g, org, ctx.store.todayISO())
-        ? { payBasis: req.body.payBasis!, hourlyRate: req.body.hourlyRate ?? 0, annualSalary: req.body.annualSalary ?? 0 }
-        : null;
-      const defaults: Omit<Employee, 'id' | 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'> = {
-        entityId: home.entityId,
-        coverSiteIds: [],
-        hourlyRate: 0,
-        annualSalary: 0,
-        contractedHours: 0,
-        maxWeeklyHours: 48,
-        optedOutOf48: false,
-        irregularHours: true,
-        pensionEnrolled: true,
-        availability: [],
-        leave: [],
-      };
-      const e: Employee = {
-        ...defaults,
-        ...(req.body as Pick<Employee, 'name' | 'siteId' | 'roleIds' | 'payBasis' | 'dateOfBirth'>),
-        id: `emp_${randomUUID().slice(0, 12)}`,
-        status: 'active',
-      };
-      // Copies are added through their own route once the record exists.
-      if (e.rightToWork) e.rightToWork = { ...e.rightToWork, documents: [] };
-      if (proposal) Object.assign(e, { hourlyRate: 0, annualSalary: 0 });
-      validateEmployment(org, e);
-      if (proposal) proposePayChange(org, g, e, proposal, undefined, ctx.store.todayISO());
-      else if (e.hourlyRate || e.annualSalary) {
-        recordDirect(org, g, e, { payBasis: e.payBasis, hourlyRate: 0, annualSalary: 0 }, approverExists(org, g, ctx.store.todayISO()) ? 'system' : 'no_approver', ctx.store.todayISO());
-      }
-      org.state.employees.push(e);
-      queueUpsert(org, e);
-      audit(org, actorName(g), 'employee.created', { id: e.id });
+      const e = createStarter(ctx, org, g, req.body);
       await kick(ctx, org);
       return reply.code(201).send(shown(req, g, org, e));
     },
