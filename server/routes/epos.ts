@@ -34,7 +34,7 @@ interface Options {
 }
 
 /** Where Lightspeed sends someone back once they have approved Preshift. Registered with Lightspeed. */
-export const lightspeedRedirect = (appUrl: string) => `${appUrl}/integrations/lightspeed/callback`;
+export const lightspeedRedirect = (appUrl: string) => `${appUrl}/auth/lightspeed/callback`;
 
 /** A feed key: long and random, shown once, kept only as its hash. */
 const hashKey = (key: string) => createHash('sha256').update(key).digest('hex');
@@ -92,7 +92,7 @@ async function takeFeed(ctx: AppContext, org: OrgData, body: string | { rows: Re
  * nothing.
  */
 export function eposOAuthRoutes(app: FastifyInstance, ctx: AppContext, opts: Options) {
-  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/integrations/lightspeed/callback', { schema: { hide: true } }, async (req, reply) => {
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/auth/lightspeed/callback', { schema: { hide: true } }, async (req, reply) => {
     const back = (q: Record<string, string>) => reply.redirect(`/app/?${new URLSearchParams({ view: 'settings', ...q })}`);
     const state = req.query.state ?? '';
     const saved = state ? await ctx.store.getSetting(oauthStateSetting(state)) : null;

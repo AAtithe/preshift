@@ -68,10 +68,15 @@ export function EarnedPayPanel({ entityIds, canManage }: { entityIds: string[]; 
       {companies.map((c) => {
         const d = drafts[c.entityId];
         return (
-          <form key={c.entityId} className="settings-form" onSubmit={(e) => { e.preventDefault(); void save(c.entityId); }}>
-            <strong>{c.name}</strong>
-            <label className="check-inline">
-              <input type="checkbox" disabled={!canManage} checked={d.on} onChange={(e) => set(c.entityId, { on: e.target.checked })} /> Offer early pay
+          <div key={c.entityId}>
+          <h3 className="section-inline">{c.name}</h3>
+          <form className="settings-form" onSubmit={(e) => { e.preventDefault(); void save(c.entityId); }}>
+            <label>
+              Early pay
+              <select disabled={!canManage} value={d.on ? 'on' : 'off'} onChange={(e) => set(c.entityId, { on: e.target.value === 'on' })}>
+                <option value="off">Off</option>
+                <option value="on">Offered to staff</option>
+              </select>
             </label>
             <label>
               Share of earned net pay
@@ -86,8 +91,9 @@ export function EarnedPayPanel({ entityIds, canManage }: { entityIds: string[]; 
               <input type="number" min={1} max={5} disabled={!canManage} value={d.maxDrawsPerPeriod} onChange={(e) => set(c.entityId, { maxDrawsPerPeriod: Number(e.target.value) })} />
             </label>
             {canManage && <button type="submit">Save</button>}
-            <span className="small muted">Still to come off payslips: {money(c.outstanding)}</span>
           </form>
+          <p className="small muted">Still to come off payslips: {money(c.outstanding)}</p>
+          </div>
         );
       })}
       {data.draws.length > 0 && (

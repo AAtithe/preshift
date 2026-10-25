@@ -111,24 +111,24 @@ describe('Lightspeed takings', () => {
     expect(start.status).toBe(200);
     const authorize = new URL(start.body.authorizeUrl);
     expect(authorize.origin + authorize.pathname).toBe(`${LS_ENV.LIGHTSPEED_AUTH_BASE}/protocol/openid-connect/auth`);
-    expect(authorize.searchParams.get('redirect_uri')).toBe(`${LS_ENV.PRESHIFT_APP_URL}/integrations/lightspeed/callback`);
+    expect(authorize.searchParams.get('redirect_uri')).toBe(`${LS_ENV.PRESHIFT_APP_URL}/auth/lightspeed/callback`);
     expect(authorize.searchParams.get('scope')).toBe('financial-api');
     const state = authorize.searchParams.get('state')!;
     // Nothing is connected until Lightspeed sends them back.
     expect((await call('GET', '/v1/integrations/epos')).body.connection).toBeNull();
 
     // A made-up state connects nothing.
-    const forged = await k.call('GET', `/integrations/lightspeed/callback?code=good-code&state=made-up`, null);
+    const forged = await k.call('GET', `/auth/lightspeed/callback?code=good-code&state=made-up`, null);
     expect(forged.location).toContain('epos=expired');
 
-    const back = await k.call('GET', `/integrations/lightspeed/callback?code=good-code&state=${state}`, null);
+    const back = await k.call('GET', `/auth/lightspeed/callback?code=good-code&state=${state}`, null);
     expect(back.status).toBe(302);
     expect(back.location).toBe('/app/?view=settings&epos=connected');
     const status = (await call('GET', '/v1/integrations/epos')).body;
     expect(status.connection).toMatchObject({ provider: 'lightspeed', accountName: 'West End Dining', connectedBy: expect.any(String) });
     expect(status.tokenEndsWith).toBeNull();
     // The state is spent: the same link again connects nothing new.
-    expect((await k.call('GET', `/integrations/lightspeed/callback?code=good-code&state=${state}`, null)).location).toContain('epos=expired');
+    expect((await k.call('GET', `/auth/lightspeed/callback?code=good-code&state=${state}`, null)).location).toContain('epos=expired');
 
     expect((await call('PUT', '/v1/integrations/epos/mapping', { sites: { mar: '101' } })).status).toBe(200);
     const synced = await call('POST', '/v1/integrations/epos/sync', { from: '2026-10-19', to: '2026-10-19' });
