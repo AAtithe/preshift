@@ -785,6 +785,89 @@ interface PayDoc {
 
 const money = (n: number) => `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+interface EarnedPay {
+  on: boolean;
+  allowed: boolean;
+  reason: string | null;
+  available: number;
+  earnedGross: number;
+  earnedNet: number;
+  drawn: number;
+  drawsLeft: number;
+  minDraw: number;
+  sharePct: number;
+  period: { start: string; end: string; payDate: string };
+  draws: { id: string; amount: number; requestedAt: string; payDate: string; status: 'requested' | 'paid' | 'failed' | 'cancelled'; failure?: string }[];
+}
+
+const DRAW_STATUS = { requested: 'on its way', paid: 'paid', failed: 'not paid', cancelled: 'cancelled' } as const;
+
+/**
+ * Pay already earned this pay period, paid early. Shown only where the employer has turned it on.
+ * It says plainly that it is their own wages, not a loan, and that it comes off payday.
+ */
+function EarlyPay({ call }: { call: Call }) {
+  const [ep, setEp] = useState<EarnedPay | null>(null);
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  const load = useCallback(() => call<EarnedPay>('GET', '/v1/staff/earned-pay').then(setEp).catch(() => setEp(null)), [call]);
+  useEffect(() => void load(), [load]);
+  if (!ep || !ep.on) return null;
+  const draw = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setNote(null);
+    try {
+      const d = await call<{ amount: number }>('POST', '/v1/staff/earned-pay', { amount: Number(amount) });
+      setAmount('');
+      setNote({ text: `${money(d.amount)} is on its way to your bank account. It comes off your pay on ${day(ep.period.payDate)}.` });
+      await load();
+    } catch (err) {
+      setNote({ text: err instanceof Error ? err.message : String(err), bad: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card title="Early pay">
+      <p className="small">
+        Up to <span className="strong">{money(ep.available)}</span> of the pay you have earned since {day(ep.period.start)} can be paid to you now.
+        It is your own wages, not a loan: no fee, no interest, and it comes off your pay on {day(ep.period.payDate)}.
+      </p>
+      <p className="muted small">
+        Worked out from approved hours only, about {money(ep.earnedNet)} after tax, NI and pension so far, of which you can draw {ep.sharePct}%.
+        {ep.drawn > 0 ? ` Drawn already this period: ${money(ep.drawn)}.` : ''}
+      </p>
+      {ep.allowed ? (
+        <form className="staff-form" onSubmit={draw}>
+          <label>
+            Amount in whole pounds
+            <input type="number" inputMode="numeric" min={ep.minDraw} max={ep.available} step={1} required value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </label>
+          <button className="primary" disabled={busy}>Pay me now</button>
+        </form>
+      ) : (
+        <p className="muted small">{ep.reason}</p>
+      )}
+      {note && <p className={`small ${note.bad ? 'bad-text' : 'good-text'}`}>{note.text}</p>}
+      {ep.draws.length > 0 && (
+        <ul className="staff-list">
+          {ep.draws.map((d) => (
+            <li key={d.id}>
+              <span className="staff-day">{day(d.requestedAt.slice(0, 10))}</span>
+              <span>
+                <span className="strong">{money(d.amount)}</span>
+                <span className="muted small"> {DRAW_STATUS[d.status]}{d.status === 'failed' && d.failure ? `: ${d.failure}` : ''}. Off pay on {day(d.payDate)}.</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 export function PayTab({ call }: { call: Call }) {
   const [tips, setTips] = useState<TipsRecord | null>(null);
   const [weeks, setWeeks] = useState(13);
@@ -817,6 +900,7 @@ export function PayTab({ call }: { call: Call }) {
 
   return (
     <>
+      <EarlyPay call={call} />
       <Card title="Payslips">
         {pay === null ? (
           <p className="muted">Loading</p>

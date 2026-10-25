@@ -15,7 +15,7 @@ import type { Publication } from '../src/engine/scorecard';
 import type { SspCheckLine } from '../src/engine/ssp';
 import type { PayrollVariance } from '../src/engine/timesheet';
 import type { PayPeriodRecord } from './payPeriods';
-import type { HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
+import type { EarnedPayDraw, HrRecord, OpenShift, PayChange, RotaState, StaffNotification, StaffRequest, TimeEntry } from '../src/engine/types';
 import { HttpError } from './context';
 import type { PushDevice } from './push';
 import type { ShiftAlertRecord } from '../src/engine/reminders';
@@ -198,6 +198,8 @@ export interface OrgData {
   loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
+  /** Earned pay drawn early by staff, from request to the payslip it comes off. Absent until first used. */
+  earnedPay?: { draws: EarnedPayDraw[] };
   /** The till the organisation has connected, if any. Its access token lives in the settings store. */
   epos?: EposConnection;
   /** Messages between managers and staff, rota notices, and how each person wants to hear. Absent until first used. */

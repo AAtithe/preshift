@@ -100,9 +100,25 @@ export function queueHours(
   const troncLines = tronc.flatMap((t) => t.lines);
   // Short notice pay owed under the Employment Rights Act goes the same way, as pay on top of the week.
   const compensation = shortNoticeOwed(org, entity.id, periodEnd, replaced).filter((r) => onPayroll(r.employeeId));
+  // Earned pay this period's payday was paid early comes off its net pay, once. A draw taken off a
+  // batch since replaced is taken off this one instead.
+  const drawn = (org.earnedPay?.draws ?? []).filter(
+    (d) => d.status === 'paid' && d.entityId === entity.id && d.periodStart === periodStart && (d.scheduleId ?? 'weekly') === (scheduleId ?? 'weekly') &&
+      (!d.deductedIn || replaced.has(d.deductedIn)) && onPayroll(d.employeeId),
+  );
   const batch = {
     ...hours,
     tronc: troncLines,
+    deductions: drawn.map((d) => {
+      const e = org.state.employees.find((x) => x.id === d.employeeId);
+      return {
+        employeeId: d.employeeId,
+        ...(e?.payrollId ? { payrollId: e.payrollId } : {}),
+        amount: d.amount,
+        description: `Earned pay paid early on ${d.requestedAt.slice(0, 10)}`,
+        reference: d.id,
+      };
+    }),
     adjustments: [
       ...owed.map((c) => {
         const e = org.state.employees.find((x) => x.id === c.employeeId)!;
@@ -161,6 +177,7 @@ export function queueHours(
     submission.accrued[e.id] = Math.round(((submission.accrued[e.id] ?? 0) + weekOnCosts(e, gross + extra).total - weekOnCosts(e, gross).total) * 100) / 100;
   }
   for (const c of owed) c.backPay!.sentIn = submission.id;
+  for (const d of drawn) d.deductedIn = submission.id;
   for (const r of compensation) r.sentIn = submission.id;
   // Tips are recorded as paid through this payroll, at the end of the period it pays.
   const carried = new Set(tronc.flatMap((t) => t.tipIds));
@@ -637,6 +654,14 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         const wrong = ssp?.filter((l) => Math.abs(l.difference) >= 0.01) ?? [];
         if (wrong.length) audit(org, 'TeamPay', 'payroll.ssp_mismatch', { run: run.id, entityId: entity.id, people: wrong.length, difference: Math.round(wrong.reduce((s, l) => s + l.difference, 0) * 100) / 100 });
         audit(org, 'TeamPay', 'payroll.run_completed', { run: run.id, entityId: entity.id, variance: variance.variance });
+      } else if (event.type === 'earned_pay.paid' || event.type === 'earned_pay.failed') {
+        // TeamPay saying an early payment has reached the bank, or could not be made.
+        const draw = org.earnedPay?.draws.find((d) => d.id === event.data.reference);
+        if (draw && draw.status === 'requested') {
+          draw.status = event.type === 'earned_pay.paid' ? 'paid' : 'failed';
+          if (event.type === 'earned_pay.failed') draw.failure = event.data.reason ?? 'TeamPay could not pay it.';
+          audit(org, 'TeamPay', event.type, { drawId: draw.id, employeeId: draw.employeeId, amount: draw.amount });
+        }
       } else if (event.type === 'payroll.run.flagged') {
         audit(org, 'TeamPay', 'payroll.run_flagged', event.data);
       }

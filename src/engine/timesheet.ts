@@ -69,6 +69,16 @@ export interface PayrollAdjustment {
   reference: string;
 }
 
+/** Pay already paid early, taken off net pay on payday: not a cost, as it was earned in the period. */
+export interface PayrollDeduction {
+  employeeId: string;
+  payrollId?: string;
+  amount: number;
+  description: string;
+  /** The draw, so payroll never takes it off twice. */
+  reference: string;
+}
+
 /**
  * A person's share of a week's tips at a site, paid through payroll. Through an independent tronc it
  * is free of Class 1 NI; allocated by the employer it is not. Income tax is due either way.
@@ -96,6 +106,8 @@ export interface PayrollHoursBatch {
   adjustments?: PayrollAdjustment[];
   /** Tips allocated by the site's tronc scheme. Absent on batches sent before tips went with the hours. */
   tronc?: PayrollTroncLine[];
+  /** Earned pay already paid early, to come off net pay. Absent on batches sent before early pay. */
+  deductions?: PayrollDeduction[];
   /** Approved entries skipped because their person is salaried (paid by salary, not hours). */
   salariedEntryIds: string[];
   totalHours: number;

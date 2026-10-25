@@ -65,6 +65,8 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/documents': 'Staff app: documents sent to the caller to sign, from their own file only, under the staff session.',
   'GET /v1/staff/documents/:id/file': "Staff app: a copy sent to the caller to sign, found among their own first, every view logged.",
   'POST /v1/staff/documents/:id/sign': 'Staff app: the caller signs a document sent to them, in their own name, under the staff session.',
+  'GET /v1/staff/earned-pay': "Staff app: what the caller may draw of their own earned pay, under the staff session.",
+  'POST /v1/staff/earned-pay': "Staff app: the caller drawing their own earned pay, checked against their own position, under the staff session.",
   'GET /v1/staff/payslips': "Staff app: the caller's own payslips and P60s from payroll, under the staff session.",
   'GET /v1/staff/payslips/:id/pdf': "Staff app: one of the caller's own payslips, found in their own list first, under the staff session.",
   'POST /v1/staff/rota/seen': "Staff app: the caller confirms their own published week, under the staff session.",

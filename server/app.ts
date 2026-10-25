@@ -18,6 +18,7 @@ import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
 import { eposOAuthRoutes, eposRoutes, syncAllTills } from './routes/epos';
+import { earnedPayRoutes, earnedPayStaffRoutes } from './routes/earnedPay';
 import { LIGHTSPEED_PRODUCTION, type LightspeedConfig } from './integrations/epos/lightspeed';
 import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
@@ -419,6 +420,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
   oauthRoutes(app, store);
   staffRoutes(app, ctx);
+  earnedPayStaffRoutes(app, ctx);
   // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
   staffMessageRoutes(app, ctx);
   whatsappWebhookRoutes(app, ctx);
@@ -532,6 +534,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     bookingRoutes(api, ctx);
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, tillOptions);
+    earnedPayRoutes(api, ctx);
     payrollRoutes(api, ctx);
     payPeriodRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);

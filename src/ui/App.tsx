@@ -79,6 +79,7 @@ const ReportsView = screen(() => import('./ReportsView'), 'ReportsView', ['repor
 const RetentionView = screen(() => import('./RetentionView'), 'RetentionView', ['retention']);
 const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['reviews']);
 const PremiumsPanel = screen(() => import('./PremiumsPanel'), 'PremiumsPanel', ['pay']);
+const EarnedPayPanel = screen(() => import('./EarnedPayPanel'), 'EarnedPayPanel', ['pay']);
 const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
 const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']);
@@ -804,6 +805,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onSave={allow('pay.approve') ? actions.setPremiums : undefined}
                 />
               )}
+              {shown === 'pay' && allow('payroll.view') && <EarnedPayPanel entityIds={entityIds} canManage={allow('payroll.send')} />}
               {shown === 'close' && <CloseView state={state} week={week} entityIds={entityIds} canSettings={allow('settings.manage')} />}
               {shown === 'reports' && (
                 <ReportsView

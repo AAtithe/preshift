@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
-import { PayrollError, type PayDocument, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
+import { PayrollError, type EarnedPayPayment, type PayDocument, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
 
 export interface TeamPayConfig {
   baseUrl: string; // e.g. https://api.team-pay.co.uk/v1 (sandbox and production keys come from the TeamPay dashboard)
@@ -134,6 +134,14 @@ export class TeamPayProvider implements PayrollProvider {
           description: `Tips, week of ${t.weekStart}`,
           reference: t.reference,
         })),
+        // Earned pay already paid early: off net pay, as TeamPay paid it from the same wages.
+        deductions: (batch.deductions ?? []).filter((d) => d.payrollId).map((d) => ({
+          employee_id: d.payrollId,
+          amount: d.amount,
+          pay_element: 'earned_pay_advance',
+          description: d.description,
+          reference: d.reference,
+        })),
         adjustments: (batch.adjustments ?? []).filter((a) => a.payrollId).map((a) => ({
           employee_id: a.payrollId,
           amount: a.amount,
@@ -144,6 +152,25 @@ export class TeamPayProvider implements PayrollProvider {
       idempotencyKey,
     );
     return { submissionId: res.id };
+  }
+
+  /** TeamPay pays early from the employer's account to the bank details it holds, and nets it off on payday. */
+  async payEarnedPay(employerId: string, payment: EarnedPayPayment, idempotencyKey: string) {
+    const res = await this.request<{ id: string; status?: string }>(
+      employerId,
+      'POST',
+      '/earned-pay',
+      {
+        employee_id: payment.payrollId,
+        amount: payment.amount,
+        deduct_on_pay_date: payment.payDate,
+        description: payment.description,
+        reference: payment.reference,
+        source: 'preshift',
+      },
+      idempotencyKey,
+    );
+    return { paymentId: res.id, status: res.status === 'paid' ? ('paid' as const) : ('pending' as const) };
   }
 
   async getPayRun(employerId: string, id: string): Promise<PayRun> {

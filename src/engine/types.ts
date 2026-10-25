@@ -54,6 +54,11 @@ export interface Entity {
    * first is where anyone not placed on another is paid. None set means weekly, as before schedules.
    */
   paySchedules?: PayrollSchedule[];
+  /**
+   * Earned pay on demand: staff may draw part of what they have already earned this pay period before
+   * payday, paid through payroll and taken off that payday's net pay. Off unless the company turns it on.
+   */
+  earnedPay?: EarnedPaySettings;
   /** When this company pays its people. Weekly, paid the Friday after the week, when absent. */
   paySchedule?: PaySchedule;
   /** Enhanced rates this company's contracts pay hourly staff: Sundays, bank holidays, nights, overtime. */
@@ -995,3 +1000,33 @@ export interface BackPay {
 
 /** What a person's record carries about a change waiting for approval. */
 export type PayChangeSummary = Pick<PayChange, 'id' | 'after' | 'reason' | 'requestedBy' | 'requestedAt' | 'effectiveFrom'>;
+
+/** A company's rules for drawing earned pay early. */
+export interface EarnedPaySettings {
+  on: boolean;
+  /** The most of a person's estimated earned net pay they may draw in a period, 10 to 50 per cent. */
+  sharePct: number;
+  /** The smallest draw, in pounds. */
+  minDraw: number;
+  /** Draws a person may make in one pay period. */
+  maxDrawsPerPeriod: number;
+}
+
+/** One draw of earned pay, from request to the payslip it comes off. */
+export interface EarnedPayDraw {
+  id: string;
+  employeeId: string;
+  entityId: string;
+  scheduleId: string;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  amount: number;
+  requestedAt: string;
+  /** Requested and sent to payroll to pay; paid once payroll says so; failed or cancelled draws are not deducted. */
+  status: 'requested' | 'paid' | 'failed' | 'cancelled';
+  /** Why payroll could not pay it, when it failed. */
+  failure?: string;
+  /** The hours batch that took it off net pay. */
+  deductedIn?: string;
+}

@@ -84,8 +84,24 @@ export interface PayrollProvider {
   listPayDocuments?(employerId: string, payrollId: string): Promise<PayDocument[]>;
   /** One payslip or P60 as a PDF, or null where the payroll has none. */
   payDocumentPdf?(employerId: string, payrollId: string, document: PayDocument): Promise<Buffer | null>;
+  /**
+   * Pays a person part of their earned pay before payday, to the bank account payroll holds for
+   * them, to be taken off that payday's net pay. A payroll that cannot pay early leaves this out.
+   */
+  payEarnedPay?(employerId: string, payment: EarnedPayPayment, idempotencyKey: string): Promise<{ paymentId: string; status: 'paid' | 'pending' }>;
   /** Checks an inbound webhook really came from the payroll. */
   verifyWebhook(rawBody: string, signature: string | undefined): boolean;
+}
+
+/** An early payment of earned pay, as sent to payroll. */
+export interface EarnedPayPayment {
+  payrollId: string;
+  amount: number;
+  /** The draw, so payroll pays it once and deducts it once. */
+  reference: string;
+  /** The payday it comes off. */
+  payDate: string;
+  description: string;
 }
 
 export class PayrollError extends Error {

@@ -23,6 +23,8 @@ export type OutboxItem = {
   | { type: 'employee.leaver'; payload: { employeeId: string } }
   // entityId is absent on items queued before per-scheme payroll; they belong to the only company.
   | { type: 'hours.submit'; payload: { submissionId: string; batch: PayrollHoursBatch; entityId?: string } }
+  // An early payment of earned pay, by its draw.
+  | { type: 'earned_pay.pay'; payload: { drawId: string } }
 );
 
 type NewItem = Pick<OutboxItem, 'type' | 'payload'> & { idempotencyKey: string };
@@ -113,6 +115,11 @@ export class OutboxDispatcher {
           if (!retryable || item.attempts >= MAX_ATTEMPTS) {
             item.status = 'failed';
             if (item.type === 'hours.submit') markSubmission(org, item.payload.submissionId, 'failed');
+            // A draw payroll would not pay is not taken off payday, and the person can ask again.
+            if (item.type === 'earned_pay.pay') {
+              const draw = org.earnedPay?.draws.find((d) => d.id === item.payload.drawId);
+              if (draw && draw.status === 'requested') Object.assign(draw, { status: 'failed', failure: item.lastError });
+            }
             audit(org, 'system', 'payroll.delivery_failed', { item: item.id, type: item.type, error: item.lastError });
           } else {
             item.nextAttemptAt = now + backoffMs(item.attempts);
@@ -172,6 +179,21 @@ export class OutboxDispatcher {
           sub.providerSubmissionId = submissionId;
           sub.employerId = employerId;
         }
+        return;
+      }
+      case 'earned_pay.pay': {
+        const draw = org.earnedPay?.draws.find((d) => d.id === item.payload.drawId);
+        if (!draw || draw.status !== 'requested') return;
+        const e = findEmployee(draw.employeeId);
+        if (!e.payrollId) throw new PayrollError(`${e.name} is not set up in payroll yet`, false);
+        if (!provider.payEarnedPay) throw new PayrollError(`${provider.name} cannot pay earned pay early`, false);
+        const { status } = await provider.payEarnedPay(
+          e.payrollEmployerId ?? employerOf(draw.entityId),
+          { payrollId: e.payrollId, amount: draw.amount, reference: draw.id, payDate: draw.payDate, description: `Earned pay paid early, ${draw.requestedAt.slice(0, 10)}` },
+          item.idempotencyKey,
+        );
+        // Pending until payroll says it has gone; its webhook moves it on.
+        if (status === 'paid') draw.status = 'paid';
         return;
       }
     }

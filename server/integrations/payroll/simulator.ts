@@ -3,7 +3,7 @@ import { UK_RATES_2026_27 } from '../../../src/engine/ukRates';
 import { weekOnCosts } from '../../../src/engine/cost';
 import type { Employee } from '../../../src/engine/types';
 import type { PayrollHoursBatch } from '../../../src/engine/timesheet';
-import { PayrollError, type PayDocument, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
+import { PayrollError, type EarnedPayPayment, type PayDocument, type PayRun, type PayrollEmployee, type PayrollProvider, type PayrollRecord } from './provider';
 import { employeeNi } from '../../../src/engine/tronc';
 import { addDays } from '../../../src/engine/time';
 import { signHmac, verifyHmac } from './teampay';
@@ -115,6 +115,17 @@ export class TeamPaySimulator implements PayrollProvider {
    * Payslips from the pay runs it has made: gross as run, with tax and NI worked roughly the way a
    * week-1 basis would. Marked as samples, so nobody mistakes them for a real payslip.
    */
+  /** Early payments of earned pay, as a real payroll would hold them. */
+  readonly earnedPayments: (EarnedPayPayment & { employerId: string; paymentId: string })[] = [];
+
+  async payEarnedPay(employerId: string, payment: EarnedPayPayment, key: string) {
+    return this.once(`${employerId}:${key}`, () => {
+      const paymentId = `ewa_${this.earnedPayments.length + 1}`;
+      this.earnedPayments.push({ ...payment, employerId, paymentId });
+      return { paymentId, status: 'paid' as const };
+    });
+  }
+
   async listPayDocuments(employerId: string, payrollId: string): Promise<PayDocument[]> {
     const r2 = (n: number) => Math.round(n * 100) / 100;
     return [...this.payRuns.values()]
