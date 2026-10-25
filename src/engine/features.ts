@@ -41,6 +41,11 @@ export const FEATURES: FeatureDef[] = [
     about: 'Occasions, weather, local events, bookings and school holidays ahead, with what the forecast allows for.',
   },
   {
+    id: 'rotaai', label: 'AI rota writing', group: 'Planning', tabs: [],
+    about: 'The rota assistant drafts or reshapes a week from a request, and Claude can build one through the Preshift connector.',
+    offMeans: 'Managers write the rota themselves. Build from forecast and single shift changes still work; no AI draft can be saved.',
+  },
+  {
     id: 'coach', label: 'Coach', group: 'Planning', tabs: ['coach'],
     about: 'The three moves a week that would bring labour back to target, each one a change to the rota.',
   },
@@ -133,6 +138,9 @@ export const CORE_TABS = [
 export const FEATURE_IDS = FEATURES.map((f) => f.id);
 const byId = new Map(FEATURES.map((f) => [f.id, f]));
 export const featureOf = (id: string) => byId.get(id);
+
+/** Whether the organisation has the feature on. Everything is on until an owner switches it off. */
+export const featureOn = (off: readonly string[] | undefined, id: string) => !(off ?? []).includes(id);
 
 /** The sections hidden by the features switched off. */
 export function hiddenTabs(off: readonly string[] | undefined): Set<string> {

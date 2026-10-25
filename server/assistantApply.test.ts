@@ -39,6 +39,18 @@ describe('saving an assistant draft', () => {
     expect(org.audit.at(-1)).toMatchObject({ action: 'rota.assistant_applied', detail: { instruction: 'Cover lunches.', shifts: 2 } });
   });
 
+  it('takes no assistant draft once the organisation switches off AI rota writing, and still takes a manager\'s own', async () => {
+    const { put, org, shift } = await setup();
+    org.settings = { ...org.settings, featuresOff: ['rotaai'] };
+    const draft = { siteId: 'mar', weekStart: NEXT_WEEK, shifts: [shift(NEXT_WEEK, 'a1')], baseline: weekFingerprint(org.state.shifts, 'mar', NEXT_WEEK) };
+    const refused = await put({ ...draft, source: 'assistant', instruction: 'Cover lunches.' });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error).toBe('feature_off');
+    expect(org.state.shifts.some((s) => s.id === 'a1')).toBe(false);
+    expect((await put(draft)).statusCode).toBe(200);
+    expect(org.audit.at(-1)?.action).toBe('rota.replaced');
+  });
+
   it('refuses a draft if someone changed the week since it began', async () => {
     const { put, org, shift } = await setup();
     const baseline = weekFingerprint(org.state.shifts, 'mar', NEXT_WEEK);

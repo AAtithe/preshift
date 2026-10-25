@@ -76,6 +76,24 @@ describe('MCP connector', () => {
     expect(reader.every((t) => t.annotations.readOnlyHint)).toBe(true);
   });
 
+  it('will not build the rota where the organisation has switched off AI rota writing', async () => {
+    const store = new MemoryStore(['demo'], '2026-10-21');
+    const { app } = await buildApp({ apiKeys: KEYS, store, provider: new TeamPaySimulator(), autoDispatch: false });
+    const org = await store.load('demo');
+    org.settings = { ...org.settings, featuresOff: ['rotaai'] };
+    const before = org.state.shifts.length;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
+      payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'build_rota', arguments: { siteId: 'mar', weekStart: WEEK } } }),
+    });
+    const result = res.json().result;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('AI rota writing is switched off');
+    expect((await store.load('demo')).state.shifts).toHaveLength(before);
+  });
+
   it('refuses a tool beyond the key, and reports an unknown one as a protocol error', async () => {
     const { rpc, tool } = await setup();
     const refused = await tool('build_rota', { siteId: 'mar', weekStart: WEEK }, 'reader');

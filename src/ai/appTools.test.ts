@@ -144,6 +144,14 @@ describe('asking for cover from Shifty', () => {
     expect((await executeAppTool(c, 'propose_ask_cover', { ...base, round_size: 2, round_minutes: 45 })).isError).toBe(true);
   });
 
+  it('hands a whole rota to the assistant only where AI rota writing is on', async () => {
+    const on = await executeAppTool(ctx(), 'open_rota_assistant', { instruction: 'Build next week.' });
+    expect(on.proposal?.kind).toBe('draft_rota');
+    const off = await executeAppTool({ ...ctx(), rotaAiOff: true }, 'open_rota_assistant', { instruction: 'Build next week.' });
+    expect(off.isError).toBe(true);
+    expect(off.proposal).toBeUndefined();
+  });
+
   it('refuses a shift that has started or does not exist', async () => {
     const c = ctx();
     const started = c.state.shifts.find((x) => x.date < WEEK || (x.date === WEEK && x.startMinute <= 9 * 60));

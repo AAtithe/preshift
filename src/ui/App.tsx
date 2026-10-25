@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
-import { hiddenTabs } from '../engine/features';
+import { featureOn, hiddenTabs } from '../engine/features';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
 import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
@@ -308,6 +308,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   // Sections of features the organisation has switched off are offered to nobody, so they leave the bar,
   // the address, Go to and the walkthrough alike.
   const hidden = useMemo(() => hiddenTabs(me?.featuresOff), [me?.featuresOff]);
+  // AI rota writing has no section of its own: switched off, the rota assistant is offered nowhere.
+  const rotaAi = featureOn(me?.featuresOff, 'rotaai');
   const nav = visibleNav(allow, allSiteIds, me?.user?.audience, hidden);
   const fallback = nav[0]?.items[0]?.id ?? 'profile';
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience, hidden)) ? tab : fallback;
@@ -481,6 +483,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     actions,
     goTo: (screen) => setTab(screen as Tab),
     openAssistant: (instruction) => {
+      if (!rotaAi) throw new Error('AI rota writing is switched off for this organisation. An owner can turn it on under Features.');
       setAssistantInstruction(instruction);
       setAssistantOpen(true);
     },
@@ -488,7 +491,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   };
   const scopeLabel = single ? single.name : siteIds.length === state.sites.length ? 'all sites' : `${siteIds.length} sites`;
   const agentView = (): AgentView => ({
-    ctx: { state, siteIds, week, now: londonParts(new Date()) },
+    ctx: { state, siteIds, week, now: londonParts(new Date()), rotaAiOff: !rotaAi },
     where: { screen: activeTab, scope: scopeLabel, user: account?.email ?? 'The manager' },
   });
 
@@ -534,7 +537,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           <div className="sections">
             {section.plans && canEdit && !needsSite && !notHere && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-              {siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
+              {rotaAi && siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
               <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
                 Clear week
               </button>
@@ -875,7 +878,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         </div>
       )}
 
-      {assistantOpen && siteIds.length > 0 && (
+      {assistantOpen && rotaAi && siteIds.length > 0 && (
         <Suspense fallback={null}>
           <AssistantPanel
             state={state}
