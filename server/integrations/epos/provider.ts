@@ -1,4 +1,5 @@
 import type { TillOrder } from '../../../src/engine/epos';
+import type { TillFeedRow } from '../../../src/engine/tillFeed';
 
 /** A till location as the EPOS knows it: usually one per venue. */
 export interface EposLocation {
@@ -9,8 +10,8 @@ export interface EposLocation {
 }
 
 /**
- * The contract between Preshift and an EPOS. Square is the first implementation; Lightspeed, Zonal
- * or Tevalis would implement the same two calls, so nothing above this line knows which till it is.
+ * The contract between Preshift and an EPOS. Square and Lightspeed answer it from their APIs; Zonal
+ * and Tevalis from the file feed they send, so nothing above this line knows which till it is.
  */
 export interface EposProvider {
   readonly name: string;
@@ -32,9 +33,30 @@ export class EposError extends Error {
 
 export type EposEnvironment = 'production' | 'sandbox' | 'simulator';
 
-/** What the organisation has connected. The access token is kept apart, in the settings store. */
+/** The tills Preshift reads. Square and Lightspeed through their APIs; Zonal and Tevalis by file feed. */
+export type EposProviderName = 'square' | 'lightspeed' | 'zonal' | 'tevalis';
+
+export const EPOS_PROVIDERS: Record<EposProviderName, { label: string; feed: boolean }> = {
+  square: { label: 'Square', feed: false },
+  lightspeed: { label: 'Lightspeed Restaurant', feed: false },
+  zonal: { label: 'Zonal', feed: true },
+  tevalis: { label: 'Tevalis', feed: true },
+};
+
+/**
+ * What a file feed has sent: the till's site references as it named them, and its rows for the last
+ * weeks, kept so a sync or re-sync reads them as it would read a till's orders. Older rows have been
+ * written to takings already and are let go.
+ */
+export interface EposFeedData {
+  locations: { id: string; name: string; lastSeen: string }[];
+  rows: TillFeedRow[];
+  lastReceived?: { at: string; rows: number; problems: { line: number; message: string }[]; by: string };
+}
+
+/** What the organisation has connected. The access token, or feed key, is kept apart, in the settings store. */
 export interface EposConnection {
-  provider: 'square';
+  provider: EposProviderName;
   environment: EposEnvironment;
   connectedAt: string;
   connectedBy: string;
@@ -43,6 +65,8 @@ export interface EposConnection {
   lastSync?: EposSyncResult;
   /** The last re-sync of past takings, so the restatement stays on record beside the connection. */
   lastResync?: EposResyncResult;
+  /** A file feed's rows and site references. Absent for a till read through its API. */
+  feed?: EposFeedData;
 }
 
 /**

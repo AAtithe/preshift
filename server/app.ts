@@ -17,7 +17,8 @@ import { developerRoutes } from './routes/developers';
 import { documentCipherFromEnv } from './documentCrypto';
 import { documentRoutes, hrFileRoutes, MAX_DOCUMENT_BYTES, UPLOAD_CONTENT_TYPES } from './routes/documents';
 import { employeeRoutes } from './routes/employees';
-import { eposRoutes, syncAllTills } from './routes/epos';
+import { eposOAuthRoutes, eposRoutes, syncAllTills } from './routes/epos';
+import { LIGHTSPEED_PRODUCTION, type LightspeedConfig } from './integrations/epos/lightspeed';
 import { applyDuePayChanges, payDaily, payRoutes } from './routes/pay';
 import { hrRoutes } from './routes/hr';
 import { payrollRoutes } from './routes/payroll';
@@ -152,6 +153,19 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   const simulatorFor = (orgId: string) => (isSandbox(orgId) ? sandboxPayroll : payroll.simulator);
   const documents = documentCipherFromEnv(env, store instanceof PgStore);
   const employers = { defaultEmployerId: env.TEAMPAY_EMPLOYER_ID || undefined, simulated: !!payroll.simulator };
+  // The till connections. Lightspeed is offered once Preshift's Lightspeed app is registered: its
+  // client id and secret, and the address people are sent back to, which is built on the app URL.
+  const appUrl = env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined;
+  const lightspeed: LightspeedConfig | undefined =
+    env.LIGHTSPEED_CLIENT_ID && env.LIGHTSPEED_CLIENT_SECRET
+      ? {
+          clientId: env.LIGHTSPEED_CLIENT_ID,
+          clientSecret: env.LIGHTSPEED_CLIENT_SECRET,
+          authBase: env.LIGHTSPEED_AUTH_BASE || LIGHTSPEED_PRODUCTION.authBase,
+          apiBase: env.LIGHTSPEED_API_BASE || LIGHTSPEED_PRODUCTION.apiBase,
+        }
+      : undefined;
+  const tillOptions = { simulatorAllowed: demo || !!payroll.simulator, lightspeed, appUrl };
   const ctx: AppContext = {
     store,
     providerFor,
@@ -187,6 +201,11 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   });
 
   // Uploaded files arrive as the raw request body. The route checks what the bytes really are.
+  // A till's file feed posts its export as CSV.
+  app.addContentTypeParser(['text/csv', 'text/plain'], { parseAs: 'string', bodyLimit: 5_000_000 }, (_req, body, done) => {
+    done(null, body);
+  });
+
   app.addContentTypeParser(UPLOAD_CONTENT_TYPES, { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES }, (_req, body, done) => {
     done(null, body);
   });
@@ -249,7 +268,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   app.get('/internal/dispatch', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
     await ctx.dispatcher.processDue();
-    await syncAllTills(ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    await syncAllTills(ctx, tillOptions);
     await syncAllRewards(ctx, { simulatorAllowed: demo || !!payroll.simulator });
     await deliverAllWebhooks(store, options.webhookFetch);
     await releaseAllHeld();
@@ -403,6 +422,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.
   staffMessageRoutes(app, ctx);
   whatsappWebhookRoutes(app, ctx);
+  // Lightspeed sends people back here after they approve Preshift: proven by the one-time state, not a sign-in.
+  eposOAuthRoutes(app, ctx, tillOptions);
   kioskRoutes(app, ctx);
   assistantRoutes(app, store, { demoKey: demo ? env.PRESHIFT_DEMO_CLAUDE_KEY : undefined });
   webRoutes(app, store, {
@@ -412,7 +433,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     kioskDir: options.kioskDir,
   });
   await app.register(async (api) => {
-    const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/');
+    // Called by another system with its own proof (a signature, a feed key), never with a Preshift sign-in.
+    const isWebhook = (url: string) => url.startsWith('/v1/integrations/teampay/webhook/') || url.startsWith('/v1/integrations/epos/feed/');
     api.addHook('onRequest', async (req, reply) => {
       if (isWebhook(req.url)) return;
       return auth(req, reply);
@@ -509,7 +531,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     calendarRoutes(api, ctx);
     bookingRoutes(api, ctx);
     travelRoutes(api, ctx);
-    eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
+    eposRoutes(api, ctx, tillOptions);
     payrollRoutes(api, ctx);
     payPeriodRoutes(api, ctx);
     payrollLinkRoutes(api, ctx);
@@ -519,7 +541,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     userRoutes(api, ctx);
     clientRoutes(api, ctx, { stripe: !!stripe });
     supportRoutes(api, ctx);
-    billingRoutes(api, ctx, { stripe, appUrl: env.PRESHIFT_APP_URL?.replace(/\/+$/, '') || undefined });
+    billingRoutes(api, ctx, { stripe, appUrl });
     customerRoutes(api, ctx, { stripe });
     authenticatorRoutes(api, ctx);
     privacyRoutes(api, ctx);

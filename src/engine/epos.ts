@@ -14,6 +14,13 @@ export interface TillOrder {
   tips?: number;
   /** Service charge collected on the order, VAT included, in pounds. The team's too, never in netSales. */
   serviceCharge?: number;
+  /**
+   * Orders this stands for. A till that sends one total per hour or per day (a file feed) sends one
+   * record for many orders; absent is one.
+   */
+  orders?: number;
+  /** A day's total with no hours: it counts to the day, not to any hour of it. */
+  noHour?: boolean;
 }
 
 /**
@@ -40,6 +47,19 @@ export function tradingHour(iso: string, timeZone: string, startsAt = TRADING_DA
   return hour < startsAt ? { date: addDays(date, -1), hour: hour + 24 } : { date, hour };
 }
 
+/** The instant a wall-clock time falls at in a time zone, as ISO: what a till's local report means. */
+export function localInstant(date: string, hour: number, minute: number, timeZone: string): string {
+  const naive = Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)), hour, minute);
+  // The zone's offset at that moment, read back from Intl, then once more in case the first guess crossed a clock change.
+  const offset = (at: number) => {
+    const { date: d, hour: h } = localDateHour(new Date(at).toISOString(), timeZone);
+    const minutes = new Date(at).getUTCMinutes();
+    return Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)), h, minutes) - at;
+  };
+  const first = naive - offset(naive);
+  return new Date(naive - offset(first)).toISOString();
+}
+
 export interface TradingDay {
   date: string;
   netSales: number;
@@ -59,12 +79,15 @@ export function tradingDays(orders: TillOrder[], timeZone: string): Map<string, 
     const day = days.get(date) ?? { netSales: 0, orders: 0, tips: 0, serviceCharge: 0, hours: new Map() };
     day.tips += o.tips ?? 0;
     day.serviceCharge += o.serviceCharge ?? 0;
-    const h = day.hours.get(hour) ?? { hour, netSales: 0, orders: 0 };
+    const count = o.orders ?? 1;
     day.netSales += o.netSales;
-    day.orders++;
-    h.netSales += o.netSales;
-    h.orders++;
-    day.hours.set(hour, h);
+    day.orders += count;
+    if (!o.noHour) {
+      const h = day.hours.get(hour) ?? { hour, netSales: 0, orders: 0 };
+      h.netSales += o.netSales;
+      h.orders += count;
+      day.hours.set(hour, h);
+    }
     days.set(date, day);
   }
   return new Map(

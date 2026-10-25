@@ -38,20 +38,40 @@ export function describeResync(r: EposResyncResult, siteName: (id: string) => st
   return r.ok ? done : `${done} Stopped part way: ${r.error}`;
 }
 
+export type TillProvider = 'square' | 'lightspeed' | 'zonal' | 'tevalis';
+
 export interface EposStatus {
   connection: null | {
-    provider: 'square';
+    provider: TillProvider;
     environment: 'production' | 'sandbox' | 'simulator';
     connectedAt: string;
     connectedBy: string;
     accountName?: string;
     lastSync?: EposSyncResult;
     lastResync?: EposResyncResult;
+    /** What a file feed last sent, and any lines it could not read. */
+    feedReceived?: { at: string; rows: number; problems: { line: number; message: string }[]; by: string } | null;
   };
   tokenEndsWith: string | null;
+  /** Where a Zonal or Tevalis feed posts, once one is connected. */
+  feedUrl?: string | null;
   sites: { siteId: string; name: string; locationId: string | null }[];
   simulatorAllowed: boolean;
+  /** The tills this server can connect: Lightspeed appears once Preshift's Lightspeed app is registered. */
+  providers?: { id: TillProvider; label: string; feed: boolean }[];
 }
+
+/** The till's own name, for what is connected. */
+export const tillLabel = (p: TillProvider | undefined) => ({ square: 'Square', lightspeed: 'Lightspeed', zonal: 'Zonal', tevalis: 'Tevalis' })[p ?? 'square'];
+
+/** What Lightspeed's sign-in came back with, from the address it returned to. */
+const RETURNS: Record<string, { text: string; bad?: boolean }> = {
+  connected: { text: 'Connected to Lightspeed. Now match each site to its Lightspeed location.' },
+  declined: { text: 'Lightspeed was not connected: the sign-in was cancelled or not approved.', bad: true },
+  expired: { text: 'That Lightspeed sign-in had expired or was already used. Start again.', bad: true },
+  unavailable: { text: 'Lightspeed is not set up on this server.', bad: true },
+  failed: { text: 'Lightspeed could not be connected.', bad: true },
+};
 
 interface Location {
   id: string;
@@ -61,6 +81,8 @@ interface Location {
 }
 
 const ENVIRONMENTS = { production: 'Square', sandbox: 'Square sandbox (testing)', simulator: 'Simulated till (demo)' } as const;
+/** One choice per till: Square's environments, then each other till. */
+type Choice = keyof typeof ENVIRONMENTS | Exclude<TillProvider, 'square'>;
 const problem = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export const syncedAt = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -88,7 +110,9 @@ export function describeSync(r: EposSyncResult, siteName: (id: string) => string
 export function EposSetup({ onSynced }: { onSynced?: () => void }) {
   const [status, setStatus] = useState<EposStatus | null>(null);
   const [locations, setLocations] = useState<Location[] | null>(null);
-  const [environment, setEnvironment] = useState<keyof typeof ENVIRONMENTS>('production');
+  const [environment, setEnvironment] = useState<Choice>('production');
+  const [feedKey, setFeedKey] = useState<string | null>(null);
+  const [upload, setUpload] = useState('');
   const [token, setToken] = useState('');
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [from, setFrom] = useState('');
@@ -100,13 +124,22 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
     setStatus(s);
     setMapping(Object.fromEntries(s.sites.map((x) => [x.siteId, x.locationId ?? ''])));
     if (s.connection) {
-      setEnvironment(s.connection.environment);
+      setEnvironment(s.connection.provider === 'square' ? s.connection.environment : s.connection.provider);
       api.get<Location[]>('/v1/integrations/epos/locations').then(setLocations).catch((e) => setMessage({ text: problem(e), bad: true }));
     } else setLocations(null);
   }, []);
 
   useEffect(() => {
     load().catch((e) => setMessage({ text: problem(e), bad: true }));
+    // Back from Lightspeed's sign-in: say how it went, then tidy the address.
+    const q = new URLSearchParams(window.location.search);
+    const back = q.get('epos');
+    if (back && RETURNS[back]) {
+      setMessage({ text: [RETURNS[back].text, q.get('reason')].filter(Boolean).join(' '), bad: RETURNS[back].bad });
+      q.delete('epos');
+      q.delete('reason');
+      window.history.replaceState(null, '', `${window.location.pathname}?${q}`);
+    }
   }, [load]);
 
   async function run(label: string, fn: () => Promise<string | void>) {
@@ -123,11 +156,34 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
     }
   }
 
+  const isSquare = environment === 'production' || environment === 'sandbox' || environment === 'simulator';
+  const isFeed = environment === 'zonal' || environment === 'tevalis';
+
   const connect = () =>
     run('Connect', async () => {
-      await api.put('/v1/integrations/epos', { environment, ...(token ? { accessToken: token } : {}) });
+      if (environment === 'lightspeed') {
+        const r = await api.put<{ authorizeUrl: string }>('/v1/integrations/epos', { provider: 'lightspeed' });
+        // Lightspeed asks them to sign in and approve Preshift, then sends them back here.
+        window.location.assign(r.authorizeUrl);
+        return 'Opening Lightspeed to sign in...';
+      }
+      if (isFeed) {
+        const r = await api.put<{ feedKey: string }>('/v1/integrations/epos', { provider: environment });
+        setFeedKey(r.feedKey);
+        return `Connected to ${tillLabel(environment)} by file feed. Copy the feed key now: it is shown only once.`;
+      }
+      await api.put('/v1/integrations/epos', { provider: 'square', environment, ...(token ? { accessToken: token } : {}) });
       setToken('');
       return environment === 'simulator' ? 'Connected to the simulated till, with every site matched. Bring takings in below.' : 'Connected. Now match each site to its Square location.';
+    });
+
+  const sendUpload = () =>
+    run('Upload', async () => {
+      const r = await api.post<{ received: number; problems: { line: number; message: string }[]; sync: EposSyncResult | null }>('/v1/integrations/epos/feed-upload', { csv: upload });
+      setUpload('');
+      onSynced?.();
+      const problems = r.problems.length ? ` ${r.problems.length} line${r.problems.length === 1 ? '' : 's'} could not be read: ${r.problems.slice(0, 3).map((p) => `line ${p.line}, ${p.message}`).join('; ')}.` : '';
+      return `${r.received} rows read.${problems} ${r.sync ? describeSync(r.sync, siteName) : 'Match each site reference below, then upload again to bring the days in.'}`;
     });
 
   const saveMapping = () =>
@@ -180,20 +236,23 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
         <>
           <p className="small">
             {conn
-              ? `Connected to ${conn.accountName ?? ENVIRONMENTS[conn.environment]}${conn.environment === 'sandbox' ? ' (sandbox)' : ''} by ${conn.connectedBy}, ${syncedAt(conn.connectedAt)}.${status.tokenEndsWith ? ` Access token ending ${status.tokenEndsWith}.` : ''}`
+              ? `Connected to ${conn.accountName ?? (conn.provider === 'square' ? ENVIRONMENTS[conn.environment] : tillLabel(conn.provider))}${conn.environment === 'sandbox' ? ' (sandbox)' : ''} by ${conn.connectedBy}, ${syncedAt(conn.connectedAt)}.${status.tokenEndsWith ? ` Access token ending ${status.tokenEndsWith}.` : ''}`
               : 'No till connected. Takings are keyed in or imported on the Takings report.'}
           </p>
 
           <form className="settings-form" onSubmit={(e) => { e.preventDefault(); void connect(); }}>
             <label>
               Till
-              <select value={environment} onChange={(e) => setEnvironment(e.target.value as keyof typeof ENVIRONMENTS)}>
+              <select value={environment} onChange={(e) => setEnvironment(e.target.value as Choice)}>
                 <option value="production">{ENVIRONMENTS.production}</option>
                 <option value="sandbox">{ENVIRONMENTS.sandbox}</option>
+                {status.providers?.some((p) => p.id === 'lightspeed') && <option value="lightspeed">Lightspeed Restaurant</option>}
+                <option value="zonal">Zonal (file feed)</option>
+                <option value="tevalis">Tevalis (file feed)</option>
                 {status.simulatorAllowed && <option value="simulator">{ENVIRONMENTS.simulator}</option>}
               </select>
             </label>
-            {environment !== 'simulator' && (
+            {isSquare && environment !== 'simulator' && (
               <label>
                 {conn && status.tokenEndsWith ? 'Replace access token (optional)' : 'Square access token'}
                 <input
@@ -206,21 +265,69 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
                 />
               </label>
             )}
-            <button className="primary" type="submit" disabled={busy}>{conn ? 'Reconnect' : 'Connect'}</button>
+            <button className="primary" type="submit" disabled={busy}>
+              {environment === 'lightspeed' ? 'Sign in to Lightspeed' : isFeed && conn?.provider === environment ? 'New feed key' : conn ? 'Reconnect' : 'Connect'}
+            </button>
             {conn && <button type="button" className="danger" disabled={busy} onClick={() => { if (confirm('Disconnect the till? Takings already brought in stay; nothing new comes in until it is connected again.')) void disconnect(); }}>Disconnect</button>}
           </form>
-          {environment !== 'simulator' && (
+          {isSquare && environment !== 'simulator' && (
             <p className="muted small">
               In the Square Developer Console, create an application, then copy its production access token. It needs ORDERS_READ and
               MERCHANT_PROFILE_READ. Preshift checks it with Square before saving, keeps it on the server, and never shows it again.
             </p>
+          )}
+          {environment === 'lightspeed' && (
+            <p className="muted small">
+              Sign in with a Lightspeed account that owns the business and approve Preshift to read financial data. Lightspeed sends you
+              back here to match each site to its location. Preshift keeps the connection on the server and renews it itself.
+            </p>
+          )}
+          {isFeed && (
+            <p className="muted small">
+              {environment === 'zonal'
+                ? 'Ask your Zonal account manager to send the daily sales export, by site and hour if they can, to the feed address below with the feed key.'
+                : 'Schedule the Daily Flash Sales report (Net) in the Tevalis portal to the feed address below with the feed key, or upload the export here each morning.'}{' '}
+              Each row needs the site reference, trading date and net sales ex VAT; hour, tips, service charge and checks are read where
+              given. A file sent again replaces what it sent before.
+            </p>
+          )}
+          {feedKey && (
+            <div className="settings-form">
+              <label>
+                Feed key (shown once)
+                <input readOnly value={feedKey} onFocus={(e) => e.currentTarget.select()} />
+              </label>
+              <span className="small muted">Send it as Authorization: Bearer, with the file as text/csv.</span>
+            </div>
+          )}
+          {conn && status.feedUrl && (
+            <>
+              <p className="small">
+                Feed address: <code>{status.feedUrl}</code>
+                {conn.feedReceived ? ` Last file ${syncedAt(conn.feedReceived.at)}: ${conn.feedReceived.rows} rows${conn.feedReceived.problems.length ? `, ${conn.feedReceived.problems.length} lines not read` : ''}.` : ' Nothing received yet.'}
+              </p>
+              <form className="settings-form" onSubmit={(e) => { e.preventDefault(); void sendUpload(); }}>
+                <label>
+                  Upload an export
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void f.text().then(setUpload);
+                    }}
+                  />
+                </label>
+                <button type="submit" disabled={busy || !upload}>Upload</button>
+              </form>
+            </>
           )}
 
           {conn && (
             <>
               <h3 className="section-inline">Which location is each site</h3>
               {!locations ? (
-                <p className="small muted">Asking Square for its locations...</p>
+                <p className="small muted">Asking {tillLabel(conn.provider)} for its locations...</p>
               ) : (
                 <table className="table compact">
                   <tbody>

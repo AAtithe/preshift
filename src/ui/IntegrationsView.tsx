@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { RotaState } from '../engine/types';
 import { api } from './api';
-import { describeSync, syncedAt, type EposStatus } from './EposSetup';
+import { describeSync, syncedAt, tillLabel, type EposStatus } from './EposSetup';
 import type { Account } from './SettingsView';
 import { describeRewardsSync, type RewardsStatus } from './WelfareSettings';
 import type { XeroStatus } from './XeroPanel';
@@ -157,12 +157,16 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
       <div className="integrations-grid">
         <Card
           name="EPOS"
-          kind={eposConn ? (eposConn.environment === 'simulator' ? 'Square, simulated till' : eposConn.environment === 'sandbox' ? 'Square sandbox' : 'Square') : 'Square today; Lightspeed, Tevalis, Zonal and others on request'}
+          kind={
+            eposConn
+              ? eposConn.environment === 'simulator' ? 'Square, simulated till' : eposConn.environment === 'sandbox' ? 'Square sandbox' : `${tillLabel(eposConn.provider)}${eposConn.provider === 'zonal' || eposConn.provider === 'tevalis' ? ', by file feed' : ''}`
+              : 'Square, Lightspeed, Zonal or Tevalis; others on request'
+          }
           health={eposHealth}
           purpose="Net takings from the till by trading day and hour. Actual sales are what turn forecast labour % into true labour %, and what tells a GM mid-week that they are overstaffed for the trade they are really doing."
           action={
             admin ? (
-              <button onClick={() => onOpen('settings')}>{eposConn ? 'Manage in Settings' : 'Connect Square in Settings'}</button>
+              <button onClick={() => onOpen('settings')}>{eposConn ? 'Manage in Settings' : 'Connect your till in Settings'}</button>
             ) : eposConn ? null : (
               <a className="button" href={REQUEST('EPOS')}>Ask for your EPOS</a>
             )
@@ -172,7 +176,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
             {eposConn ? (
               <>
                 <dt>Account</dt>
-                <dd>{eposConn.accountName ?? 'Square'}</dd>
+                <dd>{eposConn.accountName ?? tillLabel(eposConn.provider)}</dd>
                 <dt>Sites matched</dt>
                 <dd className={eposMatched < (epos?.sites.length ?? 0) ? 'warn-text' : undefined}>{eposMatched} of {epos?.sites.length}</dd>
                 <dt>Last sync</dt>
