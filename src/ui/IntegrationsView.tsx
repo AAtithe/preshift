@@ -61,6 +61,8 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
   const [epos, setEpos] = useState<EposStatus | null>(null);
   const [rewards, setRewards] = useState<RewardsStatus | null>(null);
   const [xero, setXero] = useState<XeroStatus | null>(null);
+  const [ats, setAts] = useState<{ connection: null | { label: string; source: string; lastReceived: { at: string; ok: boolean; message?: string } | null }; waiting: number } | null>(null);
+  const [trust, setTrust] = useState<{ connected: boolean; waiting?: number; review?: number } | null>(null);
   const admin = canSettings;
 
   useEffect(() => {
@@ -69,6 +71,8 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
     api.get<EposStatus>('/v1/integrations/epos').then(setEpos).catch(() => setEpos(null));
     api.get<RewardsStatus>('/v1/integrations/rewards').then(setRewards).catch(() => setRewards(null));
     api.get<XeroStatus>('/v1/integrations/xero').then(setXero).catch(() => setXero(null));
+    api.get<typeof ats>('/v1/integrations/ats').then(setAts).catch(() => setAts(null));
+    api.get<typeof trust>('/v1/integrations/trustid').then(setTrust).catch(() => setTrust(null));
   }, []);
   // Keys are admin only; members see that a connection exists but not its details.
   useEffect(() => {
@@ -325,45 +329,36 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
       <h2 className="integrations-group">Hiring and right to work</h2>
       <div className="integrations-grid">
         <Card
-          name="Talent Funnel"
-          kind="Hospitality recruitment"
-          health="planned"
-          purpose="When a candidate is hired, they arrive in People as a starter with their site, role, start date and agreed rate already filled in, and flow on to TeamPay from there. The hiring signal from unfilled gaps on the rota goes the other way, as a vacancy."
-          action={<a className="button" href={REQUEST('Talent Funnel')}>Register interest</a>}
+          name="Recruitment"
+          kind={ats?.connection ? ats.connection.label : 'Talent Funnel or any applicant tracking system'}
+          health={ats?.connection ? (ats.connection.lastReceived && !ats.connection.lastReceived.ok ? 'attention' : 'live') : 'off'}
+          purpose="When a candidate is hired, they arrive on Onboarding with the details they applied with, for a manager at the site to check and add as a starter. From there they flow to TeamPay and onboarding with nobody typing them in again."
+          action={admin ? <button onClick={() => onOpen('settings')}>{ats?.connection ? 'Manage in Settings' : 'Connect in Settings'}</button> : null}
         >
           <dl className="facts">
-            <dt>Today</dt>
-            <dd>Starters are typed into People by hand</dd>
+            <dt>Hires waiting</dt>
+            <dd className={ats?.waiting ? 'warn-text' : undefined}>{ats?.waiting ?? 0}</dd>
             <dt>Starters not yet started</dt>
             <dd>{starters}</dd>
-            <dt>What it removes</dt>
-            <dd>Re-keying offer details, and pay set up wrong on day one</dd>
-          </dl>
-        </Card>
-
-        <Card
-          name="Other ATS"
-          kind="Applicant tracking"
-          health="planned"
-          purpose="The same starter hand-off for groups on another applicant tracking system, such as Harri, Workable or Teamtailor. Hired candidates become starters; vacancies go out from the gaps the rota cannot fill legally."
-          action={<a className="button" href={REQUEST('ATS')}>Tell us your ATS</a>}
-        >
-          <dl className="facts">
-            <dt>Today</dt>
-            <dd>Any ATS can create starters through the Preshift API</dd>
+            <dt>Last received</dt>
+            <dd className={ats?.connection?.lastReceived && !ats.connection.lastReceived.ok ? 'bad-text' : undefined}>
+              {ats?.connection?.lastReceived ? `${syncedAt(ats.connection.lastReceived.at)}${ats.connection.lastReceived.ok ? '' : `: ${ats.connection.lastReceived.message}`}` : 'Nothing yet'}
+            </dd>
           </dl>
         </Card>
 
         <Card
           name="TrustID"
           kind="Right to work"
-          health="planned"
-          purpose="Identity document and share code checks done through TrustID, with the result, the evidence seen and any expiry written back to the person's record. A time-limited permission raises the follow-up check before it lapses, which is what keeps the statutory excuse against a civil penalty intact."
-          action={<a className="button" href={REQUEST('TrustID')}>Register interest</a>}
+          health={trust?.connected ? (trust.review ? 'attention' : 'live') : 'off'}
+          purpose="Identity document and share code checks done by the person on their own phone through your TrustID account, with the result, the evidence seen and any follow-up date written back to their record. A time-limited permission raises the follow-up check before it lapses, which is what keeps the statutory excuse against a civil penalty intact."
+          action={admin ? <button onClick={() => onOpen('settings')}>{trust?.connected ? 'Manage in Settings' : 'Connect in Settings'}</button> : null}
         >
           <dl className="facts">
-            <dt>Today</dt>
-            <dd>Checks are done elsewhere and recorded on each person by hand</dd>
+            <dt>Waiting for the person</dt>
+            <dd>{trust?.waiting ?? 0}</dd>
+            <dt>To review in TrustID</dt>
+            <dd className={trust?.review ? 'warn-text' : undefined}>{trust?.review ?? 0}</dd>
             <dt>No check recorded</dt>
             <dd className={rtwMissing ? 'bad-text' : undefined}>{rtwMissing} of {active.length} people</dd>
             <dt>Expiring within 60 days</dt>

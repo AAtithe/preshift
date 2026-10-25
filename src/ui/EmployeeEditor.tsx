@@ -6,6 +6,7 @@ import { formatMinute, parseClock } from '../engine/time';
 import type { Availability, Employee, HolidayRecord, RotaState } from '../engine/types';
 import { fileSize, MAX_UPLOAD_BYTES, shrinkPhoto } from './files';
 import { money } from './format';
+import { TrustIdCheck } from './TrustIdCheck';
 import type { DocumentAccess } from './store';
 
 interface Props {
@@ -323,6 +324,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
         )}
 
         <h3 className="section">Right to work</h3>
+        {!isNew && <TrustIdCheck employeeId={employee.id} />}
         <div className="form">
           <label className="check">
             <input type="checkbox" checked={rtw.checked} onChange={(e) => set('rightToWork', { ...rtw, checked: e.target.checked })} />

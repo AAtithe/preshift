@@ -344,6 +344,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/hires': true,
   'POST /v1/hires/:id/add': false,
   'POST /v1/hires/:id/dismiss': false,
+  'GET /v1/integrations/trustid': true,
+  'PUT /v1/integrations/trustid': false,
+  'DELETE /v1/integrations/trustid': false,
+  'POST /v1/employees/:id/right-to-work/trustid': false,
+  'POST /v1/integrations/trustid/webhook/:orgId': false,
   // Refused: keys and email are the live system's, not a visitor's.
   'PUT /v1/settings/claude-limits': false,
   // Refused: a sandbox is never billed, and nobody pays for the demo.

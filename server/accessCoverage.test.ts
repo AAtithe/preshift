@@ -22,6 +22,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'POST /v1/integrations/teampay/webhook/:orgId': 'Called by TeamPay with a signed body, never by a person.',
   'POST /v1/integrations/epos/feed/:orgId': "Called by a Zonal or Tevalis feed with the organisation's own feed key, compared by hash, never by a person.",
   'POST /v1/integrations/ats/webhook/:orgId': "Called by a recruitment system with a body signed by the organisation's own secret, never by a person.",
+  'POST /v1/integrations/trustid/webhook/:orgId': "Called by TrustID with the organisation's own callback token; the result is then read from TrustID itself.",
   'POST /v1/integrations/stripe/webhook': "Called by Stripe with a signed body, never by a person; applied only to the organisation that owns the Stripe customer.",
   'GET /v1/webhooks/events': 'The public catalogue of event types and what each carries: no organisation data.',
   'GET /v1/clients': "The caller's own client list: only organisations their own account holds a WS role in, as counts.",

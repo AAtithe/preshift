@@ -23,6 +23,7 @@ import type { SeenRecord } from '../src/engine/rotaSeen';
 import { isSandbox, SANDBOX_PREFIX } from './sandbox';
 import type { EposConnection } from './integrations/epos/provider';
 import type { RecruitmentData } from './routes/hires';
+import type { TrustIdData } from './routes/trustid';
 import type { MessagingData } from '../src/engine/messaging';
 import type { RewardsConnection } from './integrations/rewards/provider';
 import type { ChatRequest, PulseResponse, Recognition, WelfarePolicy } from '../src/engine/welfare';
@@ -199,6 +200,8 @@ export interface OrgData {
   loginReviews: LoginCaseReview[];
   /** UK GDPR: the organisation's retention periods and its log of requests from staff about their data. */
   privacy?: { policy?: RetentionPolicy; requests: SubjectRequest[]; policyDocuments?: PolicyDocument[] };
+  /** Right to work checks done through the organisation's TrustID account. Absent until connected. */
+  trustId?: TrustIdData;
   /** The recruitment system handing over new hires, and the hires waiting for a manager. Absent until first used. */
   recruitment?: RecruitmentData;
   /** Earned pay drawn early by staff, from request to the payslip it comes off. Absent until first used. */

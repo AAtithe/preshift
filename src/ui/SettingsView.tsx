@@ -1,5 +1,6 @@
 import { EposSetup } from './EposSetup';
 import { RecruitmentSetup } from './RecruitmentSetup';
+import { TrustIdSetup } from './TrustIdSetup';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from './api';
 import { ApiKeys, Webhooks } from './DeveloperSettings';
@@ -71,6 +72,7 @@ export function SettingsView({ account, canSettings, sites = [], onSalesChanged 
       </section>
       {canSettings && <EposSetup onSynced={onSalesChanged} />}
       {canSettings && <RecruitmentSetup />}
+      {canSettings && <TrustIdSetup />}
       {canSettings && <ClaudeKey />}
       {canSettings && <EmailSetup />}
       {canSettings && <MessagingSetup sites={sites} />}
