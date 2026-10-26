@@ -689,8 +689,8 @@ export interface TimeEntry {
   breakMinutes: number;
   status: TimeEntryStatus;
   source: 'clock' | 'manual';
-  /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone. */
-  method?: 'card' | 'device' | 'phone' | 'kiosk';
+  /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone, by location or on the site's tag. */
+  method?: 'card' | 'device' | 'phone' | 'kiosk' | 'tag';
   clockInLocation?: ClockLocation;
   clockOutLocation?: ClockLocation;
   /** Breaks the person recorded themselves, in minutes on `date` like clockOut. The last may still be running. */

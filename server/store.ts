@@ -117,6 +117,21 @@ export interface Kiosk {
   lastSeenAt?: string;
 }
 
+/**
+ * A secure NFC tag fixed at one site, which staff touch with their own phone to clock. Its keys and
+ * the last read counter seen are kept in settings, not here, so no data endpoint can return them.
+ */
+export interface TapPoint {
+  id: string;
+  siteId: string;
+  name: string;
+  addedBy: string;
+  addedAt: string;
+  /** The serial of the tag it was programmed onto, learnt from its first read. */
+  tagSerial?: string;
+  lastTapAt?: string;
+}
+
 export interface EraData {
   /** Absent means the assumptions in DEFAULT_ERA_SETTINGS, with neither measure started. */
   settings?: EraSettings;
@@ -130,6 +145,8 @@ export interface OrgData {
   timeEntries: TimeEntry[];
   /** Paired clocking kiosks. Absent on organisations saved before kiosks existed. */
   kiosks?: Kiosk[];
+  /** Secure NFC tags staff touch with their phone to clock. Absent on organisations saved before them. */
+  tapPoints?: TapPoint[];
   submissions: PayrollSubmission[];
   payRuns: PayRunRecord[];
   outbox: OutboxItem[];

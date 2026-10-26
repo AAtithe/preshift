@@ -31,6 +31,7 @@ const EXEMPT_ROUTES: Record<string, string> = {
   'GET /v1/staff/me': "Staff app: the caller's own shifts and hours, under the staff session.",
   'POST /v1/staff/clock-in': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
   'POST /v1/staff/clock-out': 'Staff app: the caller clocking themselves, under the staff session and geofence.',
+  'POST /v1/staff/tap': "Staff app: the caller clocking themselves, under the staff session and a read only the site's secure tag can write.",
   'GET /v1/staff/messages': "Staff app: the caller's own thread and announcements to them, under the staff session.",
   'POST /v1/staff/messages': "Staff app: the caller writing to their own managers, under the staff session.",
   'POST /v1/staff/messages/read': 'Staff app: the caller marking their own thread read, under the staff session.',

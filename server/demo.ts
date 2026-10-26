@@ -371,6 +371,11 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // Refused: pairing signs the visitor out of the iPad they pair, and with it their sandbox, and
   // hands the device a credential lasting a year for a sandbox that ends at midnight.
   'POST /v1/kiosks': false,
+  // Tags in the sandbox can be listed and removed; adding one is refused: a tag is programmed for good,
+  // a sandbox ends at midnight, and nobody in a sandbox has a staff login to tap it with.
+  'GET /v1/tap-points': true,
+  'DELETE /v1/tap-points/:id': true,
+  'POST /v1/tap-points': false,
   'GET /v1/staff-logins/review': false,
   // Support is people answering people: a demo visitor is no named person, and nobody real is on the other end.
   'GET /v1/support/tickets': false,
@@ -393,6 +398,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/staff/me': false,
   'POST /v1/staff/clock-in': false,
   'POST /v1/staff/clock-out': false,
+  'POST /v1/staff/tap': false,
   'POST /v1/staff/break-start': false,
   'POST /v1/staff/break-end': false,
   // Refused: the staff app is for real staff on their own phones, and nobody in a sandbox is one.
