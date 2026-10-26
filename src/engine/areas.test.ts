@@ -62,6 +62,15 @@ describe('site areas', () => {
   });
 });
 
+describe('the sample group', () => {
+  it('has Marylebone split into areas, with every role placed, so the demo shows labour by area', () => {
+    const sample = base.sites.find((s) => s.id === 'mar')!;
+    expect(sample.areas?.map((a) => a.name)).toEqual(['Front of house', 'Bar', 'Back of house']);
+    for (const role of base.roles) expect(roleArea(sample, role.id)).toBeDefined();
+    expect(validateSetup(draftFromState(base)).filter((i) => i.severity === 'block')).toEqual([]);
+  });
+});
+
 describe('site areas in set-up', () => {
   it('blocks unnamed or duplicate areas and a role placed twice', () => {
     const draft = draftFromState(state);

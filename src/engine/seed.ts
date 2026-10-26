@@ -24,7 +24,13 @@ const entities: Entity[] = [
 
 const sites: Site[] = [
   // Locations are the postcode centres from postcodes.io; journey times come from TfL once refreshed.
-  { id: 'mar', name: 'Marylebone', entityId: 'wdl', labourTargetPct: 0.28, trackingCode: 'Marylebone', openMinute: 11 * 60, closeMinute: 23 * 60, location: { lat: 51.520957, lng: -0.153565, postcode: 'W1U 5AS' } },
+  { id: 'mar', name: 'Marylebone', entityId: 'wdl', labourTargetPct: 0.28, trackingCode: 'Marylebone', openMinute: 11 * 60, closeMinute: 23 * 60, location: { lat: 51.520957, lng: -0.153565, postcode: 'W1U 5AS' },
+    // Split into areas, so the sample shows labour by area without anyone setting it up first.
+    areas: [
+      { id: 'mar-foh', name: 'Front of house', roleIds: ['server', 'host', 'gm'] },
+      { id: 'mar-bar', name: 'Bar', roleIds: ['bar'] },
+      { id: 'mar-boh', name: 'Back of house', roleIds: ['chef', 'kp'] },
+    ] },
   { id: 'fitz', name: 'Fitzrovia', entityId: 'wdl', labourTargetPct: 0.29, trackingCode: 'Fitzrovia', openMinute: 11 * 60, closeMinute: 22 * 60, location: { lat: 51.517734, lng: -0.134021, postcode: 'W1T 1JB' } },
   { id: 'shd', name: 'Shoreditch', entityId: 'eck', labourTargetPct: 0.27, trackingCode: 'Shoreditch', openMinute: 12 * 60, closeMinute: 24 * 60, location: { lat: 51.526419, lng: -0.078249, postcode: 'E1 6JE' } },
 ];
