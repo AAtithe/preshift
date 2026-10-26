@@ -7,8 +7,8 @@ import { absoluteMinute, addDays, weekday, weekDates } from './time';
 import type { Department, Employee, RotaState, Shift } from './types';
 
 // The figures behind the rota's other ways of looking at a week: cover against demand as one
-// grid, rest between shifts as a line per person, positions by hour, each shift's cost against
-// the day's sales, what the next publish will tell people, and how the hard shifts have been
+// grid, each person's shifts as a Gantt chart, rest between shifts as a line per person,
+// positions by hour, each shift's cost against the day's sales, what the next publish will tell people, and how the hard shifts have been
 // shared. Each one answers a decision the grid by person and the timeline leave to the eye.
 
 const H = 60;
@@ -245,6 +245,119 @@ export function stationBoard(state: RotaState, siteId: string, date: string): { 
 }
 
 const DEPT_ORDER: Department[] = ['MGMT', 'FOH', 'BAR', 'BOH'];
+
+// Gantt -------------------------------------------------------------------------------------
+
+export interface GanttBar {
+  shiftId: string;
+  date: string;
+  /** Which day of the week shown, from 0. */
+  day: number;
+  siteId: string;
+  roleId: string;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  paidHours: number;
+  published: boolean;
+  /** Worked at another site: drawn so the person's week reads whole, but not this site's labour. */
+  away: boolean;
+}
+
+export interface GanttRow {
+  employeeId: string;
+  name: string;
+  department: Department;
+  /** Based at another site and borrowed in. */
+  borrowed: boolean;
+  bars: GanttBar[];
+  /** Paid hours and days worked at this site in the week. */
+  hours: number;
+  days: number;
+  contractedHours: number;
+}
+
+export interface Gantt {
+  /** Minutes of the day every lane covers, the same for every day so the week lines up. Past 1440 is the early hours after. */
+  from: number;
+  to: number;
+  /** Everyone rostered at the site in the week, by department and first start, then those based here with nothing this week. */
+  rows: GanttRow[];
+  /** Heads on at the site and heads the forecast needs, by hour of each day's lane. */
+  heads: { date: string; hours: { hour: number; on: number; required: number }[] }[];
+}
+
+/**
+ * The week as a Gantt chart: one line per person, their shifts as bars against the clock. Lanes
+ * cover trading hours with an hour either side, widened for any shift outside them.
+ */
+export function ganttChart(state: RotaState, siteId: string, dates: string[]): Gantt {
+  const site = state.sites.find((s) => s.id === siteId);
+  if (!site || dates.length === 0) return { from: 0, to: 24 * H, rows: [], heads: [] };
+  const inWeek = new Set(dates);
+  const here = state.shifts.filter((s) => s.siteId === siteId && inWeek.has(s.date));
+  const from = Math.max(0, Math.floor(Math.min(site.openMinute - H, ...here.map((s) => s.startMinute)) / H) * H);
+  const to = Math.ceil(Math.max(site.closeMinute + H, ...here.map((s) => s.endMinute)) / H) * H;
+  const last = dates[dates.length - 1];
+  const people = state.employees.filter(
+    (e) => here.some((s) => s.employeeId === e.id) || (e.siteId === siteId && e.status !== 'leaver' && isEmployedOn(e, last)),
+  );
+  const deptOf = (roleId: string) => state.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
+  const rows = people.map((e) => {
+    const bars = state.shifts
+      .filter((s) => s.employeeId === e.id && inWeek.has(s.date))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
+      .map((s) => ({
+        shiftId: s.id,
+        date: s.date,
+        day: dates.indexOf(s.date),
+        siteId: s.siteId,
+        roleId: s.roleId,
+        startMinute: s.startMinute,
+        endMinute: s.endMinute,
+        breakMinutes: s.breakMinutes,
+        paidHours: round1(shiftPaidHours(s)),
+        published: !!s.published,
+        away: s.siteId !== siteId,
+      }));
+    const mine = bars.filter((b) => !b.away);
+    return {
+      employeeId: e.id,
+      name: e.name,
+      // The role worked here says where the person stands on this week's chart; their primary role otherwise.
+      department: deptOf(mine[0]?.roleId ?? e.roleIds[0]),
+      borrowed: e.siteId !== siteId,
+      bars,
+      hours: round1(sum(mine.map((b) => b.paidHours))),
+      days: new Set(mine.map((b) => b.date)).size,
+      contractedHours: e.contractedHours,
+    };
+  });
+  const firstStart = (r: GanttRow) => {
+    const b = r.bars.find((x) => !x.away);
+    return b ? b.day * 24 * H + b.startMinute : Infinity;
+  };
+  rows.sort(
+    (a, b) =>
+      Number(a.hours === 0) - Number(b.hours === 0) ||
+      DEPT_ORDER.indexOf(a.department) - DEPT_ORDER.indexOf(b.department) ||
+      firstStart(a) - firstStart(b) ||
+      a.name.localeCompare(b.name),
+  );
+  const rules = state.demandRules.filter((r) => r.siteId === siteId);
+  const heads = dates.map((date) => {
+    const demand = rules.map((r) => dayDemand(state, siteId, r.roleId, date));
+    const hours: Gantt['heads'][number]['hours'] = [];
+    for (let m = from; m < to; m += H) {
+      const hour = m / H;
+      const on = here.filter((s) => s.date === date && s.startMinute < m + H && s.endMinute > m).length;
+      const required = sum(demand.map((rows) => rows.find((r) => r.hour === hour)?.required ?? 0));
+      hours.push({ hour, on, required });
+    }
+    return { date, hours };
+  });
+  return { from, to, rows, heads };
+}
 
 // Cost bricks -------------------------------------------------------------------------------
 
