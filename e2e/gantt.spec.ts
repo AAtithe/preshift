@@ -17,6 +17,8 @@ async function openGantt(page: Page) {
   await expect(bar(page)).toBeVisible();
   await page.getByRole('button', { name: 'Site or company' }).click();
   await page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText('Marylebone', { exact: true }) }).click();
+  // Rota sits in the Planning menu of the bar.
+  await bar(page).locator('[data-group="planning"] .nav-toggle').click();
   await bar(page).getByRole('button', { name: 'Rota', exact: true }).click();
   await page.getByRole('tab', { name: 'Gantt' }).click();
   await expect(page.locator('.gantt-axis')).toBeVisible();
