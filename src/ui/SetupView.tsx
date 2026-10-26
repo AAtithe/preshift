@@ -14,9 +14,10 @@ import {
   type PastedPerson,
   type SetupDraft,
 } from '../engine/setup';
+import { suggestedAreas } from '../engine/areas';
 import { isAroundTheClock } from '../engine/demand';
 import { formatMinute, parseClock, toISODate } from '../engine/time';
-import type { DemandRule, Department, Employee, RotaState, Role, Site } from '../engine/types';
+import type { DemandRule, Department, Employee, RotaState, Role, Site, SiteArea } from '../engine/types';
 import { api, ApiError } from './api';
 import { money } from './format';
 
@@ -81,8 +82,9 @@ export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
       // Only the fields set-up owns are sent; payroll links, allowances and geofences stay as the server has them.
       const body = {
         entities: draft.entities.map(({ id, name, companyNumber, payeReference, intercompanyCode }) => ({ id, name, companyNumber, payeReference, intercompanyCode })),
-        sites: draft.sites.map(({ id, name, entityId, labourTargetPct, trackingCode, openMinute, closeMinute, salesProfile }) => ({
-          id, name, entityId, labourTargetPct, trackingCode, openMinute, closeMinute, salesProfile,
+        // Areas are always sent, so removing the last one is saved rather than kept from before.
+        sites: draft.sites.map(({ id, name, entityId, labourTargetPct, trackingCode, openMinute, closeMinute, salesProfile, areas }) => ({
+          id, name, entityId, labourTargetPct, trackingCode, openMinute, closeMinute, salesProfile, areas: areas ?? [],
         })),
         roles: draft.roles,
         demandRules: draft.demandRules,
@@ -381,7 +383,8 @@ function TradingStep({ draft, setDraft }: StepProps) {
         charge. We spread each day across your opening hours on a standard lunch and dinner pattern and turn it into covers with
         your average spend. When Preshift Reports or your till sends real hourly figures for a week, those replace it. Second,
         how many covers or how much in sales one person in each role carries in an hour, with a floor while open and a ceiling.
-        Roles set to "by hand" are never built automatically.
+        Roles set to "by hand" are never built automatically. Split a site into areas (front of house, back of house, a bakery)
+        and choose the area each role works in there: labour is then reported area by area, and the rota can be read one area at a time.
       </p>
       {draft.sites.map((site) => {
         const profile = site.salesProfile ?? { dailySales: [0, 0, 0, 0, 0, 0, 0], averageSpend: 0 };
@@ -402,15 +405,36 @@ function TradingStep({ draft, setDraft }: StepProps) {
               {money(week)} a week, about {profile.averageSpend > 0 ? Math.round(week / profile.averageSpend).toLocaleString('en-GB') : 0} covers. At a{' '}
               {(site.labourTargetPct * 100).toFixed(1)}% target that is a loaded labour budget of {money(week * site.labourTargetPct)} a week.
             </p>
+            <SiteAreas site={site} roles={draft.roles} onChange={(areas) => updateSite(site.id, { areas })} />
             <table className="table">
-              <thead><tr><th>Role</th><th>Driven by</th><th>Per person per hour</th><th>Minimum while open</th><th>Maximum</th></tr></thead>
+              <thead><tr><th>Role</th>{!!site.areas?.length && <th>Area</th>}<th>Driven by</th><th>Per person per hour</th><th>Minimum while open</th><th>Maximum</th></tr></thead>
               <tbody>
                 {draft.roles.map((role) => {
                   const rule = draft.demandRules.find((r) => r.siteId === site.id && r.roleId === role.id);
                   const driver: Driver = !rule ? 'manual' : rule.salesPerLabourHour ? 'sales' : 'covers';
+                  const areas = site.areas ?? [];
                   return (
                     <tr key={role.id}>
                       <td>{role.name || 'Unnamed role'}</td>
+                      {areas.length > 0 && (
+                        <td>
+                          <select
+                            aria-label={`Area for ${role.name || 'this role'} at ${site.name || 'this site'}`}
+                            value={areas.find((a) => a.roleIds.includes(role.id))?.id ?? ''}
+                            onChange={(e) =>
+                              updateSite(site.id, {
+                                areas: areas.map((a) => ({
+                                  ...a,
+                                  roleIds: a.id === e.target.value ? [...a.roleIds.filter((id) => id !== role.id), role.id] : a.roleIds.filter((id) => id !== role.id),
+                                })),
+                              })
+                            }
+                          >
+                            <option value="">No area</option>
+                            {areas.map((a) => <option key={a.id} value={a.id}>{a.name || 'Unnamed area'}</option>)}
+                          </select>
+                        </td>
+                      )}
                       <td>
                         <select value={driver} onChange={(e) => setDriver(site.id, role, e.target.value as Driver)}>
                           <option value="covers">Covers</option>
@@ -433,6 +457,36 @@ function TradingStep({ draft, setDraft }: StepProps) {
         );
       })}
     </>
+  );
+}
+
+/** A site's areas: named here, with roles placed in them from the staffing table below. */
+function SiteAreas({ site, roles, onChange }: { site: Site; roles: Role[]; onChange: (areas: SiteArea[]) => void }) {
+  const areas = site.areas ?? [];
+  if (areas.length === 0) {
+    return (
+      <p className="muted small">
+        One area for the whole site.{' '}
+        <button className="link" onClick={() => onChange(suggestedAreas(roles, () => uid('area')))}>Split it into areas</button>
+      </p>
+    );
+  }
+  const rename = (id: string, name: string) => onChange(areas.map((a) => (a.id === id ? { ...a, name } : a)));
+  // Not Field: a label round the Remove button would make the button what the label names.
+  return (
+    <div className="setup-row setup-areas">
+      {areas.map((a, i) => (
+        <div key={a.id} className="setup-field">
+          <span>Area</span>
+          <input aria-label={`Area ${i + 1} name`} value={a.name} placeholder="e.g. Bakery" style={{ width: 150 }} onChange={(e) => rename(a.id, e.target.value)} />
+          <small>
+            {a.roleIds.length} {a.roleIds.length === 1 ? 'role' : 'roles'}{' '}
+            <button className="link danger" onClick={() => onChange(areas.filter((x) => x.id !== a.id))}>Remove</button>
+          </small>
+        </div>
+      ))}
+      <button onClick={() => onChange([...areas, { id: uid('area'), name: '', roleIds: [] }])}>Add an area</button>
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { labourByRole, performanceTrend, rotaVsActual, type CostLine, type TrendFigures } from '../engine/reports';
+import { labourByArea, labourByRole, performanceTrend, rotaVsActual, type CostLine, type TrendFigures } from '../engine/reports';
 import { addDays } from '../engine/time';
 import type { DaySales, Department, RotaState, TimeEntry } from '../engine/types';
 import { api } from './api';
@@ -25,7 +25,7 @@ const REPORTS: { id: Report; label: string; intro: string }[] = [
   {
     id: 'roles',
     label: 'Cost by role',
-    intro: 'Where the week’s labour goes, by department and role, with every on-cost shown. Wages tie to the role nominals in the accrual journal.',
+    intro: 'Where the week’s labour goes, by department and role, or by area within each site (front of house, back of house, a bakery) where a site is split into areas, with every on-cost shown. Wages tie to the role nominals in the accrual journal.',
   },
   {
     id: 'actual',
@@ -223,17 +223,31 @@ function Trend({ state, siteIds, week, today, scopeName }: ReportProps) {
 }
 
 function ByRole({ state, siteIds, week, scopeName }: ReportProps) {
+  const split = state.sites.some((s) => siteIds.includes(s.id) && s.areas?.length);
+  const [by, setBy] = useState<'area' | 'department'>('area');
+  const byArea = split && by === 'area';
   const report = useMemo(() => labourByRole(state, siteIds, week), [state, siteIds, week]);
+  const areaReport = useMemo(() => (byArea ? labourByArea(state, siteIds, week) : null), [byArea, state, siteIds, week]);
   const roleName = (id: string) => state.roles.find((r) => r.id === id)?.name ?? id;
   const ofSales = (n: number) => (report.forecastSales ? pct(n / report.forecastSales) : '');
   const share = (n: number) => (report.total ? pct(n / report.total) : '');
+  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
+  // One site reads as its areas; several as site and area, so two front of houses are never confused.
+  const areaLabel = (siteId: string, areaId: string | null) => {
+    const site = state.sites.find((s) => s.id === siteId);
+    const area = site?.areas?.find((a) => a.id === areaId)?.name ?? (site?.areas?.length ? 'No area' : 'Whole site');
+    return siteIds.length > 1 ? `${siteName(siteId)}, ${area}` : area;
+  };
+  const groups = areaReport
+    ? areaReport.areas.map((a) => ({ key: `${a.siteId}|${a.areaId}`, label: areaLabel(a.siteId, a.areaId), line: a as CostLine, roles: a.roles }))
+    : report.departments.map((d) => ({ key: d.department, label: DEPARTMENTS[d.department], line: d as CostLine, roles: d.roles }));
 
   function exportCsv() {
-    const header = ['Department', 'Role', 'Paid hours', 'Gross pay', 'Holiday accrual', "Employer's NI", 'Employer pension', 'Total', 'Paid not rostered', 'Share of labour %', '% of forecast sales'];
-    const rows = report.departments.flatMap((d) =>
-      d.roles.map((r) => [DEPARTMENTS[d.department], roleName(r.roleId), r.paidHours, r.gross, r.holiday, r.employerNi, r.pension, r.total, r.unrostered, report.total ? (r.total / report.total) * 100 : 0, report.forecastSales ? (r.total / report.forecastSales) * 100 : 0]),
+    const header = [byArea ? 'Area' : 'Department', 'Role', 'Paid hours', 'Gross pay', 'Holiday accrual', "Employer's NI", 'Employer pension', 'Total', 'Paid not rostered', 'Share of labour %', '% of forecast sales'];
+    const rows = groups.flatMap((g) =>
+      g.roles.map((r) => [g.label, roleName(r.roleId), r.paidHours, r.gross, r.holiday, r.employerNi, r.pension, r.total, r.unrostered, report.total ? (r.total / report.total) * 100 : 0, report.forecastSales ? (r.total / report.forecastSales) * 100 : 0]),
     );
-    download(`preshift-labour-by-role-${slug(scopeName)}-${week}.csv`, csv([header, ...rows]));
+    download(`preshift-labour-by-${byArea ? 'area' : 'role'}-${slug(scopeName)}-${week}.csv`, csv([header, ...rows]));
   }
 
   if (report.departments.length === 0) return <p className="muted">No labour for this week yet. Build the rota first.</p>;
@@ -262,6 +276,12 @@ function ByRole({ state, siteIds, week, scopeName }: ReportProps) {
           On-costs add {report.gross ? pct(onCost / report.gross) : '0%'} to gross pay this week ({money(onCost)}). Quote that number
           to anyone who costs a shift at the headline rate.
         </span>
+        {split && (
+          <div className="toggle small-toggle" role="group" aria-label="Group labour by">
+            <button className={byArea ? 'active' : ''} aria-pressed={byArea} onClick={() => setBy('area')}>By area</button>
+            <button className={byArea ? '' : 'active'} aria-pressed={!byArea} onClick={() => setBy('department')}>By department</button>
+          </div>
+        )}
         <button onClick={exportCsv}>Download CSV</button>
       </div>
       <div className="grid-wrap">
@@ -280,8 +300,8 @@ function ByRole({ state, siteIds, week, scopeName }: ReportProps) {
             </tr>
           </thead>
           <tbody>
-            {report.departments.map((d) => (
-              <DepartmentRows key={d.department} label={DEPARTMENTS[d.department]} many={d.roles.length > 1} total={<Cells c={d} />}>
+            {groups.map((d) => (
+              <DepartmentRows key={d.key} label={d.label} named={byArea} many={d.roles.length > 1} total={<Cells c={d.line} />}>
                 {d.roles.map((r) => (
                   <tr key={r.roleId}>
                     <td>
@@ -306,7 +326,7 @@ function ByRole({ state, siteIds, week, scopeName }: ReportProps) {
   );
 }
 
-function DepartmentRows({ label, many, total, children }: { label: string; many: boolean; total: JSX.Element; children: JSX.Element[] }) {
+function DepartmentRows({ label, many, total, children, named }: { label: string; many: boolean; total: JSX.Element; children: JSX.Element[]; named?: boolean }) {
   return (
     <>
       <tr className="entity-head">
@@ -315,7 +335,8 @@ function DepartmentRows({ label, many, total, children }: { label: string; many:
       {children}
       {many && (
         <tr className="subtotal">
-          <td>Total {label.toLowerCase()}</td>
+          {/* Areas and sites are names, kept as written; departments read as words. */}
+          <td>Total {named ? label : label.toLowerCase()}</td>
           {total}
         </tr>
       )}

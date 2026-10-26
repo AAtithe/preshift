@@ -41,6 +41,7 @@ export const shiftBody = {
     startMinute: minute,
     endMinute: minute,
     breakMinutes: { type: 'integer', minimum: 0, default: 0 },
+    areaId: { type: 'string', maxLength: 64, description: "The site area worked in, where not the role's own area there. Empty clears it." },
   },
 } as const;
 
@@ -219,6 +220,16 @@ export const setupBody = {
           openMinute: { type: 'integer', minimum: 0, maximum: 1439 },
           // Past midnight runs on from 1440: 1560 is 02:00 the next morning.
           closeMinute: { type: 'integer', minimum: 1, maximum: 2880 },
+          areas: {
+            type: 'array',
+            maxItems: 20,
+            items: {
+              type: 'object',
+              required: ['id', 'name', 'roleIds'],
+              additionalProperties: false,
+              properties: { id: refId, name: text(60), roleIds: { type: 'array', maxItems: 100, items: refId } },
+            },
+          },
           salesProfile: {
             type: 'object',
             required: ['dailySales', 'averageSpend'],

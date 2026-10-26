@@ -1,4 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
+import { roleArea } from '../engine/areas';
 import { breakFor, checkEmployeeWeek, complianceOptions } from '../engine/compliance';
 import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
 import { employedShare } from '../engine/employees';
@@ -106,7 +107,8 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
           </label>
           <label>
             Site
-            <select value={draft.siteId} onChange={(e) => setDraft({ ...draft, siteId: e.target.value })}>
+            {/* An area belongs to its site: a shift moved to another site works in its role's area there. */}
+            <select value={draft.siteId} onChange={(e) => setDraft({ ...draft, siteId: e.target.value, areaId: '' })}>
               {state.entities.map((entity) => (
                 <optgroup key={entity.id} label={entity.name}>
                   {state.sites.filter((s) => s.entityId === entity.id).map((s) => (
@@ -118,6 +120,16 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
               ))}
             </select>
           </label>
+          {!!site.areas?.length && (
+            <label>
+              Area
+              {/* Empty is the role's own area here, so a change of role carries the shift with it. */}
+              <select value={site.areas.some((a) => a.id === draft.areaId) ? draft.areaId : ''} onChange={(e) => setDraft({ ...draft, areaId: e.target.value })}>
+                <option value="">{roleArea(site, draft.roleId)?.name ?? 'No area'} (the role's area)</option>
+                {site.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </label>
+          )}
           <label>
             Start
             <input type="time" value={formatMinute(draft.startMinute)} onChange={setClock('startMinute')} />

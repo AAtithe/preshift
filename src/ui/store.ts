@@ -107,8 +107,9 @@ export function useRotaStore() {
       }),
     saveShift: (shift: Shift, isNew: boolean) =>
       guard(async () => {
-        const { id, employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes } = shift;
-        const body = { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes };
+        const { id, employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes, areaId } = shift;
+        // An empty area clears one the shift had; absent, the server keeps what it has.
+        const body = { employeeId, roleId, siteId, date, startMinute, endMinute, breakMinutes, areaId };
         const res = isNew
           ? await api.post<{ shift: Shift; issues: Issue[] }>('/v1/shifts', { id, ...body })
           : await api.patch<{ shift: Shift; issues: Issue[] }>(`/v1/shifts/${id}`, body);
@@ -262,8 +263,8 @@ export function useRotaStore() {
         baseline,
         shifts: draft
           .filter((s) => s.siteId === siteId && dates.includes(s.date))
-          .map(({ id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes }) => ({
-            id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes,
+          .map(({ id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes, areaId }) => ({
+            id, employeeId, roleId, siteId: site, date, startMinute, endMinute, breakMinutes, areaId,
           })),
       }));
       try {
