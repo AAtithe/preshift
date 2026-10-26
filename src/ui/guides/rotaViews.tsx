@@ -22,10 +22,12 @@ function RotaViewsGuide() {
         <dd>What is each person's week? Use it to move a shift to someone else or another day.</dd>
         <dt>Gantt</dt>
         <dd>
-          Who is on when? One line per person with their shifts as bars against the clock, by department in the order they
-          start. The week shows the shape of everyone's week and who based here is not on at all; click a day's name for that
-          day by the hour, with heads on against heads needed beneath. Look for the hour where everyone arrives or leaves
-          together: that is where a staggered start saves money.
+          Who is on when, and is the day the right shape? One line per person with their shifts as bars against the clock, by
+          department in the order they start. The week shows everyone side by side and who based here is not on at all; click a
+          day's name for that day by the hour, with heads on against heads needed beneath. Look for the hour where everyone
+          arrives or leaves together: that is where a staggered start saves money. Fix it on the spot: drag a bar to move it,
+          its ends to change the hours, or onto another person's line to hand it over, and drag across an empty line to give
+          someone a shift. On a day, Show those not on lists who is free to take one.
         </dd>
         <dt>Cover map</dt>
         <dd>

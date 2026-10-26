@@ -43,8 +43,8 @@ export const RELEASES: Release[] = [
       {
         for: 'GMs',
         title: 'Gantt',
-        body: 'A new view on the Rota tab: one line per person, their shifts as bars against the clock, by department in the order people start. The whole week shows who is on when and who is idle; one day by the hour adds heads on against heads needed beneath. Published bars are solid, drafts outlined, and a bar that breaks a rule is edged in coral.',
-        tryIt: 'Open the week, then click your busiest day\'s name and look for the hour where everyone starts or leaves at once.',
+        body: 'A new view on the Rota tab: one line per person, their shifts as bars against the clock, by department in the order people start. The whole week shows who is on when and who is idle; one day by the hour adds heads on against heads needed beneath. Drag a bar to move it or change its hours, drop it on another person to hand it over, or drag across an empty line to add a shift, with the labour % shown as you go.',
+        tryIt: 'Click your busiest day\'s name, find the hour where everyone starts at once, and drag one start an hour later into the evening.',
         tab: 'rota',
         lens: 'gantt',
       },

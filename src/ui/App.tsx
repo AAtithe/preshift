@@ -85,7 +85,7 @@ const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']
 const CostView = screen(() => import('./RotaLenses'), 'CostView', ['rota']);
 const CoverMap = screen(() => import('./RotaLenses'), 'CoverMap', ['rota']);
 const FairnessView = screen(() => import('./RotaLenses'), 'FairnessView', ['rota']);
-const GanttView = screen(() => import('./RotaLenses'), 'GanttView', ['rota']);
+const Gantt = screen(() => import('./Gantt'), 'Gantt', ['rota']);
 const RestView = screen(() => import('./RotaLenses'), 'RestView', ['rota']);
 const StationView = screen(() => import('./RotaLenses'), 'StationView', ['rota']);
 const SettingsView = screen(() => import('./SettingsView'), 'SettingsView', ['settings']);
@@ -114,7 +114,7 @@ const VIEW_KEY = 'preshift.rota.view';
 const ROTA_VIEWS: { id: RotaView; label: string; help: string; cost?: boolean }[] = [
   { id: 'timeline', label: 'Service timeline', help: 'Each day over its sales curve, with hours short or over in the strip beneath. Drag a bar to move it or its ends to change the hours. Drag across a day, or click a red hour, to add a shift.' },
   { id: 'people', label: 'By person', help: 'Every person across the week. Drag a shift to another person or day.' },
-  { id: 'gantt', label: 'Gantt', help: 'One line per person with their shifts as bars against the clock, the whole week or one day by the hour. Click a bar to change it.' },
+  { id: 'gantt', label: 'Gantt', help: 'One line per person with their shifts as bars against the clock, the whole week or one day by the hour. Drag a bar to move it, its ends to change the hours, or onto another person to hand it over; drag across an empty line to add a shift.' },
   { id: 'cover', label: 'Cover map', help: 'The whole week against demand in one grid: where to add or cut the next hour. Click a short hour to fill it.' },
   { id: 'rest', label: 'Rest', help: 'Last week and this as one line per person, so a close before an open, or a long run of days, shows before it becomes a breach.' },
   { id: 'stations', label: 'Positions', help: 'One day by position: who is on the bar, the pass, the door, hour by hour, and where a needed position is empty.' },
@@ -667,7 +667,20 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 <CoverMap state={view} site={single} dates={dates} onOpen={canEdit ? setOpening : undefined} />
               )}
               {shown === 'rota' && single && shownView === 'gantt' && (
-                <GanttView state={view} site={single} dates={dates} issues={issues} onEdit={canEdit ? setEditing : undefined} />
+                <Gantt
+                  state={view}
+                  base={state}
+                  site={single}
+                  dates={dates}
+                  metrics={metrics}
+                  issues={issues}
+                  showCost={showCost}
+                  onEdit={canEdit ? setEditing : undefined}
+                  onPreview={canEdit ? setPreview : () => undefined}
+                  onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
+                  onBlocked={refuse}
+                  baseLabourCost={baseMetrics.labourCost}
+                />
               )}
               {shown === 'rota' && single && shownView === 'rest' && <RestView state={view} site={single} week={week} />}
               {shown === 'rota' && single && shownView === 'stations' && <StationView state={view} site={single} dates={dates} />}

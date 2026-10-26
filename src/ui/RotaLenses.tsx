@@ -5,17 +5,14 @@ import {
   costBricks,
   coverGrid,
   fairness,
-  ganttChart,
   restThreads,
   stationBoard,
   type FairnessMeasure,
-  type GanttBar,
   type PendingNotice,
   type RestThread,
 } from '../engine/rotaViews';
 import { addDays, formatMinute } from '../engine/time';
-import type { Issue } from '../engine/compliance';
-import type { Department, RotaState, Shift, Site } from '../engine/types';
+import type { RotaState, Site } from '../engine/types';
 import { api } from './api';
 import { openingForGap, type Opening } from './assign';
 import { dayLabel, hours as hrs, money, pct } from './format';
@@ -106,176 +103,6 @@ export function CoverMap({ state, site, dates, onOpen }: CoverProps) {
           <span><i className="sw cover-sw short" /> Short: people needed and not rostered</span>
           <span><i className="sw cover-sw ok" /> Covered</span>
           <span><i className="sw cover-sw over" /> Over: paid for and not needed</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Gantt ---------------------------------------------------------------------------------------
-
-const DEPT_NAME: Record<Department, string> = { MGMT: 'Management', FOH: 'Front of house', BAR: 'Bar', BOH: 'Kitchen' };
-
-interface GanttProps {
-  state: RotaState;
-  site: Site;
-  dates: string[];
-  issues: Issue[];
-  /** Absent when the person cannot change shifts: bars are then shown, not clickable. */
-  onEdit?: (shift: Shift) => void;
-}
-
-/** Each person as one line and their shifts as bars against the clock: one day by the hour, or the whole week. */
-export function GanttView({ state, site, dates, issues, onEdit }: GanttProps) {
-  const [mode, setMode] = useState<'day' | 'week'>('week');
-  const [day, setDay] = useState(() => [...dates].sort((a, b) => salesOn(state, site.id, b) - salesOn(state, site.id, a))[0] ?? dates[0]);
-  const date = dates.includes(day) ? day : dates[0];
-  const g = useMemo(() => ganttChart(state, site.id, dates), [state, site.id, dates]);
-  const lane = g.to - g.from;
-  const lanes = mode === 'week' ? dates.length : 1;
-  const width = lanes * lane;
-  // Where a minute of a day sits along the track, as a share of it.
-  const at = (dayIndex: number, minute: number) => (((mode === 'week' ? dayIndex : 0) * lane + minute - g.from) / width) * 100;
-  const roleName = (id: string) => state.roles.find((r) => r.id === id)?.name ?? id;
-  const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
-  const levelOf = (shiftId: string) => {
-    const mine = issues.filter((i) => i.shiftId === shiftId && !i.overridden);
-    return mine.some((i) => i.severity === 'block') ? 'block' : mine.some((i) => i.severity === 'warn') ? 'warn' : '';
-  };
-  // On one day each person stands under the department of the role they work that day.
-  const deptOf = (roleId: string) => state.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
-  const DEPTS = Object.keys(DEPT_NAME) as Department[];
-  const rows =
-    mode === 'week'
-      ? g.rows
-      : g.rows
-          .flatMap((r) => {
-            const first = r.bars.find((b) => b.date === date && !b.away);
-            return first ? [{ ...r, department: deptOf(first.roleId), start: first.startMinute }] : [];
-          })
-          .sort((a, b) => DEPTS.indexOf(a.department) - DEPTS.indexOf(b.department) || a.start - b.start || a.name.localeCompare(b.name));
-  const hourTicks = Array.from({ length: lane / H + 1 }, (_, i) => g.from + i * H);
-  const heads = g.heads.find((h) => h.date === date)?.hours ?? [];
-  const short = heads.filter((h) => h.on < h.required).length;
-  const label = (b: GanttBar) => `${formatMinute(b.startMinute)}-${formatMinute(b.endMinute)}`;
-  const title = (name: string, b: GanttBar) =>
-    `${name}, ${roleName(b.roleId)}${b.away ? ` at ${siteName(b.siteId)}` : ''}: ${dayLabel(b.date).short} ${label(b)}, ${hrs(b.paidHours)} paid` +
-    `${b.breakMinutes ? ` after a ${b.breakMinutes}m break` : ''}${b.published ? '' : ', not yet published'}`;
-  let dept: Department | null = null;
-  return (
-    <div className="panel lens">
-      <div className="panel-head">
-        <div>
-          <div className="panel-title">{mode === 'week' ? 'Everyone\'s week as a Gantt chart' : `${dayLabel(date).short} ${dayLabel(date).date} as a Gantt chart`}</div>
-          <div className="panel-sub">
-            One line per person, by department, in the order they start. Solid bars are published, outlined are drafts; a coral or gold edge has a
-            compliance issue. Shifts at another site are grey.
-            {mode === 'day' && heads.length > 0 && (short ? ` ${short} ${short === 1 ? 'hour is' : 'hours are'} short of the forecast.` : ' Every hour has the heads the forecast needs.')}
-            {onEdit ? ' Click a bar to change it.' : ''}
-          </div>
-        </div>
-        <div className="gantt-controls">
-          <div className="toggle small-toggle" role="tablist" aria-label="Span">
-            {(['week', 'day'] as const).map((m) => (
-              <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>
-                {m === 'week' ? 'Week' : 'Day'}
-              </button>
-            ))}
-          </div>
-          {mode === 'day' && (
-            <div className="toggle small-toggle" role="tablist" aria-label="Day">
-              {dates.map((d) => (
-                <button key={d} role="tab" aria-selected={d === date} className={d === date ? 'active' : ''} onClick={() => setDay(d)}>
-                  {dayLabel(d).short}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="panel-body lens-scroll">
-        {rows.length === 0 ? (
-          <p className="muted">Nobody is rostered {mode === 'week' ? 'this week' : `on ${dayLabel(date).short}`}.</p>
-        ) : (
-          <div className={`gantt ${mode}`}>
-            <span />
-            <div className="gantt-axis">
-              {mode === 'week'
-                ? dates.map((d, i) => (
-                    <button key={d} className="gantt-day eyebrow link" style={{ left: `${at(i, g.from)}%`, width: `${100 / lanes}%` }} title={`Open ${dayLabel(d).short} by the hour`} onClick={() => { setDay(d); setMode('day'); }}>
-                      {dayLabel(d).short} {dayLabel(d).date}
-                    </button>
-                  ))
-                : hourTicks.slice(0, -1).map((m) => (
-                    <span key={m} className="gantt-hour eyebrow" style={{ left: `${at(0, m)}%`, width: `${(H / width) * 100}%` }}>{clock(m / H)}</span>
-                  ))}
-            </div>
-            <span className="eyebrow gantt-total">Hours</span>
-            {rows.map((r) => {
-              const head = r.department !== dept && r.hours > 0 ? DEPT_NAME[r.department] : r.hours === 0 && dept !== null ? 'Not on this week' : null;
-              dept = r.hours > 0 ? r.department : null;
-              const bars = mode === 'week' ? r.bars : r.bars.filter((b) => b.date === date);
-              const over = r.contractedHours > 0 && r.hours > r.contractedHours;
-              return (
-                <div key={r.employeeId} style={{ display: 'contents' }}>
-                  {head && <h3 className="lens-sub gantt-group">{head}</h3>}
-                  <span className="gantt-name" title={r.borrowed ? `Based at ${siteName(state.employees.find((e) => e.id === r.employeeId)?.siteId ?? '')}` : undefined}>
-                    {r.name}
-                    {r.borrowed && <span className="tag">Cover</span>}
-                  </span>
-                  <div className="gantt-track">
-                    {(mode === 'week' ? dates.map((_, i) => at(i, g.from)) : hourTicks.map((m) => at(0, m))).map((left, i) => (
-                      <span key={i} className={`gantt-tick${mode === 'week' ? ' day' : ''}`} style={{ left: `${left}%` }} />
-                    ))}
-                    {bars.map((b) => {
-                      const left = at(b.day, Math.max(g.from, b.startMinute));
-                      const w = at(b.day, Math.min(g.to, b.endMinute)) - left;
-                      const cls = `gantt-bar ${b.away ? 'away' : b.published ? 'pub' : 'draft'} ${b.away ? '' : levelOf(b.shiftId)}`;
-                      const shift = state.shifts.find((s) => s.id === b.shiftId);
-                      const text = mode === 'day' ? `${roleName(b.roleId)} ${label(b)}` : formatMinute(b.startMinute).replace(':00', '');
-                      return onEdit && shift && !b.away ? (
-                        <button key={b.shiftId} className={cls} style={{ left: `${left}%`, width: `${w}%` }} title={title(r.name, b)} onClick={() => onEdit(shift)}>
-                          <span className="gantt-label">{text}</span>
-                        </button>
-                      ) : (
-                        <span key={b.shiftId} className={cls} style={{ left: `${left}%`, width: `${w}%` }} title={title(r.name, b)}>
-                          <span className="gantt-label">{text}</span>
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <span className={`gantt-total tnum small${over ? ' warn-text' : r.hours ? '' : ' muted'}`} title={r.contractedHours ? `${r.contractedHours}h contracted, ${r.days} ${r.days === 1 ? 'day' : 'days'}` : `${r.days} ${r.days === 1 ? 'day' : 'days'}`}>
-                    {hrs(r.hours)}
-                  </span>
-                </div>
-              );
-            })}
-            {mode === 'day' && heads.length > 0 && (
-              <>
-                <span className="gantt-name eyebrow">On / needed</span>
-                <div className="gantt-track gantt-heads">
-                  {heads.map((h) => (
-                    <span
-                      key={h.hour}
-                      className={`gantt-head ${h.on < h.required ? 'short' : h.required && h.on > h.required ? 'over' : ''}`}
-                      style={{ left: `${at(0, h.hour * H)}%`, width: `${(H / width) * 100}%` }}
-                      title={`${clock(h.hour)}: ${h.on} on, ${h.required} needed`}
-                    >
-                      {h.on}{h.required ? `/${h.required}` : ''}
-                    </span>
-                  ))}
-                </div>
-                <span />
-              </>
-            )}
-          </div>
-        )}
-        <div className="legend lens-legend">
-          <span><i className="sw gantt-sw pub" /> Published</span>
-          <span><i className="sw gantt-sw draft" /> Draft</span>
-          <span><i className="sw gantt-sw away" /> At another site</span>
-          <span><i className="sw gantt-sw block" /> Breaks a rule</span>
-          {mode === 'week' && <span className="muted">Click a day's name to see it by the hour.</span>}
         </div>
       </div>
     </div>
