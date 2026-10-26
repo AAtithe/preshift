@@ -328,7 +328,7 @@ export function Gantt({ state, base, site, dates, metrics, issues, showCost, onE
         <div>
           <div className="panel-title">{mode === 'week' ? "Everyone's week as a Gantt chart" : `${dayLabel(date).short} ${dayLabel(date).date} as a Gantt chart`}</div>
           <div className="panel-sub">
-            One line per person, by department, in the order they start. Solid bars are published, outlined are drafts, grey is another site; a
+            One line per person, by {byArea ? 'area' : 'department'}, in the order they start. Solid bars are published, outlined are drafts, grey is another site; a
             coral or gold edge has a compliance issue.
             {mode === 'day' && heads.length > 0 && (short ? ` ${short} ${short === 1 ? 'hour is' : 'hours are'} short of the forecast.` : ' Every hour has the heads the forecast needs.')}
             {onEdit ? ' Drag a bar to move it, its ends to change the hours, or onto another line to hand it over. Drag across an empty line to add a shift.' : ''}
