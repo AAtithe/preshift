@@ -18,6 +18,11 @@ links.addEventListener('click', (e) => {
 
 // Product screen tabs
 const shots = {
+  gantt: {
+    alt: 'Gantt view of one Friday at Marylebone: one line per person grouped by area, each shift a bar against the clock with its role, times and cost',
+    caption:
+      'One line per person, grouped by area, their shifts as bars against the clock. Drag a bar to move it, its ends to change the hours, or onto another line to hand it over.',
+  },
   sites: {
     alt: 'Group view of three sites across two companies: forecast sales, loaded labour, labour percentage against target, and the group rota P&L',
     caption:
@@ -47,6 +52,21 @@ const shots = {
     alt: 'Close view: labour accrual journals, Employment Allowance used against employer NI, and cross-site labour recharges',
     caption:
       'The labour accrual journal for each company, ready to post before payroll runs, with Employment Allowance and cross-site recharges worked out for you.',
+  },
+  cash: {
+    alt: 'Labour cash: net pay, tronc, HMRC and pension payments by week for the next 13 weeks, by company, with the next pay day and HMRC payment',
+    caption:
+      'What each company pays out for its people over the next 13 weeks, and when: net pay on pay day, tronc, PAYE and NI to HMRC by the 22nd, pensions after deduction.',
+  },
+  risk: {
+    alt: 'Compliance risk: money owed to staff, penalty ceilings, minimum wage tested on hours worked, Working Time breaches and right to work issues',
+    caption:
+      'Compliance priced the way a regulator or tribunal would price it: minimum wage on hours worked, right to work, Working Time breaches and tips, with arrears owed and penalty ceilings.',
+  },
+  welfare: {
+    alt: 'Wellbeing: who needs a conversation this week, with hours a week, what was seen and the next step for each person',
+    caption:
+      'Who needs a conversation this week and why: long weeks, no weekend off, close then open, missed breaks, no holiday. Each with the next step to take.',
   },
   hr: {
     alt: 'HR overview: headcount, staff turnover, absence and a list of HR actions to close',
