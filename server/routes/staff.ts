@@ -28,6 +28,8 @@ import { cipherOf, cleanFileName, MAX_DOCUMENT_BYTES, sniffType } from './docume
 import { staffSigningRoutes, toSignOf } from './signing';
 import { EMAIL, LOCK_SECONDS, MAX_FAILURES, normalise, now, secure } from './access';
 import { clockIn, clockOut, endBreak, onBreak, startBreak } from './time';
+import { tapPerson } from './clocking';
+import { acceptTap } from './tapPoints';
 
 const INVITE_DAYS = 7;
 
@@ -139,7 +141,8 @@ async function overview(staff: Staff, store: Store) {
     /** Shift reminders: on unless the person turned them off. */
     reminders: login.reminders !== false,
     today,
-    sites: clockableSites(org, employee, new Date()).map(siteView),
+    // Whether each site has a tag to touch, so the app can say so where location is not set up.
+    sites: clockableSites(org, employee, new Date()).map((s) => ({ ...siteView(s), tag: (org.tapPoints ?? []).some((t) => t.siteId === s.id) })),
     open: open ? entryView(open) : null,
     breakEntitlement: owed ? { minutes: owed, planned: shift!.breakMinutes, under18: ageOn(employee.dateOfBirth, today) < 18 } : null,
     // Whether they have a kiosk PIN, and whether any site they clock at asks for one.
@@ -325,6 +328,42 @@ export function staffRoutes(app: FastifyInstance, ctx: AppContext) {
       audit(org, `staff:${employee.id}`, 'time.phone_clock_out', { id: entry.id });
       await store.save(org);
       return overview(staff, store);
+    },
+  );
+
+  // The phone touched to the site's secure tag, which opened the staff app at the address it wrote.
+  // No location: the tag proves where, as a reader fixed at the site does. Signed in proves who.
+  app.post<{ Body: { tag: string; picc: string; cmac: string } }>(
+    '/v1/staff/tap',
+    {
+      schema: {
+        hide: true,
+        body: {
+          type: 'object',
+          required: ['tag', 'picc', 'cmac'],
+          additionalProperties: false,
+          properties: { tag: { type: 'string', maxLength: 40 }, picc: { type: 'string', maxLength: 32 }, cmac: { type: 'string', maxLength: 16 } },
+        },
+      },
+    },
+    async (req) => {
+      const staff = await requireStaff(req, store);
+      const { org, employee } = staff;
+      const point = await acceptTap(store, org, req.body.tag, req.body.picc, req.body.cmac);
+      const site = org.state.sites.find((s) => s.id === point.siteId);
+      if (!site) throw new HttpError(404, 'unknown_tag', 'This tag is not set up for clocking. Ask your manager.');
+      // The same sites as clocking by location: today's shifts, home and cover sites.
+      const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
+      if (!open && !clockableSites(org, employee, new Date()).some((s) => s.id === site.id)) {
+        await store.save(org);
+        throw new HttpError(403, 'not_your_site', `You are not set up to work at ${site.name}. Ask your manager to add it as a cover site.`);
+      }
+      const result = tapPerson(org, employee, site.id, { method: 'tag' });
+      if (!result.action.startsWith('already')) {
+        audit(org, `staff:${employee.id}`, `time.tag_${result.action}`, { id: result.entry.id, tapPointId: point.id, siteId: site.id });
+      }
+      await store.save(org);
+      return { tap: { action: result.action, siteName: site.name }, overview: await overview(staff, store) };
     },
   );
 

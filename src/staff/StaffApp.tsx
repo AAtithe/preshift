@@ -26,7 +26,8 @@ interface Entry {
 interface Overview extends SelfServiceData {
   employee: { id: string; name: string };
   email?: string;
-  sites: { id: string; name: string; geofence: GeoFence | null }[];
+  /** `tag`: the site has a secure tag at the entrance to touch the phone to. */
+  sites: { id: string; name: string; geofence: GeoFence | null; tag: boolean }[];
   open: Entry | null;
   shifts: { id: string; date: string; startMinute: number; endMinute: number; breakMinutes: number; siteName: string; roleName: string }[];
   recent: Entry[];
@@ -62,8 +63,32 @@ function readInvite() {
   return { org: params.get('org') ?? '', person: params.get('person') ?? '', invite: params.get('invite') ?? '' };
 }
 
+/**
+ * A touch on the site's tag, which opened this page at the address the tag wrote. Each address works
+ * once, so it is cleared from the address bar straight away and never reloaded or shared.
+ */
+function readTap() {
+  const params = new URLSearchParams(window.location.search);
+  const tag = params.get('tag');
+  if (!tag) return null;
+  window.history.replaceState(null, '', '/staff/');
+  return { tag, picc: params.get('picc') ?? '', cmac: params.get('cmac') ?? '' };
+}
+
+type TapAction = 'clock_in' | 'clock_out' | 'break_end' | 'already_clocked_in' | 'already_clocked_out';
+
+function tapMessage(action: TapAction, siteName: string, o: Overview): string {
+  if (action === 'clock_in') return `Clocked in at ${formatMinute(o.open?.clockIn ?? 0)} at ${siteName}. Have a good shift.`;
+  if (action === 'clock_out') return `Clocked out at ${formatMinute(o.recent[0]?.clockOut ?? 0)}. Thanks for today.`;
+  if (action === 'break_end') return `Welcome back. Break ended at ${formatMinute(o.open?.breaks[o.open.breaks.length - 1]?.end ?? 0)}.`;
+  if (action === 'already_clocked_in') return `You are already clocked in at ${siteName}.`;
+  return 'You have just clocked out.';
+}
+
 /** Read when the app loads, once, before anything can render twice. */
 const INVITE = readInvite();
+/** Waits here through signing in, and is sent once. */
+let pendingTap = readTap();
 registerWorker();
 
 /** The staff app: a person's own login on their own phone, to clock in and out and see their shifts. */
@@ -74,10 +99,39 @@ export function StaffApp() {
   const [joining, setJoining] = useState<{ name: string; email: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [tapped, setTapped] = useState<string | null>(null);
+
   const show = (overview: Overview) => {
     setData(overview);
     setView('home');
     setError(null);
+  };
+
+  /** Sends a waiting tag touch, once signed in. Signed out, it waits for the sign-in. */
+  async function sendTap(): Promise<boolean> {
+    const tap = pendingTap;
+    if (!tap) return false;
+    // Taken before the call, so a second render cannot send the same read and be told it is used.
+    pendingTap = null;
+    try {
+      const res = await call<{ tap: { action: TapAction; siteName: string }; overview: Overview }>('POST', '/v1/staff/tap', tap);
+      show(res.overview);
+      setTapped(tapMessage(res.tap.action, res.tap.siteName, res.overview));
+      return true;
+    } catch (e) {
+      if (e instanceof Problem && e.status === 401) {
+        pendingTap = tap;
+        return false;
+      }
+      setTapped(null);
+      setError(say(e));
+      return false;
+    }
+  }
+
+  const signedInAs = (overview: Overview) => {
+    show(overview);
+    void sendTap();
   };
 
   useEffect(() => {
@@ -87,7 +141,9 @@ export function StaffApp() {
         .catch((e) => { setError(say(e)); setView('login'); });
       return;
     }
-    call<Overview>('GET', '/v1/staff/me').then(show).catch(() => setView('login'));
+    void sendTap().then((done) => {
+      if (!done) call<Overview>('GET', '/v1/staff/me').then(show).catch(() => setView('login'));
+    });
     // Only on first load: the invite is read once from the link.
   }, []);
 
@@ -114,13 +170,15 @@ export function StaffApp() {
         )}
       </header>
       {error && <p className="staff-msg bad" role="alert">{error}</p>}
+      {tapped && view === 'home' && <p className="staff-msg good staff-tapped" role="status">{tapped}</p>}
+      {view === 'login' && pendingTap && <p className="staff-msg good">Sign in once on this phone and your tap will be recorded.</p>}
       {view === 'loading' && <p className="muted">Loading</p>}
-      {view === 'login' && <Login onDone={show} />}
+      {view === 'login' && <Login onDone={signedInAs} />}
       {view === 'join' && joining && invite && (
         <Join
           info={joining}
           onSubmit={async (email, password) => {
-            show(await call<Overview>('POST', '/v1/staff/join', { ...invite, email, password }));
+            signedInAs(await call<Overview>('POST', '/v1/staff/join', { ...invite, email, password }));
           }}
         />
       )}
@@ -320,8 +378,10 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
     }
   }
 
+  const tagged = data.sites.some((s) => s.tag);
   let where: { tone: 'good' | 'bad' | 'muted'; text: string };
-  if (!target?.geofence) where = { tone: 'bad', text: 'Your site has not set up phone clocking yet. Use the tablet or card reader at work.' };
+  if (!target?.geofence && tagged) where = { tone: 'muted', text: 'Touch the back of your phone to the Preshift tag at the staff entrance to clock in or out.' };
+  else if (!target?.geofence) where = { tone: 'bad', text: 'Your site has not set up phone clocking yet. Use the tablet or card reader at work.' };
   else if (geo.status === 'locating') where = { tone: 'muted', text: 'Finding your location' };
   else if (geo.status === 'denied') where = { tone: 'bad', text: 'Location is blocked for Preshift. Allow it in your phone settings to clock in.' };
   else if (geo.status !== 'ok' || !check) where = { tone: 'bad', text: 'Your phone cannot find its location right now.' };
@@ -382,6 +442,7 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         >
           {busy ? 'Saving' : data.open ? (data.open.onBreak ? 'End break and clock out' : 'Clock out') : 'Clock in'}
         </button>
+        {tagged && target?.geofence && <p className="muted small">Or touch your phone to the Preshift tag at the staff entrance.</p>}
         {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
       </section>
 

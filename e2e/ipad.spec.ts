@@ -158,7 +158,8 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
   const moved = page.locator(`.tl-bar[title="${later}"]`).first();
   await expect(moved).toHaveCount(1);
   // The drop saves and re-renders, which moves things again: settle before aiming at the moved shift.
-  await moved.scrollIntoViewIfNeeded();
+  // Brought to the middle, not just on screen: at the foot of the screen the Undo toast covers it.
+  await moved.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'center' }));
   await settled(page);
   const box = (await moved.boundingBox())!;
   const back = { x: box.x + box.width / 2, y: box.y + box.height / 2 };

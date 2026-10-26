@@ -39,6 +39,23 @@ function StaffAppGuide() {
         moved shift when they next open the app or their email. Chase them.
       </p>
 
+      <h3>Clock with a phone tag</h3>
+      <p>
+        A phone tag is a secure NFC sticker by the staff entrance. Staff touch the top of an iPhone, or the back of an Android
+        phone, to it and are clocked in, out or back from a break. Nothing to install, no card to lose, and no location needed.
+        Each touch writes a one-time code only that sticker can make, so a photo of it or a link sent to a friend at home does
+        not clock anyone.
+      </p>
+      <ol className="guide-steps">
+        <li>Under Clock-in setup, Phone tags, press Add a phone tag and program the sticker with the keys shown, or have Williams, Stanley &amp; Co. send one ready programmed. The guide Clock in with a phone tag has every step.</li>
+        <li>Stick it inside the entrance at hand height, away from metal and the card reader.</li>
+        <li>
+          On day one, have the person touch it once with you there. The phone opens Preshift in its browser: on an iPhone that is
+          Safari, apart from the home screen app, so they sign in there once. After that every touch clocks them straight away.
+        </li>
+        <li>iPhone XS or later reads tags with the screen on. Android needs NFC turned on in settings.</li>
+      </ol>
+
       <h3>Sign the written statement and handbook on day one</h3>
       <p>
         Every employee is entitled to a written statement of their terms on or before their first day. A tribunal can add two to
@@ -71,7 +88,7 @@ function StaffAppGuide() {
 
       <h3>What they can do</h3>
       <ul>
-        <li><strong>Today:</strong> clock in and out inside the site's geofence, record breaks, see today's shift and the break they are owed.</li>
+        <li><strong>Today:</strong> clock in and out inside the site's geofence or by touching the phone tag, record breaks, see today's shift and the break they are owed.</li>
         <li><strong>Seen it:</strong> when a week is published or changes, a banner asks them to check their shifts and confirm.</li>
         <li><strong>Rota:</strong> their shifts for the next two weeks and who they are on with. Swap or give away a shift, and pick up open shifts and swaps offered to them.</li>
         <li><strong>Requests:</strong> holiday with their balance shown first, other time off, report sickness and send a fit note, change their usual week, and add days they cannot work.</li>
