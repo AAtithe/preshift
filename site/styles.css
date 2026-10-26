@@ -731,6 +731,11 @@ section {
   line-height: 1;
   margin: 12px 0 8px;
 }
+.gap-box .figure.word {
+  font-size: clamp(44px, 5vw, 76px);
+  letter-spacing: -0.04em;
+  padding: 0.12em 0;
+}
 .gap-box.pnl .figure {
   color: var(--coral);
 }
