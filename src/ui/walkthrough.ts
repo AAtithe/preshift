@@ -49,6 +49,13 @@ export const RELEASES: Release[] = [
         lens: 'gantt',
       },
       {
+        for: 'GMs',
+        title: 'Phone tags',
+        body: 'Staff can now clock by touching their own phone to a secure NFC sticker at the staff entrance, iPhone or Android, with no card, no app to install and no location needed. Each touch writes a one-time code only that sticker can make, so a link sent to someone at home clocks nobody.',
+        tryIt: 'Open Clock-in setup and add a phone tag for the staff entrance.',
+        tab: 'clock',
+      },
+      {
         for: 'Staff',
         title: 'Seen it, in the staff app',
         body: 'A published week, or a change to it, now asks each person to tap Seen it. A later change asks again. It takes a second, and it is the record that they knew.',

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { normaliseBadge } from '../../src/engine/clocking';
-import type { GeoFence, GeoFix, Site, TimeEntry } from '../../src/engine/types';
+import type { Employee, GeoFence, GeoFix, Site, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
@@ -36,12 +36,27 @@ export function tapCard(
   siteId: string,
   rawBadge: string,
   { at, location, fixedReader }: { at?: string; location?: GeoFix; fixedReader: boolean },
-): { action: TapAction; employee: { id: string; name: string }; entry: TimeEntry } {
+): TapResult {
   const badgeId = normaliseBadge(rawBadge);
   const employee = badgeId ? org.state.employees.find((e) => e.badgeId === badgeId) : undefined;
   if (!employee) throw new HttpError(404, 'unknown_card', 'This card is not enrolled. Ask a manager to add it to your profile.');
+  return tapPerson(org, employee, siteId, { method: 'card', at, location, fixedReader });
+}
+
+export type TapResult = { action: TapAction; employee: { id: string; name: string }; entry: TimeEntry };
+
+/**
+ * One tap by a known person at a site, by card or by their phone on the site's tag: in, out, or
+ * back from a break, whichever they need next.
+ */
+export function tapPerson(
+  org: OrgData,
+  employee: Employee,
+  siteId: string,
+  opts: { method: 'card' | 'tag'; at?: string; location?: GeoFix; fixedReader?: boolean },
+): TapResult {
+  const { at } = opts;
   const open = org.timeEntries.find((t) => t.employeeId === employee.id && t.status === 'open');
-  const opts = { method: 'card' as const, at, location, fixedReader };
   const person = { id: employee.id, name: employee.name };
   // Readers often send one tap twice. A second tap within two minutes is the same tap, not a clock-out.
   const { date, minute } = londonParts(at ? new Date(at) : new Date());
