@@ -4,7 +4,7 @@
 import { weekStart } from '../engine/time';
 import type { Tab } from './nav';
 
-export type RotaLens = 'timeline' | 'people' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
+export type RotaLens = 'timeline' | 'people' | 'gantt' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
 
 export interface WalkStep {
   /** Who it is for, as on the README card: GMs, Staff, Finance, Admin, Owners, WS, Everyone. */
@@ -39,6 +39,14 @@ export const RELEASES: Release[] = [
         body: 'When a week is published, or a published shift moves, the staff app asks each person to confirm their week as it now reads. Staff requests shows who has confirmed this week and next, who saw an earlier version, and who has no app. Nobody can say they were not told.',
         tryIt: 'Open Rota seen and find who has not confirmed this week.',
         tab: 'requests',
+      },
+      {
+        for: 'GMs',
+        title: 'Gantt',
+        body: 'A new view on the Rota tab: one line per person, their shifts as bars against the clock, by department in the order people start. The whole week shows who is on when and who is idle; one day by the hour adds heads on against heads needed beneath. Published bars are solid, drafts outlined, and a bar that breaks a rule is edged in coral.',
+        tryIt: 'Open the week, then click your busiest day\'s name and look for the hour where everyone starts or leaves at once.',
+        tab: 'rota',
+        lens: 'gantt',
       },
       {
         for: 'Staff',

@@ -5,7 +5,7 @@ import { addDays, weekStart } from '../engine/time';
 import { NAV_ITEMS } from './nav';
 import { releaseLabel, type Release, type RotaLens, type WalkStep } from './walkthrough';
 
-export const LENSES: RotaLens[] = ['timeline', 'people', 'cover', 'rest', 'stations', 'cost', 'changes', 'fairness'];
+export const LENSES: RotaLens[] = ['timeline', 'people', 'gantt', 'cover', 'rest', 'stations', 'cost', 'changes', 'fairness'];
 export const AUDIENCES = ['GMs', 'Staff', 'Finance', 'Admin', 'Owners', 'Operators', 'WS', 'Everyone'] as const;
 
 /** A change that went into main this week, as the job reads it from GitHub. */

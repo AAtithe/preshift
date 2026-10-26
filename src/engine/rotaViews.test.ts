@@ -6,6 +6,7 @@ import {
   coverGrid,
   fairness,
   fortnight,
+  ganttChart,
   pendingNotices,
   restLevel,
   restThreads,
@@ -152,6 +153,46 @@ describe('station board', () => {
     const board = stationBoard({ ...base, shifts: [shift(e.id, WEEK[4], 20 * H, 26 * H, { roleId: 'bar', siteId: 'shd' })] }, 'shd', WEEK[5]);
     const bar = board.rows.find((r) => r.roleId === 'bar')!;
     expect(bar.cells.find((c) => c.hour === 1)?.people.map((p) => p.employeeId)).toEqual([e.id]);
+  });
+});
+
+describe('gantt', () => {
+  it('draws one line per person with their shifts as bars, in department order, with heads on by hour', () => {
+    const base = state([]);
+    const server = person(base);
+    const chef = person(base, 'chef');
+    const shifts = [
+      shift(server.id, WEEK[0], 11 * H, 15 * H, { breakMinutes: 30, published: true }),
+      shift(server.id, WEEK[2], 17 * H, 23 * H),
+      shift(chef.id, WEEK[0], 10 * H, 22 * H, { roleId: 'chef' }),
+    ];
+    const g = ganttChart({ ...base, shifts }, 'mar', WEEK);
+    const s = g.rows.find((r) => r.employeeId === server.id)!;
+    expect(s.bars.map((b) => [b.day, b.startMinute, b.endMinute])).toEqual([[0, 11 * H, 15 * H], [2, 17 * H, 23 * H]]);
+    expect(s.bars[0].published).toBe(true);
+    expect(s.hours).toBe(9.5);
+    expect(s.days).toBe(2);
+    const order = ['MGMT', 'FOH', 'BAR', 'BOH'];
+    const rostered = g.rows.filter((r) => r.hours > 0);
+    expect(rostered.map((r) => order.indexOf(r.department))).toEqual(rostered.map((r) => order.indexOf(r.department)).sort((x, y) => x - y));
+    // Those based here with nothing this week come last, so the idle are seen and not lost.
+    expect(g.rows.findIndex((r) => r.hours === 0)).toBeGreaterThan(g.rows.findIndex((r) => r.employeeId === chef.id));
+    expect(g.from).toBeLessThanOrEqual(10 * H);
+    const monday = g.heads[0].hours;
+    expect(monday.find((h) => h.hour === 12)!.on).toBe(2);
+    expect(monday.find((h) => h.hour === 16)!.on).toBe(1);
+    expect(monday.some((h) => h.required > 0)).toBe(true);
+  });
+
+  it('widens the lanes for a shift past midnight and greys shifts worked at another site', () => {
+    const base = state([]);
+    const e = person(base);
+    const shifts = [shift(e.id, WEEK[4], 20 * H, 26 * H), shift(e.id, WEEK[5], 12 * H, 18 * H, { siteId: 'shd' })];
+    const g = ganttChart({ ...base, shifts }, 'mar', WEEK);
+    expect(g.to).toBeGreaterThanOrEqual(26 * H);
+    const row = g.rows.find((r) => r.employeeId === e.id)!;
+    expect(row.bars.map((b) => b.away)).toEqual([false, true]);
+    expect(row.hours).toBe(6);
   });
 });
 

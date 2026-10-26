@@ -2,7 +2,7 @@
 
 export const rotaViewsGuide = {
   id: 'rota-views',
-  title: 'Reading the week eight ways',
+  title: 'Reading the week nine ways',
   summary: 'Which rota view answers which question, in the order to use them before a week goes out.',
   Body: RotaViewsGuide,
 };
@@ -20,6 +20,13 @@ function RotaViewsGuide() {
         <dd>Is each day staffed to its sales curve? Use it to build and to drag shifts.</dd>
         <dt>By person</dt>
         <dd>What is each person's week? Use it to move a shift to someone else or another day.</dd>
+        <dt>Gantt</dt>
+        <dd>
+          Who is on when? One line per person with their shifts as bars against the clock, by department in the order they
+          start. The week shows the shape of everyone's week and who based here is not on at all; click a day's name for that
+          day by the hour, with heads on against heads needed beneath. Look for the hour where everyone arrives or leaves
+          together: that is where a staggered start saves money.
+        </dd>
         <dt>Cover map</dt>
         <dd>
           Where do I add or cut the next hour? The whole week in one grid: coral is short, gold is paid for and not needed. Click
