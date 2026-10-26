@@ -49,6 +49,13 @@ export const RELEASES: Release[] = [
         lens: 'gantt',
       },
       {
+        for: 'Owners',
+        title: 'Areas within a site',
+        body: 'Set-up, then Trading and staffing: split a site into areas (front of house, back of house, a bakery) and choose the area each role works in there. Every shift lands in its role\'s area, and a shift worked elsewhere that day can name its own. Reports, then Cost by role, splits labour by area with every on-cost, and the Gantt groups and filters by area.',
+        tryIt: 'Split one site into areas, then open Cost by role for that site and read what each area costs as a share of the site\'s labour.',
+        tab: 'setup',
+      },
+      {
         for: 'GMs',
         title: 'Phone tags',
         body: 'Staff can now clock by touching their own phone to a secure NFC sticker at the staff entrance, iPhone or Android, with no card, no app to install and no location needed. Each touch writes a one-time code only that sticker can make, so a link sent to someone at home clocks nobody.',

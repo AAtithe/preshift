@@ -49,7 +49,19 @@ test('the week reads one line per person, a day opens by the hour, and a bar dra
   const track = (await line.boundingBox())!;
   const hour = track.width / (await page.locator('.gantt-hour').count());
   async function drag(dx: number) {
-    const box = (await shift.boundingBox())!;
+    // Other checks move Marylebone's shifts at the same time, which can re-sort the lines under the
+    // pointer: press only once the bar has held still and is really what lies under that point.
+    let box = { x: 0, y: 0, width: 0, height: 0 };
+    await expect
+      .poll(async () => {
+        await page.waitForLoadState('networkidle');
+        const next = (await shift.boundingBox())!;
+        const still = Math.abs(next.x - box.x) < 1 && Math.abs(next.y - box.y) < 1;
+        box = next;
+        const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+        return still && (await shift.evaluate((el, p) => el.contains(document.elementFromPoint(p.x, p.y)), at));
+      }, { intervals: [250], timeout: 15_000 })
+      .toBe(true);
     const y = box.y + box.height / 2;
     await page.mouse.move(box.x + box.width / 2, y);
     await page.mouse.down();

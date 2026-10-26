@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { areaBelongs } from '../../src/engine/areas';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
 import { featureOn } from '../../src/engine/features';
 import { rollingAverageIssues } from '../../src/engine/employmentRights';
@@ -96,6 +97,15 @@ function validateShift(org: OrgData, shift: Shift) {
   if (!org.state.employees.some((e) => e.id === shift.employeeId)) throw notFound(`Employee ${shift.employeeId}`);
   if (!org.state.roles.some((r) => r.id === shift.roleId)) throw notFound(`Role ${shift.roleId}`);
   if (shift.endMinute <= shift.startMinute) throw new HttpError(422, 'invalid_shift', 'Shift must end after it starts');
+  const site = org.state.sites.find((s) => s.id === shift.siteId);
+  if (!areaBelongs(site, shift.areaId)) throw new HttpError(422, 'invalid_area', `${site?.name ?? 'This site'} has no area ${shift.areaId}`);
+}
+
+/** An empty area means the role's own area, which is kept as no area at all. */
+function withArea(shift: Shift): Shift {
+  if (shift.areaId) return shift;
+  const { areaId: _none, ...rest } = shift;
+  return rest;
 }
 
 /**
@@ -158,7 +168,8 @@ function replaceWeeks(org: OrgData, g: Guard, ws: string, sites: { siteId: strin
       const old = byId.get(id);
       const same = old && sameShift(old, s);
       // An unchanged shift keeps its published state, so a small change does not unpublish the week.
-      return { ...s, id, breakMinutes: s.breakMinutes ?? 0, published: same ? Boolean(old.published) : false };
+      // The area is where the cost is reported, not when anyone works, so changing it alone keeps the shift as published.
+      return withArea({ ...s, id, breakMinutes: s.breakMinutes ?? 0, published: same ? Boolean(old.published) : false });
     });
     for (const s of incoming) {
       if (s.siteId !== siteId || !dates.includes(s.date)) throw new HttpError(422, 'outside_week', `Shift ${s.id} is not in this site's week`);
@@ -228,7 +239,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post<{ Body: Shift }>('/v1/shifts', { ...write, schema: { tags: ['Shifts'], body: shiftBody } }, async (req, reply) => {
     const org = orgOf(req);
     const g = guard(ctx, req, org);
-    const shift: Shift = { ...req.body, id: req.body.id ?? `s_${randomUUID()}`, published: false };
+    const shift = withArea({ ...req.body, id: req.body.id ?? `s_${randomUUID()}`, published: false });
     if (org.state.shifts.some((s) => s.id === shift.id)) throw new HttpError(409, 'conflict', `Shift ${shift.id} exists`);
     validateShift(org, shift);
     g.allow('rota.edit', shift.siteId);
@@ -256,7 +267,9 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
         if (moved.length) throw workedError(old, 'only its finish time and break can change.');
         if (hasFinished(old)) throw workedError(old, 'and it has finished, it can no longer be changed. Correct the hours on the timesheet.');
       }
-      const shift: Shift = { ...old, ...req.body, id: req.params.id, published: false };
+      // Moved to another site without naming an area there, it works in its role's area at the new site.
+      const area = req.body.areaId ?? (req.body.siteId && req.body.siteId !== old.siteId ? '' : old.areaId);
+      const shift = withArea({ ...old, ...req.body, areaId: area, id: req.params.id, published: false });
       validateShift(org, shift);
       assertRotaOpen(org, [shift]);
       // Moving a shift needs the right at both ends.

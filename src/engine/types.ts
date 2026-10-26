@@ -137,6 +137,19 @@ export interface Site {
   location?: SiteLocation;
   /** Journey times from this site to others, by destination site id. */
   travel?: Record<string, SiteTravel>;
+  /**
+   * The parts of the site its labour is split into: front of house, back of house, a bakery, a
+   * terrace. Each holds the roles that work in it here, so a shift lands in its role's area unless
+   * the shift names another. Absent or empty means the site is one area.
+   */
+  areas?: SiteArea[];
+}
+
+/** One area of a site. A role sits in at most one area of a site. */
+export interface SiteArea {
+  id: string;
+  name: string;
+  roleIds: string[];
 }
 
 export interface SalesProfile {
@@ -591,6 +604,8 @@ export interface Shift {
   /** Unpaid break in minutes. */
   breakMinutes: number;
   published?: boolean;
+  /** The area of the site this shift is worked in, where it is not the one its role sits in there. */
+  areaId?: string;
 }
 
 /** Forecast for one trading hour at one site. */
