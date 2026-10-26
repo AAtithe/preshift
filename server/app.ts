@@ -33,6 +33,7 @@ import { userRoutes } from './routes/users';
 import { clientRoutes } from './routes/clients';
 import { supportRoutes } from './routes/support';
 import { clockingRoutes } from './routes/clocking';
+import { tapPointRoutes } from './routes/tapPoints';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
 import { bookingRoutes } from './routes/bookings';
@@ -532,6 +533,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     // What staff ask for in the staff app, decided here by whoever runs their rota or team.
     requestRoutes(api, ctx);
     kioskAdminRoutes(api, ctx);
+    tapPointRoutes(api, ctx);
   });
 
   return { app, ctx, routes };

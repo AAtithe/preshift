@@ -100,7 +100,7 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
         Forgotten password? Send a reset link: once someone has set up their login it only ever goes to the email they signed up with,
         never to a manager, because whoever opened it could clock in as them. If they no longer use that address, close their login and invite them again.
       </p>
-      {!siteFenced && <p className="small warn-text">Set the site location above first. Phones cannot clock in at a site without one.</p>}
+      {!siteFenced && <p className="small warn-text">Set the site location above, or add a tag for phones below. Phones cannot clock in at a site with neither.</p>}
       {message && <p className="small bad-text" role="alert">{message}</p>}
       {emailed && (
         <div className="notice" role="status">

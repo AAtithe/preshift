@@ -1,5 +1,6 @@
 // Builds the Vercel deployment with the Build Output API (.vercel/output):
 //   /         marketing site (site/)
+//   /walkthrough   the narrated product walkthrough video (site/walkthrough.html, site/video/)
 //   /v1, /docs, /health   Preshift API as one bundled Node function, which also serves:
 //   /mcp                  the MCP connector for Claude and other MCP clients (server/mcp.ts)
 //   /oauth/*, /.well-known/oauth-*   Sign in with Preshift for that connector (server/oauth.ts)
@@ -45,7 +46,7 @@ await mkdir(fn, { recursive: true });
 await cp('site/login.html', `${fn}/login.html`);
 await cp('site/demo.html', `${fn}/demo.html`);
 
-for (const f of ['index.html', 'styles.css', 'main.js', 'img']) {
+for (const f of ['index.html', 'walkthrough.html', 'styles.css', 'main.js', 'img', 'video']) {
   await cp(`site/${f}`, `${out}/static/${f}`, { recursive: true });
 }
 
@@ -84,6 +85,8 @@ await writeFile(
           src: '^/(v1(?:/.*)?|docs(?:/.*)?|health|mcp|\\.well-known/oauth-(?:protected-resource|authorization-server)(?:/mcp)?|oauth/.*|internal/(?:dispatch|webhooks|demo-reset|digest|reminders)|login|demo(?:/start)?|auth/.*|app(?:/.*)?|staff(?:/.*)?|kiosk(?:/.*)?|api/anthropic/.*)$',
           dest: '/api?__p=/$1',
         },
+        // The narrated product walkthrough, a static page beside the marketing site.
+        { src: '^/walkthrough/?$', dest: '/walkthrough.html' },
         { handle: 'filesystem' },
       ],
       // Safety nets (need CRON_SECRET): payroll changes TeamPay has not confirmed, daily; webhook

@@ -86,7 +86,7 @@ export function loginCases(log: StaffLoginEvent[], reviews: LoginCaseReview[], e
       const rejoin = invite ? after.find((e) => e.kind === 'activated' && e.at >= invite.at) : undefined;
       const until = next === -1 ? '9999' : events[next].at;
       const phoneHours = rejoin
-        ? entries.filter((t) => t.employeeId === employeeId && t.method === 'phone' && startOf(t) >= rejoin.at && startOf(t) < until).reduce((s, t) => s + hoursOf(t), 0)
+        ? entries.filter((t) => t.employeeId === employeeId && (t.method === 'phone' || t.method === 'tag') && startOf(t) >= rejoin.at && startOf(t) < until).reduce((s, t) => s + hoursOf(t), 0)
         : 0;
 
       const flags: LoginFlag[] = [];

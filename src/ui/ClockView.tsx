@@ -4,6 +4,7 @@ import { addDays, formatMinute } from '../engine/time';
 import type { Employee, GeoFix, RotaState, TimeEntry } from '../engine/types';
 import { api, ApiError } from './api';
 import { Kiosks } from './Kiosks';
+import { TapPoints } from './TapPoints';
 import { StaffLogins } from './StaffLogins';
 
 interface Props {
@@ -235,7 +236,7 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
                       {entry?.breaks?.some((b) => b.end === undefined) ? (
                         <span className="warn-text">On break since {formatMinute(entry.breaks[entry.breaks.length - 1].start)}</span>
                       ) : entry ? (
-                        <span className="good-text">In since {formatMinute(entry.clockIn)}{entry.method === 'card' ? ' (card)' : ''}</span>
+                        <span className="good-text">In since {formatMinute(entry.clockIn)}{entry.method === 'card' ? ' (card)' : entry.method === 'tag' ? ' (phone tag)' : ''}</span>
                       ) : done.length ? (
                         <span className="muted">Clocked out {formatMinute(done[done.length - 1].clockOut!)}</span>
                       ) : (
@@ -359,6 +360,11 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
           <p className="small muted">In the live product, a shared iPad can be set up here as a kiosk that only clocks people in and out. Kiosks are switched off in the demo.</p>
         ) : (
           <Kiosks siteId={site.id} siteName={site.name} pinRequired={Boolean(site.kioskPinRequired)} team={team} />
+        )}
+        {demo ? (
+          <p className="small muted">In the live product, staff can also clock by touching their phone to a secure NFC tag at the entrance. Phone tags are switched off in the demo.</p>
+        ) : (
+          <TapPoints siteId={site.id} siteName={site.name} />
         )}
         </>)}
       </details>
