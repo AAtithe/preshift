@@ -40,6 +40,8 @@ export interface AppToolContext {
   now: LondonNow;
   /** Clock records, loaded on first use for holiday balances. */
   loadEntries: () => Promise<TimeEntry[]>;
+  /** The organisation has switched off AI rota writing, so there is no rota assistant to hand over to. */
+  rotaAiOff?: boolean;
 }
 
 interface Detail {
@@ -712,6 +714,13 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
       }
 
       case 'open_rota_assistant': {
+        if (ctx.rotaAiOff) {
+          return {
+            result: { error: 'AI rota writing is switched off for this organisation. Offer single shift changes instead, or say an owner can turn it on under Features.' },
+            label: 'Rota assistant switched off',
+            isError: true,
+          };
+        }
         const instruction = str(input, 'instruction');
         const proposal: Proposal = { id: proposalId(), kind: 'draft_rota', instruction, summary: 'Draft this with the rota assistant', details: [{ label: 'Request', value: instruction }], warnings: [] };
         return { result: { handed_over: true, note: 'The manager can open the rota assistant from the card; nothing is changed yet.' }, label: proposal.summary, proposal };

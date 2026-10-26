@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { autoScheduleSites } from '../../src/engine/autoschedule';
+import { featureOn } from '../../src/engine/features';
 import { rollingAverageIssues } from '../../src/engine/employmentRights';
 import { nightWorkIssues } from '../../src/engine/nightWork';
 import { checkEmployeeWeek, checkWeek, complianceOptions, issueSiteId, OVERRIDABLE } from '../../src/engine/compliance';
@@ -128,6 +129,13 @@ function shiftIssues(org: OrgData, shift: Shift) {
 }
 
 type OverrideBody = { weekStart: string; key: string; reason: string };
+
+/** An organisation that has switched off AI rota writing takes no assistant draft, however it is sent. */
+function refuseAssistantDraft(org: OrgData, source: string | undefined) {
+  if (source === 'assistant' && !featureOn(org.settings.featuresOff, 'rotaai')) {
+    throw new HttpError(403, 'feature_off', 'AI rota writing is switched off for this organisation. An owner can turn it back on under Features.');
+  }
+}
 
 /**
  * Checks and then applies replacement weeks for one or more sites. Nothing changes unless every
@@ -369,6 +377,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       requireSite(org, siteId);
       const g = guard(ctx, req, org);
       g.allow('rota.edit', siteId);
+      refuseAssistantDraft(org, req.body.source);
       const [plan] = replaceWeeks(org, g, ws, [{ siteId, shifts, baseline }]);
       audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
         siteId,
@@ -428,6 +437,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
         requireSite(org, id);
         g.allow('rota.edit', id);
       }
+      refuseAssistantDraft(org, req.body.source);
       const plans = replaceWeeks(org, g, ws, req.body.sites);
       audit(org, actorName(g), req.body.source === 'assistant' ? 'rota.assistant_applied' : 'rota.replaced', {
         siteIds,

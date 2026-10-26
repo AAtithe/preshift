@@ -6,6 +6,7 @@
 // key's scopes, the person's site access, the compliance checks, the audit trail and webhooks
 // all apply exactly as they do for the web app. The connector adds no authority of its own.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { featureOn } from '../src/engine/features';
 import { hasScope, type Scope } from './auth';
 import { ORG_HEADER, resourceMetadataUrl } from './oauth';
 import { isoDate, minute } from './schemas';
@@ -34,6 +35,8 @@ interface Tool {
   readOnly: boolean;
   /** Removes or overwrites work that cannot be got back. */
   destructive?: boolean;
+  /** Writes a whole rota, so it is refused where the organisation has switched off AI rota writing. */
+  writesRota?: boolean;
   inputSchema: Record<string, unknown>;
   /** The API call this tool makes. */
   request: (args: Record<string, unknown>) => { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; url: string; body?: unknown };
@@ -175,6 +178,7 @@ export const MCP_TOOLS: Tool[] = [
       'Adds shifts to unpublished gaps and reports any hours it could not fill. Review with get_rota_week before publishing.',
     scope: 'rota:write',
     readOnly: false,
+    writesRota: true,
     inputSchema: sitesWeekInput,
     request: (a) => ({ method: 'POST', url: '/v1/rota/build', body: sitesWeek(a) }),
   },
@@ -304,6 +308,9 @@ async function callTool(app: FastifyInstance, store: Store, req: FastifyRequest,
   const orgId = typeof organisation === 'string' && organisation ? organisation : reach.length === 1 ? reach[0] : undefined;
   if (!orgId) return toolError(`This connection reaches ${reach.length} organisations. Call list_organisations and pass one as organisation.`);
   if (!reach.includes(orgId)) return toolError(`This connection does not reach organisation ${orgId}. Call list_organisations for the ones it does.`);
+  if (tool.writesRota && (await store.has(orgId)) && !featureOn((await store.load(orgId)).settings.featuresOff, 'rotaai')) {
+    return toolError('AI rota writing is switched off for this organisation, so Claude cannot build its rota. Single shifts can still be added and removed.');
+  }
   const call = tool.request(args);
   const res = await app.inject({
     method: call.method,
