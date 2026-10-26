@@ -1201,6 +1201,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .setup-field { display: grid; gap: 4px; font: 500 10px/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .setup-field > input, .setup-field > select { font: 14px var(--font); letter-spacing: 0; text-transform: none; color: var(--ink); }
 .setup-field small { font: 11px var(--font); letter-spacing: 0; text-transform: none; }
+.setup-areas > button { align-self: center; }
 .setup-site { display: grid; gap: 10px; border-top: 1px solid var(--rule); padding-top: 12px; }
 .setup-site h3 { margin: 0; font-size: 15px; }
 .setup-paste { width: 100%; font: 13px var(--mono); padding: 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); }

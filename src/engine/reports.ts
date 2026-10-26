@@ -1,5 +1,6 @@
 import type { SspCheckLine } from './ssp';
 import type { DaySales, Department, RotaState, Shift, Site, TimeEntry } from './types';
+import { roleArea, shiftArea } from './areas';
 import { shiftPaidHours, weekCost } from './cost';
 import { forecastSalesForDay } from './demand';
 import type { PayrollVariance } from './timesheet';
@@ -195,6 +196,72 @@ export function labourByRole(state: RotaState, siteIds: string[], week: string):
   const total = zero();
   departments.forEach((d) => addTo(total, d));
   return { departments, forecastSales: round2(forecastSales), ...rounded(total) };
+}
+
+export interface AreaCost extends CostLine {
+  siteId: string;
+  /** Null for labour at a site in no area: the site is not split, or the role has not been placed. */
+  areaId: string | null;
+  roles: RoleCostLine[];
+}
+
+export interface LabourByArea extends CostLine {
+  areas: AreaCost[];
+  forecastSales: number;
+}
+
+/**
+ * The week's loaded labour split by area within each site, then by role. Shifts land in the area
+ * they were worked in; people paid but not rostered land in their primary role's area at their home
+ * site, the rule labourByRole uses for roles, so the two reports always total the same.
+ */
+export function labourByArea(state: RotaState, siteIds: string[], week: string): LabourByArea {
+  const groups = new Map<string, { siteId: string; areaId: string | null; roles: Map<string, RoleCostLine> }>();
+  const line = (siteId: string, areaId: string | null, roleId: string) => {
+    const key = `${siteId}|${areaId ?? ''}`;
+    const group = groups.get(key) ?? { siteId, areaId, roles: new Map() };
+    groups.set(key, group);
+    const cur = group.roles.get(roleId) ?? { roleId, unrostered: 0, ...zero() };
+    group.roles.set(roleId, cur);
+    return cur;
+  };
+  for (const siteId of siteIds) {
+    const site = state.sites.find((s) => s.id === siteId);
+    const cost = weekCost(state, week, siteId);
+    for (const shift of state.shifts) {
+      const sc = cost.shifts.get(shift.id);
+      if (sc) addTo(line(siteId, shiftArea(state, shift)?.id ?? null, shift.roleId), sc);
+    }
+    for (const employee of state.employees) {
+      const ec = cost.employees.get(employee.id);
+      if (!ec || state.shifts.some((s) => s.employeeId === employee.id && cost.shifts.has(s.id))) continue;
+      const l = line(siteId, roleArea(site, employee.roleIds[0])?.id ?? null, employee.roleIds[0]);
+      addTo(l, { ...ec, paidHours: 0 });
+      l.unrostered += ec.total;
+    }
+  }
+  const dates = weekDates(week);
+  const forecastSales = state.forecast
+    .filter((f) => siteIds.includes(f.siteId) && dates.includes(f.date))
+    .reduce((s, f) => s + f.sales, 0);
+
+  // Sites in scope order, each site's areas in the order set-up lists them, labour in no area last.
+  const order = (g: { siteId: string; areaId: string | null }) => {
+    const areas = state.sites.find((s) => s.id === g.siteId)?.areas ?? [];
+    const at = areas.findIndex((a) => a.id === g.areaId);
+    return siteIds.indexOf(g.siteId) * 1000 + (at < 0 ? 999 : at);
+  };
+  const areas = [...groups.values()]
+    .sort((a, b) => order(a) - order(b))
+    .map((g) => {
+      const roles = [...g.roles.values()].map((r) => rounded({ ...r, unrostered: round2(r.unrostered) })).sort((a, b) => b.total - a.total);
+      const total = zero();
+      roles.forEach((r) => addTo(total, r));
+      return { siteId: g.siteId, areaId: g.areaId, roles, ...rounded(total) };
+    });
+  const total = zero();
+  areas.forEach((a) => addTo(total, a));
+  return { areas, forecastSales: round2(forecastSales), ...rounded(total) };
 }
 
 /** Time that counts as worked for the report: clocked out and not rejected, approved or not. */

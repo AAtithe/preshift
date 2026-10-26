@@ -3,6 +3,7 @@
 // set-up screen, which explains it. People are not part of it: they go through the employee
 // routes so every starter reaches payroll.
 
+import { areaBelongs, areaProblems } from './areas';
 import { minimumWageFor } from './ukRates';
 import { calendarHour, isOpenHour, LATEST_CLOSE, tradingDayHours } from './demand';
 import { addDays, ageOn, parseISODate, weekDates, weekStart } from './time';
@@ -217,6 +218,7 @@ export function validateSetup(draft: SetupDraft): SetupIssue[] {
     const profile = site.salesProfile;
     if (!profile || !profile.dailySales.some((d) => d > 0)) block(`${label}: enter typical net sales for at least one day.`);
     else if (!(profile.averageSpend > 0)) block(`${label}: enter an average spend per cover.`);
+    areaProblems(site).forEach(block);
   }
   for (const name of duplicate(draft.sites, (s) => s.name.trim().toLowerCase())) block(`Two sites are called ${name}.`);
 
@@ -267,11 +269,20 @@ export function removalBlocks(state: RotaState, draft: SetupDraft, timeEntries: 
 }
 
 export function applySetup(state: RotaState, draft: SetupDraft, today: string): RotaState {
-  const sites = draft.sites.map((s) => ({ ...s, name: s.name.trim(), trackingCode: s.trackingCode.trim() || s.name.trim() }));
-  const siteIds = new Set(sites.map((s) => s.id));
   const roleIds = new Set(draft.roles.map((r) => r.id));
+  const sites = draft.sites.map(({ areas, ...s }): Site => {
+    const kept = (areas ?? []).map((a) => ({ ...a, name: a.name.trim(), roleIds: a.roleIds.filter((id) => roleIds.has(id)) }));
+    return { ...s, name: s.name.trim(), trackingCode: s.trackingCode.trim() || s.name.trim(), ...(kept.length ? { areas: kept } : {}) };
+  });
+  const siteIds = new Set(sites.map((s) => s.id));
   return {
     ...state,
+    // A shift placed in an area that has since been removed goes back to its role's area.
+    shifts: state.shifts.map((sh) => {
+      if (areaBelongs(sites.find((x) => x.id === sh.siteId), sh.areaId)) return sh;
+      const { areaId: _gone, ...rest } = sh;
+      return rest;
+    }),
     entities: draft.entities.map((e) => ({ ...e, name: e.name.trim(), companyNumber: e.companyNumber.trim(), payeReference: e.payeReference.trim(), intercompanyCode: e.intercompanyCode.trim() })),
     sites,
     roles: draft.roles.map((r) => ({ ...r, name: r.name.trim(), nominalCode: r.nominalCode.trim() })),

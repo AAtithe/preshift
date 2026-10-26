@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { roleArea, shiftArea } from '../engine/areas';
 import type { Issue } from '../engine/compliance';
 import { forecastSalesForDay } from '../engine/demand';
 import type { WeekMetrics } from '../engine/metrics';
@@ -50,8 +51,11 @@ interface Draw {
 }
 
 interface Line extends GanttRow {
-  /** Where the person stands on this chart: the department of the first role they work in it. */
-  dept: Department;
+  /**
+   * Where the person stands on this chart: the area of the first shift they work in it, at a site
+   * split into areas, otherwise the department of its role. An empty area is labour in no area.
+   */
+  group: string;
   start: number;
   onLeave: boolean;
 }
@@ -65,7 +69,8 @@ interface Line extends GanttRow {
 export function Gantt({ state, base, site, dates, metrics, issues, showCost, onEdit, onPreview, onCommit, onBlocked, baseLabourCost }: Props) {
   const [mode, setMode] = useState<'day' | 'week'>('week');
   const [day, setDay] = useState(() => [...dates].sort((a, b) => forecastSalesForDay(state, site.id, b) - forecastSalesForDay(state, site.id, a))[0] ?? dates[0]);
-  const [dept, setDept] = useState<Department | ''>('');
+  // Empty is everyone; at a site split into areas the filter is by area, otherwise by department.
+  const [dept, setDept] = useState<string | null>(null);
   const [showFree, setShowFree] = useState(false);
   const [draw, setDraw] = useState<Draw | null>(null);
   const drawRef = useRef<Draw | null>(null);
@@ -86,6 +91,19 @@ export function Gantt({ state, base, site, dates, metrics, issues, showCost, onE
   const employee = (id: string) => state.employees.find((e) => e.id === id);
   const roleName = (id: string) => state.roles.find((r) => r.id === id)?.name ?? id;
   const deptOf = (roleId: string) => state.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
+  const areas = site.areas ?? [];
+  const byArea = areas.length > 0;
+  const groups: { key: string; name: string }[] = byArea
+    ? [...areas.map((a) => ({ key: a.id, name: a.name })), { key: '', name: 'No area' }]
+    : DEPTS.map((d) => ({ key: d, name: DEPT_NAME[d] }));
+  const groupName = (key: string) => groups.find((g) => g.key === key)?.name ?? key;
+  const groupRank = (key: string) => groups.findIndex((g) => g.key === key);
+  const groupOf = (bar: GanttBar) => {
+    if (!byArea) return deptOf(bar.roleId);
+    const shift = state.shifts.find((x) => x.id === bar.shiftId);
+    return (shift ? shiftArea(state, shift) : roleArea(site, bar.roleId))?.id ?? '';
+  };
+  const restingGroup = (r: GanttRow) => (byArea ? roleArea(site, employee(r.employeeId)?.roleIds[0] ?? '')?.id ?? '' : r.department);
   const siteName = (id: string) => state.sites.find((s) => s.id === id)?.name ?? id;
   const shiftCost = (id: string) => metrics.cost.shifts.get(id)?.total ?? 0;
   const levelOf = (shiftId: string) => {
@@ -99,15 +117,17 @@ export function Gantt({ state, base, site, dates, metrics, issues, showCost, onE
     const first = r.bars.find((b) => !b.away && (mode === 'week' || b.date === date));
     return {
       ...r,
-      dept: first ? deptOf(first.roleId) : r.department,
+      group: first ? groupOf(first) : restingGroup(r),
       start: first ? (mode === 'week' ? first.day * 24 * H : 0) + first.startMinute : Infinity,
       onLeave: mode === 'day' && !!employee(r.employeeId)?.leave.includes(date),
     };
   });
-  const filtered = lines.filter((l) => !dept || l.dept === dept);
+  // A filter chosen for one grouping means nothing in the other, so it falls back to everyone.
+  const shown = dept !== null && groups.some((g) => g.key === dept) ? dept : null;
+  const filtered = lines.filter((l) => shown === null || l.group === shown);
   const working = filtered
     .filter((l) => l.start !== Infinity)
-    .sort((a, b) => DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.start - b.start || a.name.localeCompare(b.name));
+    .sort((a, b) => groupRank(a.group) - groupRank(b.group) || a.start - b.start || a.name.localeCompare(b.name));
   const idle = filtered.filter((l) => l.start === Infinity).sort((a, b) => Number(a.onLeave) - Number(b.onLeave) || a.name.localeCompare(b.name));
   const idleLabel = mode === 'week' ? 'Not on this week' : `Not on ${dayLabel(date).short}`;
   const shownIdle = mode === 'week' || showFree ? idle : [];
@@ -301,14 +321,14 @@ export function Gantt({ state, base, site, dates, metrics, issues, showCost, onE
     );
   }
 
-  let group: Department | null = null;
+  let group: string | null = null;
   return (
     <div className="panel lens">
       <div className="panel-head">
         <div>
           <div className="panel-title">{mode === 'week' ? "Everyone's week as a Gantt chart" : `${dayLabel(date).short} ${dayLabel(date).date} as a Gantt chart`}</div>
           <div className="panel-sub">
-            One line per person, by department, in the order they start. Solid bars are published, outlined are drafts, grey is another site; a
+            One line per person, by {byArea ? 'area' : 'department'}, in the order they start. Solid bars are published, outlined are drafts, grey is another site; a
             coral or gold edge has a compliance issue.
             {mode === 'day' && heads.length > 0 && (short ? ` ${short} ${short === 1 ? 'hour is' : 'hours are'} short of the forecast.` : ' Every hour has the heads the forecast needs.')}
             {onEdit ? ' Drag a bar to move it, its ends to change the hours, or onto another line to hand it over. Drag across an empty line to add a shift.' : ''}
@@ -349,17 +369,17 @@ export function Gantt({ state, base, site, dates, metrics, issues, showCost, onE
             </div>
           )}
           <label className="lens-filter small">
-            Department{' '}
-            <select value={dept} onChange={(e) => setDept(e.target.value as Department | '')}>
-              <option value="">All</option>
-              {DEPTS.filter((x) => lines.some((l) => l.dept === x)).map((x) => <option key={x} value={x}>{DEPT_NAME[x]}</option>)}
+            {byArea ? 'Area' : 'Department'}{' '}
+            <select value={shown ?? '*'} onChange={(e) => setDept(e.target.value === '*' ? null : e.target.value)}>
+              <option value="*">All</option>
+              {groups.filter((g) => lines.some((l) => l.group === g.key)).map((g) => <option key={g.key} value={g.key}>{g.name}</option>)}
             </select>
           </label>
         </div>
       </div>
       <div className="panel-body lens-scroll">
         {working.length === 0 && shownIdle.length === 0 ? (
-          <p className="muted">Nobody is rostered {mode === 'week' ? 'this week' : `on ${dayLabel(date).short}`}{dept ? ` in ${DEPT_NAME[dept]}` : ''}.</p>
+          <p className="muted">Nobody is rostered {mode === 'week' ? 'this week' : `on ${dayLabel(date).short}`}{shown !== null ? ` in ${groupName(shown)}` : ''}.</p>
         ) : (
           <div ref={chart} className={`gantt ${mode}${showCost ? ' costed' : ''}`}>
             <span />
@@ -377,8 +397,8 @@ export function Gantt({ state, base, site, dates, metrics, issues, showCost, onE
             <span className="eyebrow gantt-total">Hours</span>
             {showCost && <span className="eyebrow gantt-total">Cost</span>}
             {working.map((l) => {
-              const head = l.dept !== group ? DEPT_NAME[l.dept] : null;
-              group = l.dept;
+              const head = l.group !== group ? groupName(l.group) : null;
+              group = l.group;
               return renderLine(l, head);
             })}
             {shownIdle.map((l, i) => renderLine(l, i === 0 ? idleLabel : null))}

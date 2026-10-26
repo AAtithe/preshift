@@ -92,6 +92,20 @@ describe('set-up', () => {
     expect(build.body.added.length).toBeGreaterThan(0);
   });
 
+  it('saves a site’s areas, refuses a role placed in two, and removes them all when sent none', async () => {
+    const { call } = await boot();
+    await call('POST', '/v1/setup/start-fresh');
+    const areas = [{ id: 'boh', name: 'Back of house', roleIds: ['chef'] }, { id: 'bakery', name: 'Bakery', roleIds: [] }];
+    const saved = await call('PUT', '/v1/setup', { ...draft, sites: [{ ...site, areas }] });
+    expect(saved.status).toBe(200);
+    expect(saved.body.sites[0].areas).toEqual(areas);
+    const twice = await call('PUT', '/v1/setup', { ...draft, sites: [{ ...site, areas: [areas[0], { ...areas[1], roleIds: ['chef'] }] }] });
+    expect(twice.status).toBe(422);
+    // Left out, set-up keeps what the site has; sent empty, the site is one area again.
+    expect((await call('PUT', '/v1/setup', draft)).body.sites[0].areas).toEqual(areas);
+    expect((await call('PUT', '/v1/setup', { ...draft, sites: [{ ...site, areas: [] }] })).body.sites[0].areas).toBeUndefined();
+  });
+
   it('refuses to clear once real people exist, and refuses to remove what is in use', async () => {
     const { call } = await boot();
     await call('POST', '/v1/setup/start-fresh');

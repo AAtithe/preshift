@@ -49,7 +49,8 @@ test("this week's changes pop up at the first sign-in and are walked through, ea
   await expect(card(page)).toBeVisible();
 
   // Step through to the end: every step is one of this week's, and one that names the rota opens it.
-  for (let i = 0; i < 10; i++) {
+  // Bounded by the release's own length, so a week with more changes is still walked to its end.
+  for (let i = 0; i < release!.steps.length; i++) {
     const title = await card(page).locator('h3').innerText();
     expect(titles.has(title)).toBe(true);
     if (release!.steps.find((s) => s.title === title)?.tab === 'rota') await expect(page.locator('.mast-top .eyebrow')).toHaveText('Rota');
