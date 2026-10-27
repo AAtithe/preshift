@@ -1,1465 +1,1569 @@
 WEBVTT
 
 1
-00:00:04.815 --> 00:00:10.089
-Welcome to Preshift Rota, a joint venture between Williams, Stanley and Co.
+00:00:04.813 --> 00:00:09.818
+Welcome to Preshift Rota, from Williams, Stanley and Co. and Preshift.
 
 2
-00:00:10.089 --> 00:00:11.004
-and Preshift.
+00:00:09.818 --> 00:00:12.720
+The rota is where culture and cost meet.
 
 3
-00:00:11.004 --> 00:00:14.590
-Every rota tool on the market answers one question:
+00:00:12.720 --> 00:00:17.798
+Get it wrong and the team is run ragged on a busy night, or padded out
 
 4
-00:00:14.590 --> 00:00:15.997
-who is working when.
+00:00:17.798 --> 00:00:20.917
+on a quiet one, and the numbers never hold.
 
 5
-00:00:15.997 --> 00:00:20.427
-Preshift answers the question an operator actually cares about.
+00:00:21.367 --> 00:00:27.569
+Preshift sizes each shift to the forecast, shares the hard shifts fairly, protects rest, gets the
 
 6
-00:00:20.427 --> 00:00:25.983
-What will this week's labour cost me against what I will take, and is it legal?
+00:00:27.569 --> 00:00:31.661
+rota out in good time, and gives people a say in when they work.
 
 7
-00:00:26.434 --> 00:00:31.870
-It builds the rota from the sales forecast, costs every shift the way payroll will, blocks
+00:00:31.661 --> 00:00:36.201
+And it costs every shift the way payroll will, so labour in the P and L
 
 8
-00:00:31.870 --> 00:00:37.426
-anything that breaks UK employment law, and hands finance a ready to post labour accrual, so
+00:00:36.201 --> 00:00:38.503
+is true before payroll has even run.
 
 9
-00:00:37.426 --> 00:00:41.050
-the P and L carries true labour before payroll has even run.
-
-10
-00:00:41.500 --> 00:00:43.323
+00:00:38.953 --> 00:00:40.776
 This is the public demo.
 
-11
-00:00:43.323 --> 00:00:47.121
+10
+00:00:40.776 --> 00:00:44.574
 Anyone can start a private copy of a sample group:
 
-12
-00:00:47.121 --> 00:00:52.211
+11
+00:00:44.574 --> 00:00:49.664
 two companies, three London sites, real teams, rates and forecasts.
 
-13
-00:00:52.211 --> 00:00:56.921
+12
+00:00:49.664 --> 00:00:54.374
 Nobody else sees what you change, and it is wiped at midnight.
 
-14
-00:00:56.921 --> 00:00:58.516
+13
+00:00:54.374 --> 00:00:55.969
 Press Start the demo.
 
-15
-00:00:58.975 --> 00:01:03.994
+14
+00:00:56.432 --> 00:01:01.381
 Each Monday, What's new offers that week's changes as a short walkthrough.
 
+15
+00:01:01.381 --> 00:01:07.132
+One card per change, each opening the screen it changed, and only for the sections you
+
 16
-00:01:03.994 --> 00:01:07.793
-One card per change, each opening the screen it changed.
+00:01:07.132 --> 00:01:07.400
+use.
 
 17
-00:01:07.793 --> 00:01:13.084
-It only shows the changes for sections you use, and it is offered once a week.
-
-18
-00:01:13.084 --> 00:01:14.983
+00:01:07.400 --> 00:01:09.272
 Let's look at the first few.
 
-19
-00:01:15.434 --> 00:01:20.745
+18
+00:01:09.723 --> 00:01:15.034
 Next takes you to the following change, on its own screen, with the right site and
 
-20
-00:01:20.745 --> 00:01:21.911
+19
+00:01:15.034 --> 00:01:16.200
 view already open.
 
-21
-00:01:21.911 --> 00:01:26.834
+20
+00:01:16.200 --> 00:01:21.123
 Two minutes, and nobody has to read a release note to find out what changed.
 
-22
-00:01:27.285 --> 00:01:32.226
-You can replay it any time from What's new at the foot of the left-hand bar.
+21
+00:01:21.574 --> 00:01:25.536
+You can replay it any time from What's new, top right.
 
-23
-00:01:32.226 --> 00:01:34.437
+22
+00:01:25.536 --> 00:01:28.030
 Let's close it and start the tour.
 
+23
+00:01:32.486 --> 00:01:38.911
+Everything sits in one bar across the top, grouped the way a general manager runs the
+
 24
-00:01:38.616 --> 00:01:44.175
-The left-hand bar groups the work the way a general manager runs the week.
+00:01:38.911 --> 00:01:39.289
+week.
 
 25
-00:01:44.175 --> 00:01:44.776
+00:01:39.289 --> 00:01:39.894
 Plan it.
 
 26
-00:01:44.776 --> 00:01:46.429
+00:01:39.894 --> 00:01:41.557
 Run the hours and pay.
 
 27
-00:01:46.429 --> 00:01:47.931
+00:01:41.557 --> 00:01:43.069
 Look after the team.
 
 28
-00:01:47.931 --> 00:01:51.462
+00:01:43.069 --> 00:01:46.622
 Then the money, and the organisation behind it.
 
 29
-00:01:51.462 --> 00:01:55.368
-Groups fold away, and the one you are in stays open.
+00:01:47.073 --> 00:01:51.043
+Open a group and each section says, in a line, what it is for.
 
 30
-00:01:55.819 --> 00:02:01.380
-Everyone sees only the sections their roles allow, and an owner can switch off whole features
+00:01:51.043 --> 00:01:56.678
+People see only the sections their roles allow, and an owner can switch off features the
 
 31
-00:02:01.380 --> 00:02:06.044
-the business does not use, so a GM is not wading through forty sections to use
+00:01:56.678 --> 00:02:01.737
+business does not use, so a GM is not wading through forty sections to use ten.
 
 32
-00:02:06.044 --> 00:02:06.283
-ten.
-
-33
-00:02:06.734 --> 00:02:09.739
+00:02:02.187 --> 00:02:05.192
 Go to a section finds any screen by name.
 
-34
-00:02:09.739 --> 00:02:14.942
+33
+00:02:05.192 --> 00:02:10.395
 Press the slash key from anywhere, type a few letters, and press enter.
 
+34
+00:02:10.845 --> 00:02:16.016
+Your own menu, top right, holds your profile and, in the demo, Viewing as:
+
 35
-00:02:15.393 --> 00:02:20.497
-In the demo, Viewing as lets you see the product as any of thirteen people:
+00:02:16.016 --> 00:02:22.095
+see the product as any of thirteen people, a general manager, a supervisor, a chef, the
 
 36
-00:02:20.497 --> 00:02:24.717
-a general manager, a supervisor, a chef, the finance director.
+00:02:22.095 --> 00:02:23.283
+finance director.
 
 37
-00:02:24.717 --> 00:02:30.297
+00:02:23.283 --> 00:02:29.013
 Each sees exactly what their roles permit, and the server enforces the same rules.
 
 38
-00:02:30.748 --> 00:02:35.364
-At the top of every week screen sits the week picker, with arrows either side, and
+00:02:29.463 --> 00:02:34.796
+Under the heading sits the week picker, with a badge telling you whether the week is
 
 39
-00:02:35.364 --> 00:02:39.868
-a badge telling you whether this week is published to the team or still a draft.
+00:02:34.796 --> 00:02:36.192
+published to the team.
 
 40
-00:02:44.676 --> 00:02:52.571
-Along the bottom, Tell Preshift takes plain English instructions, and Shifty, in the corner, answers questions.
+00:02:36.192 --> 00:02:42.922
+And along the bottom, Tell Preshift takes plain English instructions, while Shifty, in the corner, answers
 
 41
-00:02:52.571 --> 00:02:54.420
-We will come back to both.
+00:02:42.922 --> 00:02:43.556
+questions.
 
 42
-00:02:58.587 --> 00:03:02.323
-Sites puts every site side by side, grouped by company.
+00:02:43.556 --> 00:02:45.207
+We will come back to both.
 
 43
-00:03:02.323 --> 00:03:09.047
-Forecast sales, loaded labour cost, labour as a percentage of sales against each site's own target,
+00:02:49.383 --> 00:02:52.451
+Under every heading runs one line of numbers:
 
 44
-00:03:09.047 --> 00:03:15.363
-the variance in pounds, sales per labour hour, paid hours, and whether the rota is published.
+00:02:52.451 --> 00:02:58.722
+labour as a percentage of sales against target, sales, labour, how far inside the budget you
 
 45
-00:03:15.814 --> 00:03:21.303
-Each company carries a subtotal, and the group line uses a sales weighted target, so a
+00:02:58.722 --> 00:03:00.086
+are, and compliance.
 
 46
-00:03:21.303 --> 00:03:24.622
-large site cannot hide a small one that has drifted.
+00:03:00.086 --> 00:03:02.199
+Here it is for the whole group.
 
 47
-00:03:25.072 --> 00:03:27.243
-On the right, the rota P and L.
+00:03:02.651 --> 00:03:05.752
+Full P and L opens the statement behind it.
 
 48
-00:03:27.243 --> 00:03:33.968
-Forecast sales, then wages, holiday accrual, employer N I and pension, the labour cost that will
+00:03:05.752 --> 00:03:12.675
+Forecast sales, then wages, holiday accrual, employer N I and pension, the labour cost that ties
 
 49
-00:03:33.968 --> 00:03:37.470
-tie to the journal, and contribution after labour.
+00:03:12.675 --> 00:03:17.867
+to the journal, contribution after labour, and every day against target.
 
 50
-00:03:37.470 --> 00:03:41.392
-Underneath, labour percentage day by day against target.
+00:03:18.319 --> 00:03:21.972
+Below, every site side by side, grouped by company.
 
 51
-00:03:41.392 --> 00:03:43.984
-It sits beside every planning screen.
+00:03:21.972 --> 00:03:29.850
+Forecast sales, loaded labour, labour percentage against each site's own target, the variance in pounds, sales
 
 52
-00:03:44.435 --> 00:03:45.301
-Further down:
+00:03:29.850 --> 00:03:33.933
+per labour hour, paid hours, and whether the rota is out.
 
 53
-00:03:45.301 --> 00:03:51.427
-rest overrides published in the last four weeks, cross site cover, and travel between sites.
+00:03:33.933 --> 00:03:36.583
+A site with a blocking issue says so.
 
 54
-00:03:51.427 --> 00:03:56.489
-Journey times come from the T f L planner, so the rota blocks a move between
+00:03:37.033 --> 00:03:37.899
+Further down:
 
 55
-00:03:56.489 --> 00:03:59.219
-two sites that nobody could make in time.
+00:03:37.899 --> 00:03:44.025
+rest overrides published in the last four weeks, cross site cover, and travel between sites.
 
 56
-00:03:59.669 --> 00:04:03.576
-And one press of Build from forecast builds every site in scope:
+00:03:44.025 --> 00:03:49.087
+Journey times come from the T f L planner, so the rota blocks a move between
 
 57
-00:04:03.576 --> 00:04:08.521
-each site with its own team first, then cover from people who have agreed to work
+00:03:49.087 --> 00:03:51.817
+two sites that nobody could make in time.
 
 58
-00:04:08.521 --> 00:04:09.437
-at other sites.
+00:03:52.268 --> 00:03:56.175
+And one press of Build from forecast builds every site in scope:
 
 59
-00:04:13.605 --> 00:04:16.853
-Open a site, and you land on its rota.
+00:03:56.175 --> 00:04:01.120
+each site with its own team first, then cover from people who have agreed to work
 
 60
-00:04:16.853 --> 00:04:18.477
-This is Marylebone.
+00:04:01.120 --> 00:04:02.036
+at other sites.
 
 61
-00:04:18.928 --> 00:04:24.059
-Coming up flags what this week needs your view on, read from the calendar, the weather
+00:04:06.197 --> 00:04:08.770
+Open a site, and you land on its rota.
 
 62
-00:04:24.059 --> 00:04:25.073
-and the bookings:
+00:04:08.770 --> 00:04:10.056
+This is Marylebone.
 
 63
-00:04:25.073 --> 00:04:30.979
-half term starts today, Halloween on Saturday, a party of twenty four, and Saturday dinner bookings
+00:04:10.056 --> 00:04:15.134
+The same line of numbers sits under the heading, so the cost of the week is
 
 64
-00:04:30.979 --> 00:04:33.544
-running at more than double the usual pace.
+00:04:15.134 --> 00:04:17.165
+never more than a glance away.
 
 65
-00:04:33.995 --> 00:04:36.907
-The service timeline is the default view.
+00:04:17.615 --> 00:04:22.737
+Coming up flags what the week needs your view on, read from the calendar, the weather
 
 66
-00:04:36.907 --> 00:04:43.015
-Each day is drawn over its own forecast sales curve, with shifts as bars grouped front
+00:04:22.737 --> 00:04:23.761
+and the bookings:
 
 67
-00:04:43.015 --> 00:04:45.359
-of house, bar, and back of house.
+00:04:23.761 --> 00:04:28.943
+Halloween, a party of twenty four, and Saturday bookings running well ahead of normal.
 
 68
-00:04:45.359 --> 00:04:49.691
-Every bar shows the person, the role, the hours and its cost.
+00:04:29.393 --> 00:04:32.798
+Then the decisions this week, most urgent first.
 
 69
-00:04:50.142 --> 00:04:55.272
-Beside each day, that day's labour and its labour percentage against target.
+00:04:32.798 --> 00:04:38.260
+Each one says what is wrong, what it costs, and gives you the one button that
 
 70
-00:04:55.272 --> 00:05:01.278
-Monday is quiet and carries guaranteed hours, so it shows red, and you know exactly where
+00:04:38.260 --> 00:04:38.899
+fixes it.
 
 71
-00:05:01.278 --> 00:05:01.818
-to look.
+00:04:38.899 --> 00:04:40.814
+Days with no shifts at all.
 
 72
-00:05:01.818 --> 00:05:06.678
-The strip beneath each day reads the hours short or over against demand.
+00:04:40.814 --> 00:04:43.864
+A day whose labour has run far over target.
 
 73
-00:05:07.129 --> 00:05:12.297
-Scroll down, and the rest of the week follows, day by day, each with its own
+00:04:43.864 --> 00:04:50.036
+People below their contracted hours, who are paid either way, so give them hours first.
 
 74
-00:05:12.297 --> 00:05:14.065
-curve and its own P and L.
+00:04:50.036 --> 00:04:53.441
+And when something is right, it says keep doing.
 
 75
-00:05:18.236 --> 00:05:20.131
-Click any shift to open it.
+00:04:53.891 --> 00:04:56.046
+Below it, the service timeline.
 
 76
-00:05:20.131 --> 00:05:24.342
-The number that matters is what this shift adds to the week.
+00:04:56.046 --> 00:05:02.024
+Each day is drawn over its own forecast sales curve, with shifts as bars grouped front
 
 77
-00:05:24.342 --> 00:05:26.377
-Not a naive rate times hours.
+00:05:02.024 --> 00:05:07.654
+of house, bar and back of house, each showing the person, the role, the hours and
 
 78
-00:05:26.377 --> 00:05:31.290
-Marco is on forty guaranteed hours, so this shift adds nothing at all:
+00:05:07.654 --> 00:05:08.280
+its cost.
 
 79
-00:05:31.290 --> 00:05:33.956
-the business pays that gap either way.
+00:05:08.280 --> 00:05:12.659
+The strip beneath reads the hours short or over against demand.
 
 80
-00:05:34.407 --> 00:05:36.368
-The law is checked as you type.
+00:05:13.109 --> 00:05:18.719
+Days with nothing on fold to a single line, with their sales, what is short, and
 
 81
-00:05:36.368 --> 00:05:41.995
-Cut the unpaid break below the legal minimum and Preshift tells you what the Working Time
+00:05:18.719 --> 00:05:20.683
+the decision they belong to.
 
 82
-00:05:41.995 --> 00:05:44.967
-Regulations require for a shift of this length.
+00:05:20.683 --> 00:05:23.909
+Open all days, or fold them away, as you like.
 
 83
-00:05:45.418 --> 00:05:50.877
-Ask for cover puts this shift out to everyone who could legally take it.
+00:05:24.359 --> 00:05:29.035
+And Simple, Standard and Expert set how much the screen shows.
 
 84
-00:05:50.877 --> 00:05:52.090
-For now, cancel.
+00:05:29.035 --> 00:05:34.917
+Simple is the decisions and the timeline, for a GM who wants the calm version.
 
 85
-00:05:52.541 --> 00:05:56.844
-Now Chloe, a bartender paid by the hour with no guaranteed hours.
+00:05:34.917 --> 00:05:37.104
+Standard adds the main views.
 
 86
-00:05:56.844 --> 00:05:59.227
-Her shift adds its full loaded cost:
+00:05:37.104 --> 00:05:39.744
+Expert lays every view out at once.
 
 87
-00:05:59.227 --> 00:06:05.316
-gross pay, holiday accrual at twelve point oh seven percent, employer N I at fifteen percent
+00:05:39.744 --> 00:05:42.911
+Each person chooses, and it is remembered.
 
 88
-00:06:05.316 --> 00:06:08.494
-above the threshold, and auto enrolment pension.
+00:05:47.080 --> 00:05:48.873
+Click any shift to open it.
 
 89
-00:06:08.494 --> 00:06:13.789
-On costs are worked on the whole week and then spread across shifts, so the rota
+00:05:48.873 --> 00:05:53.986
+The number that matters is what this shift adds to the week, not a naive rate
 
 90
-00:06:13.789 --> 00:06:15.245
-reconciles to payroll.
+00:05:53.986 --> 00:05:54.783
+times hours.
 
 91
-00:06:15.695 --> 00:06:18.632
-You can also work straight on the timeline.
+00:05:54.783 --> 00:06:00.627
+Aisha is on forty guaranteed hours and has been given eight, so this shift adds nothing:
 
 92
-00:06:18.632 --> 00:06:23.549
-Drag a bar to move it, or drag either end to change the hours in fifteen
+00:06:00.627 --> 00:06:03.150
+the business pays that gap either way.
 
 93
-00:06:23.549 --> 00:06:24.437
-minute steps.
+00:06:03.150 --> 00:06:06.736
+Giving her hours is fairer to her and cheaper for you.
 
 94
-00:06:24.437 --> 00:06:28.398
-Cost, labour percentage and compliance update as you drag.
+00:06:07.186 --> 00:06:09.198
+The law is checked as you type.
 
 95
-00:06:28.398 --> 00:06:33.862
-A shift that has already started is locked, so when we try to cut Ellie's shift,
+00:06:09.198 --> 00:06:15.427
+Cut the unpaid break below the legal minimum and Preshift says what the Working Time Regulations
 
 96
-00:06:33.862 --> 00:06:37.823
-which is under way tonight, Preshift refuses and says why.
+00:06:15.427 --> 00:06:17.698
+require for a shift of this length.
 
 97
-00:06:38.273 --> 00:06:42.454
-Drag across empty space on a day to draw a new shift, or click a red,
+00:06:18.150 --> 00:06:23.609
+Ask for cover puts this shift out to everyone who could legally take it.
 
 98
-00:06:42.454 --> 00:06:46.029
-short hour to fill that gap with the role that is shortest.
+00:06:23.609 --> 00:06:24.822
+For now, cancel.
 
 99
-00:06:46.029 --> 00:06:51.967
-The picker ranks who should work it, trained and available, cheapest first, and offers people from
+00:06:25.274 --> 00:06:29.691
+Now Chloe, a bartender paid by the hour with no guaranteed hours.
 
 100
-00:06:51.967 --> 00:06:56.753
-the group's other sites who are set up to cover, with the reason anyone cannot.
+00:06:29.691 --> 00:06:32.137
+Her shift adds its full loaded cost:
 
 101
-00:07:00.913 --> 00:07:03.133
-Next week has not been started.
+00:06:32.137 --> 00:06:38.388
+gross pay, holiday accrual at twelve point oh seven percent, employer N I at fifteen percent
 
 102
-00:07:03.133 --> 00:07:09.721
-Rather than copying last week's rota and hoping, Preshift builds it from the sales forecast.
+00:06:38.388 --> 00:06:41.650
+above the threshold, and auto enrolment pension.
 
 103
-00:07:10.171 --> 00:07:16.263
-It turns hourly forecast sales and covers into headcount for each role, then fills the gaps
+00:06:41.650 --> 00:06:46.610
+On costs are worked on the whole week, so the rota reconciles to payroll.
 
 104
-00:07:16.263 --> 00:07:21.350
-peak first, with the cheapest legal person, and trims the overstaffed edges.
+00:06:47.060 --> 00:06:50.272
+You can also work straight on the timeline.
 
 105
-00:07:21.350 --> 00:07:22.555
-Watch the P and L.
+00:06:50.272 --> 00:06:55.649
+Drag a bar to move it, or drag either end to change the hours in fifteen
 
 106
-00:07:23.004 --> 00:07:26.074
-Built, costed and inside the labour budget.
+00:06:55.649 --> 00:06:56.620
+minute steps.
 
 107
-00:07:26.074 --> 00:07:32.071
-Gaps that cannot be filled legally with the current team are never hidden or forced.
+00:06:56.620 --> 00:07:00.952
+Cost, labour percentage and compliance update as you drag.
 
 108
-00:07:32.071 --> 00:07:37.425
-They are reported as a hiring or cross training signal, not a rota problem.
+00:07:00.952 --> 00:07:03.716
+Here, Sofia finishes an hour earlier.
 
 109
-00:07:37.425 --> 00:07:39.780
-Here, the site is short of hosts.
+00:07:04.166 --> 00:07:08.347
+Drag across empty space on a day to draw a new shift, or click a red,
 
 110
-00:07:40.230 --> 00:07:45.320
-Scroll down and the whole week is there, every shift on its curve, ready to check
+00:07:08.347 --> 00:07:11.922
+short hour to fill that gap with the role that is shortest.
 
 111
-00:07:45.320 --> 00:07:47.142
-and adjust before publishing.
+00:07:11.922 --> 00:07:17.859
+The picker ranks who should work it, trained and available, cheapest first, and offers people from
 
 112
-00:07:47.592 --> 00:07:51.474
-At the foot of the P and L sit compliance and sign off.
+00:07:17.859 --> 00:07:22.646
+the group's other sites who are set up to cover, with the reason anyone cannot.
 
 113
-00:07:51.474 --> 00:07:56.767
-Blocking issues stop publication, so nothing illegal ever reaches the team.
+00:07:26.808 --> 00:07:28.714
+The first decision this week:
 
 114
-00:07:56.767 --> 00:08:01.848
-Once it is clean, publish, and each person hears about their own shifts.
+00:07:28.714 --> 00:07:35.025
+Wednesday to Sunday have no shifts, with thirty one thousand pounds of forecast sales and nobody
 
 115
-00:08:06.015 --> 00:08:10.041
-By person shows every person across the week as a grid.
+00:07:35.025 --> 00:07:35.616
+rostered.
 
 116
-00:08:10.041 --> 00:08:13.407
-Drag a shift to another person or another day.
+00:07:35.616 --> 00:07:41.664
+Rather than copying last week's rota and hoping, Preshift builds it from the sales forecast.
 
 117
-00:08:13.859 --> 00:08:19.429
-The Gantt view gives one line per person, with shifts as bars against the clock:
+00:07:42.114 --> 00:07:47.762
+It turns hourly forecast sales and covers into headcount for each role, fills the gaps peak
 
 118
-00:08:19.429 --> 00:08:22.144
-the whole week, or one day by the hour.
+00:07:47.762 --> 00:07:53.969
+first with the cheapest legal person, gives hours to people below their contract before anyone else,
 
 119
-00:08:22.144 --> 00:08:27.087
-Drag to move or hand over a shift, and drag across an empty line to add
+00:07:53.969 --> 00:07:55.955
+and trims the overstaffed edges.
 
 120
-00:08:27.087 --> 00:08:27.365
-one.
+00:07:55.955 --> 00:07:59.058
+Press Build the empty days, and watch the numbers.
 
 121
-00:08:27.365 --> 00:08:31.403
-At a site split into areas, it groups and filters by area.
+00:07:59.509 --> 00:08:04.809
+Built, costed and inside the labour budget, and the decisions update to match.
 
 122
-00:08:31.854 --> 00:08:36.894
-Cover map lays the whole week against demand in one grid, so you see where to
+00:08:04.809 --> 00:08:10.517
+Gaps that cannot be filled legally with the current team are never hidden or forced.
 
 123
-00:08:36.894 --> 00:08:38.531
-add or cut the next hour.
+00:08:10.517 --> 00:08:15.613
+They are reported as a hiring or cross training signal, not a rota problem.
 
 124
-00:08:38.531 --> 00:08:40.494
-Click a short hour to fill it.
+00:08:16.066 --> 00:08:21.391
+Scroll down and the whole week is there, every shift on its curve, ready to check
 
 125
-00:08:40.944 --> 00:08:45.796
-Rest shows last week and this week as one line per person, so a close before
+00:08:21.391 --> 00:08:22.114
+and adjust.
 
 126
-00:08:45.796 --> 00:08:50.136
-an open, or a long run of days, shows up before it becomes a breach.
+00:08:22.564 --> 00:08:25.771
+Sign off and publish sits in the line of numbers.
 
 127
-00:08:50.586 --> 00:08:53.061
-Positions takes one day by position:
+00:08:25.771 --> 00:08:31.989
+Blocking issues stop publication, so nothing illegal ever reaches the team, and once it is out,
 
 128
-00:08:53.061 --> 00:08:57.941
-who is on the bar, the pass, the door, hour by hour, and where a needed
+00:08:31.989 --> 00:08:35.524
+each person hears about their own shifts in good time.
 
 129
-00:08:57.941 --> 00:08:59.178
-position is empty.
+00:08:39.696 --> 00:08:45.622
+By person shows everyone across the week as a grid, with their hours against contract.
 
 130
-00:08:59.629 --> 00:09:04.578
-Shift cost stacks each shift at its loaded cost against the day target.
+00:08:45.622 --> 00:08:48.792
+Drag a shift to another person or another day.
 
 131
-00:09:04.578 --> 00:09:09.109
-When labour runs over, this is how you choose which shift to cut.
+00:08:49.243 --> 00:08:54.408
+The Gantt gives one line per person, shifts as bars against the clock:
 
 132
-00:09:09.559 --> 00:09:15.199
-Changes shows who the next publish will tell, and what, before anyone is told.
+00:08:54.408 --> 00:08:57.286
+the whole week, or one day by the hour.
 
 133
-00:09:15.650 --> 00:09:22.276
-And Fairness looks back over four weeks of weekends, closes, late finishes and hours under contract,
+00:08:57.286 --> 00:08:59.795
+Drag to move or hand over a shift.
 
 134
-00:09:22.276 --> 00:09:25.058
-to show who keeps getting the hard shifts.
+00:08:59.795 --> 00:09:04.075
+At a site split into areas, it groups and filters by area.
 
 135
-00:09:25.510 --> 00:09:27.121
-Nine views, one week.
+00:09:04.526 --> 00:09:06.943
+The other six sit behind More views.
 
 136
-00:09:27.121 --> 00:09:32.566
-The How to guide sets out the order to use them before a rota goes out.
+00:09:06.943 --> 00:09:12.112
+Cover map lays the whole week against demand in one grid, so you see where to
 
 137
-00:09:36.736 --> 00:09:40.800
-Ask the assistant lets a GM say what they need in plain English.
+00:09:12.112 --> 00:09:13.790
+add or cut the next hour.
 
 138
-00:09:40.800 --> 00:09:44.863
-Ben is off Saturday, re cover the bar without going over target.
+00:09:14.240 --> 00:09:19.062
+Rest shows last week and this week as one line per person, so a close before
 
 139
-00:09:44.863 --> 00:09:50.768
-Claude drafts the week by calling the engine's own costing and compliance tools, so it cannot
+00:09:19.062 --> 00:09:23.567
+an open, or a long run of days, shows up before it becomes a breach, or
 
 140
-00:09:50.768 --> 00:09:55.720
-roster anything illegal, and it leaves shifts that have already started alone.
+00:09:23.567 --> 00:09:24.392
+a tired team.
 
 141
-00:09:56.171 --> 00:10:01.910
-It works for one site, a company, or the whole group, and nothing changes until you
+00:09:24.843 --> 00:09:27.317
+Positions takes one day by position:
 
 142
-00:10:01.910 --> 00:10:03.776
-review and apply the draft.
+00:09:27.317 --> 00:09:32.198
+who is on the bar, the pass, the door, hour by hour, and where a needed
 
 143
-00:10:03.776 --> 00:10:06.473
-In this public demo it is switched off.
+00:09:32.198 --> 00:09:33.435
+position is empty.
 
 144
-00:10:06.473 --> 00:10:11.243
-On your own account it runs live, and an owner can turn it on or off.
+00:09:33.885 --> 00:09:38.834
+Shift cost stacks each shift at its loaded cost against the day target.
 
 145
-00:10:11.693 --> 00:10:18.826
-Shifty, in the bottom right, answers questions about the rota, labour, the team and holiday from
+00:09:38.834 --> 00:09:43.365
+When labour runs over, this is how you choose which shift to cut.
 
 146
-00:10:18.826 --> 00:10:20.238
-the app's own data.
+00:09:43.816 --> 00:09:49.456
+Changes shows who the next publish will tell, and what, before anyone is told.
 
 147
-00:10:20.238 --> 00:10:21.576
-Who is on tonight.
+00:09:51.768 --> 00:09:58.612
+And Fairness looks back over four weeks of weekends, closes, late finishes and hours under contract,
 
 148
-00:10:21.576 --> 00:10:24.251
-What is labour running at this week.
+00:09:58.612 --> 00:10:01.486
+to show who keeps getting the hard shifts.
 
 149
-00:10:24.251 --> 00:10:26.405
-Who has holiday left to take.
+00:10:01.486 --> 00:10:04.224
+A fair rota is how you keep good people.
 
 150
-00:10:26.855 --> 00:10:32.927
-And Tell Preshift, along the bottom, or Control K, takes one line instructions.
+00:10:04.675 --> 00:10:06.171
+Nine views, one week.
 
 151
-00:10:32.927 --> 00:10:34.310
-Add a new starter.
+00:10:06.171 --> 00:10:11.373
+Expert lays them all out at once, and the How to guide sets out the order
 
 152
-00:10:34.310 --> 00:10:36.692
-Ben is ill tonight, find cover.
+00:10:11.373 --> 00:10:13.867
+to use them before a rota goes out.
 
 153
-00:10:36.692 --> 00:10:41.303
-Each change is shown to you and confirmed before it happens.
+00:10:18.030 --> 00:10:22.093
+Ask the assistant lets a GM say what they need in plain English.
 
 154
-00:10:45.463 --> 00:10:49.330
-Staff ask in the staff app, and the manager decides here.
+00:10:22.093 --> 00:10:26.157
+Ben is off Saturday, re cover the bar without going over target.
 
 155
-00:10:49.330 --> 00:10:53.739
-Holiday, time off, sickness, availability, swaps and open shifts.
+00:10:26.157 --> 00:10:32.062
+Claude drafts the week by calling the engine's own costing and compliance tools, so it cannot
 
 156
-00:10:53.739 --> 00:10:59.302
-Every request is checked again when you approve it, by the same rules as the rota,
+00:10:32.062 --> 00:10:37.014
+roster anything illegal, and it leaves shifts that have already started alone.
 
 157
-00:10:59.302 --> 00:11:05.407
-so a swap that would break the Working Time Regulations or double book someone is stopped.
+00:10:37.466 --> 00:10:43.204
+It works for one site, a company, or the whole group, and nothing changes until you
 
 158
-00:11:05.858 --> 00:11:10.789
-Shifts going is one way to put a shift out, whether someone cannot work it or
+00:10:43.204 --> 00:10:45.071
+review and apply the draft.
 
 159
-00:11:10.789 --> 00:11:11.814
-nobody is on it.
+00:10:45.071 --> 00:10:47.768
+In this public demo it is switched off.
 
 160
-00:11:11.814 --> 00:11:18.025
-Preshift shows everyone who could legally take it, cheapest first, with what each adds to labour,
+00:10:47.768 --> 00:10:52.538
+On your own account it runs live, and an owner can turn it on or off.
 
 161
-00:11:18.025 --> 00:11:20.330
-and why anyone else is not eligible.
+00:10:52.988 --> 00:11:00.039
+Shifty, in the bottom right, answers questions about the rota, labour, the team and holiday from
 
 162
-00:11:20.781 --> 00:11:22.302
-You choose who hears:
+00:11:00.039 --> 00:11:01.434
+the app's own data.
 
 163
-00:11:22.302 --> 00:11:28.168
-everyone eligible now, the cheapest first in rounds, or only the people you tick.
+00:11:01.434 --> 00:11:02.756
+Who is on tonight.
 
 164
-00:11:28.168 --> 00:11:29.327
-And who decides:
+00:11:02.756 --> 00:11:05.401
+What is labour running at this week.
 
 165
-00:11:29.327 --> 00:11:33.744
-the manager approves a claim, or the first legal yes gets it.
+00:11:05.401 --> 00:11:07.604
+Who has not had a weekend off.
 
 166
-00:11:33.744 --> 00:11:37.365
-Staff answer in the app, or reply YES on WhatsApp.
+00:11:08.054 --> 00:11:14.125
+And Tell Preshift, along the bottom, or Control K, takes one line instructions.
 
 167
-00:11:37.816 --> 00:11:40.714
-Approve claims automatically, site by site.
+00:11:14.125 --> 00:11:15.509
+Add a new starter.
 
 168
-00:11:40.714 --> 00:11:45.903
-A claim is approved the moment it is made only when it breaks no rule, raises
+00:11:15.509 --> 00:11:17.891
+Ben is ill tonight, find cover.
 
 169
-00:11:45.903 --> 00:11:51.025
-nothing to review, and keeps the site's labour that week at or under target.
+00:11:17.891 --> 00:11:22.502
+Each change is shown to you and confirmed before it happens.
 
 170
-00:11:51.025 --> 00:11:52.912
-Anything else waits for you.
+00:11:26.666 --> 00:11:30.533
+Staff ask in the staff app, and the manager decides here.
 
 171
-00:11:57.074 --> 00:12:00.227
-The forecast is built from the site's own till.
+00:11:30.533 --> 00:11:34.942
+Holiday, time off, sickness, availability, swaps and open shifts.
 
 172
-00:12:00.227 --> 00:12:06.063
-The same weekday and hour over the last eight weeks, recent weeks counting most, with a
+00:11:34.942 --> 00:11:40.505
+Every request is checked again when you approve it, by the same rules as the rota,
 
 173
-00:12:06.063 --> 00:12:07.405
-damped trend on top.
+00:11:40.505 --> 00:11:46.610
+so a swap that would break the Working Time Regulations or double book someone is stopped.
 
 174
-00:12:07.405 --> 00:12:13.106
-Bank holidays trade like past bank holidays, or like a Sunday until there is history.
+00:11:47.060 --> 00:11:51.991
+Shifts going is one way to put a shift out, whether someone cannot work it or
 
 175
-00:12:13.556 --> 00:12:16.459
-Then tell the model what it cannot know.
+00:11:51.991 --> 00:11:53.015
+nobody is on it.
 
 176
-00:12:16.459 --> 00:12:19.579
-A heatwave, a match down the road, a refit.
+00:11:53.015 --> 00:11:59.227
+Preshift shows everyone who could legally take it, cheapest first, with what each adds to labour,
 
 177
-00:12:19.579 --> 00:12:25.820
-Each adjustment is applied as a multiplier, with its reason, when the model next runs.
+00:11:59.227 --> 00:12:01.532
+and why anyone else is not eligible.
 
 178
-00:12:26.271 --> 00:12:32.708
-Demand turns that forecast into headcount for each role, hour by hour, using sales per labour
+00:12:01.984 --> 00:12:03.505
+You choose who hears:
 
 179
-00:12:32.708 --> 00:12:36.031
-hour or covers per person, with floors and caps.
+00:12:03.505 --> 00:12:09.371
+everyone eligible now, the cheapest first in rounds, or only the people you tick.
 
 180
-00:12:36.031 --> 00:12:38.799
-Pick a day to see rostered against plan.
+00:12:09.371 --> 00:12:10.529
+And who decides:
 
 181
-00:12:39.250 --> 00:12:45.394
-Rework from past takings recalibrates those standards from what the site actually traded.
+00:12:10.529 --> 00:12:14.947
+the manager approves a claim, or the first legal yes gets it.
 
 182
-00:12:45.845 --> 00:12:48.963
-The calendar has the UK trading year built in:
+00:12:14.947 --> 00:12:18.568
+Staff answer in the app, or reply YES on WhatsApp.
 
 183
-00:12:48.963 --> 00:12:54.521
-Easter, Mothering Sunday, Halloween, Black Friday, Mad Friday, every bank holiday.
+00:12:19.020 --> 00:12:21.918
+Approve claims automatically, site by site.
 
 184
-00:12:54.521 --> 00:13:01.367
-Weather and local events are fetched every morning, bookings come in from the reservation system, and
+00:12:21.918 --> 00:12:27.107
+A claim is approved the moment it is made only when it breaks no rule, raises
 
 185
-00:13:01.367 --> 00:13:03.197
-school holidays by council.
+00:12:27.107 --> 00:12:32.229
+nothing to review, and keeps the site's labour that week at or under target.
 
 186
-00:13:03.648 --> 00:13:06.235
-Each item says what to do about it.
+00:12:32.229 --> 00:12:34.116
+Anything else waits for you.
 
 187
-00:13:06.235 --> 00:13:07.935
-A party of twenty four:
+00:12:38.278 --> 00:12:41.431
+The forecast is built from the site's own till.
 
 188
-00:13:07.935 --> 00:13:09.561
-roster for it by name.
+00:12:41.431 --> 00:12:47.267
+The same weekday and hour over the last eight weeks, recent weeks counting most, with a
 
 189
-00:13:09.561 --> 00:13:13.256
-Saturday dinner pacing at more than double normal:
+00:12:47.267 --> 00:12:48.608
+damped trend on top.
 
 190
-00:13:13.256 --> 00:13:17.247
-build the forecast again and check the rota covers it.
+00:12:48.608 --> 00:12:54.310
+Bank holidays trade like past bank holidays, or like a Sunday until there is history.
 
 191
-00:13:17.247 --> 00:13:19.464
-Mark it done, or set it aside.
+00:12:54.762 --> 00:12:57.665
+Then tell the model what it cannot know.
 
 192
-00:13:23.640 --> 00:13:28.783
-Coach offers the three changes to this week that save the most without leaving the floor
+00:12:57.665 --> 00:13:00.785
+A heatwave, a match down the road, a refit.
 
 193
-00:13:28.783 --> 00:13:30.245
-short or breaking a rule.
+00:13:00.785 --> 00:13:07.026
+Each adjustment is applied as a multiplier, with its reason, when the model next runs.
 
 194
-00:13:30.245 --> 00:13:35.096
-Trim an overstaffed edge, take off a shift that is over demand all the way through,
+00:13:07.477 --> 00:13:13.369
+Demand turns that forecast into headcount for each role, hour by hour, using sales per labour
 
 195
-00:13:35.096 --> 00:13:38.544
-or give a shift to someone cheaper who is trained and free.
+00:13:13.369 --> 00:13:18.691
+hour or covers per person, with floors and caps, so a busy night is staffed properly
 
 196
-00:13:38.995 --> 00:13:45.411
-Each move shows the saving, loaded with holiday, N I and pension, and the labour percentage
+00:13:18.691 --> 00:13:20.845
+and a quiet one is not padded out.
 
 197
-00:13:45.411 --> 00:13:46.046
-after it.
+00:13:21.295 --> 00:13:27.439
+Rework from past takings recalibrates those standards from what the site actually traded.
 
 198
-00:13:46.046 --> 00:13:49.219
-Take it, and the rota changes there and then.
+00:13:27.889 --> 00:13:30.920
+The calendar has the UK trading year built in:
 
 199
-00:13:49.670 --> 00:13:51.055
-Below, the ladder.
+00:13:30.920 --> 00:13:36.324
+Easter, Mothering Sunday, Halloween, Black Friday, Mad Friday, every bank holiday.
 
 200
-00:13:51.055 --> 00:13:52.593
-Four rungs of habit:
+00:13:36.324 --> 00:13:42.980
+Weather and local events are fetched every morning, bookings come in from the reservation system, and
 
 201
-00:13:52.593 --> 00:13:59.440
-the rota on time and legal, labour on target, daypart precision, and owning the forecast.
+00:13:42.980 --> 00:13:47.593
+school holidays by council, so parents on the team can be planned for.
 
 202
-00:13:59.440 --> 00:14:03.441
-A site on target with a late rota is lucky, not run.
+00:13:48.044 --> 00:13:50.657
+Each item says what to do about it.
 
 203
-00:14:03.441 --> 00:14:06.518
-Coach the habits and the results follow.
+00:13:50.657 --> 00:13:52.374
+A party of twenty four:
 
 204
-00:14:10.684 --> 00:14:15.658
-Clock in turns a tablet at the staff entrance into a sign in point.
+00:13:52.374 --> 00:13:54.016
+roster for it by name.
 
 205
-00:14:15.658 --> 00:14:21.002
-Staff tap an RFID card, or a phone's NFC, or sign in by name, inside the
+00:13:54.016 --> 00:13:57.301
+Saturday dinner pacing well ahead of normal:
 
 206
-00:14:21.002 --> 00:14:22.190
-site's geofence.
+00:13:57.301 --> 00:14:01.332
+build the forecast again and check the rota covers it.
 
 207
-00:14:22.190 --> 00:14:26.644
-It lists who is on today's rota and whether they are in yet.
+00:14:01.332 --> 00:14:03.572
+Mark it done, or set it aside.
 
 208
-00:14:27.095 --> 00:14:32.627
-Signing in by name only works on a device inside the geofence, so nobody clocks in
+00:14:07.746 --> 00:14:12.889
+Coach offers the three changes to this week that save the most without leaving the floor
 
 209
-00:14:32.627 --> 00:14:33.505
-from the bus.
+00:14:12.889 --> 00:14:14.350
+short or breaking a rule.
 
 210
-00:14:33.505 --> 00:14:38.767
-A shared iPad can also be paired as a kiosk that does nothing but clock people
+00:14:14.350 --> 00:14:19.201
+Trim an overstaffed edge, take off a shift that is over demand all the way through,
 
 211
-00:14:38.767 --> 00:14:40.319
-in and out at one site.
+00:14:19.201 --> 00:14:22.650
+or give a shift to someone cheaper who is trained and free.
 
 212
-00:14:40.770 --> 00:14:43.388
-Cut call is for the middle of service.
+00:14:23.100 --> 00:14:29.516
+Each move shows the saving, loaded with holiday, N I and pension, and the labour percentage
 
 213
-00:14:43.388 --> 00:14:48.210
-Trading so far from the till is set against forecast to give the pace.
+00:14:29.516 --> 00:14:30.151
+after it.
 
 214
-00:14:48.210 --> 00:14:53.722
-The rest of the day is reforecast at that pace and turned back into headcount by
+00:14:30.151 --> 00:14:33.324
+Take it, and the rota changes there and then.
 
 215
-00:14:53.722 --> 00:14:54.066
-role.
+00:14:33.776 --> 00:14:35.137
+Below, the ladder.
 
 216
-00:14:54.516 --> 00:14:59.505
-When trade is behind, it names who to send home early, and the saving is worked
+00:14:35.137 --> 00:14:36.650
+Four rungs of habit:
 
 217
-00:14:59.505 --> 00:15:05.189
-on each person's whole week, after guaranteed hours and the N I and pension thresholds, so
+00:14:36.650 --> 00:14:43.382
+the rota on time and legal, labour on target, daypart precision, and owning the forecast.
 
 218
-00:15:05.189 --> 00:15:07.778
-it is what payroll will actually not pay.
+00:14:43.382 --> 00:14:48.677
+A site on target with a late rota is lucky, not run, and its team pays
 
 219
-00:15:07.778 --> 00:15:09.673
-Apply, and the shifts are cut.
+00:14:48.677 --> 00:14:49.206
+for it.
 
 220
-00:15:09.673 --> 00:15:15.420
-Tonight Marylebone is already as lean as the reforecast allows, so there is nothing to cut.
+00:14:49.206 --> 00:14:52.232
+Coach the habits and the results follow.
 
 221
-00:15:19.582 --> 00:15:23.686
-Payroll runs as five steps, straight through to TeamPay.
+00:14:56.408 --> 00:15:01.382
+Clock in turns a tablet at the staff entrance into a sign in point.
 
 222
-00:15:23.686 --> 00:15:28.597
-In the demo, TeamPay is a simulator, so we can run the whole thing.
+00:15:01.382 --> 00:15:06.727
+Staff tap an RFID card, or a phone's NFC, or sign in by name, inside the
 
 223
-00:15:28.597 --> 00:15:33.214
-First, the people go into TeamPay, one PAYE scheme per company.
+00:15:06.727 --> 00:15:07.914
+site's geofence.
 
 224
-00:15:33.665 --> 00:15:35.481
-Second, clocked hours.
+00:15:07.914 --> 00:15:12.368
+It lists who is on today's rota and whether they are in yet.
 
 225
-00:15:35.481 --> 00:15:39.113
-We simulate a week of clocking for the site.
+00:15:12.820 --> 00:15:14.899
+Clock in setup holds the rest.
 
 226
-00:15:39.564 --> 00:15:45.443
-Finished shifts with less rest break than the law gives are flagged before approval, as too
+00:15:14.899 --> 00:15:20.163
+A shared iPad can be paired as a kiosk that does nothing but clock people in
 
 227
-00:15:45.443 --> 00:15:46.412
-short or split.
+00:15:20.163 --> 00:15:20.717
+and out.
 
 228
-00:15:46.412 --> 00:15:52.033
-What do I do explains the fix, and the manager approves each person's hours against the
+00:15:20.717 --> 00:15:26.259
+And in the live product, staff can clock by touching their own phone to a secure
 
 229
-00:15:52.033 --> 00:15:52.356
-rota.
+00:15:26.259 --> 00:15:27.922
+NFC tag at the entrance:
 
 230
-00:15:52.807 --> 00:15:53.925
-Third, approve.
+00:15:27.922 --> 00:15:31.108
+no card, no app to install, iPhone or Android.
 
 231
-00:15:53.925 --> 00:16:01.152
-Fourth, send the approved hours to TeamPay, one batch per company, through an outbox that retries
+00:15:31.559 --> 00:15:34.177
+Cut call is for the middle of service.
 
 232
-00:16:01.152 --> 00:16:02.791
-and never sends twice.
+00:15:34.177 --> 00:15:39.000
+Trading so far from the till is set against forecast to give the pace.
 
 233
-00:16:04.015 --> 00:16:09.013
-Fifth, the pay run comes back on a signed webhook and is reconciled to the accrual,
+00:15:39.000 --> 00:15:44.511
+The rest of the day is reforecast at that pace and turned back into headcount by
 
 234
-00:16:09.013 --> 00:16:13.831
-so finance sees the difference between what the rota said and what payroll paid.
+00:15:44.511 --> 00:15:44.855
+role.
 
 235
-00:16:17.999 --> 00:16:24.398
-Clocked versus rota sets clocked hours against the rota by cause, before they are approved:
+00:15:45.305 --> 00:15:50.186
+When trade is behind, it names who to send home early, and the saving is worked
 
 236
-00:16:24.398 --> 00:16:27.070
-late starts, early finishes, overruns.
+00:15:50.186 --> 00:15:55.746
+on each person's whole week, after guaranteed hours and the N I and pension thresholds, so
 
 237
-00:16:27.070 --> 00:16:32.063
-It fills in as each day closes, with the week's labour flash alongside.
+00:15:55.746 --> 00:15:58.279
+it is what payroll will actually not pay.
 
 238
-00:16:32.514 --> 00:16:38.426
-Tronc splits every penny of tips and service charge on clocked hours, so whoever stayed for
+00:15:58.279 --> 00:16:04.209
+And because cuts are tracked, Preshift also watches who keeps being sent home, so nobody quietly
 
 239
-00:16:38.426 --> 00:16:40.050
-the close is paid for it.
+00:16:04.209 --> 00:16:05.321
+loses their hours.
 
 240
-00:16:40.050 --> 00:16:46.806
-Run by an independent troncmaster, the payments carry income tax but no National Insurance, and Preshift
+00:16:09.486 --> 00:16:13.591
+Payroll runs as five steps, straight through to TeamPay.
 
 241
-00:16:46.806 --> 00:16:51.354
-shows the N I saved, the VAT position and the date it must be paid by.
+00:16:13.591 --> 00:16:18.501
+In the demo, TeamPay is a simulator, so we can run the whole thing.
 
 242
-00:16:51.805 --> 00:16:56.094
-Pay periods runs the close by payroll across a company's sites.
+00:16:18.501 --> 00:16:23.118
+First, the people go into TeamPay, one PAYE scheme per company.
 
 243
-00:16:56.094 --> 00:17:01.609
-Lock the rota, approve time cards, and pass hours to payroll by the cut off, with
+00:16:23.570 --> 00:16:25.386
+Second, clocked hours.
 
 244
-00:17:01.609 --> 00:17:04.741
-the pay day shown and overdue periods flagged.
+00:16:25.386 --> 00:16:29.018
+We simulate a week of clocking for the site.
 
 245
-00:17:05.191 --> 00:17:06.148
-Pay approvals.
+00:16:29.477 --> 00:16:35.140
+Finished shifts with less rest break than the law gives are flagged before approval, as too
 
 246
-00:17:06.148 --> 00:17:09.566
-A change to anyone's rate or salary is a proposal.
+00:16:35.140 --> 00:16:39.185
+short or split, so nobody is quietly working through their break.
 
 247
-00:17:09.566 --> 00:17:16.197
-Their current pay stays in force until the finance director approves it with their authenticator.
+00:16:39.185 --> 00:16:44.598
+What do I do explains the fix, and the manager approves each person's hours against the
 
 248
-00:17:16.197 --> 00:17:22.280
-Nobody approves their own proposal or their own pay, and every change shows its full cost
+00:16:44.598 --> 00:16:44.909
+rota.
 
 249
-00:17:22.280 --> 00:17:22.759
-a year.
+00:16:45.359 --> 00:16:46.477
+Third, approve.
 
 250
-00:17:26.927 --> 00:17:31.575
-HR overview puts everything a manager must act on in one list.
+00:16:46.477 --> 00:16:53.704
+Fourth, send the approved hours to TeamPay, one batch per company, through an outbox that retries
 
 251
-00:17:31.575 --> 00:17:35.023
-Headcount, turnover, absence, and each action:
+00:16:53.704 --> 00:16:55.343
+and never sends twice.
 
 252
-00:17:35.023 --> 00:17:42.069
-no return to work conversation, a licence expired, a contract never signed, a fit note missing
+00:16:55.793 --> 00:17:00.792
+Fifth, the pay run comes back on a signed webhook and is reconciled to the accrual,
 
 253
-00:17:42.069 --> 00:17:43.343
-after seven days.
+00:17:00.792 --> 00:17:05.609
+so finance sees the difference between what the rota said and what payroll paid.
 
 254
-00:17:43.794 --> 00:17:46.001
-Staff holds each employee record:
+00:17:09.782 --> 00:17:16.181
+Clocked versus rota sets clocked hours against the rota by cause, before they are approved:
 
 255
-00:17:46.001 --> 00:17:52.823
-details, roles, contract and pay, right to work with copies of the documents checked, availability and
+00:17:16.181 --> 00:17:18.854
+late starts, early finishes, overruns.
 
 256
-00:17:52.823 --> 00:17:53.224
-leave.
+00:17:18.854 --> 00:17:23.846
+It fills in as each day closes, with the week's labour flash alongside.
 
 257
-00:17:53.224 --> 00:17:59.109
-Each record is checked before it reaches the rota, so someone without the right to work,
+00:17:24.296 --> 00:17:30.208
+Tronc splits every penny of tips and service charge on clocked hours, so whoever stayed for
 
 258
-00:17:59.109 --> 00:18:02.586
-or paid below the legal minimum, cannot be rostered.
+00:17:30.208 --> 00:17:31.832
+the close is paid for it.
 
 259
-00:18:03.036 --> 00:18:06.943
-Open a person and their whole file is here, tab by tab:
+00:17:31.832 --> 00:17:38.589
+Run by an independent troncmaster, the payments carry income tax but no National Insurance, and Preshift
 
 260
-00:18:06.943 --> 00:18:13.620
-contract, pay, right to work, training, documents to sign in the staff app, and their history.
+00:17:38.589 --> 00:17:43.136
+shows the N I saved, the VAT position and the date it must be paid by.
 
 261
-00:18:14.071 --> 00:18:20.606
-Messages keeps one thread per person with their managers, and announcements to a whole site with
+00:17:43.586 --> 00:17:47.876
+Pay periods runs the close by payroll across a company's sites.
 
 262
-00:18:20.606 --> 00:18:21.831
-who has read them.
+00:17:47.876 --> 00:17:53.390
+Lock the rota, approve time cards, and pass hours to payroll by the cut off, with
 
 263
-00:18:21.831 --> 00:18:27.141
-Rota notices go out by the app, WhatsApp, text or email, as each person chose.
+00:17:53.390 --> 00:17:56.522
+the pay day shown and overdue periods flagged.
 
 264
-00:18:27.141 --> 00:18:33.607
-Everything about work is on record in one place, not scattered across personal WhatsApp groups.
+00:17:56.972 --> 00:17:57.929
+Pay approvals.
 
 265
-00:18:34.058 --> 00:18:40.267
-Onboarding gives each new person one checklist, from sixty days before their first day to ninety
+00:17:57.929 --> 00:18:01.347
+A change to anyone's rate or salary is a proposal.
 
 266
-00:18:40.267 --> 00:18:43.371
-days after it, in the order a GM should work it.
+00:18:01.347 --> 00:18:07.978
+Their current pay stays in force until the finance director approves it with their authenticator.
 
 267
-00:18:43.371 --> 00:18:48.738
-The legal steps by day one, payroll and clocking in the first week, training in the
+00:18:07.978 --> 00:18:14.062
+Nobody approves their own proposal or their own pay, and every change shows its full cost
 
 268
-00:18:48.738 --> 00:18:49.514
-first month.
+00:18:14.062 --> 00:18:14.540
+a year.
 
 269
-00:18:53.677 --> 00:18:58.947
-Wellbeing reads the last four weeks and the fortnight ahead for each person.
+00:18:18.715 --> 00:18:24.491
+HR overview puts everything a manager must act on for their people in one list.
 
 270
-00:18:58.947 --> 00:19:04.840
-Long weeks, runs of days, a close then an open, late finishes, no weekend off, missed
+00:18:24.491 --> 00:18:27.854
+Headcount, turnover, absence, and each action:
 
 271
-00:19:04.840 --> 00:19:06.157
-breaks, no holiday.
+00:18:27.854 --> 00:18:34.728
+no return to work conversation, a licence expired, a contract never signed, a fit note missing
 
 272
-00:19:06.157 --> 00:19:11.635
-None of these breaks the law, but each one is a conversation to have this week,
+00:18:34.728 --> 00:18:35.971
+after seven days.
 
 273
-00:19:11.635 --> 00:19:13.645
-with the next step suggested.
+00:18:36.421 --> 00:18:38.628
+Staff holds each employee record:
 
 274
-00:19:14.096 --> 00:19:20.503
-Holiday tracks each person's entitlement for their company's leave year, and the holiday pay provision in
+00:18:38.628 --> 00:18:45.449
+details, roles, contract and pay, right to work with copies of the documents checked, availability and
 
 275
-00:19:20.503 --> 00:19:20.930
-pounds:
+00:18:45.449 --> 00:18:45.850
+leave.
 
 276
-00:19:20.930 --> 00:19:24.224
-earned and not yet taken, ready for the balance sheet.
+00:18:45.850 --> 00:18:51.735
+Each record is checked before it reaches the rota, so someone without the right to work,
 
 277
-00:19:24.675 --> 00:19:31.583
-Absence records sickness and other leave, scores the Bradford factor, and flags every return to work
+00:18:51.735 --> 00:18:55.213
+or paid below the legal minimum, cannot be rostered.
 
 278
-00:19:31.583 --> 00:19:33.379
-conversation not yet held.
+00:18:55.664 --> 00:18:58.669
+Open a person and their whole file is here:
 
 279
-00:19:33.379 --> 00:19:36.003
-The cheapest absence control there is.
+00:18:58.669 --> 00:19:05.240
+contract, pay, right to work, training, documents to sign in the staff app, and their history.
 
 280
-00:19:36.453 --> 00:19:40.541
-Training is a matrix of required certificates by role.
+00:19:05.692 --> 00:19:12.226
+Messages keeps one thread per person with their managers, and announcements to a whole site with
 
 281
-00:19:40.541 --> 00:19:44.023
-Food hygiene, allergens, licensing, first aid.
+00:19:12.226 --> 00:19:13.452
+who has read them.
 
 282
-00:19:44.023 --> 00:19:51.139
-It shows what an environmental health or licensing visit would find today, and what expires in
+00:19:13.452 --> 00:19:18.761
+Rota notices go out by the app, WhatsApp, text or email, as each person chose.
 
 283
-00:19:51.139 --> 00:19:52.653
-the next sixty days.
+00:19:18.761 --> 00:19:25.228
+Everything about work is on record in one place, not scattered across personal WhatsApp groups.
 
 284
-00:19:53.103 --> 00:20:00.017
-Probation and reviews tracks probation end dates, so none runs out by default, plus appraisals and
+00:19:25.678 --> 00:19:32.049
+Onboarding gives each new person one checklist, from sixty days before their first day to ninety
 
 285
-00:20:00.017 --> 00:20:02.556
-one to ones that are due or overdue.
+00:19:32.049 --> 00:19:35.235
+days after it, in the order a GM should work it.
 
 286
-00:20:02.556 --> 00:20:09.399
-Cases holds disciplinary and grievance cases, confidential, with the ACAS steps and their timing.
+00:19:35.235 --> 00:19:40.743
+The legal steps by day one, payroll and clocking in the first week, training in the
 
 287
-00:20:09.850 --> 00:20:15.918
-Retention scores who is likely to leave, and why, from what the system already holds:
+00:19:40.743 --> 00:19:41.540
+first month.
 
 288
-00:20:15.918 --> 00:20:20.344
-clocked hours, early finishes, breaks, closes, tenure and pay.
+00:19:41.540 --> 00:19:44.062
+A good first month is how people stay.
 
 289
-00:20:20.344 --> 00:20:25.840
-Every point has a reason and a fix, and the replacement cost at risk is shown
+00:19:48.240 --> 00:19:53.338
+Wellbeing reads the last four weeks and the fortnight ahead for each person.
 
 290
-00:20:25.840 --> 00:20:26.554
-in pounds.
+00:19:53.338 --> 00:19:59.040
+Long weeks, runs of days, a close then an open, late finishes, no weekend off, missed
 
 291
-00:20:27.004 --> 00:20:32.585
-Employment rights covers the Employment Rights Act 2025 for zero and low hours workers:
+00:19:59.040 --> 00:20:00.315
+breaks, no holiday.
 
 292
-00:20:32.585 --> 00:20:38.101
-short notice pay owed when a shift is cancelled or cut, and offers of guaranteed hours
+00:20:00.315 --> 00:20:05.615
+None of these breaks the law, but each one is a conversation to have this week,
 
 293
-00:20:38.101 --> 00:20:40.667
-that reflect what people regularly work.
+00:20:05.615 --> 00:20:10.512
+with the next step suggested, and a check on how late finishers get home.
 
 294
-00:20:40.667 --> 00:20:44.836
-The thresholds are settings, ready for when the regulations land.
+00:20:10.963 --> 00:20:16.951
+Holiday tracks each person's entitlement for their company's leave year, flags anyone who has not had
 
 295
-00:20:49.012 --> 00:20:55.477
-Labour cost shows every pound payroll will charge, person by person, split into wages, holiday accrual,
+00:20:16.951 --> 00:20:21.931
+a break, and shows the holiday pay provision in pounds, ready for the balance sheet.
 
 296
-00:20:55.477 --> 00:21:01.440
-employer N I and pension, with rostered hours against contract and a flag wherever the business
+00:20:22.380 --> 00:20:29.235
+Absence records sickness and other leave, scores the Bradford factor, and flags every return to work
 
 297
-00:21:01.440 --> 00:21:03.700
-is paying for hours it is not using.
+00:20:29.235 --> 00:20:31.017
+conversation not yet held.
 
 298
-00:21:04.151 --> 00:21:04.583
-Close.
+00:20:31.017 --> 00:20:34.788
+The cheapest absence control there is, and the kindest.
 
 299
-00:21:04.583 --> 00:21:10.343
-The labour accrual journals, one per company, by role nominal and site tracking.
+00:20:35.238 --> 00:20:39.326
+Training is a matrix of required certificates by role.
 
 300
-00:21:10.343 --> 00:21:15.383
-Post these at week end and the P and L carries true labour on day one.
+00:20:39.326 --> 00:20:42.808
+Food hygiene, allergens, licensing, first aid.
 
 301
-00:21:15.383 --> 00:21:18.695
-That is what makes a three day close possible.
+00:20:42.808 --> 00:20:49.924
+It shows what an environmental health or licensing visit would find today, and what expires in
 
 302
-00:21:19.146 --> 00:21:24.285
-Cost lands in the company whose site the work was done at, and the wages accrual
+00:20:49.924 --> 00:20:51.438
+the next sixty days.
 
 303
-00:21:24.285 --> 00:21:28.719
-stays with the employer, with the intercompany recharge between them.
+00:20:51.888 --> 00:20:58.801
+Probation and reviews tracks probation end dates, so none runs out by default, plus appraisals and
 
 304
-00:21:28.719 --> 00:21:34.180
-Employment Allowance is used against employer N I week by week as payroll applies it.
+00:20:58.801 --> 00:21:01.341
+one to ones that are due or overdue.
 
 305
-00:21:34.180 --> 00:21:37.842
-Download the Xero journal, or post it straight into Xero.
+00:21:01.341 --> 00:21:08.184
+Cases holds disciplinary and grievance cases, confidential, with the ACAS steps and their timing.
 
 306
-00:21:38.293 --> 00:21:38.891
-Reports.
+00:21:08.635 --> 00:21:14.515
+Retention scores who is likely to leave, and why, from what the system already holds:
 
 307
-00:21:38.891 --> 00:21:46.300
-GM scorecards ranked on habits before results, the labour trend over four, eight or thirteen weeks,
+00:21:14.515 --> 00:21:18.804
+clocked hours, early finishes, breaks, closes, tenure and pay.
 
 308
-00:21:46.300 --> 00:21:53.485
-cost by role and by area, rota against actual, takings, forecast accuracy, and payroll accuracy.
+00:21:18.804 --> 00:21:23.993
+Most of the risk is driven by the rota itself, every point has a reason and
 
 309
-00:21:53.936 --> 00:21:58.504
-Programme is the twelve week Williams, Stanley labour programme:
+00:21:23.993 --> 00:21:28.075
+a fix, and the replacement cost at risk is shown in pounds.
 
 310
-00:21:58.504 --> 00:22:01.002
-Baseline, Control, Optimise, Embed.
+00:21:28.525 --> 00:21:34.105
+Employment rights covers the Employment Rights Act 2025 for zero and low hours workers:
 
 311
-00:22:01.002 --> 00:22:07.498
-Milestones are proved by the site's own data, and the saving is verified against a baseline
+00:21:34.105 --> 00:21:39.622
+short notice pay owed when a shift is cancelled or cut, and offers of guaranteed hours
 
 312
-00:22:07.498 --> 00:22:08.783
-from the accounts.
+00:21:39.622 --> 00:21:42.187
+that reflect what people regularly work.
 
 313
-00:22:08.783 --> 00:22:13.280
-Benchmarks compare your sites with other operators, anonymised.
+00:21:42.187 --> 00:21:46.357
+The thresholds are settings, ready for when the regulations land.
 
 314
-00:22:13.730 --> 00:22:16.175
-Prime cost is labour plus cost of sales:
+00:21:50.529 --> 00:21:56.994
+Labour cost shows every pound payroll will charge, person by person, split into wages, holiday accrual,
 
 315
-00:22:16.175 --> 00:22:21.187
-what the two costs a site controls take from every pound sold, with food and drink
+00:21:56.994 --> 00:22:02.957
+employer N I and pension, with rostered hours against contract and a flag wherever the business
 
 316
-00:22:21.187 --> 00:22:25.466
-margin against what the recipes say, and the leakage in pounds a year.
+00:22:02.957 --> 00:22:05.217
+is paying for hours it is not using.
 
 317
-00:22:25.917 --> 00:22:31.052
-Compliance risk prices compliance the way a regulator or tribunal would.
+00:22:05.667 --> 00:22:06.099
+Close.
 
 318
-00:22:31.052 --> 00:22:37.541
-Minimum wage arrears owed now, the penalty ceiling, Working Time breaches on clocked hours.
+00:22:06.099 --> 00:22:11.859
+The labour accrual journals, one per company, by role nominal and site tracking.
 
 319
-00:22:37.541 --> 00:22:40.965
-Find the breach first, and the penalties shrink.
+00:22:11.859 --> 00:22:16.899
+Post these at week end and the P and L carries true labour on day one.
 
 320
-00:22:41.416 --> 00:22:48.070
-Labour cash shows what each company pays out for its people over the next thirteen weeks,
+00:22:16.899 --> 00:22:20.211
+That is what makes a three day close possible.
 
 321
-00:22:48.070 --> 00:22:48.743
-and when.
+00:22:20.661 --> 00:22:25.800
+Cost lands in the company whose site the work was done at, and the wages accrual
 
 322
-00:22:48.743 --> 00:22:53.678
-Net pay on each pay day, tronc, PAYE and N I to HMRC by the twenty
+00:22:25.800 --> 00:22:30.234
+stays with the employer, with the intercompany recharge between them.
 
 323
-00:22:53.678 --> 00:22:55.249
-second, and pensions.
+00:22:30.234 --> 00:22:35.695
+Employment Allowance is used against employer N I week by week as payroll applies it.
 
 324
-00:22:55.249 --> 00:23:00.931
-A strong month on the rota is a larger HMRC bill about six weeks later, seen
+00:22:35.695 --> 00:22:39.357
+Download the Xero journal, or post it straight into Xero.
 
 325
-00:23:00.931 --> 00:23:02.128
-before it lands.
+00:22:39.807 --> 00:22:40.405
+Reports.
 
 326
-00:23:06.289 --> 00:23:12.328
-Set up holds the companies that employ your staff, the sites they trade from, the roles
+00:22:40.405 --> 00:22:47.814
+GM scorecards ranked on habits before results, the labour trend over four, eight or thirteen weeks,
 
 327
-00:23:12.328 --> 00:23:14.966
-you roster, and how busy each site is.
+00:22:47.814 --> 00:22:54.999
+cost by role and by area, rota against actual, takings, forecast accuracy, and payroll accuracy.
 
 328
-00:23:14.966 --> 00:23:20.728
-Labour cost, the forecast build, compliance and the close journal all run off this.
+00:22:55.449 --> 00:23:00.017
+Programme is the twelve week Williams, Stanley labour programme:
 
 329
-00:23:20.728 --> 00:23:26.003
-A site can be split into areas, front of house, back of house, a bakery, and
+00:23:00.017 --> 00:23:02.515
+Baseline, Control, Optimise, Embed.
 
 330
-00:23:26.003 --> 00:23:28.225
-labour is then reported by area.
+00:23:02.515 --> 00:23:09.011
+Milestones are proved by the site's own data, and the saving is verified against a baseline
 
 331
-00:23:28.676 --> 00:23:35.337
-Access sets roles for operators, Williams Stanley people and outsiders, scoped by site with start and
+00:23:09.011 --> 00:23:10.296
+from the accounts.
 
 332
-00:23:35.337 --> 00:23:35.997
-end dates.
+00:23:10.296 --> 00:23:14.793
+Benchmarks compare your sites with other operators, anonymised.
 
 333
-00:23:35.997 --> 00:23:42.328
-Nobody grants beyond their own access, paired duties such as setting pay and running payroll are
+00:23:15.243 --> 00:23:17.688
+Prime cost is labour plus cost of sales:
 
 334
-00:23:42.328 --> 00:23:45.692
-kept apart, and every change is in the audit trail.
+00:23:17.688 --> 00:23:22.700
+what the two costs a site controls take from every pound sold, with food and drink
 
 335
-00:23:46.143 --> 00:23:50.394
-Integrations shows every connection and whether it is working:
+00:23:22.700 --> 00:23:26.979
+margin against what the recipes say, and the leakage in pounds a year.
 
 336
-00:23:50.394 --> 00:23:56.291
-the till, TeamPay for each PAYE scheme, Xero, card readers, the staff app and the open
+00:23:27.430 --> 00:23:32.392
+Compliance risk prices compliance the way a regulator or tribunal would.
 
 337
-00:23:56.291 --> 00:23:56.566
-API.
+00:23:32.392 --> 00:23:39.283
+Minimum wage arrears owed to staff now, the penalty ceiling, Working Time breaches on clocked hours.
 
 338
-00:23:56.566 --> 00:24:01.503
-Any card not showing connected is a step someone is still doing by hand.
+00:23:39.283 --> 00:23:44.590
+Find the breach first, put it right for the person, and the penalties shrink.
 
 339
-00:24:01.953 --> 00:24:07.970
-GDPR keeps the request log for access, erasure and the rest, with the one month deadline,
+00:23:45.040 --> 00:23:51.694
+Labour cash shows what each company pays out for its people over the next thirteen weeks,
 
 340
-00:24:07.970 --> 00:24:15.408
-one click subject access export, retention and deletion, and the policy document that holding sickness records
+00:23:51.694 --> 00:23:52.367
+and when.
 
 341
-00:24:15.408 --> 00:24:16.017
-requires.
+00:23:52.367 --> 00:23:57.302
+Net pay on each pay day, tronc, PAYE and N I to HMRC by the twenty
 
 342
-00:24:16.467 --> 00:24:23.228
-Settings connects the till, Claude, email and messaging channels, and makes API keys and webhooks for
+00:23:57.302 --> 00:23:58.873
+second, and pensions.
 
 343
-00:24:23.228 --> 00:24:24.165
-other systems.
+00:23:58.873 --> 00:24:04.555
+A strong month on the rota is a larger HMRC bill about six weeks later, seen
 
 344
-00:24:24.165 --> 00:24:29.654
-Features lets an owner switch off the parts of Preshift the business does not use.
+00:24:04.555 --> 00:24:05.752
+before it lands.
 
 345
-00:24:29.654 --> 00:24:33.939
-Nothing is deleted, and switching back on restores it as it was.
+00:24:09.925 --> 00:24:15.964
+Set up holds the companies that employ your staff, the sites they trade from, the roles
 
 346
-00:24:34.389 --> 00:24:37.456
-Billing holds the trial and subscription.
+00:24:15.964 --> 00:24:18.602
+you roster, and how busy each site is.
 
 347
-00:24:37.456 --> 00:24:42.244
-Your profile keeps your own details, password and authenticator.
+00:24:18.602 --> 00:24:24.364
+Labour cost, the forecast build, compliance and the close journal all run off this.
 
 348
-00:24:42.244 --> 00:24:49.575
-Under Help, How to guides for GMs, and Support, answered by your Williams, Stanley client partner.
+00:24:24.364 --> 00:24:29.639
+A site can be split into areas, front of house, back of house, a bakery, and
 
 349
-00:24:49.575 --> 00:24:55.410
-And API docs opens the full REST API, with an MCP connector so Claude can work
+00:24:29.639 --> 00:24:31.861
+labour is then reported by area.
 
 350
-00:24:55.410 --> 00:24:56.757
-the rota directly.
+00:24:32.311 --> 00:24:38.972
+Access sets roles for operators, Williams Stanley people and outsiders, scoped by site with start and
 
 351
-00:24:57.714 --> 00:25:00.984
-This is the staff app, on each person's own phone.
+00:24:38.972 --> 00:24:39.632
+end dates.
 
 352
-00:25:00.984 --> 00:25:06.282
-Today shows whether they are clocked in, their next shift and their recent hours.
+00:24:39.632 --> 00:24:45.963
+Nobody grants beyond their own access, paired duties such as setting pay and running payroll are
 
 353
-00:25:06.282 --> 00:25:12.496
-Where the site allows phone clocking, they clock in here, inside the geofence, and record their
+00:24:45.963 --> 00:24:49.327
+kept apart, and every change is in the audit trail.
 
 354
-00:25:12.496 --> 00:25:12.954
-breaks.
+00:24:49.777 --> 00:24:53.998
+Integrations shows every connection and whether it is working:
 
 355
-00:25:13.404 --> 00:25:18.847
-They can say how their week was, privately, ask for a chat with their manager, and
+00:24:53.998 --> 00:24:59.989
+the till, TeamPay for each PAYE scheme, Xero, card readers and phone tags, the staff app
 
 356
-00:25:18.847 --> 00:25:20.772
-set a PIN for the kiosk iPad.
+00:24:59.989 --> 00:25:01.147
+and the open API.
 
 357
-00:25:21.223 --> 00:25:25.688
-The Rota tab shows their own published shifts and who they work with.
+00:25:01.147 --> 00:25:06.049
+Any card not showing connected is a step someone is still doing by hand.
 
 358
-00:25:25.688 --> 00:25:30.607
-They can offer a shift to a named colleague, swap, or pick up an open shift.
+00:25:06.499 --> 00:25:12.648
+GDPR keeps the request log for access, erasure and the rest, with the one month deadline,
 
 359
-00:25:31.057 --> 00:25:37.610
-Requests is where they ask for holiday against their balance, time off, report sickness, and set
+00:25:12.648 --> 00:25:20.248
+one click subject access export, retention and deletion, and the policy document that holding sickness records
 
 360
-00:25:37.610 --> 00:25:38.497
-availability.
+00:25:20.248 --> 00:25:20.870
+requires.
 
 361
-00:25:38.948 --> 00:25:41.933
-Pay shows their payslips, and their tips.
+00:25:20.870 --> 00:25:24.187
+Staff data is treated with the care it deserves.
 
 362
-00:25:41.933 --> 00:25:47.684
-Inbox holds every message from their managers, announcements, and rota notices.
+00:25:24.637 --> 00:25:31.398
+Settings connects the till, Claude, email and messaging channels, and makes API keys and webhooks for
 
 363
-00:25:48.638 --> 00:25:49.786
-That is Preshift.
+00:25:31.398 --> 00:25:32.335
+other systems.
 
 364
-00:25:49.786 --> 00:25:55.458
-A rota built from the forecast, costed the way payroll will cost it, legal before it
+00:25:32.335 --> 00:25:37.824
+Features lets an owner switch off the parts of Preshift the business does not use.
 
 365
-00:25:55.458 --> 00:25:59.172
-is published, and in the ledger before payroll has run.
+00:25:37.824 --> 00:25:42.109
+Nothing is deleted, and switching back on restores it as it was.
 
 366
-00:25:59.172 --> 00:26:03.494
-The numbers reach the operator while the decision still matters.
+00:25:42.559 --> 00:25:45.563
+Billing holds the trial and subscription.
+
+367
+00:25:45.563 --> 00:25:50.254
+Your profile keeps your own details, password and authenticator.
+
+368
+00:25:50.254 --> 00:25:57.436
+Under Help, How to guides for GMs, and Support, answered by your Williams, Stanley client partner.
+
+369
+00:25:57.436 --> 00:26:03.373
+And the full REST API is documented, with an MCP connector so Claude can work the
+
+370
+00:26:03.373 --> 00:26:04.399
+rota directly.
+
+371
+00:26:05.352 --> 00:26:08.648
+This is the staff app, on each person's own phone.
+
+372
+00:26:08.648 --> 00:26:13.987
+Today shows whether they are clocked in, their next shift and their recent hours.
+
+373
+00:26:13.987 --> 00:26:18.865
+They clock in here, by a phone tag at the door or inside the geofence, and
+
+374
+00:26:18.865 --> 00:26:20.184
+record their breaks.
+
+375
+00:26:20.635 --> 00:26:26.176
+They can say how their week was, privately, ask for a chat with their manager, and
+
+376
+00:26:26.176 --> 00:26:27.798
+find someone to talk to.
+
+377
+00:26:27.798 --> 00:26:30.907
+Their manager only ever sees a site's average.
+
+378
+00:26:31.357 --> 00:26:34.732
+The Rota tab draws their next two weeks as a strip:
+
+379
+00:26:34.732 --> 00:26:37.445
+hours, pay before tax, rest and days off.
+
+380
+00:26:37.445 --> 00:26:41.019
+Ben has nothing published yet for the fortnight ahead.
+
+381
+00:26:41.019 --> 00:26:46.446
+Once the week goes out, each shift appears here beside the people on with him, and
+
+382
+00:26:46.446 --> 00:26:51.013
+he can offer it to a named colleague, swap, or pick up an open shift.
+
+383
+00:26:51.464 --> 00:26:58.152
+Requests is where they ask for holiday against their balance, time off, report sickness, and set
+
+384
+00:26:58.152 --> 00:26:59.475
+when they can work.
+
+385
+00:26:59.475 --> 00:27:01.496
+A real say in their own rota.
+
+386
+00:27:01.947 --> 00:27:04.843
+Pay shows their payslips and their tips.
+
+387
+00:27:04.843 --> 00:27:10.563
+Inbox holds every message from their managers, announcements, and rota notices.
+
+388
+00:27:11.518 --> 00:27:12.668
+That is Preshift.
+
+389
+00:27:12.668 --> 00:27:17.880
+A rota sized to the forecast, fair to the people who work it, legal before it
+
+390
+00:27:17.880 --> 00:27:23.769
+is published, and costed the way payroll will cost it, in the ledger before payroll has
+
+391
+00:27:23.769 --> 00:27:24.039
+run.
+
+392
+00:27:24.039 --> 00:27:26.950
+Look after your team, and the numbers hold.
