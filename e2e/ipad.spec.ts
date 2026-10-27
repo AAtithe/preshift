@@ -99,7 +99,8 @@ async function touch(page: Page) {
 /** The centre of an element, scrolled into view first: a touch outside the screen lands on nothing. */
 async function centre(page: Page, selector: string, index = 0) {
   const el = page.locator(selector).nth(index);
-  await el.scrollIntoViewIfNeeded();
+  // To the middle of the screen: a shift at the foot counts as in view, yet sits under the command bar.
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await settled(page);
   const box = (await el.boundingBox())!;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2, width: box.width };
@@ -170,7 +171,7 @@ test('press and hold lifts a shift, a slide moves it, and sliding back puts it b
 
 test('dragging the end of a shift changes its hours, and dragging it back restores them', async ({ page }) => {
   const bar = page.locator('.tl-bar').first();
-  await bar.scrollIntoViewIfNeeded();
+  await bar.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await settled(page);
   const title = await titleOf(page);
   const count = await withTitle(page, title);
@@ -184,7 +185,7 @@ test('dragging the end of a shift changes its hours, and dragging it back restor
   const longer = (title ?? '').replace(/-(\d\d):00/, (_m, b: string) => `-${String((Number(b) + 1) % 24).padStart(2, '0')}:00`);
   const stretched = page.locator(`.tl-bar[title="${longer}"]`).first();
   await expect(stretched).toHaveCount(1);
-  await stretched.scrollIntoViewIfNeeded();
+  await stretched.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await settled(page);
   const end = (await stretched.locator('.tl-edge.end').boundingBox())!;
   await finger.drag({ x: end.x + end.width / 2, y: end.y + end.height / 2 }, { x: end.x + end.width / 2 - hour, y: end.y + end.height / 2 }, 0);

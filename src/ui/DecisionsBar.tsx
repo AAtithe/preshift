@@ -16,8 +16,11 @@ function savedFold(): boolean {
 /** The button that settles a decision, or none for someone whose roles cannot settle it. */
 function actionLabel(action: DecisionAction, canEdit: boolean): string | null {
   switch (action.kind) {
+    // The build fills every short hour in the week, not only the empty days, so the button says so.
     case 'build':
-      return canEdit ? 'Build the empty days' : null;
+      return canEdit ? 'Build the week from the forecast' : null;
+    case 'dismiss-gaps':
+      return 'Dismiss';
     case 'day':
       return `Go to ${DAY[new Date(`${action.date}T00:00:00Z`).getUTCDay()]}`;
     case 'people':

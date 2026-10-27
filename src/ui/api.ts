@@ -46,9 +46,13 @@ export class ApiError extends Error {
 
 const UPLOAD_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 
+/** Longest the app waits, unasked, for the server to take requests again. */
+const RETRY_CAP_SECONDS = 30;
+export const BUSY = 'Preshift is busy for a moment. Wait a few seconds, then try again.';
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const raw = body instanceof Blob;
-  const res = await fetch(path, {
+  const send = () => fetch(path, {
     method,
     // The server decides what a file is from its bytes; an unfamiliar type goes as plain bytes so it gets that answer.
     headers: {
@@ -58,6 +62,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     },
     body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
   });
+  let res = await send();
+  // Too many requests is refused before anything is done, so asking again after the wait the server
+  // names is safe for a save as for a read. Once only: a second refusal is said in plain words.
+  if (res.status === 429) {
+    const wait = Math.min(RETRY_CAP_SECONDS, Math.max(1, Number(res.headers.get('retry-after')) || 5));
+    await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+    res = await send();
+    if (res.status === 429) throw new ApiError(429, 'rate_limited', BUSY);
+  }
   if (res.status === 401) {
     // Session ended: back to sign-in, returning here afterwards.
     window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
