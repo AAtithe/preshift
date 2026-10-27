@@ -383,7 +383,10 @@ function TradingStep({ draft, setDraft }: StepProps) {
         charge. We spread each day across your opening hours on a standard lunch and dinner pattern and turn it into covers with
         your average spend. When Preshift Reports or your till sends real hourly figures for a week, those replace it. Second,
         how many covers or how much in sales one person in each role carries in an hour, with a floor while open and a ceiling.
-        Roles set to "by hand" are never built automatically. Split a site into areas (front of house, back of house, a bakery)
+        Roles set to "by hand" are never built automatically. Event guests per person staffs weddings and functions: how many seated
+        guests one person in the role looks after (a server 10 to 12, a chef 25 to 30, a bartender 40 to 50). Buffets, standing and
+        drinks receptions stretch it. Leave it at 0 everywhere and standard ratios are used; set it on any role and only the roles
+        you set are staffed for events. Split a site into areas (front of house, back of house, a bakery)
         and choose the area each role works in there: labour is then reported area by area, and the rota can be read one area at a time.
       </p>
       {draft.sites.map((site) => {
@@ -407,7 +410,7 @@ function TradingStep({ draft, setDraft }: StepProps) {
             </p>
             <SiteAreas site={site} roles={draft.roles} onChange={(areas) => updateSite(site.id, { areas })} />
             <table className="table">
-              <thead><tr><th>Role</th>{!!site.areas?.length && <th>Area</th>}<th>Driven by</th><th>Per person per hour</th><th>Minimum while open</th><th>Maximum</th></tr></thead>
+              <thead><tr><th>Role</th>{!!site.areas?.length && <th>Area</th>}<th>Driven by</th><th>Per person per hour</th><th>Minimum while open</th><th>Maximum</th><th>Event guests per person</th></tr></thead>
               <tbody>
                 {draft.roles.map((role) => {
                   const rule = draft.demandRules.find((r) => r.siteId === site.id && r.roleId === role.id);
@@ -448,6 +451,7 @@ function TradingStep({ draft, setDraft }: StepProps) {
                       </td>
                       <td>{rule && <Num label="Minimum while open" width={60} value={rule.minimumWhileOpen} onChange={(n) => setRule(site.id, role, { minimumWhileOpen: n })} />}</td>
                       <td>{rule && <Num label="Maximum headcount" width={60} value={rule.maximum} onChange={(n) => setRule(site.id, role, { maximum: n })} />}</td>
+                      <td>{rule && <Num label="Seated event guests one person looks after" width={60} value={rule.guestsPerStaff ?? 0} onChange={(n) => setRule(site.id, role, { guestsPerStaff: n > 0 ? n : undefined })} />}</td>
                     </tr>
                   );
                 })}

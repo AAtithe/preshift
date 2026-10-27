@@ -533,6 +533,52 @@ Until access is granted, each system's scheduled CSV export through `POST /v1/bo
 the same job: daily for what is on the books, and once with three months of history so pickup can be
 learnt.
 
+## Private events
+
+Weddings, buyouts and functions from Tripleseat, SevenRooms or any events system. Unlike table
+bookings they are not set against the model: they are known to the guest and staffed by ratio, so
+a confirmed event is laid over the day's demand.
+
+| Route | What it does |
+| --- | --- |
+| `GET /v1/private-events` | Events by site and date, each with `team`: the people it needs by role. |
+| `PUT /v1/private-events` | A connector's push, by the events system's own reference. Send an event again to change it, or with `status: cancelled` to stand it down. |
+| `POST /v1/private-events/import` | A CSV export (`source`: `tripleseat`, `sevenrooms`, `other`). Totals are taken as including VAT unless `spendIncludesVat` is false. |
+| `POST /v1/private-events` | One entered by hand. |
+| `PATCH /v1/private-events/:id` | Confirm, cancel, final numbers, new times. |
+| `DELETE /v1/private-events/:id` | Only one entered by hand: one from an events system is cancelled, or its next export brings it back. |
+
+Each event carries `date` (the trading day), `startMinute` and `endMinute` (when guests arrive and
+leave, past midnight as 1440 and over), `guests`, `kind` (`wedding`, `private_hire`, `party`,
+`corporate`, `other`), `style` (`seated`, `buffet`, `standing`, `drinks`), `status` (`enquiry`,
+`provisional`, `confirmed`, `cancelled`), `exclusive`, and optionally `space` and `spend` (net of
+VAT).
+
+What a confirmed event does:
+
+- Demand: each role with an event ratio (`guestsPerStaff` on its demand rule: seated guests one
+  person looks after) needs `guests / (ratio x style stretch)` people, rounded up, from an hour
+  before guests arrive to half an hour after they leave, on top of normal trade. Buffets, standing
+  receptions and drinks stretch the ratio; drinks needs no kitchen. Until any role at the site has a
+  ratio, the standard ratios apply to the first role of each department (FOH 12, BOH 30, BAR 50). The
+  day runs past the site's close if the event does. A closure set for the public does not stand the
+  event team down.
+- Exclusive hire: the public's trade is taken out of demand and the day's sales from set-up to
+  clear-down.
+- Sales: `spend` is spread over the hours guests are in and added to the day's forecast takings, so
+  labour percentage is judged against what the day will really take.
+- Learning: a confirmed event's day is left out of what the model learns as normal trade.
+- Reminders: a confirmed event, from fourteen days out, to roster the team by name and give the
+  kitchen final numbers; a provisional event or enquiry, from 28 days out, with what it would need,
+  to get the decision before the week is built.
+
+Personal data: the event's name, the client, their contacts and notes are never read or kept. The
+CSV reader reports the columns it left behind; the push route drops any other field as it is read.
+
+Direct connections. Tripleseat and SevenRooms grant API access on application. Until then a
+connector (each system's webhooks through Zapier, Make or your own) sends each event to
+`PUT /v1/private-events` as it is booked, changed or lost.
+
 ## Storage
 
 Each request loads one organisation, works on it, and saves it once, only if the request

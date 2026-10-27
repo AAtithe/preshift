@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { dayDemand, forecastSalesForDay, type HourDemand } from '../engine/demand';
 import type { DayForecast } from '../engine/forecasting';
+import { describeEvent, eventsOn, eventTeam } from '../engine/privateEvents';
+import { formatMinute } from '../engine/time';
 import type { RotaState } from '../engine/types';
 import { dayLabel, money } from './format';
 import { columnPath, DEPT_COLOR, niceMax, Tip } from './viz';
@@ -50,6 +52,18 @@ export function DemandView({ state, siteId, dates, onForecast }: Props) {
 
       <FromTakings state={state} siteId={siteId} dates={dates} onForecast={onForecast} />
 
+      {eventsOn(state, siteId, day, true).map((e) => {
+        const team = eventTeam(state, e).map((t) => `${t.people} ${state.roles.find((r) => r.id === t.roleId)?.name ?? t.roleId}`).join(', ');
+        return (
+          <div key={e.id} className="notice">
+            {describeEvent(e)}, {formatMinute(e.startMinute)} to {formatMinute(e.endMinute % 1440)}
+            {e.status === 'confirmed'
+              ? `: ${team || 'no role here has an event ratio'} on top of normal trade${e.exclusive ? ', which is taken out while it runs' : ''}${e.spend ? `, ${money(e.spend)} in the day's sales` : ''}.`
+              : `: ${e.status === 'enquiry' ? 'an enquiry' : 'provisional'}, not in demand until confirmed${team ? ` (it would need ${team})` : ''}.`}
+          </div>
+        );
+      })}
+
       <SalesChart hours={sales} date={day} />
 
       <div className="demand-grid">
@@ -58,6 +72,7 @@ export function DemandView({ state, siteId, dates, onForecast }: Props) {
           const rows = dayDemand(state, siteId, rule.roleId, day);
           const short = rows.reduce((s, r) => s + Math.max(0, r.gap), 0);
           const over = rows.reduce((s, r) => s + Math.max(0, -r.gap), 0);
+          const forEvents = Math.max(0, ...rows.map((r) => r.event ?? 0));
           return (
             <div key={rule.roleId} className="panel demand-card">
               <div className="panel-head">
@@ -68,6 +83,7 @@ export function DemandView({ state, siteId, dates, onForecast }: Props) {
                   </div>
                   <div className="panel-sub">
                     {rule.salesPerLabourHour ? `One per ${money(rule.salesPerLabourHour)} sales an hour` : `One per ${rule.coversPerHour} covers an hour`}
+                    {forEvents > 0 && `, plus ${forEvents} for events`}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
