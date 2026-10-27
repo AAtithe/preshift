@@ -35,6 +35,8 @@ async function openTimeline(page: Page) {
   await page.getByRole('button', { name: 'Site or company' }).click();
   await page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText('Marylebone', { exact: true }) }).click();
   await go(page, 'Rota');
+  // Next week, where no shift has started yet: a shift already worked is locked, so it cannot be moved.
+  await page.getByRole('button', { name: 'Next week' }).click();
   await page.getByRole('tab', { name: 'Service timeline' }).click();
   await expect(page.locator('.tl-lane').first()).toBeVisible();
   // A fresh server may have no rota this week yet: build one from the forecast to work with.
@@ -99,7 +101,7 @@ async function touch(page: Page) {
 /** The centre of an element, scrolled into view first: a touch outside the screen lands on nothing. */
 async function centre(page: Page, selector: string, index = 0) {
   const el = page.locator(selector).nth(index);
-  // To the middle of the screen: a shift at the foot counts as in view, yet sits under the command bar.
+  // To the middle, not just on screen: at the top edge the sticky bar covers it.
   await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await settled(page);
   const box = (await el.boundingBox())!;
@@ -195,7 +197,7 @@ test('dragging the end of a shift changes its hours, and dragging it back restor
 test('a tap on an empty stretch of the day opens the picker without adding anyone, and offers people to borrow', async ({ page }) => {
   const bars = await page.locator('.tl-bar').count();
   const plot = page.locator('.tl-plot').first();
-  await plot.scrollIntoViewIfNeeded();
+  await plot.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await settled(page);
   // Early in the day, well clear of the bars and the gap strip, on a point the plot itself receives:
   // the timeline scrolls sideways, so part of the plot can sit under the day's name or off screen.
