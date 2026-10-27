@@ -21,6 +21,8 @@ export interface Issue {
   overrideKey?: string;
   /** The override that turned this breach from blocking into a warning. */
   overridden?: Pick<RestOverride, 'id' | 'reason' | 'by' | 'at'>;
+  /** Under contract: the contracted hours not rostered, paid either way. */
+  gapHours?: number;
 }
 
 /** Rest breaches a manager can publish through, with a recorded reason. Nothing else can be overridden. */
@@ -341,7 +343,12 @@ export function checkEmployeeWeek(
     }
   }
   if (fullWeek && employee.payBasis === 'hourly' && employee.contractedHours > 0 && hours < employee.contractedHours) {
-    push({ code: 'under-contract', severity: 'warn', message: `${hours.toFixed(1)}h is below ${employee.contractedHours} contracted hours. You pay the gap either way.` });
+    push({
+      code: 'under-contract',
+      severity: 'warn',
+      message: `${hours.toFixed(1)}h is below ${employee.contractedHours} contracted hours. You pay the gap either way.`,
+      gapHours: employee.contractedHours - hours,
+    });
   }
   return issues;
 }

@@ -6,7 +6,7 @@ import { releaseLabel, stepsFor, type Release, type WalkStep } from './walkthrou
 /**
  * What pops up at a person's first sign-in of a week with something new for them: what changed,
  * for whom, and the choice to be shown it now. Not now, Escape or a click outside counts as seen;
- * What's new in the left-hand bar brings it back.
+ * What's new in the top bar brings it back.
  */
 export function WhatsNewIntro({ release, steps, onStart, onDismiss }: { release: Release; steps: WalkStep[]; onStart: () => void; onDismiss: () => void }) {
   return (

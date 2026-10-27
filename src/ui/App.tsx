@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
+import { weekBrief, type DecisionAction } from '../engine/decisions';
 import { featureOn, hiddenTabs } from '../engine/features';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
@@ -16,7 +17,9 @@ import { OrgPicker } from './OrgPicker';
 import { ScopePicker } from './ScopePicker';
 import { WeekPicker } from './WeekPicker';
 import type { HrSection } from './HrFile';
-import { PnlRail } from './PnlRail';
+import { PnlStrip } from './PnlStrip';
+import { DecisionsBar } from './DecisionsBar';
+import { Tip } from './Tip';
 import { BillingBanner } from './BillingBanner';
 import { RestBreaches } from './RestBreaches';
 import type { Account } from './SettingsView';
@@ -24,7 +27,7 @@ import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, t
 import { allowFor, heldOnceVerified, NOT_YOURS } from './permissions';
 import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
-import { SideNav } from './SideNav';
+import { AccountMenu, TopNav } from './TopNav';
 import { useHrRecords, useRotaStore } from './store';
 import { Walkthrough, WhatsNewIntro } from './Walkthrough';
 import { markSeen, popsUp, releasesOut, seenWeek, stepsFor, type WalkStep } from './walkthrough';
@@ -110,11 +113,32 @@ const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.C
 type RotaView = 'timeline' | 'people' | 'gantt' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
 const VIEW_KEY = 'preshift.rota.view';
 
-/** Every way of looking at the week, with what each is for. Cost is offered only to those who may see pay. */
-const ROTA_VIEWS: { id: RotaView; label: string; help: string; cost?: boolean }[] = [
-  { id: 'timeline', label: 'Service timeline', help: 'Each day over its sales curve, with hours short or over in the strip beneath. Drag a bar to move it or its ends to change the hours. Drag across a day, or click a red hour, to add a shift.' },
-  { id: 'people', label: 'By person', help: 'Every person across the week. Drag a shift to another person or day.' },
-  { id: 'gantt', label: 'Gantt', help: 'One line per person with their shifts as bars against the clock, the whole week or one day by the hour. Drag a bar to move it, its ends to change the hours, or onto another person to hand it over; drag across an empty line to add a shift.' },
+/**
+ * How much the rota screen shows, chosen by each person: Simple is the decisions and the timeline,
+ * Standard adds the three main views with the rest a click away, Expert lays every view out at once.
+ */
+type Density = 'simple' | 'standard' | 'expert';
+const DENSITY_KEY = 'preshift.density';
+const DENSITIES: { id: Density; label: string }[] = [
+  { id: 'simple', label: 'Simple' },
+  { id: 'standard', label: 'Standard' },
+  { id: 'expert', label: 'Expert' },
+];
+
+function savedDensity(): Density {
+  try {
+    const d = localStorage.getItem(DENSITY_KEY);
+    return DENSITIES.find((x) => x.id === d)?.id ?? 'standard';
+  } catch {
+    return 'standard';
+  }
+}
+
+/** Every way of looking at the week, with what each is for. Cost is offered only to those who may see pay. Main views show at Standard. */
+const ROTA_VIEWS: { id: RotaView; label: string; help: string; cost?: boolean; main?: boolean }[] = [
+  { id: 'timeline', label: 'Service timeline', main: true, help: 'Each day over its sales curve, with hours short or over in the strip beneath. Drag a bar to move it or its ends to change the hours. Drag across a day, or click a red hour, to add a shift.' },
+  { id: 'people', label: 'By person', main: true, help: 'Every person across the week. Drag a shift to another person or day.' },
+  { id: 'gantt', label: 'Gantt', main: true, help: 'One line per person with their shifts as bars against the clock, the whole week or one day by the hour. Drag a bar to move it, its ends to change the hours, or onto another person to hand it over; drag across an empty line to add a shift.' },
   { id: 'cover', label: 'Cover map', help: 'The whole week against demand in one grid: where to add or cut the next hour. Click a short hour to fill it.' },
   { id: 'rest', label: 'Rest', help: 'Last week and this as one line per person, so a close before an open, or a long run of days, shows before it becomes a breach.' },
   { id: 'stations', label: 'Positions', help: 'One day by position: who is on the bar, the pass, the door, hour by hour, and where a needed position is empty.' },
@@ -261,6 +285,11 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [notice, setNotice] = useState<string | null>(null);
   const [opening, setOpening] = useState<Opening | null>(null);
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
+  const [density, setDensityState] = useState<Density>(savedDensity);
+  const [moreViews, setMoreViews] = useState(false);
+  // A day a decision sent the timeline to, and a request for the full P&L: each changes on every ask.
+  const [focusDay, setFocusDay] = useState<{ date: string; at: number } | undefined>(undefined);
+  const [pnlAsk, setPnlAsk] = useState(0);
   const today = toISODate(new Date());
   // The signed-in account (sign-in), as against `me`, the access record and what it allows.
   const [account, setAccount] = useState<Account | null>(null);
@@ -417,10 +446,35 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
 
   function chooseView(v: RotaView) {
     setRotaView(v);
+    setMoreViews(false);
+    // A day a decision sent the timeline to is forgotten, so coming back to the timeline later does not jump.
+    setFocusDay(undefined);
     try {
       localStorage.setItem(VIEW_KEY, v);
     } catch {
       // Not remembered in private mode; the choice still applies now.
+    }
+  }
+
+  function chooseDensity(d: Density) {
+    setDensityState(d);
+    try {
+      localStorage.setItem(DENSITY_KEY, d);
+    } catch {
+      // Not remembered in private mode; the choice still applies now.
+    }
+  }
+
+  // Each decision above the rota settles by one move on this screen.
+  function act(action: DecisionAction) {
+    if (action.kind === 'build') void runAutoBuild();
+    else if (action.kind === 'people') chooseView('people');
+    else if (action.kind === 'issues') {
+      setPnlAsk(Date.now());
+      document.querySelector('.pnl-strip')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    } else {
+      chooseView('timeline');
+      setFocusDay({ date: action.date, at: Date.now() });
     }
   }
 
@@ -464,8 +518,38 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   }
 
   const views = ROTA_VIEWS.filter((v) => !v.cost || showCost);
-  // A saved choice of a view this person is not offered falls back to the timeline.
-  const shownView = views.some((v) => v.id === rotaView) ? rotaView : 'timeline';
+  // A saved choice of a view this person is not offered falls back to the timeline, as does every
+  // view at Simple.
+  const shownView = density !== 'simple' && views.some((v) => v.id === rotaView) ? rotaView : 'timeline';
+  // At Standard the main views are tabs and the rest wait behind More, the one in use shown beside them.
+  const tabViews = density === 'expert' ? views : views.filter((v) => v.main || v.id === shownView);
+  const moreList = density === 'standard' ? views.filter((v) => !v.main) : [];
+  const viewHelp = views.find((v) => v.id === shownView)?.help ?? '';
+
+  // The week's decisions, worked from the same figures as the rota beneath them.
+  const brief = useMemo(
+    () =>
+      single
+        ? weekBrief({
+            shifts: view.shifts.filter((s) => s.siteId === single.id && dates.includes(s.date)),
+            employees: view.employees,
+            dates,
+            metrics,
+            issues,
+            showCost,
+            published,
+            today,
+          })
+        : null,
+    // dates is drawn afresh each render from the week, so the week stands for it.
+    [single, view, week, metrics, issues, showCost, published, today],
+  );
+  // Each day a decision concerns is tagged on the timeline with the decision's number.
+  const marks = useMemo(() => {
+    const m: Record<string, string> = {};
+    brief?.decisions.forEach((d, i) => d.dates.forEach((date) => (m[date] ??= `Decision ${i + 1}`)));
+    return m;
+  }, [brief]);
 
   const status = blocks > 0 ? 'blocked' : published ? 'published' : 'draft';
   const statusLabel = blocks > 0 ? `${blocks} blocking issue${blocks > 1 ? 's' : ''}` : published ? 'Published to team' : weekShifts.length ? 'Draft' : 'Not started';
@@ -499,25 +583,37 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
 
   return (
     <div className="workspace">
-      <aside className="sidebar">
+      <header className="topbar">
         <div className="wordmark">
           Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
-        <OrgPicker account={account} />
-        <DemoPicker me={me} />
-        <SideNav groups={nav} active={activeTab} onOpen={openSection} />
-        <div className="side-foot">
-          {released.length > 0 && <button className="link" onClick={() => setWalking(true)}>What's new</button>}
-          <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-          {account && !account.demo && (
+        <TopNav
+          groups={nav}
+          active={activeTab}
+          onOpen={openSection}
+          end={
             <>
-              <a className="link" href="/oauth/connections" title="Claude and other apps you have let act as you, with a disconnect button">Connected apps</a>
-              <button className="link small" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
-              <a className="link" href="/auth/logout">Sign out</a>
+              {released.length > 0 && <button className="link whats-new" onClick={() => setWalking(true)}>What's new</button>}
+              <AccountMenu initial={(me?.user?.name ?? account?.email ?? 'You').charAt(0).toUpperCase()}>
+                <OrgPicker account={account} />
+                <DemoPicker me={me} />
+                <div className="account-links">
+                  {account && !account.demo && (
+                    <button className="link" onClick={() => setTab('profile')} title="Your profile">Signed in as {me?.user?.name ?? account.email}</button>
+                  )}
+                  <a className="link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+                  {account && !account.demo && (
+                    <>
+                      <a className="link" href="/oauth/connections" title="Claude and other apps you have let act as you, with a disconnect button">Connected apps</a>
+                      <a className="link" href="/auth/logout">Sign out</a>
+                    </>
+                  )}
+                </div>
+              </AccountMenu>
             </>
-          )}
-        </div>
-      </aside>
+          }
+        />
+      </header>
 
       <div className="content">
         <DemoBanner me={me} />
@@ -535,8 +631,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 <span className={`stamp ${status}`}>{statusLabel}</span>
               </div>
             )}
-          </div>
-          <div className="sections">
             {section.plans && canEdit && !needsSite && !notHere && <div className="section-actions">
               {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
               {rotaAi && siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
@@ -548,11 +642,24 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               </button>
             </div>}
           </div>
+          {section.scope === 'week' && <PnlStrip
+            state={view}
+            metrics={metrics}
+            issues={issues}
+            canPublish={blocks === 0 && weekShifts.length > 0 && !published}
+            publishRefused={canPublish ? undefined : NOT_YOURS}
+            published={published}
+            blocks={blocks}
+            onPublish={() => void actions.publish(siteIds, week)}
+            showCost={showCost}
+            onForecast={siteIds.length > 0 && siteIds.every((id) => allow('demand.manage', id)) ? () => void forecastWeek() : undefined}
+            openSignal={pnlAsk}
+          />}
         </header>
 
         <AuthenticatorBar me={me} />
 
-        <div className={section.scope === 'week' ? 'shell' : 'shell no-rail'}>
+        <div className="shell">
           <div className="main">
             {activeTab !== 'billing' && <BillingBanner billing={account?.billing} canSettings={allow('settings.manage')} onOpen={() => setTab('billing')} />}
             {sample && !account?.demo && activeTab !== 'setup' && (
@@ -651,16 +758,49 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onSetTravel={actions.setTravel}
                 />
               )}
+              {shown === 'rota' && single && brief && <DecisionsBar brief={brief} canEdit={canEdit} onAct={act} />}
               {shown === 'rota' && single && (
                 <div className="view-bar">
-                  <div className="toggle rota-views" role="tablist" aria-label="Rota view">
-                    {views.map((v) => (
-                      <button key={v.id} role="tab" aria-selected={shownView === v.id} className={shownView === v.id ? 'active' : ''} onClick={() => chooseView(v.id)}>
-                        {v.label}
+                  {density !== 'simple' && (
+                    <div className="toggle rota-views" role="tablist" aria-label="Rota view">
+                      {tabViews.map((v) => (
+                        <button key={v.id} role="tab" aria-selected={shownView === v.id} className={shownView === v.id ? 'active' : ''} onClick={() => chooseView(v.id)}>
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {moreList.length > 0 && (
+                    <div className="more-views" onKeyDown={(e) => e.key === 'Escape' && setMoreViews(false)}>
+                      <button className="ghost" aria-expanded={moreViews} aria-controls="more-views" onClick={() => setMoreViews(!moreViews)}>
+                        {moreList.length} more views
                       </button>
-                    ))}
+                      {moreViews && (
+                        <div className="more-menu" id="more-views">
+                          {moreList.map((v) => (
+                            <button key={v.id} className={shownView === v.id ? 'active' : ''} aria-current={shownView === v.id ? 'true' : undefined} onClick={() => chooseView(v.id)}>
+                              <b>{v.label}</b>
+                              <span>{v.help}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {density === 'expert' ? <span className="muted small view-help">{viewHelp}</span> : <Tip about="this view">{viewHelp}</Tip>}
+                  <div className="density">
+                    <span className="muted small">Show</span>
+                    <div className="toggle" role="group" aria-label="How much to show">
+                      {DENSITIES.map((d) => (
+                        <button key={d.id} aria-pressed={density === d.id} className={density === d.id ? 'active' : ''} onClick={() => chooseDensity(d.id)}>
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+                    <Tip about="how much to show" align="end">
+                      Simple shows the decisions and the service timeline. Standard adds By person and Gantt, with the other views behind More. Expert shows every view at once, with its explanation. Your choice is remembered on this device.
+                    </Tip>
                   </div>
-                  <span className="muted small">{views.find((v) => v.id === shownView)?.help}</span>
                 </div>
               )}
               {shown === 'rota' && single && shownView === 'cover' && (
@@ -702,6 +842,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onOpen={canEdit ? setOpening : () => refuse(NOT_YOURS)}
                   baseLabourCost={baseMetrics.labourCost}
                   showCost={showCost}
+                  focus={focusDay}
+                  marks={marks}
                 />
               )}
               {shown === 'rota' && single && shownView === 'people' && (
@@ -860,18 +1002,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               <span>UK rates 2026/27. Running on the Preshift API.</span>
             </footer>
           </div>
-          {section.scope === 'week' && <PnlRail
-            state={view}
-            metrics={metrics}
-            issues={issues}
-            canPublish={blocks === 0 && weekShifts.length > 0 && !published}
-            publishRefused={canPublish ? undefined : NOT_YOURS}
-            published={published}
-            blocks={blocks}
-            onPublish={() => void actions.publish(siteIds, week)}
-            showCost={showCost}
-            onForecast={siteIds.length > 0 && siteIds.every((id) => allow('demand.manage', id)) ? () => void forecastWeek() : undefined}
-          />}
         </div>
       </div>
 

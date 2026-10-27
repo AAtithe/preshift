@@ -20,6 +20,10 @@ describe('management bar', () => {
     for (const t of NAV_ITEMS.filter((t) => t.siteOnly)) expect(t.scope).not.toBe('org');
   });
 
+  it('says in a line what every section is for', () => {
+    for (const t of NAV_ITEMS) expect(t.hint.length, t.id).toBeGreaterThan(10);
+  });
+
   it('only gives organisation sections a heading of their own', () => {
     for (const t of NAV_ITEMS.filter((t) => t.title)) expect(t.scope).toBe('org');
   });

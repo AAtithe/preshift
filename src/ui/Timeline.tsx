@@ -23,6 +23,8 @@ const STRIP = 22;
  * 118px; the rest is room for a taller fallback font.
  */
 export const MIN_LANE = 132;
+/** A folded day: one line with its name, what is on and its P&L. */
+const FOLDED = 48;
 
 interface Props {
   /** The rota as previewed mid-drag. */
@@ -42,6 +44,10 @@ interface Props {
   baseLabourCost: number;
   /** Pay is withheld from those who do not see cost: the money columns are left out rather than shown as nought. */
   showCost: boolean;
+  /** A day to open and bring into view, as a decision above the rota asks. Changes each time it is asked. */
+  focus?: { date: string; at: number };
+  /** A short tag for a day, such as the decision it carries. */
+  marks?: Record<string, string>;
 }
 
 interface Draw {
@@ -73,6 +79,8 @@ interface Lane {
   rows: number;
   /** First row of each department, for the faint labels in the plot. */
   groups: { dept: Department; row: number }[];
+  /** Shown as one line, its shifts hidden until it is opened. */
+  folded: boolean;
 }
 
 /**
@@ -80,12 +88,25 @@ interface Lane {
  * shifts stacked as bars by department and a coverage strip that reads short or over by the
  * hour. Bars drag along the day to move, by their ends to resize, and up or down to another day.
  */
-export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost, showCost }: Props) {
+export function Timeline({ state, base, site, dates, metrics, issues, onEdit, onPreview, onCommit, onBlocked, onOpen, baseLabourCost, showCost, focus, marks = {} }: Props) {
   const layer = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  // Days opened or folded by hand, by date. Any other day folds when it has nothing on and the week
+  // is under way, so the days with work in them stand together; a week not yet started shows every day.
+  const [folds, setFolds] = useState<Record<string, boolean>>({});
   const [draw, setDraw] = useState<Draw | null>(null);
   const drawRef = useRef<Draw | null>(null);
   const deptOf = (roleId: string) => base.roles.find((r) => r.id === roleId)?.department ?? 'FOH';
   const siteShifts = base.shifts.filter((s) => s.siteId === site.id && dates.includes(s.date));
+  const isFolded = (date: string) => folds[date] ?? (siteShifts.length > 0 && !siteShifts.some((s) => s.date === date));
+  const fold = (date: string, folded: boolean) => setFolds((f) => ({ ...f, [date]: folded }));
+
+  // A day asked for from above is opened and scrolled to.
+  useEffect(() => {
+    if (!focus) return;
+    setFolds((f) => ({ ...f, [focus.date]: false }));
+    requestAnimationFrame(() => body.current?.querySelector(`[data-date="${focus.date}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  }, [focus]);
 
   // The axis covers trading hours with an hour either side, widened for any shift outside them,
   // including one being dragged past the edge: a shift pulled on past midnight takes the axis with it.
@@ -173,8 +194,9 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
       rows += ends.length;
     }
     // One spare row at the foot of every day takes shifts dragged in from other days.
-    const height = Math.max(MIN_LANE, PAD + (rows + 1) * ROW + STRIP + PAD);
-    const lane = { date, top, height, placed, rows, groups };
+    const folded = isFolded(date);
+    const height = folded ? FOLDED : Math.max(MIN_LANE, PAD + (rows + 1) * ROW + STRIP + PAD);
+    const lane = { date, top, height, placed, rows, groups, folded };
     top += height;
     return lane;
   });
@@ -231,181 +253,225 @@ export function Timeline({ state, base, site, dates, metrics, issues, onEdit, on
     return last ? `${first} ${last[0]}` : first;
   };
 
+  const foldedCount = lanes.filter((l) => l.folded).length;
   return (
-    <div className="tl panel">
-      <div className="tl-axis" data-sticky-top>
-        <div className="tl-corner">
-          <span className="eyebrow">Service day</span>
-        </div>
-        <div className="tl-ticks">
-          {hours.map((m, i) => (
-            <span key={m} className="tl-tick" style={{ left: `${x(m)}%` }}>
-              {i < hours.length - 1 ? formatMinute(m).slice(0, 2) : ''}
-            </span>
-          ))}
-        </div>
-        <div className="tl-corner right">
-          <span className="eyebrow">Day P&amp;L</span>
-        </div>
+    <>
+      <div className="tl-tools">
+        <span className="muted small">
+          {foldedCount > 0 ? `${foldedCount} ${foldedCount === 1 ? 'day' : 'days'} folded` : 'Every day open'}
+        </span>
+        <button className="link" disabled={foldedCount === 0} onClick={() => setFolds(Object.fromEntries(dates.map((d) => [d, false])))}>
+          Open all days
+        </button>
+        <button className="link" disabled={foldedCount === dates.length} onClick={() => setFolds(Object.fromEntries(dates.map((d) => [d, true])))}>
+          Fold all days
+        </button>
       </div>
+      <div className="tl panel">
+        <div className="tl-axis" data-sticky-top>
+          <div className="tl-corner">
+            <span className="eyebrow">Service day</span>
+          </div>
+          <div className="tl-ticks">
+            {hours.map((m, i) => (
+              <span key={m} className="tl-tick" style={{ left: `${x(m)}%` }}>
+                {i < hours.length - 1 ? formatMinute(m).slice(0, 2) : ''}
+              </span>
+            ))}
+          </div>
+          <div className="tl-corner right">
+            <span className="eyebrow">Day P&amp;L</span>
+          </div>
+        </div>
 
-      <div className="tl-body" style={{ height: totalHeight }}>
-        {lanes.map((lane, i) => {
-          const m = metrics.days[i];
-          const over = m.labourPct > metrics.targetPct;
-          const pts = (m.labourPct - metrics.targetPct) * 100;
-          // The trading day's hours, those after midnight drawn on past the day's end.
-          const forecast = tradingDayRows(state.forecast, site, site.id, lane.date);
-          const coverage = coverageFor(state, site.id, lane.date);
-          const plotH = lane.height - PAD * 2 - STRIP;
-          const target = dragging?.mode === 'move' && dragging.current.date === lane.date && dragging.original.date !== lane.date;
-          const refused = dragging?.blocked?.refuse && dragging.blocked.date === lane.date;
-          const d = new Date(`${lane.date}T00:00:00Z`);
-          return (
-            <section
-              key={lane.date}
-              className={`tl-lane${lane.date === today ? ' today' : ''}${target ? ' drop' : ''}${refused ? ' refused' : ''}`}
-              style={{ top: lane.top, height: lane.height }}
-            >
-              <header className="tl-day">
-                <div className="tl-dayname">{WEEKDAY[i]}</div>
-                <div className="eyebrow">{d.getUTCDate()} {d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</div>
-                <div className="tl-daysales tnum">{money(m.forecastSales)}</div>
-                <div className="muted small">forecast sales</div>
-              </header>
-              <div className="tl-plot" onPointerDown={(e) => startDraw(e, lane.date)}>
-                <svg className="tl-curve" viewBox={`0 0 ${span} 100`} preserveAspectRatio="none" aria-hidden style={{ top: PAD, height: plotH }}>
-                  <path d={curvePath(forecast, from, forecastMax)} />
-                </svg>
-                {lane.groups.map((g) => (
-                  <span key={g.dept} className="tl-group" style={{ top: PAD + g.row * ROW }}>
-                    {DEPT_SHORT[g.dept]}
-                  </span>
-                ))}
-                {lane.rows === 0 && <span className="tl-empty">No shifts. Drag across the day to add one, or build from the forecast.</span>}
-                {draw?.date === lane.date && draw.moved && (
-                  <DraftBand from={Math.min(draw.a, draw.b)} to={Math.max(draw.a, draw.b)} x={x} top={PAD} height={plotH} />
-                )}
-                <div className="tl-strip" style={{ bottom: PAD }}>
-                  {coverage.map((c) =>
-                    c.hour * 60 >= from && c.hour * 60 < to ? (
-                      c.gap > 0 ? (
-                        <button
-                          key={c.hour}
-                          className="tl-cell short"
-                          style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
-                          title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}. Click to fill the gap.`}
-                          aria-label={`${c.gap} short at ${formatMinute(c.hour * 60)}. Fill the gap`}
-                          onClick={() => {
-                            const opening = openingForGap(state, site.id, lane.date, c.hour);
-                            if (opening) onOpen(opening);
-                          }}
-                        >
-                          -{c.gap}
-                        </button>
-                      ) : (
-                        <span
-                          key={c.hour}
-                          className={`tl-cell ${c.gap < 0 ? 'over' : c.required ? 'ok' : ''}`}
-                          style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
-                          title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}`}
-                        >
-                          {c.gap < 0 ? `+${-c.gap}` : ''}
-                        </span>
-                      )
-                    ) : null,
-                  )}
-                </div>
-              </div>
-              {showCost && <aside className="tl-pnl">
-                <div className="tnum">{money(m.labourCost)}</div>
-                <div className="muted small">labour</div>
-                {m.forecastSales === 0 ? (
-                  <div className="muted small">No forecast</div>
-                ) : (
-                  <div className={`tl-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</div>
-                )}
-                {m.labourCost > 0 && m.forecastSales > 0 && (
-                  <div className={`small tnum ${over ? 'bad-text' : 'good-text'}`}>
-                    {pts > 0 ? '+' : ''}
-                    {pts.toFixed(1)} pts
-                  </div>
-                )}
-              </aside>}
-            </section>
-          );
-        })}
-
-        <div className="tl-layer" ref={layer}>
-          {hours.map((m) => (
-            <span key={m} className="tl-hour" style={{ left: `${x(m)}%` }} />
-          ))}
-          {lanes.flatMap((lane) =>
-            lane.placed.map(({ shift: original, row }) => {
-              const live = state.shifts.find((s) => s.id === original.id) ?? original;
-              const isDragged = dragging?.original.id === original.id;
-              const shift = isDragged ? dragging.current : live;
-              const home = lanes.find((l) => l.date === shift.date) ?? lane;
-              // Same day keeps its row; another day lands in that day's spare row.
-              const y = home.top + PAD + (shift.date === original.date ? row : home.rows) * ROW;
-              const flagged = issues.filter((i) => i.shiftId === shift.id);
-              const level = flagged.some((i) => i.severity === 'block') ? 'block' : flagged.length ? 'warn' : '';
-              const role = state.roles.find((r) => r.id === shift.roleId);
-              const cost = metrics.cost.shifts.get(shift.id)?.total ?? 0;
-              const moved = isDragged && (shift.date !== original.date || shift.startMinute !== original.startMinute || shift.endMinute !== original.endMinute);
-              return [
-                moved ? (
-                  <span
-                    key={`${original.id}-home`}
-                    className="tl-ghost"
-                    style={{ top: lane.top + PAD + row * ROW, left: `${x(original.startMinute)}%`, width: `${x(original.endMinute) - x(original.startMinute)}%` }}
-                  />
-                ) : null,
-                <button
-                  key={original.id}
-                  className={`tl-bar ${shift.published ? 'pub' : 'draft'} ${level} ${isDragged ? 'is-dragging' : ''}`}
-                  style={{ top: y, left: `${x(shift.startMinute)}%`, width: `${x(shift.endMinute) - x(shift.startMinute)}%` }}
-                  onPointerDown={(ev) => startDrag(ev, live)}
-                  onClick={() => !wasDrag() && onEdit(live)}
-                  onKeyDown={(ev) => keyMove(ev, live)}
-                  onContextMenu={(ev) => ev.preventDefault()}
-                  title={`${name(shift.employeeId)}, ${role?.name} ${formatMinute(shift.startMinute)}-${formatMinute(shift.endMinute)}. ${
-                    flagged.map((i) => i.message).join('\n') || 'Drag to move, drag the ends to change the hours.'
-                  }`}
+        <div className="tl-body" ref={body} style={{ height: totalHeight }}>
+          {lanes.map((lane, i) => {
+            const m = metrics.days[i];
+            const over = m.labourPct > metrics.targetPct;
+            const pts = (m.labourPct - metrics.targetPct) * 100;
+            // The trading day's hours, those after midnight drawn on past the day's end.
+            const forecast = tradingDayRows(state.forecast, site, site.id, lane.date);
+            const coverage = coverageFor(state, site.id, lane.date);
+            const plotH = lane.height - PAD * 2 - STRIP;
+            const target = dragging?.mode === 'move' && dragging.current.date === lane.date && dragging.original.date !== lane.date;
+            const refused = dragging?.blocked?.refuse && dragging.blocked.date === lane.date;
+            const d = new Date(`${lane.date}T00:00:00Z`);
+            const dateLabel = `${d.getUTCDate()} ${d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}`;
+            if (lane.folded) {
+              const on = siteShifts.filter((s) => s.date === lane.date).length;
+              const shortHours = coverage.filter((c) => c.gap > 0).length;
+              return (
+                <section
+                  key={lane.date}
+                  data-date={lane.date}
+                  className={`tl-lane folded${lane.date === today ? ' today' : ''}${target ? ' drop' : ''}${refused ? ' refused' : ''}`}
+                  style={{ top: lane.top, height: lane.height }}
                 >
-                  <span className="tl-edge start" data-edge="start" aria-hidden />
-                  <span className="tl-name">{short(name(shift.employeeId))}</span>
-                  {homeOf(shift.employeeId) !== site.id && <span className="tl-from">{siteOf(homeOf(shift.employeeId))}</span>}
-                  <span className="tl-meta">
-                    {role?.name} · {formatMinute(shift.startMinute)}-{formatMinute(shift.endMinute)}
+                  <button className="tl-fold" aria-expanded={false} onClick={() => fold(lane.date, false)} title={`Open ${WEEKDAY[i]} to see and change its shifts`}>
+                    <span className="tl-fold-day">{WEEKDAY[i]}</span>
+                    <span className="muted">{dateLabel}</span>
+                  </button>
+                  <span className="tl-fold-sum">
+                    <span className="tnum">{money(m.forecastSales)} sales</span>
+                    <span className={on ? '' : 'bad-text'}>{on ? `${on} ${on === 1 ? 'shift' : 'shifts'}` : 'No shifts'}</span>
+                    {shortHours > 0 && <span className="bad-text">short {shortHours} {shortHours === 1 ? 'hour' : 'hours'}</span>}
+                    {marks[lane.date] && <span className="tl-mark">{marks[lane.date]}</span>}
                   </span>
-                  {showCost && <span className="tl-cost tnum">{money(cost)}</span>}
-                  {level && <span className="tl-flag" aria-label={level === 'block' ? 'Blocking issue' : 'Needs review'}>!</span>}
-                  <span className="tl-edge end" data-edge="end" aria-hidden />
-                </button>,
-              ];
-            }),
-          )}
-        </div>
-      </div>
+                  {showCost && m.forecastSales > 0 && (
+                    <span className={`tl-fold-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</span>
+                  )}
+                </section>
+              );
+            }
+            return (
+              <section
+                data-date={lane.date}
+                key={lane.date}
+                className={`tl-lane${lane.date === today ? ' today' : ''}${target ? ' drop' : ''}${refused ? ' refused' : ''}`}
+                style={{ top: lane.top, height: lane.height }}
+              >
+                <header className="tl-day">
+                  <button className="tl-fold-btn" aria-expanded={true} aria-label={`Fold ${WEEKDAY[i]}`} title={`Fold ${WEEKDAY[i]} to one line`} onClick={() => fold(lane.date, true)} />
+                  <div className="tl-dayname">{WEEKDAY[i]}</div>
+                  <div className="eyebrow">{dateLabel}</div>
+                  {marks[lane.date] && <span className="tl-mark">{marks[lane.date]}</span>}
+                  <div className="tl-daysales tnum">{money(m.forecastSales)}</div>
+                  <div className="muted small">forecast sales</div>
+                </header>
+                <div className="tl-plot" onPointerDown={(e) => startDraw(e, lane.date)}>
+                  <svg className="tl-curve" viewBox={`0 0 ${span} 100`} preserveAspectRatio="none" aria-hidden style={{ top: PAD, height: plotH }}>
+                    <path d={curvePath(forecast, from, forecastMax)} />
+                  </svg>
+                  {lane.groups.map((g) => (
+                    <span key={g.dept} className="tl-group" style={{ top: PAD + g.row * ROW }}>
+                      {DEPT_SHORT[g.dept]}
+                    </span>
+                  ))}
+                  {lane.rows === 0 && <span className="tl-empty">No shifts. Drag across the day to add one, or build from the forecast.</span>}
+                  {draw?.date === lane.date && draw.moved && (
+                    <DraftBand from={Math.min(draw.a, draw.b)} to={Math.max(draw.a, draw.b)} x={x} top={PAD} height={plotH} />
+                  )}
+                  <div className="tl-strip" style={{ bottom: PAD }}>
+                    {coverage.map((c) =>
+                      c.hour * 60 >= from && c.hour * 60 < to ? (
+                        c.gap > 0 ? (
+                          <button
+                            key={c.hour}
+                            className="tl-cell short"
+                            style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
+                            title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}. Click to fill the gap.`}
+                            aria-label={`${c.gap} short at ${formatMinute(c.hour * 60)}. Fill the gap`}
+                            onClick={() => {
+                              const opening = openingForGap(state, site.id, lane.date, c.hour);
+                              if (opening) onOpen(opening);
+                            }}
+                          >
+                            -{c.gap}
+                          </button>
+                        ) : (
+                          <span
+                            key={c.hour}
+                            className={`tl-cell ${c.gap < 0 ? 'over' : c.required ? 'ok' : ''}`}
+                            style={{ left: `${x(c.hour * 60)}%`, width: `${(60 / span) * 100}%` }}
+                            title={`${formatMinute(c.hour * 60)}: need ${c.required}, rostered ${c.scheduled}`}
+                          >
+                            {c.gap < 0 ? `+${-c.gap}` : ''}
+                          </span>
+                        )
+                      ) : null,
+                    )}
+                  </div>
+                </div>
+                {showCost && <aside className="tl-pnl">
+                  <div className="tnum">{money(m.labourCost)}</div>
+                  <div className="muted small">labour</div>
+                  {m.forecastSales === 0 ? (
+                    <div className="muted small">No forecast</div>
+                  ) : (
+                    <div className={`tl-pct tnum ${m.labourCost ? (over ? 'bad-text' : 'good-text') : ''}`}>{pct(m.labourPct)}</div>
+                  )}
+                  {m.labourCost > 0 && m.forecastSales > 0 && (
+                    <div className={`small tnum ${over ? 'bad-text' : 'good-text'}`}>
+                      {pts > 0 ? '+' : ''}
+                      {pts.toFixed(1)} pts
+                    </div>
+                  )}
+                </aside>}
+              </section>
+            );
+          })}
 
-      {pointer && dragging && (
-        <DragReadout
-          x={pointer.x}
-          y={pointer.y}
-          shift={dragging.current}
-          name={name(dragging.current.employeeId)}
-          shiftCost={metrics.cost.shifts.get(dragging.current.id)?.total ?? 0}
-          delta={metrics.labourCost - baseLabourCost}
-          labourPct={metrics.labourPct}
-          over={metrics.labourPct > metrics.targetPct}
-          flags={issues.filter((i) => i.shiftId === dragging.current.id || (!i.shiftId && i.employeeId === dragging.current.employeeId))}
-          blocked={dragging.blocked?.reason ?? null}
-          resizing={dragging.mode !== 'move'}
-          touch={pointer.touch}
-        />
-      )}
-    </div>
+          <div className="tl-layer" ref={layer}>
+            {hours.map((m) => (
+              <span key={m} className="tl-hour" style={{ left: `${x(m)}%` }} />
+            ))}
+            {lanes.flatMap((lane) =>
+              (lane.folded ? lane.placed.filter((p) => dragging?.original.id === p.shift.id) : lane.placed).map(({ shift: original, row }) => {
+                const live = state.shifts.find((s) => s.id === original.id) ?? original;
+                const isDragged = dragging?.original.id === original.id;
+                const shift = isDragged ? dragging.current : live;
+                const home = lanes.find((l) => l.date === shift.date) ?? lane;
+                // Same day keeps its row; another day lands in that day's spare row.
+                const y = home.folded ? home.top + (FOLDED - ROW) / 2 + 3 : home.top + PAD + (shift.date === original.date ? row : home.rows) * ROW;
+                const flagged = issues.filter((i) => i.shiftId === shift.id);
+                const level = flagged.some((i) => i.severity === 'block') ? 'block' : flagged.length ? 'warn' : '';
+                const role = state.roles.find((r) => r.id === shift.roleId);
+                const cost = metrics.cost.shifts.get(shift.id)?.total ?? 0;
+                const moved = isDragged && (shift.date !== original.date || shift.startMinute !== original.startMinute || shift.endMinute !== original.endMinute);
+                return [
+                  moved ? (
+                    <span
+                      key={`${original.id}-home`}
+                      className="tl-ghost"
+                      style={{ top: lane.top + PAD + row * ROW, left: `${x(original.startMinute)}%`, width: `${x(original.endMinute) - x(original.startMinute)}%` }}
+                    />
+                  ) : null,
+                  <button
+                    key={original.id}
+                    className={`tl-bar ${shift.published ? 'pub' : 'draft'} ${level} ${isDragged ? 'is-dragging' : ''}`}
+                    style={{ top: y, left: `${x(shift.startMinute)}%`, width: `${x(shift.endMinute) - x(shift.startMinute)}%` }}
+                    onPointerDown={(ev) => startDrag(ev, live)}
+                    onClick={() => !wasDrag() && onEdit(live)}
+                    onKeyDown={(ev) => keyMove(ev, live)}
+                    onContextMenu={(ev) => ev.preventDefault()}
+                    title={`${name(shift.employeeId)}, ${role?.name} ${formatMinute(shift.startMinute)}-${formatMinute(shift.endMinute)}. ${
+                      flagged.map((i) => i.message).join('\n') || 'Drag to move, drag the ends to change the hours.'
+                    }`}
+                  >
+                    <span className="tl-edge start" data-edge="start" aria-hidden />
+                    <span className="tl-name">{short(name(shift.employeeId))}</span>
+                    {homeOf(shift.employeeId) !== site.id && <span className="tl-from">{siteOf(homeOf(shift.employeeId))}</span>}
+                    <span className="tl-meta">
+                      {role?.name} · {formatMinute(shift.startMinute)}-{formatMinute(shift.endMinute)}
+                    </span>
+                    {showCost && <span className="tl-cost tnum">{money(cost)}</span>}
+                    {level && <span className="tl-flag" aria-label={level === 'block' ? 'Blocking issue' : 'Needs review'}>!</span>}
+                    <span className="tl-edge end" data-edge="end" aria-hidden />
+                  </button>,
+                ];
+              }),
+            )}
+          </div>
+        </div>
+
+        {pointer && dragging && (
+          <DragReadout
+            x={pointer.x}
+            y={pointer.y}
+            shift={dragging.current}
+            name={name(dragging.current.employeeId)}
+            shiftCost={metrics.cost.shifts.get(dragging.current.id)?.total ?? 0}
+            delta={metrics.labourCost - baseLabourCost}
+            labourPct={metrics.labourPct}
+            over={metrics.labourPct > metrics.targetPct}
+            flags={issues.filter((i) => i.shiftId === dragging.current.id || (!i.shiftId && i.employeeId === dragging.current.employeeId))}
+            blocked={dragging.blocked?.reason ?? null}
+            resizing={dragging.mode !== 'move'}
+            touch={pointer.touch}
+          />
+        )}
+      </div>
+    </>
   );
 }
 

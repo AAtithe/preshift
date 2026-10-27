@@ -1,8 +1,8 @@
 import { expect, test, type Page } from './fixtures';
 import { NAV, NAV_ITEMS, type NavItem } from '../src/ui/nav';
 
-// The management bar: every section opens in every scope, the header only offers controls that
-// change what is on screen, and where you are survives Back and refresh. Site and entity names are
+// The management bar across the top: every section opens in every scope, the header only offers
+// controls that change what is on screen, and where you are survives Back and refresh. Site and entity names are
 // read from the page, so the same checks run against the local demo or a deployed site.
 
 // The sections and their rules come from the bar itself, so a new section is checked as soon as it exists.
@@ -21,11 +21,17 @@ const item = (page: Page, label: string) => bar(page).getByRole('button', { name
 const groupOf = (label: string) => NAV.find((g) => g.items.some((t) => t.label === label))!;
 const toggle = (page: Page, groupId: string) => page.locator(`[data-group="${groupId}"] .nav-toggle`);
 
-/** Opens the section from the bar, unfolding its group first if it is folded away. */
+/** Opens the section from the bar, opening its group's menu first if it is shut. */
 async function go(page: Page, label: string) {
   const t = toggle(page, groupOf(label).id);
   if ((await t.count()) > 0 && (await t.getAttribute('aria-expanded')) === 'false') await t.click();
   await item(page, label).click();
+}
+
+/** The section open now: named above the heading, and its group marked in the bar with every menu shut. */
+async function at(page: Page, label: string) {
+  await expect(page.locator('.mast-top .eyebrow')).toHaveText(label);
+  await expect(bar(page).locator(`[data-group="${groupOf(label).id}"] > button`)).toHaveClass(/current/);
 }
 const heading = (page: Page) => page.locator('.mast-title h1');
 
@@ -89,9 +95,7 @@ for (const scope of ['all sites', 'one site'] as const) {
     // From one site, Sites steps back out to every site; that has its own test below.
     for (const label of scope === 'all sites' ? SECTIONS : SECTIONS.filter((l) => l !== 'Sites')) {
       await go(page, label);
-      await expect(item(page, label)).toHaveAttribute('aria-current', 'page');
-      await expect(item(page, label)).toBeEnabled();
-      await expect(page.locator('.mast-top .eyebrow')).toHaveText(label);
+      await at(page, label);
 
       const choosing = several && SITE_ONLY.includes(label);
       await expect(page.locator('.site-chooser')).toHaveCount(choosing ? 1 : 0);
@@ -114,7 +118,7 @@ test('a site-only section across several sites asks for a site, then opens it th
   await expect(chooser.getByRole('button')).toHaveCount(sites.length);
   await chooser.getByRole('button', { name: sites[1] }).click();
   await expect(heading(page)).toHaveText(sites[1]);
-  await expect(item(page, 'Payroll')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Payroll');
   await expect(chooser).toHaveCount(0);
 });
 
@@ -147,7 +151,7 @@ test('changing site keeps you in the section you are in', async ({ page }) => {
   await choose(page, sites[0]);
   await go(page, 'Absence');
   await choose(page, sites[sites.length - 1]);
-  await expect(item(page, 'Absence')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Absence');
   await expect(heading(page)).toHaveText(sites[sites.length - 1]);
 });
 
@@ -155,7 +159,7 @@ test('opening a site from the overview goes to its rota, and Sites steps back ou
   const link = page.locator('main button.site-link').first();
   const name = (await link.textContent())!.trim();
   await link.click();
-  await expect(item(page, 'Rota')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Rota');
   await expect(heading(page)).toHaveText(name);
   await go(page, 'Sites');
   await expect(heading(page)).toHaveText('All sites');
@@ -173,29 +177,36 @@ test('Back and refresh return to the same place', async ({ page }) => {
   expect(url).toContain('site=');
 
   await page.reload();
-  await expect(item(page, 'Payroll')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Payroll');
   await expect(heading(page)).toHaveText(site);
   expect(page.url()).toBe(url);
 
   await page.goBack();
-  await expect(item(page, 'Holiday')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Holiday');
   await expect(heading(page)).toHaveText(site);
   await page.goBack();
-  await expect(item(page, 'Rota')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Rota');
 });
 
-test('groups fold away, the one you are in opens, and your choice is remembered', async ({ page }) => {
-  await go(page, 'Absence');
+test('a group opens as a menu, one at a time, and shuts on choosing, Escape or a click elsewhere', async ({ page }) => {
   const people = toggle(page, 'people');
-  await expect(people).toHaveAttribute('aria-expanded', 'true');
+  const planning = toggle(page, 'planning');
   await people.click();
+  await expect(people).toHaveAttribute('aria-expanded', 'true');
+  await expect(item(page, 'Training')).toBeVisible();
+  // Opening another group shuts the first.
+  await planning.click();
   await expect(people).toHaveAttribute('aria-expanded', 'false');
   await expect(item(page, 'Training')).toHaveCount(0);
-  await page.reload();
+  await page.keyboard.press('Escape');
+  await expect(planning).toHaveAttribute('aria-expanded', 'false');
+  await people.click();
+  await page.locator('main').click();
   await expect(people).toHaveAttribute('aria-expanded', 'false');
+  // Choosing a section shuts the menu, and the bar still marks the group you are in.
   await go(page, 'Training');
-  await expect(people).toHaveAttribute('aria-expanded', 'true');
-  await expect(item(page, 'Training')).toHaveAttribute('aria-current', 'page');
+  await expect(people).toHaveAttribute('aria-expanded', 'false');
+  await at(page, 'Training');
 });
 
 test('Go to finds a section by its name, and / reaches it from anywhere', async ({ page }) => {
@@ -207,7 +218,7 @@ test('Go to finds a section by its name, and / reaches it from anywhere', async 
   await page.keyboard.type('pay');
   await expect(bar(page).locator('.nav-results button').first()).toContainText('Payroll');
   await page.keyboard.press('Enter');
-  await expect(item(page, 'Payroll')).toHaveAttribute('aria-current', 'page');
+  await at(page, 'Payroll');
   await expect(find).toHaveValue('');
 
   await find.fill('nothing like this');
@@ -216,12 +227,11 @@ test('Go to finds a section by its name, and / reaches it from anywhere', async 
   await expect(find).toHaveValue('');
 });
 
-test('a folded group lists what is inside it', async ({ page }) => {
-  await go(page, 'Absence');
+test('every section in a menu says what it is for, and a shut group names its sections on hover', async ({ page }) => {
   const people = toggle(page, 'people');
+  await expect(people).toHaveAttribute('title', /Absence/);
   await people.click();
-  await expect(people).toHaveAttribute('aria-expanded', 'false');
-  await expect(people.locator('.nav-preview')).toContainText('Absence');
+  await expect(item(page, 'Absence')).toHaveAccessibleDescription(NAV_ITEMS.find((t) => t.id === 'absence')!.hint);
 });
 
 test('a supervisor sees only their sections, and the API refuses the rest', async ({ page }) => {
@@ -230,11 +240,16 @@ test('a supervisor sees only their sections, and the API refuses the rest', asyn
   await page.evaluate(() => localStorage.setItem('preshift.demoKey', 'dev-usr_sup'));
   await page.reload();
   await expect(bar(page)).toBeVisible();
+  // One menu opens at a time, so each group is opened in turn and what it lists is gathered.
+  const shown: string[] = [];
   for (const g of NAV) {
     const t = toggle(page, g.id);
-    if ((await t.count()) > 0 && (await t.getAttribute('aria-expanded')) === 'false') await t.click();
+    if ((await t.count()) === 0) continue;
+    await t.click();
+    shown.push(...(await bar(page).locator('.nav-menu .nav-label').allTextContents()));
+    await page.keyboard.press('Escape');
   }
-  const shown = (await bar(page).locator('.nav-items button, .nav-group > button:not(.nav-toggle)').allTextContents()).map((x) => x.trim());
+  shown.push(...(await bar(page).locator('.nav-direct').allTextContents()));
   expect(shown).toEqual(expect.arrayContaining(['Rota', 'Clock in', 'Your profile']));
   for (const hidden of ['Sites', 'Labour cost', 'Staff', 'HR overview', 'Cases', 'Reports', 'Close', 'Access', 'GDPR', 'Settings']) {
     expect(shown).not.toContain(hidden);
@@ -263,6 +278,8 @@ test('the organisation picker names where you are and moves only on a deliberate
   });
   await page.route('**/auth/switch', (route) => route.fulfill({ status: 403, json: { message: 'You have no access to that organisation.' } }));
   await page.reload();
+  // The organisation picker lives in the account menu at the end of the bar.
+  await page.getByRole('button', { name: 'Account' }).click();
 
   const picker = page.getByRole('button', { name: /^Organisation:/ });
   await expect(picker).toContainText('3 you work in');
@@ -281,7 +298,13 @@ test('the organisation picker names where you are and moves only on a deliberate
 test('viewing as someone else says so on every screen, and one click returns to yourself', async ({ page }) => {
   // Acting as a demo person is a development build feature, so this runs against the local server only.
   test.skip(!!process.env.PRESHIFT_E2E_URL, 'Needs the local development server');
+  // Who you are viewing as lives in the account menu at the end of the bar, opened afresh after each switch.
+  const account = page.getByRole('button', { name: 'Account' });
   const card = page.getByRole('button', { name: 'Viewing as' });
+  const openAccount = async () => {
+    if ((await account.getAttribute('aria-expanded')) !== 'true') await account.click();
+  };
+  await openAccount();
   await expect(card).toContainText('Yourself');
   await expect(page.locator('.acting-banner')).toHaveCount(0);
 
@@ -293,8 +316,12 @@ test('viewing as someone else says so on every screen, and one click returns to 
   await someone.click();
 
   await expect(page.locator('.acting-banner')).toContainText(`You are viewing the app as ${name}`);
+  await openAccount();
   await expect(card).toContainText(name);
+  // The menu opens over the banner, so it is shut before the banner's button is used.
+  await account.click();
   await page.getByRole('button', { name: 'Back to yourself' }).click();
   await expect(page.locator('.acting-banner')).toHaveCount(0);
+  await openAccount();
   await expect(card).toContainText('Yourself');
 });

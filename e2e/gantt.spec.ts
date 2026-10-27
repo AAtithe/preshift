@@ -17,6 +17,8 @@ async function openGantt(page: Page) {
   await expect(bar(page)).toBeVisible();
   await page.getByRole('button', { name: 'Site or company' }).click();
   await page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText('Marylebone', { exact: true }) }).click();
+  // Rota sits in the Planning menu of the bar.
+  await bar(page).locator('[data-group="planning"] .nav-toggle').click();
   await bar(page).getByRole('button', { name: 'Rota', exact: true }).click();
   await page.getByRole('tab', { name: 'Gantt' }).click();
   await expect(page.locator('.gantt-axis')).toBeVisible();
@@ -51,6 +53,9 @@ test('the week reads one line per person, a day opens by the hour, and a bar dra
   async function drag(dx: number) {
     // Other checks move Marylebone's shifts at the same time, which can re-sort the lines under the
     // pointer: press only once the bar has held still and is really what lies under that point.
+    // The decisions and notices above the rota can leave the first line at the foot of the screen,
+    // under the command bar: bring the bar to the middle first, as a person would scroll to it.
+    await shift.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     let box = { x: 0, y: 0, width: 0, height: 0 };
     await expect
       .poll(async () => {
