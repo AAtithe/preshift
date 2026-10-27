@@ -5,7 +5,7 @@ import { checkEmployeeWeek, checkWeek, overrideTrend, requiredBreakMinutes } fro
 import { employeeWeekCost, weekCost } from './cost';
 import { holidayBalance, holidayHourlyRate, leaveYear, workedShifts } from './holiday';
 import { employedShare, employeeStatus, newEmployee, reviewEmployee } from './employees';
-import { dayDemand, headcountAt } from './demand';
+import { dayCover, dayDemand, headcountAt } from './demand';
 import { intercompanyBalances, rotaJournal, toXeroCsv } from './journal';
 import { scopeMetrics, weekMetrics } from './metrics';
 import { seedState } from './seed';
@@ -261,6 +261,22 @@ describe('demand', () => {
     expect(servers[9].required).toBe(0); // closed
     expect(Math.max(...servers.map((h) => h.required))).toBeGreaterThan(1);
     expect(Math.max(...servers.map((h) => h.required))).toBeLessThanOrEqual(6);
+  });
+
+  it('adds every role into the day cover, never letting one over make up for another short', () => {
+    const state = seedState('2026-10-21');
+    const sat = addDays(WEEK, 5);
+    const roles = state.demandRules.filter((r) => r.siteId === 'mar').map((r) => r.roleId);
+    // Two bartenders on all evening and no servers: the bar runs over while the floor is short.
+    const withBar = { ...state, shifts: [shift(sat, 17, 23, 0, { id: 'b1', roleId: 'bar' }), shift(sat, 17, 23, 0, { id: 'b2', roleId: 'bar' })] };
+    const cover = dayCover(withBar, 'mar', sat);
+    const at = cover[19];
+    const rows = roles.map((r) => dayDemand(withBar, 'mar', r, sat)[19]);
+    expect(at.required).toBe(rows.reduce((s, r) => s + r.required, 0));
+    expect(at.scheduled).toBe(2);
+    expect(at.short).toBe(rows.reduce((s, r) => s + Math.max(0, r.gap), 0));
+    expect(at.short).toBeGreaterThan(0);
+    expect(at.short - at.over).toBe(at.required - at.scheduled);
   });
 });
 

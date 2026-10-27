@@ -4,7 +4,8 @@ import { breakFor, checkEmployeeWeek, complianceOptions } from '../engine/compli
 import { employeeWeekCost, shiftsInWeek } from '../engine/cost';
 import { employedShare } from '../engine/employees';
 import { addDays, formatMinute, parseClock, weekStart } from '../engine/time';
-import type { RotaState, Shift } from '../engine/types';
+import type { RotaState, Shift, ShiftType } from '../engine/types';
+import { templateOf, type ShiftTemplate } from './drag';
 import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
 import { travelIssues } from '../engine/travel';
@@ -20,10 +21,17 @@ interface Props {
   onClose: () => void;
   /** Offers the shift to the people who could legally work it instead. Absent for those who may not. */
   onAskCover?: (shiftId: string) => void;
+  /** Holds the shift to paste onto other people and days. Absent where the view cannot paste. */
+  onCopy?: (template: ShiftTemplate) => void;
+  /** Saves the times, break and role as one of the site's shift types. */
+  onSaveType?: (type: Omit<ShiftType, 'id'>) => Promise<unknown>;
 }
 
-export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose, onAskCover }: Props) {
+export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose, onAskCover, onCopy, onSaveType }: Props) {
   const [draft, setDraft] = useState<Shift>(shift);
+  // The name for a new shift type while it is being typed; null when not saving one.
+  const [typeName, setTypeName] = useState<string | null>(null);
+  const types = (state.shiftTypes ?? []).filter((t) => t.siteId === draft.siteId);
   const isNew = !state.shifts.some((s) => s.id === shift.id);
   const employee = state.employees.find((e) => e.id === draft.employeeId)!;
   const ws = weekStart(draft.date);
@@ -95,6 +103,24 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
 
         <div className="modal-body">
         <div className="form">
+          {types.length > 0 && (
+            <label>
+              Shift type
+              {/* A starting point: the shift keeps the times it is given, not a link to the type. */}
+              <select
+                value={types.find((t) => t.startMinute === draft.startMinute && t.endMinute === draft.endMinute && t.breakMinutes === draft.breakMinutes && (!t.roleId || t.roleId === draft.roleId))?.id ?? ''}
+                onChange={(e) => {
+                  const t = types.find((x) => x.id === e.target.value);
+                  if (t) setDraft({ ...draft, startMinute: t.startMinute, endMinute: t.endMinute, breakMinutes: t.breakMinutes, ...(t.roleId ? { roleId: t.roleId, areaId: '' } : {}) });
+                }}
+              >
+                <option value="">Custom times</option>
+                {types.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name} · {formatMinute(t.startMinute)}-{formatMinute(t.endMinute)}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Role
             <select value={draft.roleId} onChange={(e) => setDraft({ ...draft, roleId: e.target.value })}>
@@ -154,6 +180,25 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
               <button className="link" onClick={() => setDraft({ ...draft, breakMinutes: neededBreak })}>Apply</button>
             )}
           </div>
+          {onSaveType && (typeName === null ? (
+            <div className="hint">
+              <button className="link" onClick={() => setTypeName('')}>Save these times as a shift type</button>
+            </div>
+          ) : (
+            <div className="save-type">
+              <input autoFocus value={typeName} maxLength={40} placeholder="Name it: Lunch, Close..." aria-label="Shift type name" onChange={(e) => setTypeName(e.target.value)} />
+              <button
+                disabled={!typeName.trim() || length <= 0}
+                onClick={async () => {
+                  const { siteId, startMinute, endMinute, breakMinutes, roleId } = draft;
+                  if (await onSaveType({ siteId, name: typeName.trim(), startMinute, endMinute, breakMinutes, roleId })) setTypeName(null);
+                }}
+              >
+                Save type
+              </button>
+              <button className="ghost" onClick={() => setTypeName(null)}>Cancel</button>
+            </div>
+          ))}
         </div>
 
         <DayLine site={site} start={draft.startMinute} end={draft.endMinute} />
@@ -212,6 +257,11 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
             </button>
           )}
           {!isNew && onAskCover && <button onClick={() => onAskCover(shift.id)}>Ask for cover</button>}
+          {onCopy && length > 0 && (
+            <button title="Hold these times to paste onto other people and days" onClick={() => onCopy(templateOf(draft, state.roles.find((r) => r.id === draft.roleId)?.name ?? 'Shift'))}>
+              Copy
+            </button>
+          )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={length <= 0} onClick={() => onSave(draft)}>Save</button>

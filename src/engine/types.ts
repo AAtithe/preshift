@@ -774,6 +774,32 @@ export interface RotaState {
   stockCounts?: StockCount[];
   /** Employment Rights Act settings in force, loaded for warnings before a change is saved. */
   employmentRights?: import('./employmentRights').EraSettings;
+  /** Each site's saved shift patterns, picked from a list when building the rota. */
+  shiftTypes?: ShiftType[];
+  /** What whoever builds the rota should know about a day: a big booking, an event, a road closure. */
+  dayNotes?: DayNote[];
+}
+
+/** A shift pattern set up once at a site (times, break and role) and picked from a list when building. */
+export interface ShiftType {
+  id: string;
+  siteId: string;
+  name: string;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  /** Absent: the pattern suits any role, and a shift built from it takes the person's own. */
+  roleId?: string;
+}
+
+/** One note per site per day, for whoever builds the rota. */
+export interface DayNote {
+  siteId: string;
+  date: string;
+  text: string;
+  /** Who last wrote it, and when: set by the server, never by the caller. */
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 /**

@@ -8,6 +8,7 @@ import { scopeMetrics } from '../engine/metrics';
 import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
+import type { ShiftTemplate } from './drag';
 import { RemindersBanner } from './RemindersBanner';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
@@ -84,6 +85,8 @@ const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['revie
 const PremiumsPanel = screen(() => import('./PremiumsPanel'), 'PremiumsPanel', ['pay']);
 const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
+const RotaWeekStrip = screen(() => import('./RotaWeekStrip'), 'RotaWeekStrip', ['rota']);
+const ShiftTypesPanel = screen(() => import('./ShiftTypesPanel'), 'ShiftTypesPanel', ['rota']);
 const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']);
 const CostView = screen(() => import('./RotaLenses'), 'CostView', ['rota']);
 const CoverMap = screen(() => import('./RotaLenses'), 'CoverMap', ['rota']);
@@ -274,6 +277,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
+  // A shift or shift type held to paste onto other people and days, and the site's shift types open to set up.
+  const [clip, setClip] = useState<ShiftTemplate | null>(null);
+  const [typesOpen, setTypesOpen] = useState(false);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   // A request handed over from Shifty or the command bar, to start the rota assistant with.
@@ -320,6 +326,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
+  // A held shift belongs to the site it was copied at: its area means nothing at another.
+  useEffect(() => setClip(null), [single?.id]);
   const allow = useMemo(() => allowFor(me), [me]);
   const [sample, setSample] = useState(false);
   // Whoever may change the set-up is told when they are still looking at the sample group.
@@ -803,6 +811,14 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   </div>
                 </div>
               )}
+              {shown === 'rota' && single && (
+                <RotaWeekStrip
+                  state={state}
+                  site={single}
+                  dates={dates}
+                  onSaveNote={allow('rota.edit', single.id) ? (date, text) => actions.saveDayNote(single.id, date, text) : undefined}
+                />
+              )}
               {shown === 'rota' && single && shownView === 'cover' && (
                 <CoverMap state={view} site={single} dates={dates} onOpen={canEdit ? setOpening : undefined} />
               )}
@@ -859,6 +875,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
                   onBlocked={refuse}
                   baseLabourCost={baseMetrics.labourCost}
+                  clip={canEdit ? clip : null}
+                  onClip={setClip}
+                  onAdd={canEdit ? addShift : () => refuse(NOT_YOURS)}
+                  onManageTypes={canEdit ? () => setTypesOpen(true) : undefined}
                 />
               )}
               {shown === 'clock' && single && (
@@ -1121,7 +1141,12 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
           onAskCover={allow('rota.publish', editing.siteId) ? (id) => { setEditing(null); setCoverShift(id); setSiteId(editing.siteId); setTab('requests'); } : undefined}
+          onCopy={shown === 'rota' && shownView === 'people' ? (t) => { setClip(t); setEditing(null); } : undefined}
+          onSaveType={allow('rota.edit', editing.siteId) ? actions.saveShiftType : undefined}
         />
+      )}
+      {typesOpen && single && (
+        <ShiftTypesPanel state={state} site={single} onAdd={actions.saveShiftType} onRemove={actions.deleteShiftType} onClose={() => setTypesOpen(false)} />
       )}
       </Suspense>
     </div>

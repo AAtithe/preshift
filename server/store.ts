@@ -600,6 +600,8 @@ export function upgradeState(state: RotaState): RotaState {
     bookings: state.bookings ?? [],
     bookingPace: state.bookingPace ?? [],
     schoolHolidays: state.schoolHolidays ?? [],
+    shiftTypes: state.shiftTypes ?? [],
+    dayNotes: state.dayNotes ?? [],
   };
 }
 

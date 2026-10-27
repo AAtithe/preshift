@@ -126,3 +126,32 @@ export function salesForTradingDay(
 export function forecastSalesForDay(state: RotaState, siteId: string, date: string): number {
   return salesForTradingDay(state.forecast, state.sites.find((s) => s.id === siteId), siteId, date);
 }
+
+export interface CoverHour {
+  hour: number;
+  required: number;
+  scheduled: number;
+  /** People short across the roles short this hour; one role over never makes up for another short. */
+  short: number;
+  over: number;
+}
+
+/**
+ * A day's cover at a site across every role with a demand rule, hour by hour: the strip the rota
+ * shows under each day, so cover can be checked while the rota is built.
+ */
+export function dayCover(state: RotaState, siteId: string, date: string): CoverHour[] {
+  const rules = state.demandRules.filter((r) => r.siteId === siteId);
+  const byRole = rules.map((r) => dayDemand(state, siteId, r.roleId, date));
+  const hours = byRole[0]?.length ?? 0;
+  return Array.from({ length: hours }, (_, hour) => {
+    const rows = byRole.map((rows) => rows[hour]);
+    return {
+      hour,
+      required: rows.reduce((s, r) => s + r.required, 0),
+      scheduled: rows.reduce((s, r) => s + r.scheduled, 0),
+      short: rows.reduce((s, r) => s + Math.max(0, r.gap), 0),
+      over: rows.reduce((s, r) => s + Math.max(0, -r.gap), 0),
+    };
+  });
+}
