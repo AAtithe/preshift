@@ -3,6 +3,7 @@ import { NOTE_KINDS } from '../engine/dayNotes';
 import { addDays, formatMinute, parseClock, weekday } from '../engine/time';
 import type { DayNote, DayNoteKind } from '../engine/types';
 import { dayLabel } from './format';
+import { useDialogClose } from './useDialogClose';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -23,6 +24,8 @@ export function DayNoteEditor({ note, date, onSave, onDelete, onClose }: Props) 
   const existing = 'id' in note ? note : null;
   const [draft, setDraft] = useState<Draft>(existing ? { ...existing } : { siteId: note.siteId, date: note.date, kind: 'other', text: '' });
   const [busy, setBusy] = useState(false);
+  const [start] = useState(draft);
+  const close = useDialogClose(JSON.stringify(draft) !== JSON.stringify(start), onClose);
   const day = WEEKDAYS[weekday(draft.date)];
   // Opened on a later week of a weekly note: it can stop before this week rather than go altogether.
   const laterWeek = existing?.weekly && date > existing.date;
@@ -37,7 +40,7 @@ export function DayNoteEditor({ note, date, onSave, onDelete, onClose }: Props) 
   const save = () => run(() => onSave({ ...draft, text: draft.text.trim(), ...(draft.weekly ? {} : { until: undefined }) }));
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={close}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={existing ? 'Edit note' : 'New note'} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
@@ -109,7 +112,7 @@ export function DayNoteEditor({ note, date, onSave, onDelete, onClose }: Props) 
             <button className="danger" disabled={busy} onClick={() => run(() => onDelete(existing.id))}>Delete</button>
           ))}
           <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
+          <button onClick={close}>Cancel</button>
           <button className="primary" disabled={busy || !draft.text.trim()} onClick={() => void save()}>Save</button>
         </div>
       </div>

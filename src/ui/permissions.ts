@@ -29,3 +29,5 @@ export function heldOnceVerified(me: Me | null): Allow {
 }
 
 export const NOT_YOURS = 'Your roles do not include this here.';
+/** Said when someone who may only look at a rota tries to change it. */
+export const ROTA_READ_ONLY = 'You can see this rota, but your roles do not let you change shifts here.';

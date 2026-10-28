@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react';
 import { formatMinute, parseClock } from '../engine/time';
 import type { RotaState, ShiftType, Site } from '../engine/types';
+import { useDialogClose } from './useDialogClose';
 
 interface Props {
   state: RotaState;
@@ -15,6 +16,8 @@ export function ShiftTypesPanel({ state, site, onAdd, onRemove, onClose }: Props
   const types = (state.shiftTypes ?? []).filter((t) => t.siteId === site.id).sort((a, b) => a.startMinute - b.startMinute || a.name.localeCompare(b.name));
   const [draft, setDraft] = useState({ name: '', startMinute: site.openMinute, endMinute: Math.min(site.closeMinute, site.openMinute + 6 * 60), breakMinutes: 0, roleId: '' });
   const [busy, setBusy] = useState(false);
+  // Only a half-typed new type counts as unsaved: those in the list are saved as they are added.
+  const close = useDialogClose(!!draft.name.trim(), onClose);
   const roleName = (id?: string) => (id ? state.roles.find((r) => r.id === id)?.name ?? id : 'Any role');
 
   const setClock = (key: 'startMinute' | 'endMinute') => (e: ChangeEvent<HTMLInputElement>) => {
@@ -33,7 +36,7 @@ export function ShiftTypesPanel({ state, site, onAdd, onRemove, onClose }: Props
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={close}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Shift types" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
@@ -90,7 +93,7 @@ export function ShiftTypesPanel({ state, site, onAdd, onRemove, onClose }: Props
         </div>
         <div className="modal-actions">
           <span className="spacer" />
-          <button onClick={onClose}>Close</button>
+          <button onClick={close}>Close</button>
           <button className="primary" disabled={busy || !draft.name.trim() || draft.endMinute <= draft.startMinute} onClick={() => void add()}>Add shift type</button>
         </div>
       </div>

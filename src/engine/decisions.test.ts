@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Issue } from './compliance';
 import { nameDays, weekBrief } from './decisions';
 import type { DayMetrics, WeekMetrics } from './metrics';
-import { weekDates } from './time';
+import { addDays, weekDates } from './time';
 import type { Employee, Shift } from './types';
 
 const WEEK = '2026-10-26';
@@ -63,7 +63,7 @@ function week(days: Partial<DayMetrics>[] = []): WeekMetrics {
 
 const MONDAY_OVER = { forecastSales: 3298, labourCost: 2367, labourPct: 2367 / 3298 };
 const employees = [person('ellie'), person('marco', { contractedHours: 40 }), person('aisha', { contractedHours: 40 })];
-const base = { employees, dates: DATES, showCost: true, published: false, today: MON };
+const base = { employees, dates: DATES, showCost: true, today: MON };
 
 describe('naming days', () => {
   it('says one day, a run, or a list', () => {
@@ -132,12 +132,37 @@ describe('the week brief', () => {
     expect(decisions[0].title).toBe('Saturday and Sunday have no shifts');
   });
 
+  it('has nothing to decide about a week that is over', () => {
+    const issues: Issue[] = [
+      { code: 'daily-rest', severity: 'block', employeeId: 'ellie', date: MON, message: 'has 9h rest between shifts.' },
+      { code: 'under-contract', severity: 'warn', employeeId: 'marco', message: '', gapHours: 10 },
+    ];
+    expect(weekBrief({ ...base, today: addDays(DATES[6], 1), shifts: [shift('a', MON)], metrics: week([MONDAY_OVER]), issues })).toEqual({ decisions: [], keep: null });
+  });
+
+  it('turns hours the build could not fill into one decision, after the empty days', () => {
+    const shifts = DATES.slice(0, 3).map((d, i) => shift(String(i), d));
+    const unfilled = [
+      { role: 'Host', date: DATES[2], fromHour: 19, toHour: 23 },
+      { role: 'Host', date: DATES[3], fromHour: 19, toHour: 23 },
+      { role: 'Bartender', date: DATES[4], fromHour: 19, toHour: 23 },
+      { role: 'Bartender', date: DATES[5], fromHour: 19, toHour: 23 },
+      // Yesterday's gap is past deciding about.
+      { role: 'Host', date: DATES[0], fromHour: 12, toHour: 14 },
+    ];
+    const { decisions } = weekBrief({ ...base, today: DATES[1], shifts, metrics: week(), issues: [], unfilled });
+    expect(decisions.map((d) => d.kind)).toEqual(['empty-days', 'unfillable']);
+    expect(decisions[1].title).toBe('4 gaps cannot be filled legally with the current team');
+    expect(decisions[1].detail).toBe('Host Wed 19:00-23:00, Host Thu 19:00-23:00, Bartender Fri 19:00-23:00 and 1 more. That is a hiring or cross-training signal, not a rota problem.');
+    expect(decisions[1].dates).toEqual(DATES.slice(2, 6));
+  });
+
   it('praises only what is plainly true', () => {
     const shifts = DATES.map((d, i) => shift(String(i), d));
     expect(weekBrief({ ...base, shifts, metrics: week(), issues: [] }).keep).toBe('Nothing to decide: the week is staffed, legal and inside the labour target.');
     expect(weekBrief({ ...base, showCost: false, shifts, metrics: week(), issues: [] }).keep).toBe('Nothing to decide: the week is staffed and legal.');
-    // Published, with work still to do.
-    expect(weekBrief({ ...base, published: true, shifts: [shift('a', MON)], metrics: week([MONDAY_OVER]), issues: [] }).keep).toBe('Published: the team can see this week.');
+    // Work still to do: whether the week is published is the heading's to say, not this line's.
+    expect(weekBrief({ ...base, shifts: [shift('a', MON)], metrics: week([MONDAY_OVER]), issues: [] }).keep).toBeNull();
     // No forecast: nothing to judge the week against.
     const none = week(DATES.map(() => ({ forecastSales: 0, labourPct: 0 })));
     expect(weekBrief({ ...base, shifts: [], metrics: none, issues: [] })).toEqual({ decisions: [], keep: null });
