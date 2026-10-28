@@ -48,6 +48,42 @@ export function moveShift(shift: Shift, to: Employee, date: string): Shift {
   return { ...shift, employeeId: to.id, date, roleId };
 }
 
+/** A shift's times, break and role, held to drop on other people and days: copied from a shift or a shift type. */
+export interface ShiftTemplate {
+  /** What it is called back to the person: the shift type's name, or the role of the shift copied. */
+  label: string;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  /** Absent: the person's own role. */
+  roleId?: string;
+  areaId?: string;
+}
+
+export function templateOf(shift: Shift, label: string): ShiftTemplate {
+  const { startMinute, endMinute, breakMinutes, roleId, areaId } = shift;
+  return { label, startMinute, endMinute, breakMinutes, roleId, ...(areaId ? { areaId } : {}) };
+}
+
+/**
+ * A new shift from a template for one person on one day. The role is kept when they are trained for
+ * it, as a moved shift's is; otherwise it is their primary role, and the area goes with the role.
+ */
+export function pasteShift(template: ShiftTemplate, to: Employee, date: string, siteId: string, id: string): Shift {
+  const kept = !!template.roleId && to.roleIds.includes(template.roleId);
+  return {
+    id,
+    employeeId: to.id,
+    roleId: kept ? template.roleId! : to.roleIds[0],
+    siteId,
+    date,
+    startMinute: template.startMinute,
+    endMinute: template.endMinute,
+    breakMinutes: template.breakMinutes,
+    ...(kept && template.areaId ? { areaId: template.areaId } : {}),
+  };
+}
+
 export function sameShift(a: Shift, b: Shift): boolean {
   return (
     a.employeeId === b.employeeId &&

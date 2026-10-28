@@ -1,4 +1,4 @@
-import type { Absence, Booking, BookingPace, DaySales, DemandRule, Employee, Entity, HourActual, HourForecast, HrProfile, HrRecord, Role, RotaState, Site } from './types';
+import type { Absence, Booking, BookingPace, DaySales, DemandRule, Employee, Entity, HourActual, HourForecast, HrProfile, HrRecord, Role, RotaState, Site, ShiftType, DayNote } from './types';
 import { COURSES, requiredCourses } from './hr';
 import { PACE_LEADS } from './bookings';
 import { daypartOf, DAYPARTS } from './forecast';
@@ -298,7 +298,38 @@ export function seedState(today = toISODate(new Date())): RotaState {
     forecastAdjustments: [],
     bookings: demo.bookings,
     bookingPace: demo.pace,
+    shiftTypes: sites.flatMap(shiftTypesFor),
+    dayNotes: demoNotes(start, today),
   };
+}
+
+/** The patterns a GM sets up once: an open, a close, a double, and the kitchen's prep start. */
+function shiftTypesFor(site: Site): ShiftType[] {
+  const t = (key: string, name: string, startMinute: number, endMinute: number, breakMinutes: number, roleId?: string): ShiftType => ({
+    id: `st-${site.id}-${key}`, siteId: site.id, name, startMinute, endMinute, breakMinutes, ...(roleId ? { roleId } : {}),
+  });
+  return [
+    t('lunch', 'Lunch', site.openMinute, site.openMinute + 5 * 60, 0, 'server'),
+    t('dinner', 'Dinner', 17 * 60, site.closeMinute, 0, 'server'),
+    t('bar-close', 'Bar close', 17 * 60, site.closeMinute + 30, 0, 'bar'),
+    t('prep', 'Kitchen prep', site.openMinute - 90, 16 * 60, 30, 'chef'),
+    t('double', 'Double', site.openMinute, site.closeMinute, 60),
+  ];
+}
+
+/** What the GM at Marylebone has written on the week, so the rota shows notes of each sort. */
+function demoNotes(start: string, today: string): DayNote[] {
+  const by = { updatedBy: 'Priya Shah', updatedAt: `${addDays(start, -3)}T16:20:00.000Z` };
+  const notes: DayNote[] = [
+    { id: 'dn-mar-bidfood', siteId: 'mar', date: addDays(start, -6), kind: 'delivery', startMinute: 7 * 60, text: 'Bidfood delivery. Someone on prep from 07:00 to check it in.', weekly: true, ...by },
+    { id: 'dn-mar-roadworks', siteId: 'mar', date: addDays(start, 3), kind: 'closure', startMinute: 7 * 60, text: 'Delivery bay closed 07:00 to 10:00 for road works. Kitchen to take the drop round the front.', team: true, ...by },
+    { id: 'dn-mar-training', siteId: 'mar', date: addDays(start, 2), kind: 'staffing', startMinute: 15 * 60, text: 'Allergen refresher for front of house, 15:00 to 15:30 before service.', team: true, ...by },
+  ];
+  const halloween = `${today.slice(0, 4)}-10-31`;
+  if (halloween >= today && halloween < addDays(today, 21)) {
+    notes.push({ id: 'dn-mar-party', siteId: 'mar', date: halloween, kind: 'booking', startMinute: 19 * 60 + 30, text: 'Private party of 24, set menu. One extra server on from 19:00.', team: true, updatedBy: 'Priya Shah', updatedAt: `${addDays(today, -12)}T11:05:00.000Z` });
+  }
+  return notes;
 }
 
 const FIRST_NAMES = ['Sarah', 'David', 'Amira', 'James', 'Rosa', 'Michael', 'Leah', 'Kofi'];

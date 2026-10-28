@@ -36,6 +36,7 @@ import { clockingRoutes } from './routes/clocking';
 import { tapPointRoutes } from './routes/tapPoints';
 import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
+import { rotaPlanningRoutes } from './routes/rotaPlanning';
 import { bookingRoutes } from './routes/bookings';
 import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
@@ -494,6 +495,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
       return payload;
     });
     rotaRoutes(api, ctx);
+    rotaPlanningRoutes(api, ctx);
     employmentRightsRoutes(api, ctx);
     cutCallRoutes(api, ctx);
     employeeRoutes(api, ctx);

@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { notesOn, teamView } from '../../src/engine/dayNotes';
 import type { Employee, TimeEntry } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, londonParts, notFound, orgOf, type AppContext } from '../context';
@@ -88,7 +89,7 @@ function board({ org, kiosk }: Paired) {
         hasPin: Boolean(e.kioskPinSetAt),
       };
     });
-  return { kiosk: { name: kiosk.name }, site: { id: site.id, name: site.name }, today: date, pinRequired: Boolean(site.kioskPinRequired), people };
+  return { kiosk: { name: kiosk.name }, site: { id: site.id, name: site.name }, today: date, pinRequired: Boolean(site.kioskPinRequired), people, notes: notesOn(org.state.dayNotes ?? [], site.id, date, { team: true }).map(teamView) };
 }
 
 const firstName = (name: string) => name.split(' ')[0];

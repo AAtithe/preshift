@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Employee, Shift } from '../engine/types';
-import { dropBlocker, keyChange, LATEST_END, moveShift, nudgeShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
+import { dropBlocker, keyChange, LATEST_END, moveShift, nudgeShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf } from './drag';
 
 const base: Shift = {
   id: 's1',
@@ -85,5 +85,25 @@ describe('drag maths', () => {
     expect(keyChange(press('ArrowDown', true), base, week, undefined)?.next).toMatchObject({ startMinute: 11 * 60, endMinute: 15 * 60 + 15 });
     const offWeds = { id: 'e1', name: 'Sam Lee', leave: [], availability: [{ weekday: 1, fromMinute: 0, toMinute: 1440 }] } as unknown as Employee;
     expect(keyChange(press('ArrowRight'), { ...base, date: '2026-10-20' }, week, offWeds)?.reason).toBe('Sam is not available on Wednesdays.');
+  });
+});
+
+describe('copy and paste', () => {
+  it('drops a copied shift on another person and day with its times, break and role', () => {
+    const t = templateOf({ ...base, breakMinutes: 20, areaId: 'mar-foh' }, 'Server');
+    const pasted = pasteShift(t, person('e2', ['host', 'server']), '2026-10-23', 'mar', 'new');
+    expect(pasted).toEqual({ id: 'new', employeeId: 'e2', roleId: 'server', siteId: 'mar', date: '2026-10-23', startMinute: 11 * 60, endMinute: 15 * 60, breakMinutes: 20, areaId: 'mar-foh' });
+    expect(pasted.published).toBeUndefined();
+  });
+
+  it("falls back to the person's own role, and its area, when they are not trained for the copied one", () => {
+    const pasted = pasteShift(templateOf({ ...base, areaId: 'mar-foh' }, 'Server'), person('e3', ['chef']), '2026-10-23', 'mar', 'new');
+    expect(pasted.roleId).toBe('chef');
+    expect(pasted.areaId).toBeUndefined();
+  });
+
+  it('builds from a shift type with no role in the role the person works', () => {
+    const pasted = pasteShift({ label: 'Double', startMinute: 600, endMinute: 1380, breakMinutes: 60 }, person('e4', ['bar']), '2026-10-24', 'mar', 'new');
+    expect(pasted).toMatchObject({ roleId: 'bar', startMinute: 600, endMinute: 1380, breakMinutes: 60 });
   });
 });

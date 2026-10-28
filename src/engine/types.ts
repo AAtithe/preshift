@@ -774,6 +774,45 @@ export interface RotaState {
   stockCounts?: StockCount[];
   /** Employment Rights Act settings in force, loaded for warnings before a change is saved. */
   employmentRights?: import('./employmentRights').EraSettings;
+  /** Each site's saved shift patterns, picked from a list when building the rota. */
+  shiftTypes?: ShiftType[];
+  /** What whoever builds the rota should know about a day: a big booking, an event, a road closure. */
+  dayNotes?: DayNote[];
+}
+
+/** A shift pattern set up once at a site (times, break and role) and picked from a list when building. */
+export interface ShiftType {
+  id: string;
+  siteId: string;
+  name: string;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  /** Absent: the pattern suits any role, and a shift built from it takes the person's own. */
+  roleId?: string;
+}
+
+export type DayNoteKind = 'booking' | 'event' | 'closure' | 'delivery' | 'staffing' | 'other';
+
+/** Something whoever builds the rota, and if they are told, the team, should know about a day at a site. */
+export interface DayNote {
+  id: string;
+  siteId: string;
+  /** The day it is for; for a weekly note, the first day it is for. */
+  date: string;
+  kind: DayNoteKind;
+  text: string;
+  /** London start time in minutes, when it happens at a time: a party at 19:30, a delivery at 07:00. */
+  startMinute?: number;
+  /** Shown to the team: in the staff app beside the shift of everyone working there that day, and on the site kiosk. */
+  team?: boolean;
+  /** Repeats on the same weekday every week from `date`. */
+  weekly?: boolean;
+  /** The last day a weekly note is for, inclusive. Absent: every week from `date` on. */
+  until?: string;
+  /** Who last wrote it, and when: set by the server, never by the caller. */
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 /**

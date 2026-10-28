@@ -95,6 +95,23 @@ describe('staff logins', () => {
     expect((await t.manager('GET', '/v1/staff-logins')).body[0]).toMatchObject({ employeeId: 'mar-1', status: 'active', email: 'priya@example.com' });
   });
 
+  it("shows the team's notes for the day beside the shift, never the managers' own", async () => {
+    const t = await boot();
+    const me = (await t.join('mar-1', 'priya@example.com')).cookie;
+    const { body: first } = await t.call('GET', '/v1/staff/me', undefined, me);
+    const day = first.today;
+    await t.manager('POST', '/v1/shifts', { employeeId: 'mar-1', roleId: 'bar', siteId: 'mar', date: day, startMinute: 1020, endMinute: 1380, breakMinutes: 30 });
+    const told = await t.manager('POST', '/v1/day-notes', { siteId: 'mar', date: day, kind: 'booking', startMinute: 1170, text: 'Party of 24, set menu.', team: true });
+    const kept = await t.manager('POST', '/v1/day-notes', { siteId: 'mar', date: day, kind: 'staffing', text: 'Talk to Priya about her hours.' });
+    const elsewhere = await t.manager('POST', '/v1/day-notes', { siteId: 'shd', date: day, kind: 'event', text: 'Gig next door.', team: true });
+    await t.manager('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: weekStart(day) });
+    const [shift] = (await t.call('GET', '/v1/staff/me', undefined, me)).body.shifts;
+    const ids = shift.notes.map((n: { id: string }) => n.id);
+    expect(shift.notes.find((n: { id: string }) => n.id === told.body.id)).toEqual({ id: told.body.id, kind: 'Booking', startMinute: 1170, text: 'Party of 24, set menu.' });
+    expect(ids).not.toContain(kept.body.id);
+    expect(ids).not.toContain(elsewhere.body.id);
+  });
+
   it('shows only the person their own published shifts', async () => {
     const t = await boot();
     const me = (await t.join('mar-1', 'priya@example.com')).cookie;
@@ -106,7 +123,7 @@ describe('staff logins', () => {
     const pub = await t.manager('POST', '/v1/rota/publish', { siteId: 'mar', weekStart: weekStart(today.today) });
     expect(pub.status).toBe(200);
     const shifts = (await t.call('GET', '/v1/staff/me', undefined, me)).body.shifts;
-    expect(shifts).toEqual([{ id: expect.any(String), date: today.today, startMinute: 1020, endMinute: 1380, breakMinutes: 30, siteName: 'Marylebone', roleName: expect.any(String) }]);
+    expect(shifts).toEqual([{ id: expect.any(String), date: today.today, startMinute: 1020, endMinute: 1380, breakMinutes: 30, siteName: 'Marylebone', roleName: expect.any(String), notes: expect.any(Array) }]);
     expect(JSON.stringify((await t.call('GET', '/v1/staff/me', undefined, me)).body)).not.toMatch(/mar-2/);
   });
 

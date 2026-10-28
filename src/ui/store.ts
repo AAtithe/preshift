@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnfilledGap } from '../engine/autoschedule';
 import type { Issue } from '../engine/compliance';
 import type { DayForecast } from '../engine/forecasting';
-import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, PayChange, PayTerms, PremiumRule, RestOverride, RotaState, Shift, Site, TravelPay } from '../engine/types';
+import type { Absence, DaySales, Employee, Entity, GeoFence, HrProfile, HrRecord, PayChange, PayTerms, PremiumRule, RestOverride, RotaState, Shift, ShiftType, DayNote, Site, TravelPay } from '../engine/types';
 import { weekDates } from '../engine/time';
 import type { Me } from './access/model';
 import { api } from './api';
@@ -29,7 +29,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       // One round trip for everything, who is asking included, rather than asking that first.
-      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights] = await Promise.all([
+      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights, shiftTypes, dayNotes] = await Promise.all([
         api.get<Me>('/v1/me'),
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
@@ -43,10 +43,13 @@ export function useRotaStore() {
         api.get<NonNullable<RotaState['forecastAdjustments']>>('/v1/forecast/adjustments'),
         // Only for warnings: the rota still loads without it.
         api.get<NonNullable<RotaState['employmentRights']>>('/v1/employment-rights/settings').catch(() => undefined),
+        // Helpers for building: the rota still loads without them.
+        api.get<ShiftType[]>('/v1/shift-types').catch(() => []),
+        api.get<DayNote[]>('/v1/day-notes').catch(() => []),
       ]);
       setMe(me);
       // Till actuals stay on the server: the screens that need them ask for them.
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights, shiftTypes, dayNotes });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -120,6 +123,33 @@ export function useRotaStore() {
       guard(async () => {
         await api.del(`/v1/shifts/${id}`);
         setState((s) => s && { ...s, shifts: s.shifts.filter((x) => x.id !== id) });
+        return true;
+      }),
+    saveShiftType: (type: Omit<ShiftType, 'id'>) =>
+      guard(async () => {
+        const saved = await api.post<ShiftType>('/v1/shift-types', type);
+        setState((s) => s && { ...s, shiftTypes: [...(s.shiftTypes ?? []), saved] });
+        return saved;
+      }),
+    deleteShiftType: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/shift-types/${id}`);
+        setState((s) => s && { ...s, shiftTypes: (s.shiftTypes ?? []).filter((t) => t.id !== id) });
+        return true;
+      }),
+    /** Adds a note on a day, or rewrites one by its id; a weekly note changes for every week. */
+    saveDayNote: (note: Omit<DayNote, 'id' | 'updatedBy' | 'updatedAt'> & { id?: string }) =>
+      guard(async () => {
+        // Who wrote it and when are the server's to set.
+        const { id, updatedBy: _by, updatedAt: _at, ...body } = note as Partial<DayNote> & typeof note;
+        const saved = id ? await api.put<DayNote>(`/v1/day-notes/${id}`, body) : await api.post<DayNote>('/v1/day-notes', body);
+        setState((s) => s && { ...s, dayNotes: [...(s.dayNotes ?? []).filter((n) => n.id !== saved.id), saved] });
+        return saved;
+      }),
+    deleteDayNote: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/day-notes/${id}`);
+        setState((s) => s && { ...s, dayNotes: (s.dayNotes ?? []).filter((n) => n.id !== id) });
         return true;
       }),
     build: (siteIds: string[], weekStart: string) =>
