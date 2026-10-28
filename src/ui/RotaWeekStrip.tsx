@@ -20,7 +20,7 @@ interface Props {
 
 /**
  * The week along the top of the rota: what is on each day (bank holidays, occasions, local
- * events, school holidays) and the site's notes on it, so whoever builds the rota knows.
+ * events, weddings and functions, school holidays) and the site's notes on it, so whoever builds the rota knows.
  */
 export function RotaWeekStrip({ state, site, dates, onSaveNote, onDeleteNote }: Props) {
   const [events, setEvents] = useState<LocalEvent[]>([]);
@@ -41,7 +41,7 @@ export function RotaWeekStrip({ state, site, dates, onSaveNote, onDeleteNote }: 
     };
   }, [site.id, from, to]);
 
-  const on = keyDates(dates, events, school);
+  const on = keyDates(dates, events, school, (state.privateEvents ?? []).filter((e) => e.siteId === site.id));
   const today = toISODate(new Date());
   const canEdit = !!onSaveNote && !!onDeleteNote;
 

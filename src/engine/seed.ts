@@ -300,6 +300,12 @@ export function seedState(today = toISODate(new Date())): RotaState {
     bookingPace: demo.pace,
     shiftTypes: sites.flatMap(shiftTypesFor),
     dayNotes: demoNotes(start, today),
+    // Two weeks out, so this week and next build as they always have: a confirmed wedding in the evening
+    // and a Christmas party still on hold, to show what each does to demand.
+    privateEvents: [
+      { id: 'tripleseat:demo-wedding', siteId: 'mar', source: 'tripleseat', date: addDays(start, 19), startMinute: 17 * 60, endMinute: 23 * 60 + 30, guests: 90, kind: 'wedding', style: 'seated', status: 'confirmed', exclusive: false, space: 'Garden room', spend: 8250 },
+      { id: 'tripleseat:demo-xmas', siteId: 'mar', source: 'tripleseat', date: addDays(start, 18), startMinute: 19 * 60, endMinute: 23 * 60, guests: 40, kind: 'corporate', style: 'standing', status: 'provisional', exclusive: false, space: 'Garden room', spend: 2400 },
+    ],
   };
 }
 

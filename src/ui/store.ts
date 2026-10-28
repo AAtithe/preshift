@@ -29,7 +29,7 @@ export function useRotaStore() {
   const load = useCallback(async () => {
     try {
       // One round trip for everything, who is asking included, rather than asking that first.
-      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights, shiftTypes, dayNotes] = await Promise.all([
+      const [me, entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights, shiftTypes, dayNotes, privateEvents] = await Promise.all([
         api.get<Me>('/v1/me'),
         api.get<RotaState['entities']>('/v1/entities'),
         api.get<RotaState['sites']>('/v1/sites'),
@@ -46,10 +46,12 @@ export function useRotaStore() {
         // Helpers for building: the rota still loads without them.
         api.get<ShiftType[]>('/v1/shift-types').catch(() => []),
         api.get<DayNote[]>('/v1/day-notes').catch(() => []),
+        // Weddings and functions add to demand; without them the rota still loads on normal trade.
+        api.get<NonNullable<RotaState['privateEvents']>>('/v1/private-events').catch(() => []),
       ]);
       setMe(me);
       // Till actuals stay on the server: the screens that need them ask for them.
-      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights, shiftTypes, dayNotes });
+      setState({ entities, sites, roles, demandRules, employees, shifts, forecast, sales, restOverrides, forecastAdjustments, employmentRights, shiftTypes, dayNotes, privateEvents });
       setError(null);
     } catch (e) {
       setError((e as Error).message);

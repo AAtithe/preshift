@@ -672,6 +672,11 @@ export interface DemandRule {
   /** Headcount floor whenever the site is open. */
   minimumWhileOpen: number;
   maximum: number;
+  /**
+   * Guests one person in this role looks after at a seated private event: a wedding, a buyout, a
+   * function. Absent: standard ratios until any role at the site has its own (see privateEvents.ts).
+   */
+  guestsPerStaff?: number;
 }
 
 export type TimeEntryStatus = 'open' | 'submitted' | 'approved' | 'rejected';
@@ -757,6 +762,8 @@ export interface RotaState {
   bookings?: Booking[];
   /** How past days filled up: covers on the books at set lead times, kept once the bookings themselves are gone. */
   bookingPace?: BookingPace[];
+  /** Weddings, buyouts and functions, from an events system (Tripleseat, SevenRooms) or entered by hand. */
+  privateEvents?: PrivateEvent[];
   /** School holidays confirmed for a site: from its council's feed or entered by hand. */
   schoolHolidays?: (SchoolPeriod & { siteId: string })[];
   /** Actual takings by day. Absent on organisations saved before takings were recorded. */
@@ -948,6 +955,40 @@ export interface Booking {
   createdAt?: string;
   /** When it was cancelled, for a cancelled booking. */
   cancelledAt?: string;
+}
+
+export type PrivateEventKind = 'wedding' | 'private_hire' | 'party' | 'corporate' | 'other';
+/** How guests are served: it decides how many guests each person can look after. */
+export type PrivateEventStyle = 'seated' | 'buffet' | 'standing' | 'drinks';
+/** Only a confirmed event moves the rota; a provisional one is shown with what it would add. */
+export type PrivateEventStatus = 'enquiry' | 'provisional' | 'confirmed' | 'cancelled';
+
+/**
+ * A wedding, buyout or function booked through the events team. Reduced to what the
+ * rota needs, as a table booking is: when, how many, how they are served, what it is
+ * worth. The client's name, contacts and notes are never accepted or stored.
+ */
+export interface PrivateEvent {
+  /** The events system's own reference, prefixed with its source. */
+  id: string;
+  siteId: string;
+  source: string;
+  /** The trading day it falls on. */
+  date: string;
+  /** When guests arrive, in minutes from midnight on `date`. */
+  startMinute: number;
+  /** When guests leave. Past midnight runs on beyond 1440. */
+  endMinute: number;
+  guests: number;
+  kind: PrivateEventKind;
+  style: PrivateEventStyle;
+  status: PrivateEventStatus;
+  /** The whole site is taken: the public are not served while it runs. */
+  exclusive: boolean;
+  /** The room or area it is held in. */
+  space?: string;
+  /** What it is expected to take, net of VAT: the quote or the minimum spend. */
+  spend?: number;
 }
 
 /** Covers on the books for one site, date and daypart at each of PACE_LEADS days before. */

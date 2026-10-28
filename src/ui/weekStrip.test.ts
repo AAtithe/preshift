@@ -24,4 +24,18 @@ describe('key dates along the top of the rota', () => {
     expect(on['2026-12-26'].map((k) => k.label)).toEqual(['15:00 Home v Town', '19:00 Panto', 'Christmas holidays']);
     expect(dates.every((d) => on[d].some((k) => k.kind === 'school'))).toBe(true);
   });
+
+  it('shows weddings and functions, a held one marked, and leaves a cancelled one off', () => {
+    const base = { siteId: 'mar', source: 'tripleseat', endMinute: 23 * 60, kind: 'wedding' as const, style: 'seated' as const, exclusive: false };
+    const on = keyDates(dates, [], [], [
+      { ...base, id: 'w', date: '2026-12-22', startMinute: 18 * 60, guests: 90, status: 'confirmed' },
+      { ...base, id: 'p', date: '2026-12-22', startMinute: 12 * 60, guests: 30, kind: 'party', style: 'buffet', status: 'provisional' },
+      { ...base, id: 'c', date: '2026-12-23', startMinute: 18 * 60, guests: 50, status: 'cancelled' },
+    ]);
+    expect(on['2026-12-22']).toMatchObject([
+      { label: '12:00 Party, 30 buffet (provisional)', kind: 'private held' },
+      { label: '18:00 Wedding, 90 seated', kind: 'private' },
+    ]);
+    expect(on['2026-12-23']).toEqual([]);
+  });
 });

@@ -1,4 +1,5 @@
 import type { DemandRule, HourForecast, RotaState, Shift, Site } from './types';
+import { eventsOn, exclusiveAt, lastHour, spendIn, staffFor, staffHours } from './privateEvents';
 import { addDays } from './time';
 
 export interface HourDemand {
@@ -8,6 +9,8 @@ export interface HourDemand {
   required: number;
   scheduled: number;
   gap: number; // positive = short, negative = over
+  /** Of `required`, the people confirmed private events need in the hour. */
+  event?: number;
 }
 
 /**
@@ -78,14 +81,23 @@ export function dayDemand(state: RotaState, siteId: string, roleId: string, date
   const late = tradingDayHours(site) > 24 ? state.forecast.filter((f) => f.date === next && f.siteId === siteId) : [];
   const lateClosures = (state.forecastAdjustments ?? []).filter((a) => a.siteId === siteId && a.date === next && a.factor === 0);
   const closedLate = (hour: number) => lateClosures.some((a) => (a.fromHour === undefined || hour >= a.fromHour) && (a.toHour === undefined || hour < a.toHour));
-  return Array.from({ length: tradingDayHours(site) }, (_, hour) => {
+  // Confirmed private events are staffed by ratio on top of the day's trade, and run the day on if they finish late.
+  const events = eventsOn(state, siteId, date);
+  const hours = Math.max(tradingDayHours(site), lastHour(events));
+  return Array.from({ length: hours }, (_, hour) => {
     const f = hour < 24 ? forecast.get(hour) : late.find((x) => x.hour === hour - 24);
     const shut = hour < 24 ? closed(hour) : closedLate(hour - 24);
-    const required = shut ? 0 : requiredHeadcount(rule, site, f, hour);
+    // An exclusive hire has the site: the public's trade is not there to staff or to take.
+    const exclusive = exclusiveAt(events, hour);
+    const event = events.filter((e) => hour >= staffHours(e).from && hour < staffHours(e).to).reduce((n, e) => n + staffFor(state, rule, e), 0);
+    // A closure set for the public does not stand the event's team down: the room is still booked.
+    const required = (shut || exclusive || hour >= tradingDayHours(site) ? 0 : requiredHeadcount(rule, site, f, hour)) + event;
     const scheduled = hour < 24 ? headcountAt(state.shifts, date, hour, roleId, siteId) : headcountAt(state.shifts, next, hour - 24, roleId, siteId);
     // Early hours that belong to the night before are shown, and counted, under that night.
     const own = hour >= 24 || tradingHour(site, date, hour).date === date;
-    return { hour, sales: own ? f?.sales ?? 0 : 0, covers: own ? f?.covers ?? 0 : 0, required, scheduled, gap: required - scheduled };
+    const publicSales = own && !exclusive ? f?.sales ?? 0 : 0;
+    const eventSales = events.reduce((t, e) => t + spendIn(e, hour), 0);
+    return { hour, sales: publicSales + eventSales, covers: own && !exclusive ? f?.covers ?? 0 : 0, required, scheduled, gap: required - scheduled, ...(event ? { event } : {}) };
   });
 }
 
@@ -123,8 +135,16 @@ export function salesForTradingDay(
   return tradingDayRows(rows, site, siteId, date).reduce((sum, r) => sum + r.sales, 0);
 }
 
+/**
+ * The day's forecast takings: the public's trade, less the hours an exclusive hire has the site, plus
+ * what confirmed private events are expected to take.
+ */
 export function forecastSalesForDay(state: RotaState, siteId: string, date: string): number {
-  return salesForTradingDay(state.forecast, state.sites.find((s) => s.id === siteId), siteId, date);
+  const site = state.sites.find((s) => s.id === siteId);
+  const events = eventsOn(state, siteId, date);
+  if (events.length === 0) return salesForTradingDay(state.forecast, site, siteId, date);
+  const trade = tradingDayRows(state.forecast, site, siteId, date).filter((r) => !exclusiveAt(events, r.hour)).reduce((t, r) => t + r.sales, 0);
+  return trade + events.reduce((t, e) => t + (e.spend ?? 0), 0);
 }
 
 export interface CoverHour {

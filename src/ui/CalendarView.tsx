@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { EventEffect } from '../engine/events';
 import type { CalendarDay } from '../engine/plan';
 import { addDays, formatMinute, weekStart } from '../engine/time';
-import type { RotaState, Site } from '../engine/types';
+import { describeEvent } from '../engine/privateEvents';
+import type { PrivateEvent, RotaState, Site } from '../engine/types';
 import type { WeatherEffect } from '../engine/weather';
 import type { SchoolEffect } from '../engine/school';
 import type { SchoolPeriod } from '../engine/types';
@@ -14,6 +15,8 @@ interface Feed { id: string; siteId: string; kind: 'ics' | 'ticketmaster' | 'sch
 interface CalendarResponse { days: CalendarDay[]; reminders: StatefulReminder[]; weatherEffect: WeatherEffect; eventEffects: EventEffect[]; schoolEffects: SchoolEffect[] }
 interface BookingStatus { siteId: string; bookingsAhead: number; coversAhead: number; furthestAhead: string | null; historyDays: number; lastLoadedAt: string | null }
 interface Imported { imported: number; from?: string; to?: string; skipped: number; notRead: string[]; problems: { line: number; reason: string }[] }
+interface HeldEvent extends PrivateEvent { team: { roleId: string; people: number; standard: boolean }[] }
+interface EventsImported extends Imported { ahead: number; confirmed: number }
 interface Refreshed { siteId: string; weatherDays?: number; events?: number; modelled?: number; errors: string[] }
 
 interface Props {
@@ -46,17 +49,23 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
   const [holiday, setHoliday] = useState({ start: '', end: '', name: '' });
   const [upload, setUpload] = useState<{ source: string; usDates: boolean; file: File | null }>({ source: 'resdiary', usDates: false, file: null });
   const [lastImport, setLastImport] = useState<Imported | null>(null);
+  const [privateEvents, setPrivateEvents] = useState<HeldEvent[]>([]);
+  const [eventUpload, setEventUpload] = useState<{ source: string; usDates: boolean; incVat: boolean; file: File | null }>({ source: 'tripleseat', usDates: false, incVat: true, file: null });
+  const [lastEventImport, setLastEventImport] = useState<EventsImported | null>(null);
+  const [newEvent, setNewEvent] = useState({ date: addDays(today, 14), start: '18:00', end: '23:00', guests: '', kind: 'wedding', style: 'seated', status: 'confirmed', exclusive: false, space: '', spend: '' });
   const [where, setWhere] = useState({ lat: String(site.location?.lat ?? site.geofence?.lat ?? ''), lng: String(site.location?.lng ?? site.geofence?.lng ?? '') });
   const from = weekStart(today);
 
   const load = useCallback(async () => {
     try {
-      const [c, f, b, sh] = await Promise.all([
+      const [c, f, b, sh, pe] = await Promise.all([
         api.get<CalendarResponse>(`/v1/calendar?siteId=${site.id}&from=${from}&to=${addDays(from, 83)}`),
         api.get<Feed[]>('/v1/event-feeds'),
         api.get<BookingStatus[]>('/v1/bookings/status'),
         api.get<SchoolPeriod[]>(`/v1/school-holidays?siteId=${site.id}&from=${from}&to=${addDays(from, 400)}`),
+        api.get<HeldEvent[]>(`/v1/private-events?siteId=${site.id}&from=${today}`),
       ]);
+      setPrivateEvents(pe);
       setHolidays(sh);
       setBookingStatus(b.find((x) => x.siteId === site.id) ?? null);
       setCal(c);
@@ -64,7 +73,7 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
     } catch (e) {
       setMessage({ text: problem(e), bad: true });
     }
-  }, [site.id, from]);
+  }, [site.id, from, today]);
   useEffect(() => void load(), [load]);
 
   async function act(fn: () => Promise<string>, reload = false) {
@@ -119,6 +128,57 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
         : 'No bookings could be read from that file.';
     });
   }
+
+  function importEvents(e: FormEvent) {
+    e.preventDefault();
+    if (!eventUpload.file) return;
+    const file = eventUpload.file;
+    void act(async () => {
+      if (file.size > 12 * 1024 * 1024) throw new Error('That file is over 12 MB. Export a shorter date range.');
+      const csv = await file.text();
+      const r = await api.post<EventsImported>('/v1/private-events/import', { siteId: site.id, source: eventUpload.source, csv, usDates: eventUpload.usDates, spendIncludesVat: eventUpload.incVat });
+      setLastEventImport(r);
+      return r.imported
+        ? `Read ${r.imported} events, ${r.ahead} still to come and ${r.confirmed} of those confirmed${r.skipped ? `; skipped ${r.skipped}` : ''}. Confirmed events are on the rota's demand now.`
+        : 'No events could be read from that file.';
+    }, true);
+  }
+
+  const minuteOf = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + (m || 0);
+  };
+
+  function addPrivateEvent(e: FormEvent) {
+    e.preventDefault();
+    void act(async () => {
+      const startMinute = minuteOf(newEvent.start);
+      let endMinute = minuteOf(newEvent.end);
+      // An end at or before the start is after midnight.
+      if (endMinute <= startMinute) endMinute += 1440;
+      await api.post('/v1/private-events', {
+        siteId: site.id,
+        date: newEvent.date,
+        startMinute,
+        endMinute,
+        guests: Number(newEvent.guests),
+        kind: newEvent.kind,
+        style: newEvent.style,
+        status: newEvent.status,
+        exclusive: newEvent.exclusive,
+        space: newEvent.space || undefined,
+        spend: newEvent.spend ? Number(newEvent.spend) : undefined,
+      });
+      setNewEvent({ ...newEvent, guests: '', space: '', spend: '' });
+      return newEvent.status === 'confirmed' ? 'Event added and on the rota\'s demand.' : 'Event added. It moves the rota once it is confirmed.';
+    }, true);
+  }
+
+  const setEventStatus = (ev: HeldEvent, status: PrivateEvent['status']) =>
+    act(async () => {
+      await api.patch(`/v1/private-events/${encodeURIComponent(ev.id)}`, { status });
+      return status === 'confirmed' ? 'Confirmed: on the rota\'s demand now.' : 'Cancelled: taken off the rota\'s demand.';
+    }, true);
 
   function addSchoolFeed(e: FormEvent) {
     e.preventDefault();
@@ -242,6 +302,11 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
                 {d.bookings.filter((b) => b.booked > 0).map((b) => (
                   <div key={b.daypart} className={`chip booked ${b.usable && b.pace !== null && b.pace >= 1.25 ? 'ahead' : ''}`} title={b.pace !== null ? `${b.usualAtLead} usually on the books by now` : undefined}>
                     {b.label} {b.booked} booked{b.expected !== null && b.usable ? `, expect ${b.expected}` : ''}
+                  </div>
+                ))}
+                {(d.privateEvents ?? []).map((pe) => (
+                  <div key={pe.id} className={`chip party ${pe.status === 'confirmed' ? '' : 'quiet'}`} title={pe.status === 'confirmed' ? 'Confirmed: on the rota\'s demand' : 'Not confirmed: not on the rota\'s demand'}>
+                    {formatMinute(pe.startMinute)} {describeEvent(pe)}{pe.status === 'confirmed' ? '' : ` (${pe.status})`}
                   </div>
                 ))}
                 {d.bookings.flatMap((b) => b.largeParties).map((p) => (
@@ -392,6 +457,120 @@ export function CalendarView({ state, site, today, onChanged }: Props) {
         <p className="muted small">
           A direct connection to ResDiary, SevenRooms or OpenTable needs API access granted by each of them; once it is, bookings
           arrive through the same route (PUT /v1/bookings) every few minutes instead of by file.
+        </p>
+      </section>
+
+      <section className="settings-card">
+        <h2>Weddings, buyouts and functions</h2>
+        <p className="muted small">
+          Events are known weeks ahead, to the guest, so they are planned rather than guessed. A confirmed event adds its own team
+          to the rota's demand, by guest ratio from an hour before guests arrive to half an hour after they leave, on top of normal
+          trade, and its spend to the day's sales. An exclusive hire takes the public's trade out while it runs. Provisional events
+          and enquiries are shown with what they would need, and move nothing until confirmed. Load the export from Tripleseat or
+          SevenRooms (or any events system, as CSV): only date, times, guest count, status, type, style, room and total are read.
+          The event name, the client and their contacts are left behind and never stored.
+        </p>
+        {privateEvents.length === 0 ? (
+          <p className="small">No events ahead loaded.</p>
+        ) : (
+          <table className="table">
+            <thead><tr><th>Date</th><th>Event</th><th>Time</th><th>Team needed</th><th>Spend (net)</th><th>Status</th><th /></tr></thead>
+            <tbody>
+              {privateEvents.slice(0, 30).map((ev) => (
+                <tr key={ev.id}>
+                  <td>{dayLabel(ev.date).short} {dayLabel(ev.date).date}</td>
+                  <td>{describeEvent(ev)}</td>
+                  <td className="tnum">{formatMinute(ev.startMinute)} to {formatMinute(ev.endMinute % 1440)}</td>
+                  <td className="small">{ev.team.length ? ev.team.map((t) => `${t.people} ${state.roles.find((r) => r.id === t.roleId)?.name ?? t.roleId}`).join(', ') : 'No role has an event ratio'}{ev.team.some((t) => t.standard) ? ' (standard ratios)' : ''}</td>
+                  <td className="tnum">{ev.spend ? `£${Math.round(ev.spend).toLocaleString('en-GB')}` : ''}</td>
+                  <td>{ev.status}{ev.source !== 'manual' ? <span className="muted small"> ({ev.source})</span> : null}</td>
+                  <td>
+                    {ev.status !== 'confirmed' && ev.status !== 'cancelled' && <button className="link" disabled={busy} onClick={() => void setEventStatus(ev, 'confirmed')}>Confirm</button>}{' '}
+                    {ev.status !== 'cancelled' && <button className="link" disabled={busy} onClick={() => void setEventStatus(ev, 'cancelled')}>Cancel</button>}{' '}
+                    {ev.source === 'manual' && (
+                      <button className="link danger" disabled={busy} onClick={() => void act(async () => { await api.del(`/v1/private-events/${encodeURIComponent(ev.id)}`); return 'Removed.'; }, true)}>Remove</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <form className="settings-form" onSubmit={importEvents}>
+          <label>
+            From
+            <select value={eventUpload.source} onChange={(e) => setEventUpload({ ...eventUpload, source: e.target.value })}>
+              <option value="tripleseat">Tripleseat</option>
+              <option value="sevenrooms">SevenRooms</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Events export (CSV)
+            <input type="file" accept=".csv,text/csv" required onChange={(e) => setEventUpload({ ...eventUpload, file: e.target.files?.[0] ?? null })} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={eventUpload.incVat} onChange={(e) => setEventUpload({ ...eventUpload, incVat: e.target.checked })} /> Totals include VAT
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={eventUpload.usDates} onChange={(e) => setEventUpload({ ...eventUpload, usDates: e.target.checked })} /> Dates are month first
+          </label>
+          <button disabled={busy || !eventUpload.file}>Import</button>
+        </form>
+        {lastEventImport && (
+          <div className="small">
+            {lastEventImport.notRead.length > 0 && <p className="muted">Not read, and not kept: {lastEventImport.notRead.join(', ')}.</p>}
+            {lastEventImport.problems.length > 0 && (
+              <ul className="adjustments">
+                {lastEventImport.problems.map((p) => <li key={p.line}>Line {p.line}: {p.reason}</li>)}
+                {lastEventImport.skipped > lastEventImport.problems.length && <li>and {lastEventImport.skipped - lastEventImport.problems.length} more</li>}
+              </ul>
+            )}
+          </div>
+        )}
+        <form className="settings-form" onSubmit={addPrivateEvent}>
+          <label>Date<input type="date" required value={newEvent.date} onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })} /></label>
+          <label>Guests arrive<input type="time" required value={newEvent.start} onChange={(e) => setNewEvent({ ...newEvent, start: e.target.value })} /></label>
+          <label>Guests leave<input type="time" required value={newEvent.end} onChange={(e) => setNewEvent({ ...newEvent, end: e.target.value })} /></label>
+          <label>Guests<input type="number" min={1} max={5000} required value={newEvent.guests} onChange={(e) => setNewEvent({ ...newEvent, guests: e.target.value })} /></label>
+          <label>
+            What
+            <select value={newEvent.kind} onChange={(e) => setNewEvent({ ...newEvent, kind: e.target.value, exclusive: e.target.value === 'private_hire' ? true : newEvent.exclusive })}>
+              <option value="wedding">Wedding</option>
+              <option value="private_hire">Private hire</option>
+              <option value="party">Party</option>
+              <option value="corporate">Corporate</option>
+              <option value="other">Other function</option>
+            </select>
+          </label>
+          <label>
+            Service
+            <select value={newEvent.style} onChange={(e) => setNewEvent({ ...newEvent, style: e.target.value })}>
+              <option value="seated">Seated</option>
+              <option value="buffet">Buffet</option>
+              <option value="standing">Standing, canapés</option>
+              <option value="drinks">Drinks only</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={newEvent.status} onChange={(e) => setNewEvent({ ...newEvent, status: e.target.value })}>
+              <option value="confirmed">Confirmed</option>
+              <option value="provisional">Provisional</option>
+              <option value="enquiry">Enquiry</option>
+            </select>
+          </label>
+          <label>Room<input maxLength={60} value={newEvent.space} onChange={(e) => setNewEvent({ ...newEvent, space: e.target.value })} placeholder="e.g. Garden room" /></label>
+          <label>Spend, net £<input type="number" min={0} step={50} value={newEvent.spend} onChange={(e) => setNewEvent({ ...newEvent, spend: e.target.value })} /></label>
+          <label className="check">
+            <input type="checkbox" checked={newEvent.exclusive} onChange={(e) => setNewEvent({ ...newEvent, exclusive: e.target.checked })} /> Exclusive: the public are not served
+          </label>
+          <button disabled={busy}>Add event</button>
+        </form>
+        <p className="muted small">
+          A direct connection to Tripleseat or SevenRooms needs API access granted by each of them. Until then a connector (their
+          webhooks through Zapier or Make, or your own) sends each event as it is booked, changed or lost to PUT /v1/private-events,
+          by its own reference, and the rota moves the same day.
         </p>
       </section>
 

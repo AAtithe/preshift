@@ -38,6 +38,7 @@ import { insightRoutes } from './routes/insights';
 import { calendarRoutes } from './routes/calendar';
 import { rotaPlanningRoutes } from './routes/rotaPlanning';
 import { bookingRoutes } from './routes/bookings';
+import { privateEventRoutes } from './routes/privateEvents';
 import { billingRoutes, stripeWebhookRoutes } from './routes/billing';
 import { signupRoutes } from './routes/signup';
 import { customerRoutes } from './routes/customers';
@@ -511,6 +512,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     insightRoutes(api, ctx);
     calendarRoutes(api, ctx);
     bookingRoutes(api, ctx);
+    privateEventRoutes(api, ctx);
     travelRoutes(api, ctx);
     eposRoutes(api, ctx, { simulatorAllowed: demo || !!payroll.simulator });
     payrollRoutes(api, ctx);

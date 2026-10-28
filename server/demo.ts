@@ -304,6 +304,12 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/bookings/import': true,
   'GET /v1/bookings': true,
   'GET /v1/bookings/status': true,
+  'GET /v1/private-events': true,
+  'PUT /v1/private-events': true,
+  'POST /v1/private-events/import': true,
+  'POST /v1/private-events': true,
+  'PATCH /v1/private-events/:id': true,
+  'DELETE /v1/private-events/:id': true,
   // Refused: the programme's baseline, sign-offs and gain share are the WS lead's, and nobody in a
   // sandbox is one.
   'PUT /v1/programmes/:siteId': false,

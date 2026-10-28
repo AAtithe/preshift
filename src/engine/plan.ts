@@ -1,7 +1,8 @@
-import type { DailyWeather, ForecastAdjustment, LocalEvent, RotaState } from './types';
+import type { DailyWeather, ForecastAdjustment, LocalEvent, PrivateEvent, RotaState } from './types';
 import { bookingSignals, type BookingSignal } from './bookings';
 import { occasionEffect, occasionsBetween, type Occasion } from './calendar';
 import { eventWindow, learnEventEffect, type EventEffect } from './events';
+import { counts, describeEvent, eventTeam, SETUP_MINUTES, CLEAR_MINUTES } from './privateEvents';
 import { siteHistory } from './history';
 import { addDays, formatMinute, parseISODate, weekday } from './time';
 import type { SchoolPeriod } from './types';
@@ -16,7 +17,7 @@ import { describeWeather, learnWeatherEffect, seasonalTemp, weatherFactor, type 
 // and into reminders where it does not, or where something needs doing first.
 
 export type AutoKind = 'occasion' | 'event' | 'weather' | 'school';
-export type ReminderKind = AutoKind | 'bookings';
+export type ReminderKind = AutoKind | 'bookings' | 'private';
 
 /** An adjustment the model made itself, with the evidence behind it. Never zero: only a person can close a site. */
 export interface AutoAdjustment extends ForecastAdjustment {
@@ -36,6 +37,8 @@ export interface CalendarDay {
   manual: ForecastAdjustment[];
   /** What the books say, by daypart. */
   bookings: BookingSignal[];
+  /** Weddings, buyouts and functions, confirmed or held. */
+  privateEvents: PrivateEvent[];
   /** The school holiday the day falls in, estimated or confirmed. */
   school?: SchoolPeriod;
 }
@@ -92,6 +95,8 @@ export function unusualDays(state: RotaState, siteId: string): Set<string> {
     for (const o of occasionsBetween(from, to)) if (o.kind === 'occasion' || o.kind === 'bank_holiday') out.add(o.date);
   }
   for (const e of state.localEvents ?? []) if (e.siteId === siteId) out.add(e.date);
+  // A wedding through the till is not a normal Saturday, and a buyout is not trade the public brought.
+  for (const e of state.privateEvents ?? []) if (e.siteId === siteId && counts(e)) out.add(e.date);
   for (const a of state.forecastAdjustments ?? []) if (a.siteId === siteId) out.add(a.date);
   return out;
 }
@@ -339,6 +344,9 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
       }
     }
 
+    const dayPrivate = (state.privateEvents ?? []).filter((e) => e.siteId === siteId && e.date === date && e.status !== 'cancelled');
+    for (const e of dayPrivate.filter(() => date >= today)) reminders.push(privateReminder(state, e));
+
     const daySignals = signals.filter((sg) => sg.date === date);
     for (const sg of daySignals) {
       for (const p of sg.largeParties) {
@@ -387,7 +395,7 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
     // Each is held to a sensible range, and the model caps them in total too. An occasion can genuinely
     // double a lunch (Mothering Sunday), so it gets more room than weather or an event.
     const kept = manualWins(single, manual).map((a) => ({ ...a, factor: a.kind === 'occasion' ? Math.min(2.5, Math.max(0.5, a.factor)) : Math.min(1.6, Math.max(0.6, a.factor)) }));
-    days.push({ date, occasions: dayOccasions, events: dayEvents, weather: w, weatherText: w ? describeWeather(w) : undefined, adjustments: kept, manual: manual.filter((m) => m.date === date), bookings: daySignals, school: holiday });
+    days.push({ date, occasions: dayOccasions, events: dayEvents, weather: w, weatherText: w ? describeWeather(w) : undefined, adjustments: kept, manual: manual.filter((m) => m.date === date), bookings: daySignals, privateEvents: dayPrivate, school: holiday });
   }
 
   // A reminder only shows what survived a person's own decision.
@@ -395,6 +403,48 @@ export function planAhead(state: RotaState, siteId: string, from: string, to: st
   for (const r of reminders) r.applied = r.applied.filter((a) => keptIds.has(a.id));
 
   return { siteId, from, to, days, reminders: reminders.sort((a, b) => a.date.localeCompare(b.date)), weatherEffect, eventEffects, bookingSignals: signals, schoolEffects };
+}
+
+/**
+ * What a private event asks of the GM. A confirmed one is already on the rota's demand, so the
+ * reminder is to roster it by name; a held one is not, so the reminder is to get the decision.
+ */
+function privateReminder(state: RotaState, e: PrivateEvent): Reminder {
+  const team = eventTeam(state, e);
+  const roleName = (id: string) => state.roles.find((r) => r.id === id)?.name ?? id;
+  const teamText = team.length ? team.map((t) => `${t.people} ${roleName(t.roleId)}`).join(', ') : 'nobody, because no role here has an event ratio';
+  const spend = e.spend ? `, ${money(e.spend)}` : '';
+  const hours = { fromHour: Math.floor((e.startMinute - SETUP_MINUTES) / 60), toHour: Math.min(24, Math.ceil((e.endMinute + CLEAR_MINUTES) / 60)) };
+  if (!counts(e)) {
+    return {
+      key: `private:hold:${e.id}`,
+      kind: 'private',
+      date: e.date,
+      dueFrom: addDays(e.date, -28),
+      title: `${e.status === 'enquiry' ? 'Enquiry' : 'Provisional'}: ${describeEvent(e)}, ${formatMinute(e.startMinute)}`,
+      advice:
+        `Not in the forecast or the rota until it is confirmed. If it confirms it needs ${teamText}${spend}${e.exclusive ? ', and the public are not served while it runs' : ''}. ` +
+        'Get the decision, and the deposit, before you build that week.',
+      applied: [],
+      needsInput: false,
+      ...hours,
+    };
+  }
+  const standard = team.some((t) => t.standard);
+  return {
+    key: `private:${e.id}`,
+    kind: 'private',
+    date: e.date,
+    dueFrom: addDays(e.date, -14),
+    title: `${describeEvent(e)}, ${formatMinute(e.startMinute)} to ${formatMinute(e.endMinute % 1440)}`,
+    advice:
+      `On the rota's demand already: ${teamText} from ${formatMinute(Math.max(0, e.startMinute - SETUP_MINUTES))}, on top of normal trade${e.exclusive ? ', which is taken out while it runs' : ''}${spend ? ` and ${money(e.spend!)} added to the day's takings` : ''}. ` +
+      'Roster the event team by name, give the kitchen final numbers and dietary needs 72 hours out, and update the guest count here if it moves.' +
+      (standard ? ' Staffed at standard ratios (one server per 12 seated guests): set your own on Set-up, Demand.' : ''),
+    applied: [],
+    needsInput: false,
+    ...hours,
+  };
 }
 
 /** Reminders that are due now: on or after their due date and not yet past. */

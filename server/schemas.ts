@@ -264,6 +264,7 @@ export const setupBody = {
           siteId: refId,
           salesPerLabourHour: { type: 'number', minimum: 0 },
           coversPerHour: { type: 'number', minimum: 0 },
+          guestsPerStaff: { type: 'number', minimum: 1, maximum: 500 },
           minimumWhileOpen: { type: 'integer', minimum: 0, maximum: 100 },
           maximum: { type: 'integer', minimum: 0, maximum: 100 },
         },
