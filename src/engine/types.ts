@@ -792,11 +792,24 @@ export interface ShiftType {
   roleId?: string;
 }
 
-/** One note per site per day, for whoever builds the rota. */
+export type DayNoteKind = 'booking' | 'event' | 'closure' | 'delivery' | 'staffing' | 'other';
+
+/** Something whoever builds the rota, and if they are told, the team, should know about a day at a site. */
 export interface DayNote {
+  id: string;
   siteId: string;
+  /** The day it is for; for a weekly note, the first day it is for. */
   date: string;
+  kind: DayNoteKind;
   text: string;
+  /** London start time in minutes, when it happens at a time: a party at 19:30, a delivery at 07:00. */
+  startMinute?: number;
+  /** Shown to the team: in the staff app beside the shift of everyone working there that day, and on the site kiosk. */
+  team?: boolean;
+  /** Repeats on the same weekday every week from `date`. */
+  weekly?: boolean;
+  /** The last day a weekly note is for, inclusive. Absent: every week from `date` on. */
+  until?: string;
   /** Who last wrote it, and when: set by the server, never by the caller. */
   updatedBy?: string;
   updatedAt?: string;

@@ -601,7 +601,8 @@ export function upgradeState(state: RotaState): RotaState {
     bookingPace: state.bookingPace ?? [],
     schoolHolidays: state.schoolHolidays ?? [],
     shiftTypes: state.shiftTypes ?? [],
-    dayNotes: state.dayNotes ?? [],
+    // Notes written before a day could carry several had no id or kind: one plain note for the day.
+    dayNotes: (state.dayNotes ?? []).map((n) => ({ ...n, id: n.id ?? `dn_${n.siteId}_${n.date}`, kind: n.kind ?? 'other' })),
   };
 }
 

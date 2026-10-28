@@ -23,13 +23,21 @@ interface Entry {
   onBreak: boolean;
 }
 
+interface TeamNote {
+  id: string;
+  kind: string;
+  startMinute: number | null;
+  text: string;
+}
+
 interface Overview extends SelfServiceData {
   employee: { id: string; name: string };
   email?: string;
   /** `tag`: the site has a secure tag at the entrance to touch the phone to. */
   sites: { id: string; name: string; geofence: GeoFence | null; tag: boolean }[];
   open: Entry | null;
-  shifts: { id: string; date: string; startMinute: number; endMinute: number; breakMinutes: number; siteName: string; roleName: string }[];
+  /** `notes`: what the managers have told the team about that day at that site. */
+  shifts: { id: string; date: string; startMinute: number; endMinute: number; breakMinutes: number; siteName: string; roleName: string; notes?: TeamNote[] }[];
   recent: Entry[];
   /** The legal minimum break for the shift they are on, when there is one. */
   breakEntitlement: { minutes: number; planned: number; under18: boolean } | null;
@@ -462,6 +470,15 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
                   <span>
                     <span className="strong">{formatMinute(s.startMinute)} to {formatMinute(s.endMinute)}</span>
                     <span className="muted small"> {s.roleName}, {s.siteName}{s.breakMinutes ? `, ${s.breakMinutes} min break` : ''}</span>
+                    {!!s.notes?.length && (
+                      <ul className="staff-notes" aria-label="Notes for this day">
+                        {s.notes.map((n) => (
+                          <li key={n.id}>
+                            <span className="staff-note-kind">{n.kind}{n.startMinute !== null ? ` ${formatMinute(n.startMinute)}` : ''}</span> {n.text}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </span>
                 </li>
               );

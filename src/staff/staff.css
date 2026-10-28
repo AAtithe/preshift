@@ -107,3 +107,8 @@
 
 .staff-tabs button { font-size: 13px; padding: 10px 2px; }
 .staff-buttons a.button { display: inline-block; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; text-decoration: none; color: var(--ink); }
+
+/* Notes the managers have told the team about a day, under the shift it is for. */
+.staff-notes { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.staff-notes li { font-size: 13px; line-height: 1.35; padding: 5px 8px; border-left: 3px solid var(--warn-fill); background: var(--warn-bg); border-radius: 0 4px 4px 0; }
+.staff-note-kind { font-weight: 650; color: var(--warn); }

@@ -50,3 +50,10 @@ body { background: var(--page-wash, var(--bg)); }
 .kiosk-key { font-size: 26px; font-weight: 650; padding: 18px 0; border-radius: 12px; border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink); cursor: pointer; }
 .kiosk-key.primary { background: var(--ink); color: #fff; border-color: var(--ink); font-size: 20px; }
 .kiosk-key:disabled { opacity: 0.4; }
+
+/* Today's notes for the team, above the names: read on the way in. */
+.kiosk-notes { border-left: 6px solid var(--warn-fill); }
+.kiosk-notes h2 { margin: 0 0 6px; font-size: 20px; color: var(--ink); }
+.kiosk-notes ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.kiosk-notes li { font-size: 18px; line-height: 1.35; }
+.kiosk-note-kind { font-weight: 700; color: var(--warn); }

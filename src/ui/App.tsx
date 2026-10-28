@@ -816,7 +816,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   state={state}
                   site={single}
                   dates={dates}
-                  onSaveNote={allow('rota.edit', single.id) ? (date, text) => actions.saveDayNote(single.id, date, text) : undefined}
+                  onSaveNote={allow('rota.edit', single.id) ? actions.saveDayNote : undefined}
+                  onDeleteNote={allow('rota.edit', single.id) ? actions.deleteDayNote : undefined}
                 />
               )}
               {shown === 'rota' && single && shownView === 'cover' && (

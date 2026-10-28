@@ -75,6 +75,20 @@ describe('the kiosk', () => {
     expect(board.body.people[0]).toMatchObject({ status: 'not_in', shift: { start: 0, end: 1439 } });
   });
 
+  it("shows today's notes for the team at its site, and only those", async () => {
+    const t = await paired();
+    const note = (body: object) => t.call('POST', '/v1/day-notes', { siteId: 'mar', date: t.today, kind: 'closure', text: 'Front door closed, use the side.', ...body }, undefined, 'integration');
+    const told = (await note({ team: true, startMinute: 600 })).body.id;
+    const kept = (await note({ text: 'Disciplinary with Sam at 3.' })).body.id;
+    const other = (await note({ siteId: 'shd', team: true })).body.id;
+    const board = (await t.call('GET', '/v1/kiosk/board', undefined, t.kiosk)).body;
+    const ids = board.notes.map((n: { id: string }) => n.id);
+    expect(board.notes.find((n: { id: string }) => n.id === told)).toEqual({ id: told, kind: 'Closure', startMinute: 600, text: 'Front door closed, use the side.' });
+    expect(ids).not.toContain(kept);
+    expect(ids).not.toContain(other);
+    expect(JSON.stringify(board.notes)).not.toMatch(/updatedBy/);
+  });
+
   it('clocks in, breaks and out by name with no location, even at a fenced site', async () => {
     const t = await paired();
     await t.call('PUT', '/v1/sites/mar/geofence', { ...SITE, radiusMetres: 100 }, undefined, 'integration');

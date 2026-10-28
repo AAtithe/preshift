@@ -317,12 +317,17 @@ function shiftTypesFor(site: Site): ShiftType[] {
   ];
 }
 
-/** What the GM at Marylebone has written on the week, so the rota shows a note or two. */
+/** What the GM at Marylebone has written on the week, so the rota shows notes of each sort. */
 function demoNotes(start: string, today: string): DayNote[] {
-  const notes: DayNote[] = [{ siteId: 'mar', date: addDays(start, 3), text: 'Delivery bay closed 7am to 10am for road works. Kitchen to take the drop round the front.', updatedBy: 'Priya Shah', updatedAt: `${addDays(start, -3)}T16:20:00.000Z` }];
+  const by = { updatedBy: 'Priya Shah', updatedAt: `${addDays(start, -3)}T16:20:00.000Z` };
+  const notes: DayNote[] = [
+    { id: 'dn-mar-bidfood', siteId: 'mar', date: addDays(start, -6), kind: 'delivery', startMinute: 7 * 60, text: 'Bidfood delivery. Someone on prep from 07:00 to check it in.', weekly: true, ...by },
+    { id: 'dn-mar-roadworks', siteId: 'mar', date: addDays(start, 3), kind: 'closure', startMinute: 7 * 60, text: 'Delivery bay closed 07:00 to 10:00 for road works. Kitchen to take the drop round the front.', team: true, ...by },
+    { id: 'dn-mar-training', siteId: 'mar', date: addDays(start, 2), kind: 'staffing', startMinute: 15 * 60, text: 'Allergen refresher for front of house, 15:00 to 15:30 before service.', team: true, ...by },
+  ];
   const halloween = `${today.slice(0, 4)}-10-31`;
   if (halloween >= today && halloween < addDays(today, 21)) {
-    notes.push({ siteId: 'mar', date: halloween, text: 'Private party of 24 at 19:30, set menu. One extra server on from 19:00.', updatedBy: 'Priya Shah', updatedAt: `${addDays(today, -12)}T11:05:00.000Z` });
+    notes.push({ id: 'dn-mar-party', siteId: 'mar', date: halloween, kind: 'booking', startMinute: 19 * 60 + 30, text: 'Private party of 24, set menu. One extra server on from 19:00.', team: true, updatedBy: 'Priya Shah', updatedAt: `${addDays(today, -12)}T11:05:00.000Z` });
   }
   return notes;
 }

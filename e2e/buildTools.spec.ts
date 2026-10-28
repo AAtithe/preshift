@@ -33,17 +33,24 @@ test('the week, its notes and cover sit on the rota, and a shift type pastes ont
   await expect(page.locator('.week-strip .ws-day')).toHaveCount(7);
   await expect(page.locator('table.rota .cover-bars')).toHaveCount(7);
 
-  // A note on the last day of the week, then taken off again.
+  // A note on the last day of the week, for the team, then taken off again.
   const sunday = page.locator('.week-strip .ws-day').last();
   await sunday.hover();
   await sunday.getByRole('button', { name: /Add a note/ }).click();
-  await sunday.getByRole('textbox').fill('Road closed for the half marathon until noon.');
-  await sunday.getByRole('button', { name: 'Save' }).click();
-  await expect(sunday.locator('.ws-note')).toHaveText('Road closed for the half marathon until noon.');
-  await sunday.locator('.ws-note').click();
-  await sunday.getByRole('textbox').fill('');
-  await sunday.getByRole('button', { name: 'Save' }).click();
-  await expect(sunday.locator('.ws-note')).toHaveCount(0);
+  const editor = page.getByRole('dialog', { name: 'New note' });
+  await editor.getByRole('radio', { name: 'Closure' }).click();
+  await editor.getByRole('textbox', { name: 'Note' }).fill('Road closed for the half marathon until noon.');
+  await editor.locator('input[type=time]').fill('08:00');
+  await editor.getByLabel(/Tell the team/).check();
+  if (process.env.PRESHIFT_E2E_SHOTS) await page.screenshot({ path: `${process.env.PRESHIFT_E2E_SHOTS}/note-editor.png` });
+  await editor.getByRole('button', { name: 'Save' }).click();
+  const written = sunday.locator('.ws-note', { hasText: 'Road closed for the half marathon until noon.' });
+  await expect(written).toContainText('Closure 08:00');
+  await expect(written.locator('.ws-note-tag.team')).toBeVisible();
+  if (process.env.PRESHIFT_E2E_SHOTS) await page.locator('.week-strip').screenshot({ path: `${process.env.PRESHIFT_E2E_SHOTS}/week-strip.png` });
+  await written.click();
+  await page.getByRole('dialog', { name: 'Edit note' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(written).toHaveCount(0);
 
   // Pick a shift type, paste it into an empty cell, and the shift is there.
   await page.locator('.type-pick select').selectOption({ index: 1 });

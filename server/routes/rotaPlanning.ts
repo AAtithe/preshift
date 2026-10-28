@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { NOTE_KINDS, overlaps } from '../../src/engine/dayNotes';
 import type { DayNote, ShiftType } from '../../src/engine/types';
 import { requireScope } from '../auth';
 import { HttpError, notFound, orgOf, type AppContext } from '../context';
 import { actorName, guard } from '../guard';
 import { idParam, isoDate, minute, rangeQuery } from '../schemas';
 import { audit, type OrgData } from '../store';
-import { inRange } from './rota';
 
 function requireSite(org: OrgData, siteId: string) {
   if (!org.state.sites.some((s) => s.id === siteId)) throw notFound(`Site ${siteId}`);
@@ -88,47 +88,110 @@ export function rotaPlanningRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // ----- Day notes -----
 
+  const noteBody = {
+    type: 'object',
+    required: ['siteId', 'date', 'kind', 'text'],
+    additionalProperties: false,
+    properties: {
+      siteId: { type: 'string' },
+      date: isoDate,
+      kind: { type: 'string', enum: NOTE_KINDS.map((k) => k.id) },
+      text: { type: 'string', minLength: 1, maxLength: 500 },
+      startMinute: { type: 'integer', minimum: 0, maximum: 1439 },
+      team: { type: 'boolean' },
+      weekly: { type: 'boolean' },
+      until: isoDate,
+    },
+  } as const;
+  type NoteBody = Pick<DayNote, 'siteId' | 'date' | 'kind' | 'text' | 'startMinute' | 'team' | 'weekly' | 'until'>;
+
+  /** The note as written, checked: only what was sent is kept, so a change can clear a time or a repeat. */
+  function noteFrom(body: NoteBody, id: string, by: string): DayNote {
+    const text = body.text.trim();
+    if (!text) throw new HttpError(422, 'invalid_note', 'Write something in the note.');
+    if (body.until && !body.weekly) throw new HttpError(422, 'invalid_note', 'Only a note that repeats every week can have an end date.');
+    if (body.until && body.until < body.date) throw new HttpError(422, 'invalid_note', 'A repeating note cannot end before it starts.');
+    return {
+      id,
+      siteId: body.siteId,
+      date: body.date,
+      kind: body.kind,
+      text,
+      ...(body.startMinute !== undefined ? { startMinute: body.startMinute } : {}),
+      ...(body.team ? { team: true } : {}),
+      ...(body.weekly ? { weekly: true, ...(body.until ? { until: body.until } : {}) } : {}),
+      updatedBy: by,
+      updatedAt: ctx.now().toISOString(),
+    };
+  }
+
   app.get<{ Querystring: { siteId?: string; from?: string; to?: string } }>(
     '/v1/day-notes',
-    { ...read, schema: { tags: ['Rota'], description: 'Notes on days for whoever builds the rota.', querystring: rangeQuery } },
+    {
+      ...read,
+      schema: {
+        tags: ['Rota'],
+        description: 'Notes on days for whoever builds the rota. A weekly note is listed once, from its first day, when any week it repeats falls in the range.',
+        querystring: rangeQuery,
+      },
+    },
     async (req) => {
       const org = orgOf(req);
-      return (org.state.dayNotes ?? []).filter(inRange(req.query)).filter(guard(ctx, req, org).at('rota.view'));
+      const { siteId, from = '0000-01-01', to = '9999-12-31' } = req.query;
+      const visible = guard(ctx, req, org).at('rota.view');
+      return (org.state.dayNotes ?? []).filter((n) => visible(n) && (!siteId || n.siteId === siteId) && overlaps(n, from, to));
     },
   );
 
-  app.put<{ Body: Pick<DayNote, 'siteId' | 'date' | 'text'> }>(
+  app.post<{ Body: NoteBody }>(
     '/v1/day-notes',
     {
       ...write,
       schema: {
         tags: ['Rota'],
-        description: "Writes a site's note for a day, replacing the one there. Empty text removes it.",
-        body: {
-          type: 'object',
-          required: ['siteId', 'date', 'text'],
-          additionalProperties: false,
-          properties: { siteId: { type: 'string' }, date: isoDate, text: { type: 'string', maxLength: 500 } },
-        },
+        description: 'Adds a note on a day at a site: a big booking, an event, a road closure, a delivery. `team` shows it to the people working there that day; `weekly` repeats it on the same weekday, to `until` if given.',
+        body: noteBody,
       },
     },
+    async (req, reply) => {
+      const org = orgOf(req);
+      requireSite(org, req.body.siteId);
+      const g = guard(ctx, req, org);
+      g.allow('rota.edit', req.body.siteId);
+      const note = noteFrom(req.body, `dn_${randomUUID().slice(0, 12)}`, actorName(g));
+      org.state.dayNotes = [...(org.state.dayNotes ?? []), note];
+      audit(org, actorName(g), 'day_note.added', { id: note.id, siteId: note.siteId, date: note.date });
+      return reply.code(201).send(note);
+    },
+  );
+
+  app.put<{ Params: { id: string }; Body: NoteBody }>(
+    '/v1/day-notes/:id',
+    { ...write, schema: { tags: ['Rota'], description: 'Rewrites a note. A weekly note changes for every week it is for.', params: idParam, body: noteBody } },
     async (req) => {
       const org = orgOf(req);
-      const { siteId, date } = req.body;
-      requireSite(org, siteId);
+      const old = (org.state.dayNotes ?? []).find((n) => n.id === req.params.id);
+      if (!old) throw notFound(`Note ${req.params.id}`);
+      requireSite(org, req.body.siteId);
       const g = guard(ctx, req, org);
-      g.allow('rota.edit', siteId);
-      const text = req.body.text.trim();
-      const others = (org.state.dayNotes ?? []).filter((n) => n.siteId !== siteId || n.date !== date);
-      if (!text) {
-        org.state.dayNotes = others;
-        audit(org, actorName(g), 'day_note.removed', { siteId, date });
-        return { siteId, date, text: '' };
-      }
-      const note: DayNote = { siteId, date, text, updatedBy: actorName(g), updatedAt: ctx.now().toISOString() };
-      org.state.dayNotes = [...others, note];
-      audit(org, actorName(g), 'day_note.saved', { siteId, date });
+      // Moving a note to another site needs the right at both.
+      g.allow('rota.edit', old.siteId);
+      g.allow('rota.edit', req.body.siteId);
+      const note = noteFrom(req.body, old.id, actorName(g));
+      org.state.dayNotes = org.state.dayNotes!.map((n) => (n.id === old.id ? note : n));
+      audit(org, actorName(g), 'day_note.changed', { id: note.id, siteId: note.siteId, date: note.date });
       return note;
     },
   );
+
+  app.delete<{ Params: { id: string } }>('/v1/day-notes/:id', { ...write, schema: { tags: ['Rota'], params: idParam } }, async (req, reply) => {
+    const org = orgOf(req);
+    const note = (org.state.dayNotes ?? []).find((n) => n.id === req.params.id);
+    if (!note) throw notFound(`Note ${req.params.id}`);
+    const g = guard(ctx, req, org);
+    g.allow('rota.edit', note.siteId);
+    org.state.dayNotes = org.state.dayNotes!.filter((n) => n.id !== note.id);
+    audit(org, actorName(g), 'day_note.removed', { id: note.id, siteId: note.siteId });
+    return reply.code(204).send();
+  });
 }

@@ -137,15 +137,19 @@ export function useRotaStore() {
         setState((s) => s && { ...s, shiftTypes: (s.shiftTypes ?? []).filter((t) => t.id !== id) });
         return true;
       }),
-    /** Writes the site's note for a day; empty text removes it. */
-    saveDayNote: (siteId: string, date: string, text: string) =>
+    /** Adds a note on a day, or rewrites one by its id; a weekly note changes for every week. */
+    saveDayNote: (note: Omit<DayNote, 'id' | 'updatedBy' | 'updatedAt'> & { id?: string }) =>
       guard(async () => {
-        const saved = await api.put<DayNote>('/v1/day-notes', { siteId, date, text });
-        setState((s) => {
-          if (!s) return s;
-          const others = (s.dayNotes ?? []).filter((n) => n.siteId !== siteId || n.date !== date);
-          return { ...s, dayNotes: saved.text ? [...others, saved] : others };
-        });
+        // Who wrote it and when are the server's to set.
+        const { id, updatedBy: _by, updatedAt: _at, ...body } = note as Partial<DayNote> & typeof note;
+        const saved = id ? await api.put<DayNote>(`/v1/day-notes/${id}`, body) : await api.post<DayNote>('/v1/day-notes', body);
+        setState((s) => s && { ...s, dayNotes: [...(s.dayNotes ?? []).filter((n) => n.id !== saved.id), saved] });
+        return saved;
+      }),
+    deleteDayNote: (id: string) =>
+      guard(async () => {
+        await api.del(`/v1/day-notes/${id}`);
+        setState((s) => s && { ...s, dayNotes: (s.dayNotes ?? []).filter((n) => n.id !== id) });
         return true;
       }),
     build: (siteIds: string[], weekStart: string) =>
