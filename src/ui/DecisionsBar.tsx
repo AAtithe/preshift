@@ -91,7 +91,8 @@ function DecisionCard({ n, decision, label, onAct }: { n: number; decision: Deci
       <span className="decision-n" aria-hidden="true">{n}</span>
       <div className="decision-text">
         <b>{decision.title}</b>
-        <span>{decision.detail}</span>
+        {/* Two lines at most, so the bar stays short: the whole of it on hover. */}
+        <span title={decision.detail}>{decision.detail}</span>
       </div>
       {label && (
         <button className={n === 1 ? 'primary' : ''} onClick={onAct}>

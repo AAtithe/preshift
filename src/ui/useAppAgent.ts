@@ -23,9 +23,9 @@ export interface AgentView {
 let nextId = 0;
 
 /**
- * One conversation with Shifty, shared by the chat and the command bar. The conversation is only
- * ever appended to, and what the manager confirmed or cancelled is told to the model on the next
- * message, so it never assumes a proposal went through.
+ * One conversation with Shifty. The conversation is only ever appended to, and what the manager
+ * confirmed or cancelled is told to the model on the next message, so it never assumes a proposal
+ * went through.
  */
 export function useAppAgent(mode: AppAgentMode, view: () => AgentView, deps: ProposalDeps) {
   const [items, setItems] = useState<ChatItem[]>([]);

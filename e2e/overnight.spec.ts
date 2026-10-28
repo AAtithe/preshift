@@ -62,7 +62,7 @@ test('the finish of a closing shift drags past midnight and the day widens to sh
       await page.waitForLoadState('networkidle');
       // Found by its title each time: bars can re-sort when another check moves a shift.
       const grip = (await barWith(title)).locator('.tl-edge.end');
-      // To the middle of the window: at the foot it would sit under the command bar.
+      // To the middle of the window: at the foot it would sit under the Ask Shifty button.
       await grip.evaluate((el) => el.scrollIntoView({ block: 'center' }));
       const box = (await grip.boundingBox())!;
       const next = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
