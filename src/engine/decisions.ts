@@ -5,12 +5,13 @@ import type { Issue } from './compliance';
 import type { WeekMetrics } from './metrics';
 import type { Employee, Shift } from './types';
 
-export type DecisionKind = 'blocking' | 'empty-days' | 'over-target' | 'under-contract';
+export type DecisionKind = 'blocking' | 'empty-days' | 'unfillable' | 'over-target' | 'under-contract';
 
 /** The move that settles a decision, carried out by the screen. */
 export type DecisionAction =
   | { kind: 'issues' }
   | { kind: 'build' }
+  | { kind: 'dismiss-gaps' }
   | { kind: 'day'; date: string }
   | { kind: 'people' };
 
@@ -29,7 +30,7 @@ export interface Decision {
 
 export interface WeekBrief {
   decisions: Decision[];
-  /** One thing going right, said only when it is plainly true. */
+  /** One thing going right, said only when it is plainly true. Whether the week is published is the heading's to say. */
   keep: string | null;
 }
 
@@ -41,9 +42,10 @@ interface Input {
   metrics: WeekMetrics;
   issues: Issue[];
   showCost: boolean;
-  published: boolean;
   /** Days before today are past deciding about. */
   today: string;
+  /** Hours the last build could not fill legally with the team as it stands, by role. */
+  unfilled?: { role: string; date: string; fromHour: number; toHour: number }[];
 }
 
 const DAY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -64,12 +66,15 @@ export function nameDays(dates: string[], all: string[]): string {
 
 /**
  * Most urgent first: anything that stops the week being published, then days with trade forecast
- * and nobody on, then days running over the labour target (largest overspend first), then hours
- * paid under contract and not rostered. A week can be legal and staffed and still overspend, so the
- * order is what stops the week before what costs it.
+ * and nobody on, then hours the team cannot legally cover, then days running over the labour target
+ * (largest overspend first), then hours paid under contract and not rostered. A week can be legal
+ * and staffed and still overspend, so the order is what stops the week before what costs it.
+ * A week that is over has nothing to decide.
  */
-export function weekBrief({ shifts, employees, dates, metrics, issues, showCost, published, today }: Input): WeekBrief {
+export function weekBrief({ shifts, employees, dates, metrics, issues, showCost, today, unfilled = [] }: Input): WeekBrief {
   const decisions: Decision[] = [];
+  // A week that is over has nothing left to decide: what happened is for the reports, not this bar.
+  if (dates.every((d) => d < today)) return { decisions, keep: null };
   const ahead = (d: string) => d >= today;
   const staffed = new Set(shifts.map((s) => s.date));
 
@@ -98,6 +103,22 @@ export function weekBrief({ shifts, employees, dates, metrics, issues, showCost,
       dates: empty.map((d) => d.date),
       action: { kind: 'build' },
       amount: sales,
+    });
+  }
+
+  // What the build could not fill is a staffing problem, not a rota one: no move on this screen solves it.
+  const gaps = unfilled.filter((g) => ahead(g.date));
+  if (gaps.length > 0) {
+    const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
+    const listed = gaps.slice(0, 3).map((g) => `${g.role} ${DAY[dates.indexOf(g.date)]?.slice(0, 3) ?? g.date} ${clock(g.fromHour)}-${clock(g.toHour)}`);
+    const n = gaps.length;
+    decisions.push({
+      kind: 'unfillable',
+      severity: 'urgent',
+      title: `${n} ${n === 1 ? 'gap' : 'gaps'} cannot be filled legally with the current team`,
+      detail: `${listed.join(', ')}${n > 3 ? ` and ${n - 3} more` : ''}. That is a hiring or cross-training signal, not a rota problem.`,
+      dates: [...new Set(gaps.map((g) => g.date))],
+      action: { kind: 'dismiss-gaps' },
     });
   }
 
@@ -151,8 +172,6 @@ export function weekBrief({ shifts, employees, dates, metrics, issues, showCost,
   // With no forecast there is nothing to judge staffing or labour against, so nothing is praised.
   if (decisions.length === 0 && metrics.forecastSales > 0) {
     keep = showCost ? 'Nothing to decide: the week is staffed, legal and inside the labour target.' : 'Nothing to decide: the week is staffed and legal.';
-  } else if (decisions.length > 0 && published && blocks.length === 0) {
-    keep = 'Published: the team can see this week.';
   }
   return { decisions, keep };
 }

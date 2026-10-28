@@ -9,6 +9,7 @@ import { dayLabel, money2 } from './format';
 import { Avatar, COMPONENTS, CostStack } from './viz';
 import { travelIssues } from '../engine/travel';
 import { assessShortNotice, snapshot, type ShortNoticeAssessment } from '../engine/employmentRights';
+import { useDialogClose } from './useDialogClose';
 
 interface Props {
   state: RotaState;
@@ -24,6 +25,7 @@ interface Props {
 
 export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose, onAskCover }: Props) {
   const [draft, setDraft] = useState<Shift>(shift);
+  const close = useDialogClose(JSON.stringify(draft) !== JSON.stringify(shift), onClose);
   const isNew = !state.shifts.some((s) => s.id === shift.id);
   const employee = state.employees.find((e) => e.id === draft.employeeId)!;
   const ws = weekStart(draft.date);
@@ -81,12 +83,12 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={close}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="shift-editor-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <Avatar name={employee.name} dept={state.roles.find((r) => r.id === employee.roleIds[0])?.department ?? 'FOH'} />
           <div>
-            <h2>{isNew ? 'New shift' : 'Edit shift'}</h2>
+            <h2 id="shift-editor-title">{isNew ? 'New shift' : 'Edit shift'}</h2>
             <p className="muted small">
               {employee.name} · {dayLabel(draft.date).short} {dayLabel(draft.date).date}
             </p>
@@ -213,7 +215,7 @@ export function ShiftEditor({ state, shift, showCost, onSave, onDelete, onClose,
           )}
           {!isNew && onAskCover && <button onClick={() => onAskCover(shift.id)}>Ask for cover</button>}
           <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
+          <button onClick={close}>Cancel</button>
           <button className="primary" disabled={length <= 0} onClick={() => onSave(draft)}>Save</button>
         </div>
       </div>

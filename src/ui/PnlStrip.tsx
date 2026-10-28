@@ -132,17 +132,16 @@ export function PnlStrip({ state, metrics, issues, canPublish, published, blocks
         <button className="pnl-toggle" aria-expanded={open} aria-controls="pnl-drawer" onClick={() => setOpen(!open)}>
           Full P&amp;L
         </button>
-        {/* Someone whose roles do not publish is told where the week stands, not shown a button they cannot use. */}
-        {publishRefused ? (
-          <span className="muted small">{published ? 'Published: the team can see this week.' : 'Not published yet.'}</span>
-        ) : (
+        {/* The heading says where the week stands, so the button shows only while there is
+            something to publish and the person may publish it. */}
+        {!publishRefused && !published && (
           <button
             className="primary"
             disabled={!canPublish}
             onClick={onPublish}
-            title={published ? 'The team can see this week.' : blocks ? 'Resolve blocking issues before publishing' : 'Publishing sends the week to the team.'}
+            title={blocks ? 'Resolve blocking issues before publishing' : 'Publishing sends the week to the team.'}
           >
-            {published ? 'Signed off and published' : 'Sign off and publish'}
+            Sign off and publish
           </button>
         )}
       </div>
