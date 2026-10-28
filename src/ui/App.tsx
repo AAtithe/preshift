@@ -8,6 +8,8 @@ import { scopeMetrics } from '../engine/metrics';
 import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
+import type { ShiftTemplate } from './drag';
+import { BUSY } from './api';
 import { RemindersBanner } from './RemindersBanner';
 import { AuthenticatorBar } from './access/Authenticator';
 import type { Me } from './access/model';
@@ -24,7 +26,7 @@ import { BillingBanner } from './BillingBanner';
 import { RestBreaches } from './RestBreaches';
 import type { Account } from './SettingsView';
 import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, type AtAll, type NavItem, type Tab } from './nav';
-import { allowFor, heldOnceVerified, NOT_YOURS } from './permissions';
+import { allowFor, heldOnceVerified, NOT_YOURS, ROTA_READ_ONLY } from './permissions';
 import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
 import { AccountMenu, TopNav } from './TopNav';
@@ -84,6 +86,8 @@ const ReviewsView = screen(() => import('./ReviewsView'), 'ReviewsView', ['revie
 const PremiumsPanel = screen(() => import('./PremiumsPanel'), 'PremiumsPanel', ['pay']);
 const RiskView = screen(() => import('./RiskView'), 'RiskView', ['risk']);
 const RotaGrid = screen(() => import('./RotaGrid'), 'RotaGrid', ['rota']);
+const RotaWeekStrip = screen(() => import('./RotaWeekStrip'), 'RotaWeekStrip', ['rota']);
+const ShiftTypesPanel = screen(() => import('./ShiftTypesPanel'), 'ShiftTypesPanel', ['rota']);
 const ChangesView = screen(() => import('./RotaLenses'), 'ChangesView', ['rota']);
 const CostView = screen(() => import('./RotaLenses'), 'CostView', ['rota']);
 const CoverMap = screen(() => import('./RotaLenses'), 'CoverMap', ['rota']);
@@ -174,7 +178,7 @@ export function App() {
       <Splash>
         {error && (
           <>
-            <p className="splash-error" role="alert">Cannot reach Preshift: {error}</p>
+            <p className="splash-error" role="alert">{error === BUSY ? error : `Cannot reach Preshift: ${error}`}</p>
             <button className="primary" onClick={() => void actions.reload()}>Try again</button>
           </>
         )}
@@ -266,7 +270,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   // Scope: an entity (or the whole group), then one site or all of that entity's sites.
   const [initial] = useState(() => readPlace(weekStart(toISODate(new Date()))));
   const [entityId, setEntityId] = useState(state.entities.some((e) => e.id === initial.entityId) ? initial.entityId : ALL);
-  const [siteId, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
+  const [siteChoice, setSiteId] = useState(state.sites.some((s) => s.id === initial.siteId) ? initial.siteId : ALL);
+  // Someone who works at one site is always at it: "All sites" over one site's figures says less than its name.
+  const siteId = siteChoice || (state.sites.length === 1 ? state.sites[0].id : ALL);
   const [week, setWeek] = useState(initial.week);
   const [tab, setTab] = useState<Tab>(continueSetup ? 'setup' : initial.tab);
   // A shift sent from the editor to ask cover for, opened on Messages.
@@ -274,6 +280,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [guide, setGuide] = useState<string | null>(null);
   const openGuide = (id: string) => { setGuide(id); setTab('howto'); };
   const [editing, setEditing] = useState<Shift | null>(null);
+  // A shift or shift type held to paste onto other people and days, and the site's shift types open to set up.
+  const [clip, setClip] = useState<ShiftTemplate | null>(null);
+  const [typesOpen, setTypesOpen] = useState(false);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   // A request handed over from Shifty or the command bar, to start the rota assistant with.
@@ -320,6 +329,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   );
   const entityIds = entityId ? [entityId] : site ? [site.entityId] : state.entities.map((e) => e.id);
   const single = siteIds.length === 1 ? state.sites.find((s) => s.id === siteIds[0])! : null;
+  // A held shift belongs to the site it was copied at: its area means nothing at another.
+  useEffect(() => setClip(null), [single?.id]);
   const allow = useMemo(() => allowFor(me), [me]);
   const [sample, setSample] = useState(false);
   // Whoever may change the set-up is told when they are still looking at the sample group.
@@ -346,6 +357,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience, hidden)) ? tab : fallback;
   const section = NAV_ITEMS.find((t) => t.id === activeTab)!;
   const offeredTab = (t: Tab) => NAV_ITEMS.some((i) => i.id === t && offered(i, allow, allSiteIds, me?.user?.audience, hidden));
+  // A link to a section this person is not offered lands on their first one, and says why. Only a
+  // section the address asked for by name is explained: signing in with no section named is not a refusal.
+  const [linked] = useState(() => new URLSearchParams(window.location.search).get('view'));
+  const refused = linked === tab && tab !== activeTab ? NAV_ITEMS.find((t) => t.id === tab) : undefined;
 
   // What's new: this week's release pops up at each person's first sign-in of the week, and can be
   // walked again from the bar.
@@ -469,6 +484,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   function act(action: DecisionAction) {
     if (action.kind === 'build') void runAutoBuild();
     else if (action.kind === 'people') chooseView('people');
+    else if (action.kind === 'dismiss-gaps') setUnfilled(null);
     else if (action.kind === 'issues') {
       setPnlAsk(Date.now());
       document.querySelector('.pnl-strip')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -537,12 +553,14 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             metrics,
             issues,
             showCost,
-            published,
             today,
+            unfilled: (unfilled ?? [])
+              .filter((g) => g.siteId === single.id)
+              .map((g) => ({ role: state.roles.find((r) => r.id === g.roleId)?.name ?? g.roleId, date: g.date, fromHour: g.fromHour, toHour: g.toHour })),
           })
         : null,
     // dates is drawn afresh each render from the week, so the week stands for it.
-    [single, view, week, metrics, issues, showCost, published, today],
+    [single, view, week, metrics, issues, showCost, today, unfilled, state.roles],
   );
   // Each day a decision concerns is tagged on the timeline with the decision's number.
   const marks = useMemo(() => {
@@ -552,7 +570,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   }, [brief]);
 
   const status = blocks > 0 ? 'blocked' : published ? 'published' : 'draft';
-  const statusLabel = blocks > 0 ? `${blocks} blocking issue${blocks > 1 ? 's' : ''}` : published ? 'Published to team' : weekShifts.length ? 'Draft' : 'Not started';
+  // The week's status is said once, here in the heading: a published week that has since picked up a
+  // blocking issue says both, rather than the heading and the publish button disagreeing.
+  const blocking = `${blocks} blocking issue${blocks > 1 ? 's' : ''}`;
+  const statusLabel = blocks > 0 ? (published ? `Published, ${blocking}` : blocking) : published ? 'Published to team' : weekShifts.length ? 'Draft' : 'Not started';
   const gapGroups = unfilled
     ? Array.from(
         unfilled.reduce((m, g) => {
@@ -689,13 +710,20 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               <RemindersBanner key={`${siteIds.join()}:${activeTab}`} siteIds={siteIds} sites={state.sites} today={today} onOpen={(id) => { setSiteId(id); setTab('calendar'); }} />
             ) : null}
 
+            {refused && (
+              <div className="notice" role="status">
+                {refused.label} is {hidden.has(refused.id) ? 'switched off for your organisation' : 'not part of your role'}, so you are on {section.label} instead.
+              </div>
+            )}
+
             {error && (
               <div className="notice error">
                 {error} <button className="link" onClick={() => setError(null)}>Dismiss</button>
               </div>
             )}
 
-            {unfilled && unfilled.length > 0 && (
+            {/* On one site's rota the gaps are a decision above the rota; elsewhere they show here. */}
+            {unfilled && unfilled.length > 0 && !(shown === 'rota' && single) && (
               <div className="gaps" role="status">
                 <span className="gaps-icon" aria-hidden>!</span>
                 <div>
@@ -803,6 +831,15 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   </div>
                 </div>
               )}
+              {shown === 'rota' && single && (
+                <RotaWeekStrip
+                  state={state}
+                  site={single}
+                  dates={dates}
+                  onSaveNote={allow('rota.edit', single.id) ? actions.saveDayNote : undefined}
+                  onDeleteNote={allow('rota.edit', single.id) ? actions.deleteDayNote : undefined}
+                />
+              )}
               {shown === 'rota' && single && shownView === 'cover' && (
                 <CoverMap state={view} site={single} dates={dates} onOpen={canEdit ? setOpening : undefined} />
               )}
@@ -817,7 +854,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                   onEdit={canEdit ? setEditing : undefined}
                   onPreview={canEdit ? setPreview : () => undefined}
-                  onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
+                  onCommit={canEdit ? commitChange : () => refuse(ROTA_READ_ONLY)}
                   onBlocked={refuse}
                   baseLabourCost={baseMetrics.labourCost}
                 />
@@ -835,11 +872,11 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   dates={dates}
                   metrics={metrics}
                   issues={issues}
-                  onEdit={canEdit ? setEditing : () => refuse(NOT_YOURS)}
+                  onEdit={canEdit ? setEditing : () => refuse(ROTA_READ_ONLY)}
                   onPreview={canEdit ? setPreview : () => undefined}
-                  onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
+                  onCommit={canEdit ? commitChange : () => refuse(ROTA_READ_ONLY)}
                   onBlocked={refuse}
-                  onOpen={canEdit ? setOpening : () => refuse(NOT_YOURS)}
+                  onOpen={canEdit ? setOpening : () => refuse(ROTA_READ_ONLY)}
                   baseLabourCost={baseMetrics.labourCost}
                   showCost={showCost}
                   focus={focusDay}
@@ -856,9 +893,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   showCost={showCost}
                   onEdit={canEdit ? setEditing : undefined}
                   onPreview={canEdit ? setPreview : () => undefined}
-                  onCommit={canEdit ? commitChange : () => refuse(NOT_YOURS)}
+                  onCommit={canEdit ? commitChange : () => refuse(ROTA_READ_ONLY)}
                   onBlocked={refuse}
                   baseLabourCost={baseMetrics.labourCost}
+                  clip={canEdit ? clip : null}
+                  onClip={setClip}
+                  onAdd={canEdit ? addShift : () => refuse(ROTA_READ_ONLY)}
+                  onManageTypes={canEdit ? () => setTypesOpen(true) : undefined}
                 />
               )}
               {shown === 'clock' && single && (
@@ -1121,7 +1162,12 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           onDelete={async (id) => { await actions.deleteShift(id); setEditing(null); }}
           onClose={() => setEditing(null)}
           onAskCover={allow('rota.publish', editing.siteId) ? (id) => { setEditing(null); setCoverShift(id); setSiteId(editing.siteId); setTab('requests'); } : undefined}
+          onCopy={shown === 'rota' && shownView === 'people' ? (t) => { setClip(t); setEditing(null); } : undefined}
+          onSaveType={allow('rota.edit', editing.siteId) ? actions.saveShiftType : undefined}
         />
+      )}
+      {typesOpen && single && (
+        <ShiftTypesPanel state={state} site={single} onAdd={actions.saveShiftType} onRemove={actions.deleteShiftType} onClose={() => setTypesOpen(false)} />
       )}
       </Suspense>
     </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useDialogClose } from './useDialogClose';
 import { employeeWeekCost } from '../engine/cost';
 import { isEmployedOn, reviewEmployee } from '../engine/employees';
 import { holidayBalance, STATUTORY_WEEKS } from '../engine/holiday';
@@ -43,6 +44,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
   const [payReason, setPayReason] = useState('');
   const [payFrom, setPayFrom] = useState('');
   const [leaving, setLeaving] = useState<string | null>(null);
+  const close = useDialogClose(JSON.stringify(draft) !== JSON.stringify(employee) || !!payReason || !!payFrom || !!leaveDay, onClose);
   const isNew = !state.employees.some((e) => e.id === employee.id);
   const payChanged = !draft.payHidden && canEditPay &&
     (draft.payBasis !== employee.payBasis || draft.hourlyRate !== employee.hourlyRate || draft.annualSalary !== employee.annualSalary);
@@ -146,9 +148,9 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <h2>{isNew ? 'New employee' : draft.name || 'Employee'}</h2>
+    <div className="modal-backdrop" onClick={close}>
+      <div className="modal wide" role="dialog" aria-modal="true" aria-labelledby="employee-editor-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="employee-editor-title">{isNew ? 'New employee' : draft.name || 'Employee'}</h2>
         <p className="muted">
           {isNew ? 'Set up the record before their first shift.' : `${shifts.length} shift${shifts.length === 1 ? '' : 's'} on record.`}
         </p>
@@ -544,7 +546,7 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
             </span>
           )}
           <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
+          <button onClick={close}>Cancel</button>
           <button className="primary" disabled={!canSave} onClick={() => onSave({ ...draft, name: draft.name.trim() }, payChanged ? payReason : undefined, payChanged && payFrom ? payFrom : undefined)}>
             Save
           </button>
