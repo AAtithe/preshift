@@ -1,10 +1,11 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { dayCover, isOpenHour, type CoverHour } from '../engine/demand';
 import type { Issue } from '../engine/compliance';
 import { isEmployedOn, ruleAge } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
-import { dropBlocker, keyChange, moveShift, pixelsToMinutes, resizeShift, sameShift } from './drag';
+import { dropBlocker, keyChange, moveShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf, type ShiftTemplate } from './drag';
 import { DragReadout } from './DragReadout';
 import { dayLabel, hours, money, pct } from './format';
 import { type Resolve, useShiftDrag } from './useShiftDrag';
@@ -30,6 +31,13 @@ interface Props {
   onBlocked: (message: string) => void;
   /** Week labour cost before the drag started, for the live delta. */
   baseLabourCost: number;
+  /** A shift or shift type held to drop on other people and days; null when nothing is. */
+  clip: ShiftTemplate | null;
+  onClip: (template: ShiftTemplate | null) => void;
+  /** Saves a new shift straight away, as a paste does. */
+  onAdd: (shift: Shift) => void;
+  /** Opens the site's shift types to set up. Absent for those who cannot edit. */
+  onManageTypes?: () => void;
 }
 
 /** How a chip renders mid-drag: in place, as the empty slot it left, or floating where it will land. */
@@ -48,8 +56,16 @@ function hintSeen() {
   }
 }
 
-export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit, onPreview, onCommit, onBlocked, baseLabourCost }: Props) {
+export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit, onPreview, onCommit, onBlocked, baseLabourCost, clip, onClip, onAdd, onManageTypes }: Props) {
   const [hint, setHint] = useState(() => !hintSeen());
+
+  // Escape puts down whatever is held, wherever the focus is.
+  useEffect(() => {
+    if (!clip) return;
+    const key = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClip(null);
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [clip, onClip]);
 
   function dismissHint() {
     setHint(false);
@@ -90,6 +106,11 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
   });
 
   function keyMove(e: KeyboardEvent, shift: Shift) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      onClip(templateOf(shift, roleOf(shift.roleId)?.name ?? 'Shift'));
+      return;
+    }
     const change = keyChange(e, shift, dates, state.employees.find((x) => x.id === shift.employeeId));
     if (!change) return;
     e.preventDefault();
@@ -132,9 +153,23 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
   const span = dayEnd - dayStart;
   const scaleMax = Math.max(metrics.targetPct * 1.5, ...metrics.days.map((d) => d.labourPct));
 
+  const newId = () => `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+  function paste(employee: Employee, date: string) {
+    if (!clip) return;
+    const shift = pasteShift(clip, employee, date, site.id, newId());
+    const reason = dropBlocker(employee, shift);
+    if (reason) onBlocked(`Not pasted. ${reason}`);
+    else onAdd(shift);
+  }
+
+  const types = (state.shiftTypes ?? []).filter((t) => t.siteId === site.id);
+  const cover = dates.map((d) => dayCover(state, site.id, d));
+  const coverMax = Math.max(1, ...cover.flat().map((h) => Math.max(h.required, h.scheduled)));
+
   function newShift(employee: Employee, date: string): Shift {
     return {
-      id: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      id: newId(),
       employeeId: employee.id,
       roleId: employee.roleIds[0],
       siteId: site.id,
@@ -146,7 +181,43 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
   }
 
   return (
-    <div className={`panel grid-wrap${hint ? ' hinting' : ''}`}>
+    <>
+    {onEdit && (
+      <div className="grid-tools">
+        {types.length > 0 && (
+          <label className="type-pick">
+            <span className="muted small">Build from</span>
+            <select
+              value=""
+              onChange={(e) => {
+                const t = types.find((x) => x.id === e.target.value);
+                if (t) onClip({ label: t.name, startMinute: t.startMinute, endMinute: t.endMinute, breakMinutes: t.breakMinutes, roleId: t.roleId });
+              }}
+            >
+              <option value="">a shift type...</option>
+              {types.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} · {formatMinute(t.startMinute)}-{formatMinute(t.endMinute)}{t.roleId ? ` · ${roleOf(t.roleId)?.name ?? ''}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {onManageTypes && <button className="ghost" onClick={onManageTypes}>{types.length ? 'Shift types' : 'Set up shift types'}</button>}
+        {clip ? (
+          <div className="clip-bar" role="status">
+            <span>
+              Holding <b>{clip.label}</b> {formatMinute(clip.startMinute)}-{formatMinute(clip.endMinute)}
+              {clip.breakMinutes ? `, ${clip.breakMinutes}m break` : ''}. Click Paste on any person and day.
+            </span>
+            <button className="primary" onClick={() => onClip(null)}>Done</button>
+          </div>
+        ) : (
+          <span className="muted small">To copy a shift, open it and press Copy, or select it and press Ctrl+C.</span>
+        )}
+      </div>
+    )}
+    <div className={`panel grid-wrap${hint ? ' hinting' : ''}${clip ? ' pasting' : ''}`}>
       {hint && <DragHint onDismiss={dismissHint} />}
       <table className="rota">
         <thead data-sticky-top>
@@ -170,6 +241,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                     {m.labourCost > 0 && <span className={`tnum ${over ? 'over' : 'ok'}`}>{pct(m.labourPct)}</span>}
                   </div>
                   <Bullet mini value={m.labourPct} target={metrics.targetPct} max={scaleMax} />
+                  {state.demandRules.some((r) => r.siteId === site.id) && <CoverBars hours={cover[i]} site={site} max={coverMax} />}
                 </th>
               );
             })}
@@ -287,11 +359,15 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                               );
                             })}
                             {onLeave && shifts.length === 0 && <span className="leave-tag">On leave</span>}
-                            {!onLeave && onEdit && (
+                            {!onLeave && onEdit && (clip ? (
+                              <button className="add paste" onClick={() => paste(e, date)} aria-label={`Paste ${clip.label} for ${e.name}`}>
+                                Paste
+                              </button>
+                            ) : (
                               <button className="add" onClick={() => onEdit(newShift(e, date))} aria-label={`Add shift for ${e.name}`}>
                                 +
                               </button>
-                            )}
+                            ))}
                           </td>
                         );
                       })}
@@ -347,6 +423,40 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
           touch={pointer.touch}
         />
       )}
+    </div>
+    </>
+  );
+}
+
+/**
+ * The day's cover against demand, hour by hour across every role: a bar for who is on, a tick
+ * for who is needed, red where any role is short, amber where only over.
+ */
+function CoverBars({ hours, site, max }: { hours: CoverHour[]; site: Site; max: number }) {
+  const shown = hours.filter((h) => h.required > 0 || h.scheduled > 0 || isOpenHour(site, h.hour));
+  if (shown.length === 0) return null;
+  const short = shown.reduce((s, h) => s + h.short, 0);
+  const over = shown.reduce((s, h) => s + h.over, 0);
+  const H = 24;
+  const w = 100 / shown.length;
+  const hh = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
+  return (
+    <div className="cover-bars" title={shown.map((h) => `${hh(h.hour)}  ${h.scheduled} on, ${h.required} needed${h.short ? `, ${h.short} short` : h.over ? `, ${h.over} over` : ''}`).join('\n')}>
+      <svg viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" aria-hidden>
+        {shown.map((h, i) => {
+          const bar = (h.scheduled / max) * H;
+          const need = H - (h.required / max) * H;
+          return (
+            <g key={h.hour}>
+              <rect className={h.short ? 'short' : h.over ? 'over' : 'ok'} x={i * w + w * 0.12} width={w * 0.76} y={H - bar} height={bar} />
+              {h.required > 0 && <line x1={i * w} x2={(i + 1) * w} y1={need} y2={need} />}
+            </g>
+          );
+        })}
+      </svg>
+      <span className={`cover-sum ${short ? 'short' : over ? 'over' : 'ok'}`}>
+        {short ? `${short}h short` : over ? `${over}h over` : 'Cover on plan'}
+      </span>
     </div>
   );
 }

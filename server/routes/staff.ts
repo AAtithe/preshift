@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeE
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
 import { requiredBreakMinutes } from '../../src/engine/compliance';
+import { notesOn, teamView } from '../../src/engine/dayNotes';
 import { addDays, ageOn, weekDates, weekStart } from '../../src/engine/time';
 import { fortnight } from '../../src/engine/rotaViews';
 import { confirmWeek, pruneSeen, weeksSeen } from '../../src/engine/rotaSeen';
@@ -151,7 +152,11 @@ async function overview(staff: Staff, store: Store) {
     shifts: org.state.shifts
       .filter((s) => s.employeeId === employee.id && s.published && s.date >= today && s.date <= addDays(today, 13))
       .sort((a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute)
-      .map((s) => ({ id: s.id, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes, siteName: siteName(s.siteId), roleName: roleName(s.roleId) })),
+      .map((s) => ({
+        id: s.id, date: s.date, startMinute: s.startMinute, endMinute: s.endMinute, breakMinutes: s.breakMinutes, siteName: siteName(s.siteId), roleName: roleName(s.roleId),
+        // What the managers have told the team about that day there: the party at 19:30, the road closure.
+        notes: notesOn(org.state.dayNotes ?? [], s.siteId, s.date, { team: true }).map(teamView),
+      })),
     // Hours, pay before tax and rest over the same fortnight, from the published shifts above.
     fortnight: fortnightOf(org, employee, today),
     recent: org.timeEntries

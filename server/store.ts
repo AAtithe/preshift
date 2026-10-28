@@ -544,7 +544,7 @@ function newOrg(orgId: string, seeded: boolean, today?: string): OrgData {
     // A copy each: the seed's objects are shared, and one organisation's change must not show in another's.
     state: seeded
       ? structuredClone(seedState(today))
-      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [], schoolHolidays: [] },
+      : { entities: [], sites: [], roles: [], employees: [], shifts: [], forecast: [], demandRules: [], sales: [], actuals: [], forecastAdjustments: [], weather: [], localEvents: [], bookings: [], bookingPace: [], privateEvents: [], schoolHolidays: [] },
     timeEntries: [],
     submissions: [],
     payRuns: [],
@@ -599,7 +599,11 @@ export function upgradeState(state: RotaState): RotaState {
     localEvents: state.localEvents ?? [],
     bookings: state.bookings ?? [],
     bookingPace: state.bookingPace ?? [],
+    privateEvents: state.privateEvents ?? [],
     schoolHolidays: state.schoolHolidays ?? [],
+    shiftTypes: state.shiftTypes ?? [],
+    // Notes written before a day could carry several had no id or kind: one plain note for the day.
+    dayNotes: (state.dayNotes ?? []).map((n) => ({ ...n, id: n.id ?? `dn_${n.siteId}_${n.date}`, kind: n.kind ?? 'other' })),
   };
 }
 
