@@ -63,7 +63,7 @@ export const NAV: NavGroup[] = [
       { id: 'forecast', label: 'Forecast', hint: "The week's sales, the base the rota is built on", scope: 'week', siteOnly: true, access: { scope: ['demand.manage', 'costs.view'] } },
       { id: 'demand', label: 'Demand', hint: 'Heads needed by the hour, from the forecast', scope: 'week', siteOnly: true, plans: true, access: { scope: ['demand.manage', 'costs.view'] } },
       // Occasions, weather, events, bookings and school holidays ahead, with what the forecast allows for.
-      { id: 'calendar', label: 'Calendar', hint: 'Events, school holidays and bookings ahead', scope: 'people', siteOnly: true, access: { scope: ['rota.view'] } },
+      { id: 'calendar', label: 'Calendar', hint: 'Events, weddings and functions, school holidays and bookings ahead', scope: 'people', siteOnly: true, access: { scope: ['rota.view'] } },
       // The three moves a week: each one changes the rota.
       { id: 'coach', label: 'Coach', hint: "Three moves for the week, from last week's numbers", scope: 'week', siteOnly: true, access: { scope: ['rota.edit'] } },
     ],

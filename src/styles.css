@@ -1253,6 +1253,7 @@ article.guide { background: var(--card, var(--surface)); border: 1px solid var(-
 .chip.school { background: var(--surface-2); color: var(--accent); border-left: 2px solid var(--accent); }
 .chip.school.quiet { color: var(--muted); }
 .reminder.kind-school { border-left-color: var(--accent); }
+.reminder.kind-private { border-left-color: var(--accent); }
 
 .accuracy-findings { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
 
@@ -1836,3 +1837,73 @@ button, select, input { border-radius: 8px; }
   .rota-seen tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
   .rota-seen td:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
 }
+
+/* The week along the top of the rota: key dates and the site's note on each day. */
+.week-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-bottom: 12px; overflow: hidden; }
+.ws-day { padding: 8px 10px 10px; border-left: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ws-day:first-child { border-left: none; }
+.ws-day.weekend { background: var(--surface-2); }
+.ws-day.today { box-shadow: inset 0 3px 0 var(--ink); }
+.ws-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.ws-head .d { font: 600 13px/1.1 var(--serif); color: var(--ink); }
+.ws-head .dt { font: 400 10px/1 var(--mono); color: var(--muted); text-transform: uppercase; }
+.ws-dates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.ws-date { font-size: 11px; line-height: 1.3; padding: 2px 6px; border-radius: 4px; background: var(--paper-2); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-date.bank_holiday { background: var(--ink); color: var(--card); font-weight: 600; }
+.ws-date.occasion, .ws-date.season { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.ws-date.event { background: var(--good-bg); color: var(--good); }
+.ws-date.private { background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+.ws-date.private.held { font-weight: 400; border: 1px dashed var(--accent); background: transparent; }
+.ws-date.school { background: transparent; border: 1px dashed var(--rule-strong); color: var(--muted); }
+.ws-add { align-self: flex-start; padding: 2px 6px; font-size: 11px; border: 1px dashed var(--rule-strong); background: transparent; color: var(--muted); opacity: 0.6; }
+.ws-day:hover .ws-add, .ws-add:focus { opacity: 1; }
+.ws-edit textarea { width: 100%; font: inherit; font-size: 12px; resize: vertical; }
+.ws-edit-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+.ws-edit-actions button { padding: 3px 8px; font-size: 12px; }
+@media (max-width: 900px) {
+  .week-strip { grid-template-columns: repeat(7, minmax(120px, 1fr)); overflow-x: auto; }
+}
+
+/* Notes on a day: what sort, when, whether the team sees it. The stripe says what sort. */
+.ws-note { display: grid; gap: 2px; text-align: left; font-size: 12px; line-height: 1.35; padding: 5px 7px; border: none; border-left: 3px solid var(--faint); background: var(--paper-2); color: var(--body-ink); border-radius: 0 4px 4px 0; }
+.ws-note:disabled { cursor: default; opacity: 1; color: var(--body-ink); }
+.ws-note.booking, .ws-note.event { border-left-color: var(--warn-fill); background: var(--warn-bg); }
+.ws-note.closure { border-left-color: var(--bad-fill); background: var(--bad-bg); }
+.ws-note.delivery, .ws-note.staffing { border-left-color: var(--ink-2); }
+.ws-note-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ws-note-kind { font: 600 10px/1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); margin-right: auto; }
+.ws-note-tag { font: 600 9px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 4px; border-radius: 3px; border: 1px solid var(--rule-strong); color: var(--muted); }
+.ws-note-tag.team { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.ws-note-text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.note-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.note-kind { padding: 5px 10px; font-size: 13px; border-radius: 999px; }
+.note-kind.active { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.form textarea { width: 100%; font: inherit; resize: vertical; }
+.note-time { display: flex; align-items: center; gap: 6px; }
+.form label.check.note-team { align-items: flex-start; }
+.form label.check.note-team input { margin-top: 3px; }
+
+/* Cover against demand under each day of the By person rota. */
+.cover-bars { margin-top: 6px; }
+.cover-bars svg { display: block; width: 100%; height: 24px; background: var(--surface-2); border-radius: 3px; }
+.cover-bars rect.ok { fill: var(--faint); }
+.cover-bars rect.short { fill: var(--bad-fill); }
+.cover-bars rect.over { fill: var(--warn-fill); }
+.cover-bars line { stroke: var(--ink); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.cover-sum { display: block; margin-top: 3px; font: 600 10px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.cover-sum.ok { color: var(--good); }
+.cover-sum.short { color: var(--bad); }
+.cover-sum.over { color: var(--warn); }
+
+/* Copy and paste, and building from shift types, above the By person rota. */
+.grid-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.type-pick { display: flex; align-items: center; gap: 6px; }
+.clip-bar { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; background: var(--ink); color: var(--card); border-radius: 6px; font-size: 13px; }
+.clip-bar button.primary { background: var(--card); color: var(--ink); border-color: var(--card); padding: 3px 10px; }
+.grid-wrap.pasting .add.paste { opacity: 1; border-color: var(--ink); color: var(--ink); font: 600 11px/1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.grid-wrap.pasting .add.paste:hover { background: var(--ink); color: var(--card) !important; }
+.save-type { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; }
+.save-type input { flex: 1; }
+.type-list { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+.type-list th, .type-list td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+.type-list th { font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }

@@ -98,6 +98,14 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   // Working the rota, people, time and payroll inside the sandbox.
   'POST /v1/shifts': true,
   'PATCH /v1/shifts/:id': true,
+  // Shift types and day notes: the sandbox's own planning aids, nothing leaves it.
+  'GET /v1/shift-types': true,
+  'POST /v1/shift-types': true,
+  'DELETE /v1/shift-types/:id': true,
+  'GET /v1/day-notes': true,
+  'POST /v1/day-notes': true,
+  'PUT /v1/day-notes/:id': true,
+  'DELETE /v1/day-notes/:id': true,
   'DELETE /v1/shifts/:id': true,
   'POST /v1/rota/build': true,
   'POST /v1/rota/clear': true,
@@ -296,6 +304,12 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/bookings/import': true,
   'GET /v1/bookings': true,
   'GET /v1/bookings/status': true,
+  'GET /v1/private-events': true,
+  'PUT /v1/private-events': true,
+  'POST /v1/private-events/import': true,
+  'POST /v1/private-events': true,
+  'PATCH /v1/private-events/:id': true,
+  'DELETE /v1/private-events/:id': true,
   // Refused: the programme's baseline, sign-offs and gain share are the WS lead's, and nobody in a
   // sandbox is one.
   'PUT /v1/programmes/:siteId': false,

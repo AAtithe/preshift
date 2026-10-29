@@ -21,6 +21,8 @@ interface Board {
   /** Signing in by name needs the person's PIN at this site. */
   pinRequired: boolean;
   people: Person[];
+  /** What the managers have told the team about today here. */
+  notes?: { id: string; kind: string; startMinute: number | null; text: string }[];
 }
 
 interface Result {
@@ -300,6 +302,19 @@ export function KioskApp() {
       </form>
 
       {banner && <div className={`kiosk-banner ${banner.tone}`} role="status">{banner.text}</div>}
+
+      {!!board.notes?.length && (
+        <section className="kiosk-card kiosk-notes" aria-label="Today's notes">
+          <h2>Today</h2>
+          <ul>
+            {board.notes.map((n) => (
+              <li key={n.id}>
+                <span className="kiosk-note-kind">{n.kind}{n.startMinute !== null ? ` ${formatMinute(n.startMinute)}` : ''}</span> {n.text}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="kiosk-people" aria-label="Today's rota">
         {board.people.length === 0 && <p className="muted kiosk-empty">Nobody is on today's rota here yet. Tap your card, or ask a manager to add your shift.</p>}

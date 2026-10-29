@@ -343,6 +343,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Sick pay | `GET /v1/hr/sick-pay?siteId=&from=&to=` (those who read the person's HR file or run their pay): SSP due per sickness spell under the rules from 6 April 2026, from the first qualifying day at the lower of £123.25 a week and 80% of average weekly earnings over the eight weeks before, qualifying days being the weekdays the person was rostered on (Monday to Friday if none), spells 56 days apart or fewer linked, 28 weeks at most. With `from` and `to`, `inPeriod` is what falls in that pay period. Spells before 6 April 2026 are counted in `oldRules` and left to payroll. Each hours batch sent to payroll carries the period's `sickness` lines with our estimate, and a pay run that reports `ssp` per person is checked against it: `GET /v1/payroll/runs` carries `ssp: [{employeeId, expected, paid, difference}]` and a difference is audited as `payroll.ssp_mismatch` |
 | HR | `GET /v1/hr/overview?siteId=` (headcount, turnover, absence and every open personnel file check), `GET/POST /v1/hr/records`, `PATCH/DELETE /v1/hr/records/:id` (training, reviews, cases, documents, notes, and `kind: health_assessment` for the night worker health assessment offer, whose `outcome` must be `Offered`, `Taken` or `Declined`, else `health_outcome`: never the findings), `PUT /v1/employees/:id/hr` (contract, probation, NI number, emergency contact, line manager), `POST /v1/employees/:id/absences`, `PATCH/DELETE /v1/employees/:id/absences/:absenceId` (responses list rostered shifts the absence now clashes with). Needs `hr:read` or `hr:write`. A key without them gets employees with no `hr` file and absences reduced to `{id, from, to}`, with `type` only for those who run pay (`payroll.view`, `pay.edit` or `pay.approve`), as sick pay turns on it. Whether someone was off sick is health data: the rota needs only the days. Cases are returned to signed-in people who handle them, never to members and never to an API key. Every record carries `history`: each change, who made it and the values it replaced, kept by the server. A record stays with its person (`person_fixed`), and a case is closed, never deleted (`case_kept`). Nobody changes their own staff record (`PATCH /v1/employees/:id`, `/leaver`) or exports their own subject file: somebody else does. |
 | Shifts | `GET/POST /v1/shifts`, `PATCH/DELETE /v1/shifts/:id` (responses carry compliance issues) |
+| Building aids | `GET/POST /v1/shift-types`, `DELETE /v1/shift-types/:id` (a site's saved shift patterns: times, unpaid break and an optional role), `GET/POST /v1/day-notes`, `PUT/DELETE /v1/day-notes/:id` (notes on a day at a site: a booking, event, closure, delivery or staffing note with an optional time; `team` shows it in the staff app beside the shifts that day and on the site kiosk; `weekly` repeats it on the same weekday, to `until` if given; a range lists a weekly note once from its first day) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches). The week's `issues` include `young-midnight` (an under 18 between midnight and 04:00, blocking), `night-average` (a night worker opted out of the 48 hour week averaging over 8 hours in 24 across 17 weeks, each earlier week clocked time or else that week's rota, and from the first week on the pattern so far) and `night-health` (a night worker with no current health assessment offer). Shift times are minutes from midnight on the shift's date, up to 2880, so a finish the next morning is above 1440 |
 | Rest overrides | `GET /v1/rota/overrides`, `POST /v1/rota/overrides` with `{weekStart, key, reason}`, `DELETE /v1/rota/overrides/:id`. Daily and weekly rest breaches carry an `overrideKey`; a person with the right to publish the rota at the breach's site (never a system key) posts it with a reason of at least 15 characters, and the breach publishes as a warning naming them and their reason. The key covers that breach as it stood: moving either shift, or changing the days worked, makes a new breach that blocks again. Overrides and withdrawals go to the audit log, and each publish records the overrides it went out under. |
 | Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=`. `GET /v1/forecast/accuracy/report?siteIds=a,b&week=&weeks=` (1 to 26, default 8) is the same over several sites and weeks, by the day so a site that only keys in daily takings is measured too: for each site and week, the days measured (a forecast and takings, before today), day error and, where the till sends hours, hourly error, bias, sales over and under forecast and the labour each implies at the site's own target, the days that were on the typical week alone, and days of the week wrong by 10% or more the same way across three weeks or more. Sites the caller cannot see are left out; none at all is 403. Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. `POST /v1/forecast/from-takings` `{siteId or siteIds, weekStart, replace?}` works the week out of each site's own takings: the same day 52 weeks back scaled by the last four weeks against the same weeks a year earlier (at least six matched days, a change between half and double), else the last six same weekdays with takings, the latest counting most and the highest and lowest dropped from five or more. Days with no takings count as closed. Hours split the day as the site's past forecasts for that weekday did, else a standard lunch and dinner curve; covers follow the site's own spend per head. Days already forecast are left alone unless `replace` is true; each day comes back with its basis, the takings days it used and a note |
@@ -532,6 +533,52 @@ Direct connections. All three main booking systems grant API access only on appl
 Until access is granted, each system's scheduled CSV export through `POST /v1/bookings/import` does
 the same job: daily for what is on the books, and once with three months of history so pickup can be
 learnt.
+
+## Private events
+
+Weddings, buyouts and functions from Tripleseat, SevenRooms or any events system. Unlike table
+bookings they are not set against the model: they are known to the guest and staffed by ratio, so
+a confirmed event is laid over the day's demand.
+
+| Route | What it does |
+| --- | --- |
+| `GET /v1/private-events` | Events by site and date, each with `team`: the people it needs by role. |
+| `PUT /v1/private-events` | A connector's push, by the events system's own reference. Send an event again to change it, or with `status: cancelled` to stand it down. |
+| `POST /v1/private-events/import` | A CSV export (`source`: `tripleseat`, `sevenrooms`, `other`). Totals are taken as including VAT unless `spendIncludesVat` is false. |
+| `POST /v1/private-events` | One entered by hand. |
+| `PATCH /v1/private-events/:id` | Confirm, cancel, final numbers, new times. |
+| `DELETE /v1/private-events/:id` | Only one entered by hand: one from an events system is cancelled, or its next export brings it back. |
+
+Each event carries `date` (the trading day), `startMinute` and `endMinute` (when guests arrive and
+leave, past midnight as 1440 and over), `guests`, `kind` (`wedding`, `private_hire`, `party`,
+`corporate`, `other`), `style` (`seated`, `buffet`, `standing`, `drinks`), `status` (`enquiry`,
+`provisional`, `confirmed`, `cancelled`), `exclusive`, and optionally `space` and `spend` (net of
+VAT).
+
+What a confirmed event does:
+
+- Demand: each role with an event ratio (`guestsPerStaff` on its demand rule: seated guests one
+  person looks after) needs `guests / (ratio x style stretch)` people, rounded up, from an hour
+  before guests arrive to half an hour after they leave, on top of normal trade. Buffets, standing
+  receptions and drinks stretch the ratio; drinks needs no kitchen. Until any role at the site has a
+  ratio, the standard ratios apply to the first role of each department (FOH 12, BOH 30, BAR 50). The
+  day runs past the site's close if the event does. A closure set for the public does not stand the
+  event team down.
+- Exclusive hire: the public's trade is taken out of demand and the day's sales from set-up to
+  clear-down.
+- Sales: `spend` is spread over the hours guests are in and added to the day's forecast takings, so
+  labour percentage is judged against what the day will really take.
+- Learning: a confirmed event's day is left out of what the model learns as normal trade.
+- Reminders: a confirmed event, from fourteen days out, to roster the team by name and give the
+  kitchen final numbers; a provisional event or enquiry, from 28 days out, with what it would need,
+  to get the decision before the week is built.
+
+Personal data: the event's name, the client, their contacts and notes are never read or kept. The
+CSV reader reports the columns it left behind; the push route drops any other field as it is read.
+
+Direct connections. Tripleseat and SevenRooms grant API access on application. Until then a
+connector (each system's webhooks through Zapier, Make or your own) sends each event to
+`PUT /v1/private-events` as it is booked, changed or lost.
 
 ## Storage
 
