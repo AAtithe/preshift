@@ -33,8 +33,8 @@ const COSTED_TIME: Access = { ...READS_TIME, also: ['costs.view'] };
 // sites asks which site. An item is shown only to someone it is offered to; the API still decides
 // what they get, so hiding an item is a courtesy, not the control.
 // Each section says what it is scoped by, so the header only shows controls that change what is on screen:
-// week sections get the scope, the week and the P&L rail; people sections get the scope; organisation
-// sections get neither. Only the planning sections carry the build and clear actions.
+// week sections get the scope and the week; people sections get the scope; organisation sections get
+// neither. Only the planning sections carry the build and clear actions and the rota P&L.
 export type Scope = 'week' | 'people' | 'org';
 // title heads an organisation section; it defaults to Organisation.
 /** hint says in a line what the section is for: the top bar shows it under the name. */

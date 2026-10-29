@@ -112,7 +112,6 @@ const CashView = screen(() => import('./CashView'), 'CashView', ['cash']);
 // Loaded on first use so the Claude SDK stays out of the main bundle.
 const AssistantPanel = lazy(() => import('./AssistantPanel').then((m) => ({ default: m.AssistantPanel })));
 const Shifty = lazy(() => import('./Shifty').then((m) => ({ default: m.Shifty })));
-const CommandBar = lazy(() => import('./CommandBar').then((m) => ({ default: m.CommandBar })));
 
 type RotaView = 'timeline' | 'people' | 'gantt' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
 const VIEW_KEY = 'preshift.rota.view';
@@ -123,6 +122,7 @@ const VIEW_KEY = 'preshift.rota.view';
  */
 type Density = 'simple' | 'standard' | 'expert';
 const DENSITY_KEY = 'preshift.density';
+const SAMPLE_HIDDEN_KEY = 'preshift.sample.hidden';
 const DENSITIES: { id: Density; label: string }[] = [
   { id: 'simple', label: 'Simple' },
   { id: 'standard', label: 'Standard' },
@@ -285,7 +285,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [typesOpen, setTypesOpen] = useState(false);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
-  // A request handed over from Shifty or the command bar, to start the rota assistant with.
+  // A request handed over from Shifty, to start the rota assistant with.
   const [assistantInstruction, setAssistantInstruction] = useState('');
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
   const [preview, setPreview] = useState<Shift | null>(null);
@@ -296,6 +296,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [rotaView, setRotaView] = useState<RotaView>(savedView);
   const [density, setDensityState] = useState<Density>(savedDensity);
   const [moreViews, setMoreViews] = useState(false);
+  const [moreActions, setMoreActions] = useState(false);
   // A day a decision sent the timeline to, and a request for the full P&L: each changes on every ask.
   const [focusDay, setFocusDay] = useState<{ date: string; at: number } | undefined>(undefined);
   const [pnlAsk, setPnlAsk] = useState(0);
@@ -333,6 +334,22 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   useEffect(() => setClip(null), [single?.id]);
   const allow = useMemo(() => allowFor(me), [me]);
   const [sample, setSample] = useState(false);
+  // The sample group notice can be hidden once read, and stays hidden on this device.
+  const [sampleHidden, setSampleHidden] = useState(() => {
+    try {
+      return localStorage.getItem(SAMPLE_HIDDEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  function hideSample() {
+    setSampleHidden(true);
+    try {
+      localStorage.setItem(SAMPLE_HIDDEN_KEY, '1');
+    } catch {
+      // Not remembered in private mode; hidden for now.
+    }
+  }
   // Whoever may change the set-up is told when they are still looking at the sample group.
   useEffect(() => {
     if (!allow('settings.manage')) return;
@@ -543,9 +560,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const viewHelp = views.find((v) => v.id === shownView)?.help ?? '';
 
   // The week's decisions, worked from the same figures as the rota beneath them.
+  // Decisions are for whoever can act on them: someone who may only look at the rota is not asked to.
   const brief = useMemo(
     () =>
-      single
+      single && canEdit
         ? weekBrief({
             shifts: view.shifts.filter((s) => s.siteId === single.id && dates.includes(s.date)),
             employees: view.employees,
@@ -560,7 +578,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
           })
         : null,
     // dates is drawn afresh each render from the week, so the week stands for it.
-    [single, view, week, metrics, issues, showCost, today, unfilled, state.roles],
+    [single, canEdit, view, week, metrics, issues, showCost, today, unfilled, state.roles],
   );
   // Each day a decision concerns is tagged on the timeline with the decision's number.
   const marks = useMemo(() => {
@@ -585,7 +603,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     : [];
   const clock = (h: number) => `${String(h % 24).padStart(2, '0')}:00`;
 
-  // Shifty and the command bar read what the manager is looking at, and act only through these.
+  // Shifty reads what the manager is looking at, and acts only through these.
   const agentDeps: ProposalDeps = {
     actions,
     goTo: (screen) => setTab(screen as Tab),
@@ -653,17 +671,24 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               </div>
             )}
             {section.plans && canEdit && !needsSite && !notHere && <div className="section-actions">
-              {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
-              {rotaAi && siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
-              <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
-                Clear week
+              {/* On a phone the less used actions fold behind More, so the build stays in reach and the rota comes up sooner. */}
+              <button className="ghost more-actions-toggle" aria-expanded={moreActions} aria-controls="more-actions" onClick={() => setMoreActions(!moreActions)}>
+                More
               </button>
+              <span id="more-actions" className={`more-actions${moreActions ? ' open' : ''}`}>
+                {/* The assistant drafts one site's week, so it is offered when one site is in scope. */}
+                {rotaAi && siteIds.length > 0 && <button onClick={() => setAssistantOpen(true)} disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>Ask the assistant</button>}
+                <button className="ghost" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS} onClick={() => { void actions.clear(siteIds, week); setUnfilled(null); }}>
+                  Clear week
+                </button>
+              </span>
               <button onClick={runAutoBuild} className="primary" disabled={!canEdit} title={canEdit ? undefined : NOT_YOURS}>
                 {single ? 'Build from forecast' : `Build ${siteIds.length} sites from forecast`}
               </button>
             </div>}
           </div>
-          {section.scope === 'week' && <PnlStrip
+          {/* The rota's P&L and its publish button belong where the week is planned: Sites, Rota and Demand. */}
+          {section.scope === 'week' && section.plans && <PnlStrip
             state={view}
             metrics={metrics}
             issues={issues}
@@ -683,12 +708,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         <div className="shell">
           <div className="main">
             {activeTab !== 'billing' && <BillingBanner billing={account?.billing} canSettings={allow('settings.manage')} onOpen={() => setTab('billing')} />}
-            {sample && !account?.demo && activeTab !== 'setup' && (
-              <div className="notice">
-                You are looking at the sample group, not your business.{' '}
-                <button className="link" onClick={() => setTab('setup')}>Set up your own</button>
-              </div>
-            )}
             {account?.demo && (
               <div className="notice demo-banner">
                 <span>
@@ -706,9 +725,19 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
               </div>
             )}
 
-            {section.scope !== 'org' ? (
-              <RemindersBanner key={`${siteIds.join()}:${activeTab}`} siteIds={siteIds} sites={state.sites} today={today} onOpen={(id) => { setSiteId(id); setTab('calendar'); }} />
-            ) : null}
+            {/* What to know before the work, as one card: the sample group (until it is hidden) and what is coming up. */}
+            <div className="notices">
+              {sample && !sampleHidden && !account?.demo && activeTab !== 'setup' && (
+                <div className="notice">
+                  You are looking at the sample group, not your business.{' '}
+                  <button className="link" onClick={() => setTab('setup')}>Set up your own</button>
+                  <button className="link" onClick={hideSample}>Hide</button>
+                </div>
+              )}
+              {section.scope !== 'org' ? (
+                <RemindersBanner key={`${siteIds.join()}:${activeTab}`} siteIds={siteIds} sites={state.sites} today={today} onOpen={(id) => { setSiteId(id); setTab('calendar'); }} />
+              ) : null}
+            </div>
 
             {refused && (
               <div className="notice" role="status">
@@ -1146,7 +1175,6 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
       {walking && released.length > 0 && <Walkthrough releases={released} offeredTab={offeredTab} onGo={walkTo} onClose={finishWalk} />}
 
       <Suspense fallback={null}>
-        <CommandBar view={agentView} deps={agentDeps} />
         <Shifty view={agentView} deps={agentDeps} />
       </Suspense>
 

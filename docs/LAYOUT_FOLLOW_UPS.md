@@ -64,19 +64,30 @@ All fixed on 27 October 2026. The changes are noted on each item.
 
 ## 2. Clutter still on the screen
 
-- [ ] **Two AI entry points.** The Tell Preshift bar and the Shifty button both sit fixed at the foot of every screen and cover content. On a phone they take about 130px.
+All done on 28 October 2026. The changes are noted on each item.
+
+- [x] **Two AI entry points.** The Tell Preshift bar and the Shifty button both sit fixed at the foot of every screen and cover content. On a phone they take about 130px.
   - Fix: merge them into one "Ask Shifty" button, with Ctrl K opening it.
-- [ ] **Two banners on every screen.** "You are looking at the sample group" and "Coming up" are two cards on every section.
+  - Done: the Tell Preshift bar is gone. Ask Shifty, in the bottom right, takes questions and things to do, every change as a card to confirm. Ctrl K (Cmd K on a Mac) opens it from anywhere, and Escape closes it. The How to guide says so.
+- [x] **Two banners on every screen.** "You are looking at the sample group" and "Coming up" are two cards on every section.
   - Fix: one notices line, with the sample-group message dismissible once read.
-- [ ] **The P&L strip and its publish button appear too widely.** They show on Payroll, Tronc, Clocked vs rota, Forecast, Coach, Prime cost, Compliance risk, Reports, Close, Programme and Labour cost. Publishing the rota from Payroll is out of place.
+  - Done: the sample-group notice and Coming up share one card, a rule between them, and the sample notice has Hide, remembered on the device.
+- [x] **The P&L strip and its publish button appear too widely.** They show on Payroll, Tronc, Clocked vs rota, Forecast, Coach, Prime cost, Compliance risk, Reports, Close, Programme and Labour cost. Publishing the rota from Payroll is out of place.
   - Fix: show the full strip on Rota, Sites and Demand only, and a smaller version or none elsewhere.
-- [ ] **Phone rota header.** The title, week picker, stamp, three buttons, the strip and the banners all come before the decisions. The rota starts about 1,000px down.
+  - Done: the strip shows on Sites, Rota and Demand only, the sections where the week is planned. The heading still gives the week's status everywhere.
+- [x] **Phone rota header.** The title, week picker, stamp, three buttons, the strip and the banners all come before the decisions. The rota starts about 1,000px down.
   - Fix: on a phone, put Ask the assistant, Clear week and Build in one menu, and put the stamp beside the week.
-- [ ] **The decisions bar is tall.** With four decisions open it pushes the rota to the foot of a laptop screen. It also caused one CI failure on #127.
+  - Done: on a phone, Ask the assistant and Clear week fold behind More beside Build from forecast, and the status sits beside the week. The decisions bar now starts about 725px down, from about 1,000px.
+- [x] **The decisions bar is tall.** With four decisions open it pushes the rota to the foot of a laptop screen. It also caused one CI failure on #127.
   - Fix: make each card shorter, with its button beside the text on wide screens.
-- [ ] **Decisions shown to people who cannot act on them.** A supervisor is told "give them hours first".
+  - Done: the cards are tighter, the detail is held to two lines with the whole of it on hover, and the buttons are smaller. With three decisions the bar went from about 215px to 163px.
+- [x] **Decisions shown to people who cannot act on them.** A supervisor is told "give them hours first".
   - Fix: show the bar only to people who can change the rota, or word it as information for everyone else.
-- [ ] **Phone layout of tables and tabs.** The Staff requests "Rota seen" table squashes names into a narrow coded column. The Reports tabs wrap into a block. Tap targets are under 28px tall in several places: Rota (29), Features (55), Settings (21), Support (15).
+  - Done: the bar and its day tags show only to people who can change the rota.
+- [x] **Phone layout of tables and tabs.** The Staff requests "Rota seen" table squashes names into a narrow coded column. The Reports tabs wrap into a block. Tap targets are under 28px tall in several places: Rota (29), Features (55), Settings (21), Support (15).
+  - Done: Rota seen gives each site's names a full-width line on a phone, the Reports tab bar scrolls sideways instead of wrapping, and on touch screens links and tips gain an invisible tap margin while switches, checkboxes and the fold buttons grow. The gap cells under the timeline stay small, because larger targets there would overlap.
+- [x] **Found while fixing: a fold button beside the plot caught taps meant for it.** A touch screen snaps a tap to a nearby button. With the fold chevron at the right of a day's name, and larger on touch, a tap at the start of the day folded it instead of offering a shift.
+  - Done: the chevron sits left of the day's name, as on a folded day, well away from the plot. The iPad tap check covers it.
 
 ## 3. Does the flow make sense
 

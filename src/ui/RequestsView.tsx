@@ -342,7 +342,7 @@ export function RequestsView({ state, siteIds, today, allow, onChanged, coverShi
         <>
           <h3 className="section-title">Rota seen</h3>
           <div className="grid-wrap">
-            <table className="table people">
+            <table className="table people rota-seen">
               <tbody>
                 {seen.filter((w) => siteIds.includes(w.siteId)).map((w) => (
                   <tr key={`${w.siteId}${w.weekStart}`}>

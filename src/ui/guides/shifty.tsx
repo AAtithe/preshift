@@ -1,8 +1,8 @@
-// The guide to Shifty and the command bar.
+// The guide to Shifty.
 
 export const shiftyGuide = {
   id: 'shifty',
-  title: 'Shifty and the command bar',
+  title: 'Ask Shifty',
   summary: 'Ask questions in plain English, or tell Preshift what to do, and confirm each change before it happens.',
   Body: ShiftyGuide,
 };
@@ -10,12 +10,12 @@ export const shiftyGuide = {
 function ShiftyGuide() {
   return (
     <>
-      <h3>Two ways to ask</h3>
+      <h3>One place to ask</h3>
       <p>
-        <strong>Shifty</strong>, in the bottom right, is for questions and conversation: "Are we on target this week?", "Who
-        is working Saturday night?", "How much holiday has Grace got left?". The <strong>command bar</strong> along the
-        bottom is for getting something done in one line: "Please add a new starter, Sam Lee, bartender at Marylebone from
-        Monday on £12.71". Press Ctrl K (Cmd K on a Mac) to jump to it from anywhere.
+        <strong>Ask Shifty</strong>, in the bottom right, takes questions and conversation ("Are we on target this week?",
+        "Who is working Saturday night?", "How much holiday has Grace got left?") and things to get done in one line
+        ("Please add a new starter, Sam Lee, bartender at Marylebone from Monday on £12.71"). Press Ctrl K (Cmd K on a Mac)
+        to open it from anywhere.
       </p>
 
       <h3>Nothing changes until you confirm</h3>

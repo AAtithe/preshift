@@ -11,7 +11,11 @@ const STARTERS = [
 
 const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 
-/** Shifty, the chat in the bottom right. Answers questions about the rota and team, and proposes changes to confirm. */
+/**
+ * Shifty, the one place to ask Preshift anything, in the bottom right: a question ("Are we on target
+ * this week?") or something to do ("Add Sam Lee, bartender at Marylebone, from Monday on £12.71"),
+ * each change proposed as a card to confirm. Ctrl+K (Cmd+K on a Mac) opens it from anywhere.
+ */
 export function Shifty({ view, deps }: { view: () => AgentView; deps: ProposalDeps }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
@@ -25,6 +29,17 @@ export function Shifty({ view, deps }: { view: () => AgentView; deps: ProposalDe
   useEffect(() => {
     if (open) input.current?.focus();
   }, [open]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setOpen(true);
+        input.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   function send(value = text) {
     if (!value.trim()) return;
@@ -34,20 +49,21 @@ export function Shifty({ view, deps }: { view: () => AgentView; deps: ProposalDe
 
   if (!open) {
     return (
-      <button className="shifty-launcher" onClick={() => setOpen(true)} aria-label="Chat with Shifty">
+      <button className="shifty-launcher" onClick={() => setOpen(true)} aria-label="Ask Shifty" title="Ask a question or say what to do. Ctrl K from anywhere.">
         <span className="shifty-mark" aria-hidden>S</span>
-        <span>Shifty</span>
+        <span>Ask Shifty</span>
+        <kbd className="shifty-key" aria-hidden>Ctrl K</kbd>
       </button>
     );
   }
 
   return (
-    <section className="shifty" role="dialog" aria-label="Shifty">
+    <section className="shifty" role="dialog" aria-label="Shifty" onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
       <header className="shifty-head">
         <span className="shifty-mark" aria-hidden>S</span>
         <div>
           <div className="shifty-name">Shifty</div>
-          <div className="muted small">Ask about your rota and team</div>
+          <div className="muted small">Ask a question, or say what to do</div>
         </div>
         <span className="spacer" />
         {agent.items.length > 0 && <button className="link small" onClick={agent.reset}>New chat</button>}
@@ -58,8 +74,9 @@ export function Shifty({ view, deps }: { view: () => AgentView; deps: ProposalDe
         {agent.items.length === 0 && (
           <div className="shifty-empty">
             <p className="small">
-              Hello. I can look up shifts, labour, holiday and the team, and set things up for you to confirm, such as a new
-              starter, a leaver or a shift. Nothing changes until you press Confirm.
+              Hello. Ask me about shifts, labour, holiday and the team, or tell me what to do, such as "Add Sam Lee, bartender
+              at Marylebone, from Monday on £12.71". Every change comes back as a card, and nothing changes until you press
+              Confirm.
             </p>
             <div className="shifty-starters">
               {STARTERS.map((s) => (
@@ -86,7 +103,7 @@ export function Shifty({ view, deps }: { view: () => AgentView; deps: ProposalDe
           ref={input}
           rows={2}
           value={text}
-          placeholder="Ask Shifty..."
+          placeholder="Ask a question, or say what to do..."
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
