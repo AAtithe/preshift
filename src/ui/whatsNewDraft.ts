@@ -6,7 +6,7 @@ import { NAV_ITEMS } from './nav';
 import { releaseLabel, type Release, type RotaLens, type WalkStep } from './walkthrough';
 
 export const LENSES: RotaLens[] = ['timeline', 'people', 'gantt', 'cover', 'rest', 'stations', 'cost', 'changes', 'fairness'];
-export const AUDIENCES = ['GMs', 'Staff', 'Finance', 'Admin', 'Owners', 'Operators', 'WS', 'Everyone'] as const;
+export const AUDIENCES = ['GMs', 'Staff', 'Finance', 'Admin', 'Owners', 'Operators', 'Partners', 'Everyone'] as const;
 
 /** A change that went into main this week, as the job reads it from GitHub. */
 export interface MergedChange {
@@ -82,7 +82,7 @@ const SECTIONS = NAV_ITEMS.map((t) => `${t.id}: ${t.label}`).join('\n');
 /** The instructions the weekly job sends with the week's changes. */
 export function draftPrompt(week: string, changes: MergedChange[], house: string): string {
   return [
-    `Write the What's new for the ${releaseLabel(week).replace('Week', 'week')} in Preshift, a rota and labour app for UK hospitality run by Williams, Stanley & Co.`,
+    `Write the What's new for the ${releaseLabel(week).replace('Week', 'week')} in Preshift, a rota and labour app for UK hospitality, built with its accountants.`,
     'The readers are general managers, finance teams, operators and staff at bars, restaurants and cafes. They are busy and act on numbers.',
     '',
     'House rules for the card, from docs/WHATS_NEW.md:',

@@ -306,9 +306,9 @@ export function AccessView({ state }: Props) {
                   {state.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
                 <select value={sideFilter} onChange={(e) => setSideFilter(e.target.value as '' | Audience)} aria-label="Side">
-                  <option value="">Operator, WS and outside</option>
+                  <option value="">Operator, partner and outside</option>
                   <option value="operator">Operator</option>
-                  <option value="ws">Williams, Stanley &amp; Co.</option>
+                  <option value="ws">Accounting partner</option>
                   <option value="external">Outside</option>
                 </select>
                 <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
@@ -594,7 +594,7 @@ function CoverCell({ who, onOpen }: { who: User[]; onOpen: (id: string) => void 
 function sideSplit(users: User[]) {
   const active = users.filter((u) => u.status === 'active');
   const n = (a: Audience) => active.filter((u) => u.audience === a).length;
-  return `${n('operator')} operator, ${n('ws')} WS, ${n('external')} outside`;
+  return `${n('operator')} operator, ${n('ws')} partner, ${n('external')} outside`;
 }
 
 function RolesPage({ users, onOpen }: { users: User[]; onOpen: (id: string) => void }) {

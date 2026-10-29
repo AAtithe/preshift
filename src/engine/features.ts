@@ -105,7 +105,7 @@ export const FEATURES: FeatureDef[] = [
   },
   {
     id: 'programme', label: 'Labour programme', group: 'Finance', tabs: ['programme'],
-    about: 'The labour programme with WS: the ladder, milestones, the verified saving and benchmarks.',
+    about: 'The labour programme with your accounting partner: the ladder, milestones, the verified saving and benchmarks.',
   },
   {
     id: 'prime', label: 'Prime cost', group: 'Finance', tabs: ['prime'],
@@ -122,7 +122,7 @@ export const FEATURES: FeatureDef[] = [
   {
     id: 'close', label: 'Close', group: 'Finance', tabs: ['close'],
     about: 'The labour accrual journal for the month-end close, ready to post.',
-    offMeans: 'Only where labour is accrued another way. WS runs the 3-day close from this.',
+    offMeans: 'Only where labour is accrued another way. Your accounting partner runs the 3-day close from this.',
   },
 ];
 

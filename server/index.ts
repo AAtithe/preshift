@@ -11,7 +11,7 @@ const { app, ctx } = await buildApp({ logger: true });
 
 // Local development without a database starts empty on every restart, so give it a ready-made
 // admin rather than asking for the owner set-up each time. Never with a real database. To try the
-// labour programme's sign-offs locally, act as the WS client partner from the demo people.
+// labour programme's sign-offs locally, act as the client partner from the demo people.
 if (process.env.NODE_ENV !== 'production' && ctx.store instanceof MemoryStore) {
   await ctx.store.createUser({
     email: DEV_USER.email,

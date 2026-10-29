@@ -26,7 +26,7 @@ function PhoneTagsGuide() {
         <li>One NTAG 424 DNA sticker per entrance. Other NFC stickers will not work: they cannot write a one-time code.</li>
         <li>Each person on the staff app, with their own login. Invite them under Clock-in setup, Phone logins.</li>
         <li>Phones that read NFC: iPhone XS or later, or an Android phone with NFC turned on.</li>
-        <li>To program the sticker yourself: NXP TagXplorer on a computer with a USB NFC reader, or NXP TagWriter on a phone. Williams, Stanley &amp; Co. can send stickers ready programmed instead.</li>
+        <li>To program the sticker yourself: NXP TagXplorer on a computer with a USB NFC reader, or NXP TagWriter on a phone. Your accounting partner can send stickers ready programmed instead.</li>
       </ul>
 
       <h3>Add the tag in Preshift</h3>

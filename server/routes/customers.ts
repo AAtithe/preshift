@@ -22,12 +22,12 @@ import { summarise } from './clients';
 //   every other client. Never an API key.
 // - Counts and billing standing only. The owner's name and email, so someone can call them; never a
 //   customer's staff, pay or personnel data.
-// - Read only, but for one action: moving a customer onto a WS engagement when the firm takes them on.
+// - Read only, but for one action: moving a customer onto a partner engagement when the firm takes them on.
 //   That needs a second permission (customers.billing). It never charges or refunds anyone: it only sets
 //   the Stripe subscription to end when the period already paid for runs out, so nobody pays twice.
 //   Paying, refunds and cancelling otherwise stay in Stripe.
 // - Every view is in the audit log, with who looked.
-// - Only self sign-ups: organisations billed under a WS engagement have no billing record and are
+// - Only self sign-ups: organisations billed under a partner engagement have no billing record and are
 //   managed from Clients.
 
 export interface CustomerRow {
@@ -54,9 +54,9 @@ export interface CustomerRow {
   rotaPublished: boolean;
   lastActivity: string | null;
   attention: string[];
-  /** Moving to, or billed under, a WS engagement: from when, and who moved them. */
+  /** Moving to, or billed under, a partner engagement: from when, and who moved them. */
   engagement: { from: string; by: string; at: string } | null;
-  /** Came off a WS engagement onto paying by card. */
+  /** Came off a partner engagement onto paying by card. */
   fromEngagement: boolean;
 }
 
@@ -76,7 +76,7 @@ export interface CustomerTotals {
   sitesBilled: number;
   /** Trials that have published a rota: the moment a customer has seen what the product does. */
   trialsWithRota: number;
-  /** Started on a card and taken on by the firm: moved, or moving, to a WS engagement. */
+  /** Started on a card and taken on by the firm: moved, or moving, to a partner engagement. */
   toEngagement: number;
   /** Former WS clients now paying, or due to pay, by card. */
   fromEngagement: number;
@@ -103,12 +103,12 @@ async function rowFor(ctx: AppContext, org: OrgData, r: BillingRecord, stripe: b
   if (s.standing === 'trial' && !rotaPublished && r.createdAt.slice(0, 10) <= addDays(today, -7)) attention.push('A week in and no rota published.');
   if (r.quantity && sites > r.quantity && (s.standing === 'active' || s.standing === 'past_due')) attention.push(`${sites} sites set up, ${r.quantity} billed.`);
   const moving = r.engagement && !engaged(r, now);
-  if (moving) attention.push(`Moving to WS engagement billing on ${r.engagement!.from.slice(0, 10)}: Stripe stops then.`);
+  if (moving) attention.push(`Moving to partner engagement billing on ${r.engagement!.from.slice(0, 10)}: Stripe stops then.`);
   if (r.engagement && r.subscriptionId && r.status && ['active', 'trialing', 'past_due'].includes(r.status) && !r.cancelAtPeriodEnd) {
-    attention.push('On a WS engagement but the Stripe subscription is set to renew: end it in Stripe so they are not billed twice.');
+    attention.push('On a partner engagement but the Stripe subscription is set to renew: end it in Stripe so they are not billed twice.');
   }
   else if (r.cancelAtPeriodEnd && !r.engagement) attention.push(`Cancelled: ends ${r.currentPeriodEnd?.slice(0, 10) ?? 'at the period end'}.`);
-  if (r.fromEngagement && s.standing === 'trial') attention.push(`Off a WS engagement: to subscribe by ${r.trialEndsAt.slice(0, 10)}.`);
+  if (r.fromEngagement && s.standing === 'trial') attention.push(`Off a partner engagement: to subscribe by ${r.trialEndsAt.slice(0, 10)}.`);
   return {
     orgId: org.orgId,
     name: orgName(org),
@@ -167,7 +167,7 @@ export function customerRoutes(app: FastifyInstance, ctx: AppContext, options: {
     const org = orgOf(req);
     const g = guard(ctx, req, org);
     // A system key never reaches here (no email); a person without a record has no role to hold.
-    if (g.actor.kind !== 'user') throw new HttpError(403, 'forbidden', 'Customers are listed for WS customer operations only.');
+    if (g.actor.kind !== 'user') throw new HttpError(403, 'forbidden', 'Customers are listed for customer operations only.');
     g.allow('customers.view');
     if (also) g.allow(also);
     if (org.orgId !== FIRST_ORG) throw new HttpError(403, 'forbidden', 'Customers are listed only in the organisation that runs Preshift. Switch to it first.');
@@ -222,8 +222,8 @@ export function customerRoutes(app: FastifyInstance, ctx: AppContext, options: {
       const { orgId } = req.params;
       if (isSandbox(orgId) || orgId === FIRST_ORG || !(await ctx.store.has(orgId))) throw notFound(`Customer ${orgId}`);
       const record = await getBilling(ctx.store, orgId);
-      if (!record) throw new HttpError(409, 'managed', 'This organisation is already billed under a WS engagement.');
-      if (record.engagement) throw new HttpError(409, 'moving', `Already moving to WS engagement billing on ${record.engagement.from.slice(0, 10)}.`);
+      if (!record) throw new HttpError(409, 'managed', 'This organisation is already billed under a partner engagement.');
+      if (record.engagement) throw new HttpError(409, 'moving', `Already moving to partner engagement billing on ${record.engagement.from.slice(0, 10)}.`);
 
       const now = ctx.now();
       let next: BillingRecord = record;

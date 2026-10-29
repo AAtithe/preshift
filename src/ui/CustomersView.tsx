@@ -5,7 +5,7 @@ import { csvLine, download } from './format';
 
 // Customers, for Williams, Stanley & Co. customer operations: every organisation that signed itself up,
 // its trial, subscription and revenue, and who needs a call this week. Counts and billing standing only.
-// One action: moving a customer onto a WS engagement when the firm takes them on, which ends their Stripe
+// One action: moving a customer onto a partner engagement when the firm takes them on, which ends their Stripe
 // subscription at the period end so they never pay twice. See server/routes/customers.ts.
 
 type Standing = 'trial' | 'active' | 'past_due' | 'lapsed' | 'managed';
@@ -58,7 +58,7 @@ const STANDING: Record<Standing, { label: string; tone: string }> = {
   active: { label: 'Paying', tone: 'good' },
   past_due: { label: 'Payment failed', tone: 'bad' },
   lapsed: { label: 'Lapsed', tone: 'bad' },
-  managed: { label: 'WS engagement', tone: 'good' },
+  managed: { label: 'partner engagement', tone: 'good' },
 };
 
 const FILTERS: { id: 'all' | 'attention' | Standing; label: string }[] = [
@@ -68,7 +68,7 @@ const FILTERS: { id: 'all' | 'attention' | Standing; label: string }[] = [
   { id: 'active', label: 'Paying' },
   { id: 'past_due', label: 'Payment failed' },
   { id: 'lapsed', label: 'Lapsed' },
-  { id: 'managed', label: 'WS engagement' },
+  { id: 'managed', label: 'partner engagement' },
 ];
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -87,15 +87,15 @@ export function CustomersView() {
   // The firm takes on a card customer: Stripe stops at the end of the period they have paid for.
   async function moveToEngagement(c: Customer) {
     const when = c.standing === 'active' || c.standing === 'past_due'
-      ? `Their Stripe subscription ends on ${day(c.currentPeriodEnd) || 'the last day they have paid for'} and is not renewed; WS bills them from then.`
-      : 'They have no subscription in force, so WS bills them from today.';
-    const note = prompt(`Move ${c.name} to billing under a WS engagement?\n\n${when} Nothing is refunded or charged now.\n\nNote for the record (optional, e.g. the engagement letter reference):`, '');
+      ? `Their Stripe subscription ends on ${day(c.currentPeriodEnd) || 'the last day they have paid for'} and is not renewed; the accounting partner bills them from then.`
+      : 'They have no subscription in force, so the accounting partner bills them from today.';
+    const note = prompt(`Move ${c.name} to billing under a partner engagement?\n\n${when} Nothing is refunded or charged now.\n\nNote for the record (optional, e.g. the engagement letter reference):`, '');
     if (note === null) return;
     setBusy(true);
     setNotice(null);
     try {
       const row = await api.post<Customer>(`/v1/customers/${encodeURIComponent(c.orgId)}/engagement`, note.trim() ? { note: note.trim() } : {});
-      setNotice({ text: `${c.name} moves to WS engagement billing on ${day(row.engagement?.from ?? null)}.` });
+      setNotice({ text: `${c.name} moves to partner engagement billing on ${day(row.engagement?.from ?? null)}.` });
       await load();
     } catch (e) {
       setNotice({ text: e instanceof ApiError || e instanceof Error ? e.message : String(e), bad: true });
@@ -136,8 +136,8 @@ export function CustomersView() {
     <div className="clients customers">
       <p className="muted small">
         Every business that signed itself up, its trial, subscription and revenue. Counts and billing standing only, never a customer's
-        staff or pay. Paying, refunds and cancelling are in Stripe. When the firm takes a customer on, move them to WS engagement billing
-        here so they never pay twice. Clients who started under a WS engagement are under Clients. Each time this page opens it is recorded
+        staff or pay. Paying, refunds and cancelling are in Stripe. When the firm takes a customer on, move them to partner engagement billing
+        here so they never pay twice. Clients who started under a partner engagement are under Clients. Each time this page opens it is recorded
         in the audit trail.
       </p>
       {notice && <p className={`small ${notice.bad ? 'bad-text' : 'good-text'}`} role="status">{notice.text}</p>}
@@ -170,7 +170,7 @@ export function CustomersView() {
           <div className="kpi-hint">Last 7 days, {t.signups30} in 30</div>
         </div>
         <div className="kpi">
-          <div className="kpi-label">Taken on by WS</div>
+          <div className="kpi-label">Taken on by the partner</div>
           <div className="kpi-value">{t.toEngagement}</div>
           <div className="kpi-hint">Moved from card to an engagement; {t.fromEngagement} the other way</div>
         </div>
@@ -229,7 +229,7 @@ export function CustomersView() {
                       {c.engagement
                         ? `${c.standing === 'managed' ? 'Since' : 'From'} ${day(c.engagement.from)}`
                         : c.standing === 'trial'
-                        ? `${c.trialDaysLeft} day${c.trialDaysLeft === 1 ? '' : 's'} ${c.fromEngagement ? 'to subscribe, off a WS engagement' : 'left'}`
+                        ? `${c.trialDaysLeft} day${c.trialDaysLeft === 1 ? '' : 's'} ${c.fromEngagement ? 'to subscribe, off a partner engagement' : 'left'}`
                         : c.interval
                           ? `${c.interval === 'year' ? 'Yearly' : 'Monthly'}${c.cancelAtPeriodEnd ? ', cancelled' : ''}`
                           : ''}
@@ -246,7 +246,7 @@ export function CustomersView() {
                   {data.canMove && (
                     <td>
                       {!c.engagement && (
-                        <button disabled={busy} onClick={() => void moveToEngagement(c)}>Move to WS engagement</button>
+                        <button disabled={busy} onClick={() => void moveToEngagement(c)}>Move to partner engagement</button>
                       )}
                     </td>
                   )}

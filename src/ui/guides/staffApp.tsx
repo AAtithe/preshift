@@ -47,7 +47,7 @@ function StaffAppGuide() {
         not clock anyone.
       </p>
       <ol className="guide-steps">
-        <li>Under Clock-in setup, Phone tags, press Add a phone tag and program the sticker with the keys shown, or have Williams, Stanley &amp; Co. send one ready programmed. The guide Clock in with a phone tag has every step.</li>
+        <li>Under Clock-in setup, Phone tags, press Add a phone tag and program the sticker with the keys shown, or have your accounting partner send one ready programmed. The guide Clock in with a phone tag has every step.</li>
         <li>Stick it inside the entrance at hand height, away from metal and the card reader.</li>
         <li>
           On day one, have the person touch it once with you there. The phone opens Preshift in its browser: on an iPhone that is

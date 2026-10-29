@@ -28,12 +28,12 @@ interface Billing extends BillingStanding {
   lastInvoice: { status: 'paid' | 'failed'; amountPence: number; currency: string; at: string; url?: string } | null;
   canSubscribe: boolean;
   canManage: boolean;
-  /** Moving to billing under a WS engagement from this date. */
+  /** Moving to billing under a partner engagement from this date. */
   engagement: { from: string } | null;
 }
 
 const STANDING: Record<Standing, { label: string; tone: string }> = {
-  managed: { label: 'Billed by Williams, Stanley & Co.', tone: 'good' },
+  managed: { label: 'Billed by your accounting partner', tone: 'good' },
   trial: { label: 'Free trial', tone: 'warn' },
   active: { label: 'Subscribed', tone: 'good' },
   past_due: { label: 'Payment failed', tone: 'bad' },
@@ -117,19 +117,19 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
         </h2>
         {billing.standing === 'managed' && (
           <p className="small">
-            Your organisation is billed under its engagement with Williams, Stanley & Co., so there is nothing to pay here. Questions
+            Your organisation is billed under its engagement with your accounting partner, so there is nothing to pay here. Questions
             about your fees go to your client partner.
           </p>
         )}
         {billing.engagement && billing.standing !== 'managed' && (
           <p className="small">
-            Moving to billing under your engagement with Williams, Stanley & Co. on {day(billing.engagement.from)}. Your card subscription
+            Moving to billing under your engagement with your accounting partner on {day(billing.engagement.from)}. Your card subscription
             ends then and is not renewed; the firm bills you from that date. Nothing changes in how you use Preshift.
           </p>
         )}
         {billing.standing === 'trial' && billing.fromEngagement && (
           <p className="small">
-            Your billing under the Williams, Stanley & Co. engagement has ended. To carry on, subscribe by card by{' '}
+            Your billing under the accounting partner engagement has ended. To carry on, subscribe by card by{' '}
             {day(billing.trialEndsAt)}, in {plural(billing.trialDaysLeft ?? 0, 'day')}. After that, changes pause until you do; everything
             stays readable.
           </p>

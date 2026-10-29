@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { roleOf } from '../engine/access';
 import { api, ApiError } from './api';
 
-// Clients, for Williams, Stanley & Co.: every client organisation this person holds a WS role in,
+// Clients, for Williams, Stanley & Co.: every client organisation this person holds a partner role in,
 // how far each is through onboarding, and what needs attention; and, for a client partner, adding a
 // new client. A new client is an organisation of its own with an owner invited by email. From then
 // on the client runs its own access: WS never appoints inside a client business.
@@ -34,10 +34,10 @@ export interface ClientSummary {
 /** How the client pays Preshift, in words. */
 function billingText(b: ClientSummary['billing']) {
   const on = (iso?: string) => (iso ? day(iso) : '');
-  if (b.mode === 'engagement') return 'Under the WS engagement';
-  if (b.mode === 'to-engagement') return `By card until ${on(b.from)}, then under the WS engagement`;
+  if (b.mode === 'engagement') return 'Under the partner engagement';
+  if (b.mode === 'to-engagement') return `By card until ${on(b.from)}, then under the partner engagement`;
   if (b.mode === 'to-card') return `Off the engagement: to subscribe by card by ${on(b.from)}`;
-  return { trial: 'Card: free trial', active: 'Card: paying through Stripe', past_due: 'Card: payment failed', lapsed: 'Card: lapsed, changes paused', managed: 'Under the WS engagement' }[b.standing];
+  return { trial: 'Card: free trial', active: 'Card: paying through Stripe', past_due: 'Card: payment failed', lapsed: 'Card: lapsed, changes paused', managed: 'Under the partner engagement' }[b.standing];
 }
 
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
@@ -147,7 +147,7 @@ export function ClientsView() {
   return (
     <div className="clients">
       <p className="muted small">
-        Every client you hold a Williams, Stanley & Co. role in. Each client is a separate organisation: what you see here is counts and
+        Every client you hold an accounting partner role in. Each client is a separate organisation: what you see here is counts and
         progress only, and nobody at a client can see this list or learn who else you work for.
       </p>
       <div className="kpis people-kpis">
@@ -200,9 +200,9 @@ export function ClientsView() {
                 <input required type="email" maxLength={254} value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} />
               </label>
               <div className="span2 muted small">
-                What happens: the client is created with you as its WS client partner. The owner is emailed a link, valid seven days, to
-                choose their own password; nobody at WS ever sees or holds it. Once they accept, the owner runs set-up (companies, sites,
-                roles, trading week, team) and invites their own people, including the rest of the WS team. Needs email set up under Settings.
+                What happens: the client is created with you as its client partner. The owner is emailed a link, valid seven days, to
+                choose their own password; nobody at the accounting partner ever sees or holds it. Once they accept, the owner runs set-up (companies, sites,
+                roles, trading week, team) and invites their own people, including the rest of the partner team. Needs email set up under Settings.
               </div>
               <div className="span2 row-actions">
                 <button type="submit" className="primary" disabled={busy}>Create client and invite owner</button>
@@ -223,7 +223,7 @@ export function ClientsView() {
       {clients === null ? (
         <p className="muted small">Loading clients.</p>
       ) : visible.length === 0 ? (
-        <p className="muted">{list.length === 0 ? 'You hold no Williams, Stanley & Co. role in a client yet.' : 'No client matches.'}</p>
+        <p className="muted">{list.length === 0 ? 'You hold no accounting partner role in a client yet.' : 'No client matches.'}</p>
       ) : (
         <div className="grid-wrap">
           <table className="table people clients-table">

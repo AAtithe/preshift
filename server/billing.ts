@@ -17,7 +17,7 @@ import type { Store } from './store';
 // - A failed payment is a grace period, not a pause: Stripe retries the card, and only marks the
 //   subscription unpaid or cancelled once its retries are spent.
 // - What Stripe says is believed only with its signature over the exact bytes it sent.
-// - A customer can move between the two. To a WS engagement: the Stripe subscription ends at the close of
+// - A customer can move between the two. To a partner engagement: the Stripe subscription ends at the close of
 //   the period already paid for, and from that day WS bills them and nothing here can pause them. To card:
 //   a former WS client gets a date by which to subscribe, with no free trial. Both are kept on the record,
 //   with who moved them and when, so the hand-off between the two businesses can be counted.
@@ -74,9 +74,9 @@ export interface BillingRecord {
    * no longer charges and nothing pauses them. Before it, the period already paid for runs out as normal.
    */
   engagement?: { from: string; at: string; by: string; note?: string };
-  /** Came off a WS engagement onto paying by card: who moved them, and when. `trialEndsAt` is the date to subscribe by. */
+  /** Came off a partner engagement onto paying by card: who moved them, and when. `trialEndsAt` is the date to subscribe by. */
   fromEngagement?: { at: string; by: string };
-  /** The subscription that ended when they last moved to a WS engagement: late news about it is ignored. */
+  /** The subscription that ended when they last moved to a partner engagement: late news about it is ignored. */
   previousSubscriptionId?: string;
 }
 
@@ -114,7 +114,7 @@ const PAYING: SubscriptionStatus[] = ['active', 'trialing'];
 /** Statuses that mean no subscription is in force: the trial, if any is left, still counts. */
 const NOT_STARTED: SubscriptionStatus[] = ['incomplete', 'incomplete_expired'];
 
-/** Billed under a WS engagement from today, so Stripe charges nothing and nothing here pauses them. */
+/** Billed under a partner engagement from today, so Stripe charges nothing and nothing here pauses them. */
 export const engaged = (record: BillingRecord | null, now: Date) => !!record?.engagement && Date.parse(record.engagement.from) <= now.getTime();
 
 export function standingOf(record: BillingRecord | null, now: Date, stripe: boolean): BillingStanding {

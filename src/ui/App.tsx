@@ -191,7 +191,7 @@ export function App() {
     return (
       <div className="first-run">
         <div className="wordmark">
-          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+          Preshift<span className="wordmark-with">built with hospitality accountants</span>
         </div>
         <Suspense fallback={<ScreenLoading />}>
           <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
@@ -206,7 +206,7 @@ export function App() {
     return (
       <div className="first-run">
         <div className="wordmark">
-          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+          Preshift<span className="wordmark-with">built with hospitality accountants</span>
         </div>
         <section className="settings-card first-run-welcome">
           <h2>Welcome{me?.user?.name ? `, ${me.user.name.split(' ')[0]}` : ''}. Two steps and you are ready to build your first rota.</h2>
@@ -253,7 +253,7 @@ function Splash({ children }: { children?: ReactNode }) {
       <div className="splash-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" /><path d="M11 23V9h6.2a4.6 4.6 0 0 1 0 9.2H11" /></svg>
       </div>
-      <div className="splash-word">Preshift<span>with Williams, Stanley &amp; Co.</span></div>
+      <div className="splash-word">Preshift<span>built with hospitality accountants</span></div>
       {children ?? <div className="splash-bar" role="progressbar" aria-label="Loading Preshift"><span /></div>}
     </div>
   );
@@ -606,7 +606,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     <div className="workspace">
       <header className="topbar">
         <div className="wordmark">
-          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+          Preshift<span className="wordmark-with">built with hospitality accountants</span>
         </div>
         <TopNav
           groups={nav}

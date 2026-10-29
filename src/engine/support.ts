@@ -21,7 +21,7 @@ export type TicketStatus = 'new' | 'acknowledged' | 'investigating' | 'planned' 
 export interface TicketComment {
   at: string;
   author: string;
-  /** True for a reply from the client's WS client partner, the support desk, rather than someone in the organisation. */
+  /** True for a reply from the client's client partner, the support desk, rather than someone in the organisation. */
   fromSupport: boolean;
   body: string;
 }
@@ -53,7 +53,7 @@ export interface SupportTicket {
   votes?: string[];
   context?: TicketContext;
   comments: TicketComment[];
-  /** Whether the client's WS client partner was told: emailed, a send that failed, no email set up, no partner, or a demo. */
+  /** Whether the client's client partner was told: emailed, a send that failed, no email set up, no partner, or a demo. */
   notified?: 'emailed' | 'failed' | 'not_set_up' | 'no_desk' | 'demo';
   /** When the support desk first replied or moved it on. The response target is measured to this. */
   firstResponseAt?: string;

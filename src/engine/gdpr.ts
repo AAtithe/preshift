@@ -515,10 +515,10 @@ export function processingRegister(
     },
     {
       activity: 'Support tickets',
-      purpose: 'Answering questions and fixing problems reported to Williams, Stanley & Co.',
+      purpose: 'Answering questions and fixing problems reported to the accounting partner',
       lawfulBasis: 'Contract (6(1)(b))',
       categories: 'Name of the manager who raised it, what they wrote, the screen, site and week it was raised from, replies',
-      recipients: "The client's WS client partner (notified by email through Resend)",
+      recipients: "The client's client partner (notified by email through Resend)",
       retention: 'Two years after the ticket is closed, then deleted',
       held: supportTickets,
     },

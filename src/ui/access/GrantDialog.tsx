@@ -99,7 +99,7 @@ export function GrantDialog({ state, me, users, target, onDone, onClose }: Props
                   Works for
                   <select value={audience} onChange={(e) => { setAudience(e.target.value as Audience); setRoleId(''); }}>
                     <option value="operator">The operator</option>
-                    <option value="ws">Williams, Stanley &amp; Co.</option>
+                    <option value="ws">Accounting partner</option>
                     <option value="external">Outside (auditor, investor)</option>
                   </select>
                 </label>

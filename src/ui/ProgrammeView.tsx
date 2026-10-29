@@ -24,7 +24,7 @@ interface Props {
   state: RotaState;
   siteIds: string[];
   today: string;
-  /** Holds the WS client partner's sign-off: only then are the lead's actions offered. */
+  /** Holds the client partner's sign-off: only then are the lead's actions offered. */
   lead: boolean;
   /** Whether this person may opt the organisation in to sharing: a settings change. */
   canShare: boolean;
@@ -93,8 +93,8 @@ export function ProgrammeView({ state, siteIds, today, lead, canShare, onOpenSit
       <section className="settings-card">
         <h2>Labour programme</h2>
         <p className="muted small">
-          Twelve weeks with Williams, Stanley &amp; Co.: {PHASES.map((p) => `${p.label} (weeks ${p.fromWeek} to ${p.toWeek})`).join(', ')}. Milestones are proved
-          by the site's own figures where they can be, and signed off by the WS client partner where they cannot. The saving counts only once it
+          Twelve weeks with your accounting partner: {PHASES.map((p) => `${p.label} (weeks ${p.fromWeek} to ${p.toWeek})`).join(', ')}. Milestones are proved
+          by the site's own figures where they can be, and signed off by the client partner where they cannot. The saving counts only once it
           is in the management accounts.
         </p>
         {inScope.length === 0 ? (
@@ -147,7 +147,7 @@ export function ProgrammeView({ state, siteIds, today, lead, canShare, onOpenSit
           <StartForm key={notOn.join()} sites={notOn.map((id) => ({ id, name: siteName(id) }))} today={today} busy={busy}
             onStart={(siteId, startWeek, gainSharePct) => act(`${siteName(siteId)} is on the programme from w/c ${startWeek}.`, () => api.put(`/v1/programmes/${siteId}`, { startWeek, gainSharePct }))} />
         )}
-        {!lead && notOn.length > 0 && <p className="muted small">The WS client partner puts sites on the programme.</p>}
+        {!lead && notOn.length > 0 && <p className="muted small">The client partner puts sites on the programme.</p>}
       </section>
 
       {detail && <SiteDetail key={detail.programme.siteId} entry={detail} lead={lead} busy={busy} act={act} />}
@@ -157,7 +157,7 @@ export function ProgrammeView({ state, siteIds, today, lead, canShare, onOpenSit
           <div className="insight-head">
             <div>
               <h2>Benchmarks</h2>
-              <p className="muted small">How your sites compare with other operators WS works with, anonymised.</p>
+              <p className="muted small">How your sites compare with other operators your accounting partner works with, anonymised.</p>
             </div>
             <button onClick={() => setBenchOpen(true)}>Show benchmarks</button>
           </div>
@@ -323,7 +323,7 @@ function BenchmarkPanel({ bench, siteIds, siteName, admin, busy, onToggle }: { b
         <div>
           <h2>Benchmarks</h2>
           <p className="muted small">
-            How your sites compare with other operators WS works with, over the last four finished weeks. Only operators who share
+            How your sites compare with other operators your accounting partner works with, over the last four finished weeks. Only operators who share
             see the figures, only quartiles ever leave the cohort, and nothing is shown until it is large and broad enough that no
             operator can be picked out.
           </p>

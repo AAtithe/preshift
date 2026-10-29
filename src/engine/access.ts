@@ -54,7 +54,7 @@ export const PERMISSIONS: Record<Permission, PermissionDef> = {
   'privacy.manage': { area: 'Settings', label: "Answer staff data requests, export or erase a person's data, set retention" },
   'programme.lead': { area: 'Finance', label: 'Sign off the labour programme: its baseline, milestones, verified saving and gain share' },
   'customers.view': { area: 'Finance', label: "See every self sign-up customer's trial, subscription and revenue, as counts and billing standing only" },
-  'customers.billing': { area: 'Finance', label: 'Move a card-paying customer onto a WS engagement, ending their Stripe subscription at the period end' },
+  'customers.billing': { area: 'Finance', label: 'Move a card-paying customer onto a partner engagement, ending their Stripe subscription at the period end' },
 };
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
@@ -82,7 +82,7 @@ const SITE_RUN: Permission[] = ['rota.view', 'rota.edit', 'rota.publish', 'deman
 export const ROLES: RoleDef[] = [
   {
     id: 'owner', name: 'Owner', audience: 'operator', scope: 'org', mfa: true, appoints: ['operator', 'external'],
-    about: 'Runs the business. Everything except approving hours, approving pay changes and sending pay, which stay with the people who check them, and signing off the labour programme, which sets the WS fee.',
+    about: 'Runs the business. Everything except approving hours, approving pay changes and sending pay, which stay with the people who check them, and signing off the labour programme, which sets the partner fee.',
     permissions: ALL_PERMISSIONS.filter((p) => p !== 'payroll.send' && p !== 'time.approve' && p !== 'pay.approve' && p !== 'programme.lead' && p !== 'customers.view' && p !== 'customers.billing'),
   },
   {
@@ -136,25 +136,25 @@ export const ROLES: RoleDef[] = [
     permissions: VIEW,
   },
   {
-    id: 'ws_partner', name: 'WS client partner', audience: 'ws', scope: 'org', mfa: true, appoints: ['ws', 'external'],
-    about: 'Williams, Stanley & Co. lead on the account. Reads everything, locks periods, exports the close, manages WS access and signs off the labour programme.',
+    id: 'ws_partner', name: 'Client partner', audience: 'ws', scope: 'org', mfa: true, appoints: ['ws', 'external'],
+    about: 'Lead on the account for the accounting partner. Reads everything, locks periods, exports the close, manages partner access and signs off the labour programme.',
     permissions: [...VIEW, 'payroll.view', 'time.lock', 'close.export', 'users.manage', 'audit.view', 'programme.lead'],
   },
   {
-    id: 'ws_accountant', name: 'WS management accountant', audience: 'ws', scope: 'org', mfa: true,
+    id: 'ws_accountant', name: 'Partner management accountant', audience: 'ws', scope: 'org', mfa: true,
     about: 'Runs the 3-day close: reads labour and payroll, exports the accrual.',
     permissions: [...VIEW, 'payroll.view', 'close.export', 'audit.view'],
   },
   {
-    id: 'ws_payroll', name: 'WS payroll', audience: 'ws', scope: 'org', mfa: true,
-    about: 'Williams, Stanley & Co. payroll bureau: sends approved hours to TeamPay and locks the period.',
+    id: 'ws_payroll', name: 'Partner payroll', audience: 'ws', scope: 'org', mfa: true,
+    about: 'Payroll bureau for the accounting partner: sends approved hours to TeamPay and locks the period.',
     permissions: [...VIEW, 'payroll.view', 'payroll.send', 'time.lock'],
   },
   {
     // Every customer at once, so one named role, held by the fewest people, and only ever counted in the
     // system's own organisation (server/routes/customers.ts): granted in a client's organisation it shows nothing.
-    id: 'ws_customers', name: 'WS customer operations', audience: 'ws', scope: 'org', mfa: true,
-    about: "Williams, Stanley & Co. commercial lead: sees every self sign-up customer's trial, subscription and revenue in one place, and moves a customer onto a WS engagement when the firm takes them on. Counts and billing standing only, never a customer's staff or pay.",
+    id: 'ws_customers', name: 'Customer operations', audience: 'ws', scope: 'org', mfa: true,
+    about: "The accounting partner's commercial lead: sees every self sign-up customer's trial, subscription and revenue in one place, and moves a customer onto a partner engagement when the firm takes them on. Counts and billing standing only, never a customer's staff or pay.",
     permissions: ['customers.view', 'customers.billing'],
   },
   {
@@ -185,7 +185,7 @@ export const CONFLICTS: Conflict[] = [
   { a: 'users.manage', b: 'payroll.send', effect: 'warn', why: 'Could grant payroll rights and then use them. Access and pay should sit apart.' },
 ];
 
-export const AUDIENCE_LABEL: Record<Audience, string> = { operator: 'Operator', ws: 'Williams, Stanley & Co.', external: 'Outside' };
+export const AUDIENCE_LABEL: Record<Audience, string> = { operator: 'Operator', ws: 'Accounting partner', external: 'Outside' };
 
 export interface Membership {
   id: string;
@@ -236,7 +236,7 @@ export interface AccessReview {
 /**
  * A system actor has no person behind it: an integration key, or a sign-in from before roles with no
  * access record. `ws` marks a deployment key Williams, Stanley & Co. holds (the programme:lead scope):
- * the only system actor that may grant or change WS roles, and it never touches the operator's own.
+ * the only system actor that may grant or change partner roles, and it never touches the operator's own.
  */
 export type Actor = { kind: 'system'; name: string; ws?: boolean } | { kind: 'user'; user: User };
 
@@ -367,9 +367,9 @@ export function checkGrant(actor: Actor, target: Pick<User, 'id' | 'audience' | 
 /** Whether this actor may give this role: never to themselves, and never beyond their own access. */
 export function authorityErrors(actor: Actor, target: Pick<User, 'id'>, role: RoleDef, g: GrantProposal, today: string): string[] {
   if (actor.kind === 'system') {
-    // WS roles carry the programme sign-off, which sets the WS fee, so the operator's own authority never grants them.
-    if (role.audience === 'ws' && !actor.ws) return ['Williams, Stanley & Co. roles are granted by the WS client partner, or by WS itself.'];
-    if (actor.ws && role.audience === 'operator') return ['Operator roles are granted by the operator. Williams, Stanley & Co. never appoints inside a client business.'];
+    // partner roles carry the programme sign-off, which sets the partner fee, so the operator's own authority never grants them.
+    if (role.audience === 'ws' && !actor.ws) return ['Accounting partner roles are granted by the client partner, or by the accounting partner itself.'];
+    if (actor.ws && role.audience === 'operator') return ['Operator roles are granted by the operator. The accounting partner never appoints inside a client business.'];
     return [];
   }
   const a = actor.user;
@@ -380,10 +380,10 @@ export function authorityErrors(actor: Actor, target: Pick<User, 'id'>, role: Ro
   if (a.id === target.id) return ['Somebody else has to change your own access, so nobody can widen their own rights.'];
   if (a.status !== 'active') return [`${a.name} is not active and cannot grant access.`];
   if (role.audience === 'ws' && !(a.audience === 'ws' && canOrgWide(a, 'users.manage', today))) {
-    return ['Williams, Stanley & Co. roles are granted by the WS client partner.'];
+    return ['Accounting partner roles are granted by the client partner.'];
   }
   if (a.audience === 'ws' && role.audience === 'operator') {
-    return ['Operator roles are granted by the operator. Williams, Stanley & Co. never appoints inside a client business.'];
+    return ['Operator roles are granted by the operator. The accounting partner never appoints inside a client business.'];
   }
   if (canOrgWide(a, 'users.manage', today)) return appoints(a, today).has(role.audience) ? [] : missing(g.siteIds);
   const mine = sitesWith(a, 'users.sites', today);
@@ -440,8 +440,8 @@ export function strongHeld(user: Pick<User, 'memberships'>, today: string): Perm
 /** Can the actor change this person's account or this membership (revoke, suspend, reset)? */
 export function checkAuthority(actor: Actor, target: User, users: User[], today: string, opts: { membershipId?: string; removesAccess?: boolean } = {}): string | null {
   if (actor.kind === 'system') {
-    if (target.audience === 'ws' && !actor.ws && !opts.removesAccess) return 'Williams, Stanley & Co. accounts are managed by the WS client partner.';
-    if (actor.ws && target.audience === 'operator') return "Williams, Stanley & Co. never changes the accounts of a client's own people. The client manages them.";
+    if (target.audience === 'ws' && !actor.ws && !opts.removesAccess) return 'Accounting partner accounts are managed by the client partner.';
+    if (actor.ws && target.audience === 'operator') return "The accounting partner never changes the accounts of a client's own people. The client manages them.";
   }
   if (actor.kind === 'user') {
     const a = actor.user;
@@ -454,10 +454,10 @@ export function checkAuthority(actor: Actor, target: User, users: User[], today:
       if (!within) return 'Only someone who manages access for the whole organisation can change this person.';
     }
     if (target.audience === 'ws' && !(a.audience === 'ws' && canOrgWide(a, 'users.manage', today)) && !opts.removesAccess) {
-      return 'Williams, Stanley & Co. accounts are managed by the WS client partner.';
+      return 'Accounting partner accounts are managed by the client partner.';
     }
     if (a.audience === 'ws' && target.audience === 'operator') {
-      return "Williams, Stanley & Co. never changes the accounts of a client's own people. The client manages them.";
+      return "The accounting partner never changes the accounts of a client's own people. The client manages them.";
     }
   }
   if (opts.removesAccess && canOrgWide(target, 'users.manage', today) && managersOtherThan(users, target.id, today, opts.membershipId) === 0) {

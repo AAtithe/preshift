@@ -111,7 +111,7 @@ describe('moving a card customer to a WS engagement', () => {
     expect(stripe[0].body.get('cancel_at_period_end')).toBe('true');
     expect(stripe[0].idempotency).toBe('engagement-org-card-sub_1');
     expect(res.body.engagement.from).toBe(new Date(PERIOD_END * 1000).toISOString());
-    expect(res.body.attention.join(' ')).toContain('Moving to WS engagement billing');
+    expect(res.body.attention.join(' ')).toContain('Moving to partner engagement billing');
 
     // Until then they have paid, so nothing changes, but the portal is closed so the subscription cannot be renewed.
     const before = (await k.call('GET', '/v1/billing', owner)).body;

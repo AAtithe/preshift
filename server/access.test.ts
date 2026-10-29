@@ -384,7 +384,7 @@ describe('the WS lead', () => {
     const norecord = await k.as('norecord@ws.example');
     const legacy = await k.call('POST', '/v1/users', norecord, partner);
     expect(legacy.status).toBe(422);
-    expect(legacy.body.message).toMatch(/granted by the WS client partner, or by WS itself/);
+    expect(legacy.body.message).toMatch(/granted by the client partner, or by the accounting partner itself/);
     expect((await k.call('POST', '/v1/users', { key: 'integration' }, partner)).status).toBe(403);
     // WS's key appoints WS people only, never inside the client business.
     expect((await k.call('POST', '/v1/users', { key: 'ws' }, { email: 'x@ws.example', name: 'X', audience: 'operator', roleId: 'viewer' })).status).toBe(422);

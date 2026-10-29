@@ -72,7 +72,7 @@ describe('granting', () => {
 
   it('keeps WS and operator appointments apart and requires end dates for outsiders', () => {
     const { as, fresh } = world();
-    expect(checkGrant(as('usr_owner'), fresh('ws'), { roleId: 'ws_payroll', siteIds: null, starts: TODAY }, TODAY).errors[0]).toMatch(/WS client partner/);
+    expect(checkGrant(as('usr_owner'), fresh('ws'), { roleId: 'ws_payroll', siteIds: null, starts: TODAY }, TODAY).errors[0]).toMatch(/client partner/);
     expect(checkGrant(as('usr_ws_partner'), fresh('ws'), { roleId: 'ws_payroll', siteIds: null, starts: TODAY }, TODAY).errors).toEqual([]);
     expect(checkGrant(as('usr_ws_partner'), fresh(), { roleId: 'viewer', siteIds: null, starts: TODAY }, TODAY).errors[0]).toMatch(/never appoints inside/);
     expect(checkGrant(as('usr_owner'), fresh('external'), { roleId: 'investor', siteIds: null, starts: TODAY }, TODAY).errors[0]).toMatch(/end date/);

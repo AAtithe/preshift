@@ -310,7 +310,7 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/private-events': true,
   'PATCH /v1/private-events/:id': true,
   'DELETE /v1/private-events/:id': true,
-  // Refused: the programme's baseline, sign-offs and gain share are the WS lead's, and nobody in a
+  // Refused: the programme's baseline, sign-offs and gain share are the partner lead's, and nobody in a
   // sandbox is one.
   'PUT /v1/programmes/:siteId': false,
   'PUT /v1/programmes/:siteId/baseline': false,

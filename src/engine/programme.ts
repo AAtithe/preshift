@@ -10,7 +10,7 @@ import { addDays, daysBetween, weekday, weekStart } from './time';
 // and owner. Software alone does not change how a GM rosters; a programme with
 // a baseline, a weekly rhythm and a result signed off in the management
 // accounts does. Milestones are proved by the site's own data where they can
-// be, and signed off by the WS lead where they cannot.
+// be, and signed off by the partner lead where they cannot.
 
 export type PhaseId = 'baseline' | 'control' | 'optimise' | 'embed';
 
@@ -71,7 +71,7 @@ export interface Baseline {
   recordedAt: string;
 }
 
-/** A period's labour, signed off by WS from the management accounts. This is the proof. */
+/** A period's labour, signed off by the accounting partner from the management accounts. This is the proof. */
 export interface Verification {
   id: string;
   from: string;
@@ -206,7 +206,7 @@ export function programmeStatus(programme: Programme, scorecard: Scorecard, stat
   const milestones = MILESTONES.map((m) => {
     if (m.proof === 'signoff') {
       const s = programme.signoffs[m.id];
-      return { ...m, done: !!s, evidence: s ? `Signed off by ${s.by}${s.note ? `: ${s.note}` : ''}.` : 'Awaiting sign-off by the WS lead.', signoff: s };
+      return { ...m, done: !!s, evidence: s ? `Signed off by ${s.by}${s.note ? `: ${s.note}` : ''}.` : 'Awaiting sign-off by the partner lead.', signoff: s };
     }
     return { ...m, ...evidence[m.id] };
   });

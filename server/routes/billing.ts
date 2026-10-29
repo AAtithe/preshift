@@ -60,7 +60,7 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
 
   async function record(req: FastifyRequest) {
     const r = await getBilling(store, req.principal.orgId);
-    if (!r || engaged(r, ctx.now())) throw new HttpError(409, 'managed', 'This organisation is billed under its engagement with Williams, Stanley & Co., not by card here.');
+    if (!r || engaged(r, ctx.now())) throw new HttpError(409, 'managed', 'This organisation is billed under its engagement with your accounting partner, not by card here.');
     return r;
   }
 
@@ -73,7 +73,7 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
     billingPerson(req);
     const org = orgOf(req);
     const all = await getBilling(store, org.orgId);
-    // Once billed under a WS engagement, the card side is history: nothing to quote, buy or change here.
+    // Once billed under a partner engagement, the card side is history: nothing to quote, buy or change here.
     const r = all && !engaged(all, ctx.now()) ? all : null;
     const standing = standingOf(all, ctx.now(), !!stripe);
     const sites = billableSites(org);
@@ -88,10 +88,10 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
         ? { status: r.status ?? null, interval: r.interval ?? null, currentPeriodEnd: r.currentPeriodEnd ?? null, cancelAtPeriodEnd: !!r.cancelAtPeriodEnd }
         : null,
       lastInvoice: r?.lastInvoice ?? null,
-      // Moving to a WS engagement: the period paid for runs out, then WS bills them.
+      // Moving to a partner engagement: the period paid for runs out, then WS bills them.
       engagement: all?.engagement ? { from: all.engagement.from } : null,
       canSubscribe: !!stripe && !!r && !inForce(r) && !r.engagement,
-      // Not while moving to a WS engagement, so the ending subscription cannot be renewed and paid twice;
+      // Not while moving to a partner engagement, so the ending subscription cannot be renewed and paid twice;
       // once the move has happened, the portal is open again for the VAT invoices already paid.
       canManage: !!stripe && !!all?.customerId && !(all.engagement && !engaged(all, ctx.now())),
     };
@@ -106,7 +106,7 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
     const org = orgOf(req);
     const r = await record(req);
     const config = needStripe();
-    if (r.engagement) throw new HttpError(409, 'managed', 'This organisation is moving to billing under its engagement with Williams, Stanley & Co., so there is no card subscription to start.');
+    if (r.engagement) throw new HttpError(409, 'managed', 'This organisation is moving to billing under its engagement with your accounting partner, so there is no card subscription to start.');
     if (inForce(r)) throw new HttpError(409, 'subscribed', 'There is already a subscription. Change the card or plan from Manage billing.');
     const interval: Interval = req.body?.interval ?? 'month';
     const priceId = interval === 'year' ? config.annualPriceId : config.priceId;
@@ -154,11 +154,11 @@ export function billingRoutes(app: FastifyInstance, ctx: AppContext, options: { 
   // Stripe's customer portal: cards, invoices, VAT details and cancelling, on Stripe's own pages.
   app.post('/v1/billing/portal', { schema: { ...hidden } }, async (req) => {
     const who = billingPerson(req);
-    // Still open after a move to a WS engagement, for the VAT invoices already paid; closed while it is pending.
+    // Still open after a move to a partner engagement, for the VAT invoices already paid; closed while it is pending.
     const r = (await getBilling(store, req.principal.orgId)) ?? (await record(req));
     const config = needStripe();
     if (r.engagement && !engaged(r, ctx.now())) {
-      throw new HttpError(409, 'moving', 'Your card subscription is ending as you move to billing under your WS engagement. Manage billing opens again once that has happened.');
+      throw new HttpError(409, 'moving', 'Your card subscription is ending as you move to billing under your partner engagement. Manage billing opens again once that has happened.');
     }
     if (!r.customerId) throw new HttpError(409, 'no_customer', 'There is nothing to manage yet. Subscribe first.');
     try {
@@ -243,7 +243,7 @@ export function stripeWebhookRoutes(app: FastifyInstance, ctx: AppContext, strip
         // Late news is ignored: an older event, or one about a subscription already replaced by one in force.
         if (current.lastEventAt && event.created < current.lastEventAt) return { ok: true, recorded: false };
         if (current.subscriptionId && sub.id !== current.subscriptionId && inForce(current)) return { ok: true, recorded: false };
-        // A subscription that ended with a move to a WS engagement never speaks for the card billing that followed.
+        // A subscription that ended with a move to a partner engagement never speaks for the card billing that followed.
         if (sub.id === current.previousSubscriptionId) return { ok: true, recorded: false };
         next = { ...applySubscription(current, sub, event.type.endsWith('deleted')), lastEventAt: event.created };
         if (next.status !== current.status) note = [`billing.subscription_${next.status}`, { sites: next.quantity }];

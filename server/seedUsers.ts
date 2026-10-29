@@ -50,7 +50,7 @@ export function seedUsers(today: string): { users: User[]; reviews: AccessReview
       siteIds,
       starts: addDays(today, -200),
       active: true,
-      grantedBy: id === DEMO_OWNER_ID ? 'Set-up' : audience === 'ws' ? 'Williams, Stanley & Co.' : 'Olivia Grant',
+      grantedBy: id === DEMO_OWNER_ID ? 'Set-up' : audience === 'ws' ? 'Accounting partner' : 'Olivia Grant',
       grantedAt: at(-200),
       ...more,
     })),

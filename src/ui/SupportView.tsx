@@ -19,7 +19,7 @@ import {
 import { api, ApiError } from './api';
 
 type Ticket = SupportTicket & { responseDueAt: string; responseTarget: string };
-/** The client's WS client partners answer its tickets; `youAreDesk` is whether the person looking is one. */
+/** The client's client partners answer its tickets; `youAreDesk` is whether the person looking is one. */
 type Listing = { tickets: Ticket[]; answeredByHelp: number; desk: string[]; youAreDesk: boolean };
 
 interface Props {
@@ -44,7 +44,7 @@ const TAB_LABEL: Record<string, string> = {
 };
 
 /**
- * Front line support in the app: answers first, then a ticket that tells the client's WS client partner what they
+ * Front line support in the app: answers first, then a ticket that tells the client's client partner what they
  * need to know, and a board where the organisation's feature ideas are ranked by votes and worth.
  */
 export function SupportView({ me, context, onOpen }: Props) {
@@ -213,8 +213,8 @@ function Raise({ context, onOpen, act, desk }: { context: TicketContext; onOpen:
           </button>
           <span className="muted small">
             {desk.length
-              ? `Goes to ${desk.join(' and ')}, your Williams, Stanley & Co. client partner.`
-              : 'No Williams, Stanley & Co. client partner is set for you yet, so it is logged here until one is.'}
+              ? `Goes to ${desk.join(' and ')}, your client partner.`
+              : 'No client partner is set for you yet, so it is logged here until one is.'}
           </span>
         </div>
       </form>
@@ -340,7 +340,7 @@ function Thread({ ticket, act }: { ticket: Ticket; act: Act }) {
     <div className="thread">
       {ticket.comments.map((c, i) => (
         <div key={i} className={`thread-item ${c.fromSupport ? 'from-support' : ''}`}>
-          <div className="muted small">{c.fromSupport ? `${c.author}, WS client partner` : c.author}, {when(c.at)}</div>
+          <div className="muted small">{c.fromSupport ? `${c.author}, client partner` : c.author}, {when(c.at)}</div>
           <div className="small">{c.body}</div>
         </div>
       ))}

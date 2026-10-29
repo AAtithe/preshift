@@ -26,8 +26,8 @@ import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 
 /**
- * The client's support desk is its WS client partner: a Williams, Stanley & Co. person holding the
- * WS client partner role across this organisation. Never an API key, so no client can make itself
+ * The client's support desk is its client partner: a Williams, Stanley & Co. person holding the
+ * client partner role across this organisation. Never an API key, so no client can make itself
  * the desk and mark its own tickets answered.
  */
 function deskOf(org: OrgData, today: string): User[] {
@@ -128,7 +128,7 @@ type RaiseBody = {
 
 /**
  * Support: questions, bug reports and feature ideas, each with a first response target counted in
- * working hours, answered by the client's WS client partner. Everyone in the organisation sees its
+ * working hours, answered by the client's client partner. Everyone in the organisation sees its
  * tickets, so a known problem is reported once and an idea collects votes rather than duplicates.
  * Only the desk moves a ticket on, and only its reply stops the response clock.
  */
@@ -156,7 +156,7 @@ export function supportRoutes(app: FastifyInstance, ctx: AppContext) {
     {
       schema: {
         tags,
-        description: "Raises a question, a bug report or a feature idea, and tells the client's WS client partner. A bug says what it stops, which sets its severity.",
+        description: "Raises a question, a bug report or a feature idea, and tells the client's client partner. A bug says what it stops, which sets its severity.",
         body: {
           type: 'object',
           additionalProperties: false,
@@ -230,7 +230,7 @@ export function supportRoutes(app: FastifyInstance, ctx: AppContext) {
     {
       schema: {
         tags,
-        description: "Adds to a ticket. From the client's WS client partner it is the desk's reply, and the first one stops the response clock.",
+        description: "Adds to a ticket. From the client's client partner it is the desk's reply, and the first one stops the response clock.",
         params: idParam,
         body: { type: 'object', additionalProperties: false, required: ['body'], properties: { body: { type: 'string', minLength: 1, maxLength: 5000 } } },
       },
@@ -256,14 +256,14 @@ export function supportRoutes(app: FastifyInstance, ctx: AppContext) {
     {
       schema: {
         tags,
-        description: "Moves a ticket on. Only the client's WS client partner, the desk, may.",
+        description: "Moves a ticket on. Only the client's client partner, the desk, may.",
         params: idParam,
         body: { type: 'object', additionalProperties: false, required: ['status'], properties: { status: { type: 'string', enum: Object.keys(STATUS_LABEL) } } },
       },
     },
     async (req) => {
       const { user, desk, org } = supportPerson(ctx, req);
-      if (!desk) throw new HttpError(403, 'forbidden', "Only the WS client partner answering this organisation's support moves a ticket on.");
+      if (!desk) throw new HttpError(403, 'forbidden', "Only the client partner answering this organisation's support moves a ticket on.");
       const t = find(org, req.params.id);
       const now = new Date().toISOString();
       t.status = req.body.status;

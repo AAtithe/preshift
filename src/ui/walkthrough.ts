@@ -7,7 +7,7 @@ import type { Tab } from './nav';
 export type RotaLens = 'timeline' | 'people' | 'gantt' | 'cover' | 'rest' | 'stations' | 'cost' | 'changes' | 'fairness';
 
 export interface WalkStep {
-  /** Who it is for, as on the README card: GMs, Staff, Finance, Admin, Owners, WS, Everyone. */
+  /** Who it is for, as on the README card: GMs, Staff, Finance, Admin, Owners, Partners, Everyone. */
   for: string;
   title: string;
   /** What changed and why it matters, in two or three sentences. */
@@ -103,7 +103,7 @@ export const RELEASES: Release[] = [
         tab: 'payroll',
       },
       {
-        for: 'WS',
+        for: 'Partners',
         title: 'One Claude connection for every client',
         body: 'Connecting Claude to Preshift now offers every client you work in, all ticked, and says which are left out and why. Claude acts as you in each one, with your access there, so a client partner asks across their whole book from one place. Connected apps lists every connection and its clients.',
         tab: 'clients',

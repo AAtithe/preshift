@@ -291,7 +291,7 @@ async function accountAction(store: Store, org: OrgData, actor: Actor, target: U
 export function userRoutes(app: FastifyInstance, ctx: AppContext) {
   // People are managed by people: a signed-in session or a personal key, never an integration
   // key, which could otherwise grant itself anything if it leaked. The one exception is a deployment
-  // key WS holds (programme:lead), which appoints the WS client partner and is held to WS roles alone.
+  // key WS holds (programme:lead), which appoints the client partner and is held to partner roles alone.
   const byPerson = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.principal.userId && !req.principal.email && !req.principal.scopes.includes('programme:lead')) {
       return reply.code(403).send({ error: 'forbidden', message: 'Access is managed by people signed in, never by an integration key.' });

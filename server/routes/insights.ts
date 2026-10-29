@@ -82,14 +82,14 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
   const write = { preHandler: requireScope('rota:write') };
   /**
    * Sign-offs, baselines, verifications and the gain share set the fee the operator pays, so they are
-   * the WS lead's alone: a person holding the WS client partner role here (with their authenticator),
+   * the partner lead's alone: a person holding the client partner role here (with their authenticator),
    * or a deployment key WS holds with the programme:lead scope. The operator's owner does not hold it,
    * a sign-in with no access record is not enough, and a full-access key is not either.
    */
   const requireLead = async (req: FastifyRequest) => {
     const actor = actorOf(req, orgOf(req), ctx.store.todayISO());
     const ok = actor.kind === 'user' ? canOrgWide(actor.user, 'programme.lead', ctx.store.todayISO()) : actor.ws === true;
-    if (!ok) throw new HttpError(403, 'forbidden', 'Only the Williams, Stanley & Co. client partner can sign off the programme');
+    if (!ok) throw new HttpError(403, 'forbidden', 'Only the client partner can sign off the programme');
   };
   const lead = { preHandler: [requireScope('rota:write'), requireLead] };
   const today = () => londonToday(ctx);

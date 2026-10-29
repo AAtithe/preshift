@@ -18,8 +18,8 @@ export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER_INFO = { name: 'preshift', title: 'Preshift Rota', version: '1.0.0' };
 
 const INSTRUCTIONS =
-  'Preshift is the rota, time and payroll system for UK hospitality run with Williams, Stanley & Co. ' +
-  'One connection can reach several organisations (a person at Williams, Stanley & Co. works across many clients): ' +
+  'Preshift is the rota, time and payroll system for UK hospitality, built with its accountants. ' +
+  'One connection can reach several organisations (an accounting partner works across many clients): ' +
   'call list_organisations first, and pass organisation on every other tool whenever it lists more than one. ' +
   'Then use list_sites and list_roles to learn the ids. Weeks start on Monday: pass weekStart as that Monday (YYYY-MM-DD). ' +
   'Money is in pounds, sales are net of VAT, and minutes count from midnight (600 is 10:00). ' +

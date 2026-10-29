@@ -207,7 +207,7 @@ export interface OrgData {
   era?: EraData;
   /** The London date the daily pay run last ran: changes taking effect applied, finance reminded. */
   payDailyOn?: string;
-  /** Questions, bug reports and feature ideas raised with the client's WS client partner, and questions the help answers closed. */
+  /** Questions, bug reports and feature ideas raised with the client's client partner, and questions the help answers closed. */
   support?: { tickets: SupportTicket[]; answeredByHelp: number };
   /** Every staff app invite, set-up and close, kept for good: the audit log is trimmed and this is what the close review reads. */
   staffLoginLog: StaffLoginEvent[];
@@ -224,7 +224,7 @@ export interface OrgData {
   /** The accounting ledger the labour journal posts to, which company posts where, and what has been posted. Absent until connected. */
   accounting?: AccountingData;
   /**
-   * Set when a WS client partner removed a client before its owner ever signed in. Nobody can reach
+   * Set when a client partner removed a client before its owner ever signed in. Nobody can reach
    * it after that; the row is kept, with its audit trail, rather than deleted.
    */
   closed?: { at: string; by: string };

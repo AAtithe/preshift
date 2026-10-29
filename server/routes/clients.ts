@@ -15,22 +15,22 @@ import { EMAIL, normalise, orgName } from './access';
 import { issueInvite } from './users';
 
 // Clients, for Williams, Stanley & Co. One page per WS person listing the client organisations they
-// hold a WS role in, how far each is through onboarding, and what needs attention; and the one way
+// hold a partner role in, how far each is through onboarding, and what needs attention; and the one way
 // a new client organisation comes into being.
 //
 // The rules, in the same spirit as src/engine/access.ts:
 // - Only a signed-in person, never a key, and only their own list. No client learns of another.
-// - Only a WS client partner, with their authenticator proved, adds a client, and only from their
+// - Only a client partner, with their authenticator proved, adds a client, and only from their
 //   home organisation, whose email the invitation goes through. A client's email never carries
 //   another client's owner.
 // - WS never appoints inside a client. The one exception is the client's owner at creation, exactly
 //   as first-run set-up makes the first owner, and the link only ever goes to the owner's own email:
-//   nobody at WS ever holds a client owner's link. From then on the owner runs their own access,
+//   nobody at the accounting partner ever holds a client owner's link. From then on the owner runs their own access,
 //   WS partner included.
 // - A client is removed only while nobody on the client's side has ever signed in to it, so WS can
 //   never take away a business that is using Preshift. Removing closes it: every record there is
 //   suspended, its links stop working and it leaves everyone's list, but nothing is deleted.
-// - How a client pays is on its row: under the WS engagement, or by card through Stripe. When an
+// - How a client pays is on its row: under the partner engagement, or by card through Stripe. When an
 //   engagement ends, the client partner moves the client to card billing with a date to subscribe by;
 //   the reverse, taking on a card customer, is customer operations' (server/routes/customers.ts).
 
@@ -43,7 +43,7 @@ export const QUIET_DAYS = 14;
 
 const WS_ROLES = new Set(['ws_partner', 'ws_accountant', 'ws_payroll']);
 
-/** The WS roles a person holds live in an organisation, if they are active there. */
+/** The partner roles a person holds live in an organisation, if they are active there. */
 function wsRolesIn(org: OrgData, email: string, today: string): string[] {
   const record = org.users.find((u) => u.email === email);
   if (!record || record.status !== 'active' || record.audience !== 'ws') return [];
@@ -54,25 +54,25 @@ function wsRolesIn(org: OrgData, email: string, today: string): string[] {
 async function accountOf(ctx: AppContext, req: FastifyRequest): Promise<UserRecord> {
   const email = req.principal.email;
   const account = email && !req.principal.userId ? await ctx.store.getUser(email) : null;
-  if (!account) throw new HttpError(403, 'forbidden', 'Clients are listed for a signed-in Williams, Stanley & Co. person, not for a key.');
+  if (!account) throw new HttpError(403, 'forbidden', 'Clients are listed for a signed-in accounting partner person, not for a key.');
   return account;
 }
 
 /**
- * The person here as a WS client partner with their authenticator proved this session, in their
+ * The person here as a client partner with their authenticator proved this session, in their
  * home organisation. Everything that creates or invites for a client asks this first.
  */
 function clientPartner(req: FastifyRequest, org: OrgData, account: UserRecord, today: string): User {
   const actor = actorOf(req, org, today);
   const user = actor.kind === 'user' ? actor.user : null;
   if (!user || user.audience !== 'ws' || !user.memberships.some((m) => m.roleId === 'ws_partner' && live(m, today) && !m.siteIds)) {
-    throw new HttpError(403, 'forbidden', 'Clients are added by a Williams, Stanley & Co. client partner.');
+    throw new HttpError(403, 'forbidden', 'Clients are added by a client partner.');
   }
   if (!canOrgWide(user, 'users.manage', today)) {
     throw new HttpError(403, 'forbidden', `${user.name} needs to enter their authenticator code to add a client.`);
   }
   if (account.orgId !== org.orgId) {
-    throw new HttpError(409, 'not_home', 'Add clients from your own Williams, Stanley & Co. organisation, whose email sends the invitation. Switch to it first.');
+    throw new HttpError(409, 'not_home', 'Add clients from your own accounting partner organisation, whose email sends the invitation. Switch to it first.');
   }
   return user;
 }
@@ -87,7 +87,7 @@ export interface ClientSummary {
   orgId: string;
   name: string;
   current: boolean;
-  /** The WS roles the person holds there. */
+  /** The partner roles the person holds there. */
   roles: string[];
   stage: 'invited' | 'setting-up' | 'live';
   owner: { name: string; status: 'active' | 'invited' | 'expired' } | null;
@@ -106,7 +106,7 @@ export interface ClientSummary {
   /** Nobody on the client's side has ever signed in and nothing has been set up: it can be removed. */
   removable: boolean;
   /**
-   * How the client pays Preshift: under the WS engagement, by card through Stripe, or moving between the
+   * How the client pays Preshift: under the partner engagement, by card through Stripe, or moving between the
    * two from `from`. `standing` is the card side's (trial, paying, lapsed), or 'managed' under the engagement.
    */
   billing: { mode: 'engagement' | 'card' | 'to-engagement' | 'to-card'; from?: string; standing: Standing };
@@ -115,7 +115,7 @@ export interface ClientSummary {
 /** Why this client cannot be removed, or null. Once the client has signed in, it is theirs. */
 export function removalBlock(org: OrgData): string | null {
   if (org.users.some((u) => u.audience !== 'ws' && (u.status === 'active' || u.activatedAt))) {
-    return 'Someone at the client has signed in, so the client runs its own organisation now. Ask its owner to remove Williams, Stanley & Co. instead.';
+    return 'Someone at the client has signed in, so the client runs its own organisation now. Ask its owner to remove the accounting partner instead.';
   }
   if (org.state.sites.length > 0 || org.state.employees.length > 0) return 'The client already has sites or people set up.';
   return null;
@@ -222,7 +222,7 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext, options: { s
   const tags = ['Clients'];
   const today = () => ctx.store.todayISO();
 
-  app.get('/v1/clients', { schema: { tags, description: 'The client organisations the signed-in Williams, Stanley & Co. person holds a role in, with onboarding progress and what needs attention.' } }, async (req) => {
+  app.get('/v1/clients', { schema: { tags, description: 'The client organisations the signed-in accounting partner person holds a role in, with onboarding progress and what needs attention.' } }, async (req) => {
     const account = await accountOf(ctx, req);
     const here = orgOf(req);
     const out: ClientSummary[] = [];
@@ -250,8 +250,8 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext, options: { s
       schema: {
         tags,
         description:
-          'Adds a client: a new organisation with the caller as its WS client partner, and an invitation for its owner, emailed to the owner alone. ' +
-          'Needs a WS client partner with their authenticator, in their home organisation, with email set up.',
+          'Adds a client: a new organisation with the caller as its client partner, and an invitation for its owner, emailed to the owner alone. ' +
+          'Needs a client partner with their authenticator, in their home organisation, with email set up.',
         body: {
           type: 'object',
           required: ['name', 'ownerName', 'ownerEmail'],
@@ -273,7 +273,7 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext, options: { s
       const ownerEmail = normalise(req.body.ownerEmail);
       if (!name || !ownerName) throw new HttpError(400, 'invalid_request', 'Give the client\'s name and the owner\'s name.');
       if (!EMAIL.test(ownerEmail)) throw new HttpError(400, 'invalid_request', 'That is not an email address.');
-      if (ownerEmail === account.email) throw new HttpError(422, 'own_email', 'The owner is the client\'s own person, never someone at Williams, Stanley & Co.');
+      if (ownerEmail === account.email) throw new HttpError(422, 'own_email', 'The owner is the client\'s own person, never someone at the accounting partner');
       // Checked before anything is made, so a client is never left with an owner nobody can reach.
       if (!parseEmailSettings(await ctx.store.getSetting(emailSetting(home.orgId)))) {
         throw new HttpError(409, 'email_only', 'A client owner\'s invitation only ever goes to their own email. Set up email under Settings first.');
@@ -367,8 +367,8 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext, options: { s
       schema: {
         tags,
         description:
-          'Moves a client off billing under its WS engagement onto paying by card through Stripe, with a date to subscribe by ' +
-          `(default ${CARD_GRACE_DAYS} days, at most ${CARD_GRACE_MAX_DAYS}). Only the client's WS client partner, once its owner has signed in.`,
+          'Moves a client off billing under its partner engagement onto paying by card through Stripe, with a date to subscribe by ' +
+          `(default ${CARD_GRACE_DAYS} days, at most ${CARD_GRACE_MAX_DAYS}). Only the client's client partner, once its owner has signed in.`,
         params: { type: 'object', required: ['orgId'], properties: { orgId: { type: 'string' } } },
         body: { type: ['object', 'null'], additionalProperties: false, properties: { payBy: { type: 'string', format: 'date' } } },
       },
