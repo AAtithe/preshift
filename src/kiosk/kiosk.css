@@ -57,3 +57,5 @@ body { background: var(--page-wash, var(--bg)); }
 .kiosk-notes ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .kiosk-notes li { font-size: 18px; line-height: 1.35; }
 .kiosk-note-kind { font-weight: 700; color: var(--warn); }
+/* The walkthrough link on the set-up screen, quieter than the button above it. */
+.kiosk-watch { display: block; margin-top: 14px; font-size: 18px; color: var(--ink); }

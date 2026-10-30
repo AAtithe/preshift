@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { formatMinute } from '../engine/time';
 
+/** The clocking chapter of the narrated walkthrough. Its start moves when the video is re-recorded. */
+const WATCH = '/walkthrough#t=893';
+
 type Status = 'not_in' | 'in' | 'break' | 'out' | 'elsewhere';
 type Action = 'in' | 'out' | 'break_start' | 'break_end';
 
@@ -256,6 +259,8 @@ export function KioskApp() {
           </ol>
           <p className="muted">You are signed out as part of the set-up, so the iPad never stays signed in as a manager.</p>
           <a className="kiosk-button primary" href="/login?next=/app/">Sign in to set up</a>
+          {/* Only here, never on a paired kiosk: a link at the door would take the next person away from clocking in. */}
+          <a className="kiosk-watch" href={WATCH}>See clocking in and kiosks in the walkthrough video</a>
         </div>
       </div>
     );
