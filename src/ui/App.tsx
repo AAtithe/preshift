@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
+import { tradedWeek } from '../engine/actuals';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekBrief, type DecisionAction } from '../engine/decisions';
 import { featureOn, hiddenTabs } from '../engine/features';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
-import { formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
+import { addDays, formatMinute, londonParts, toISODate, weekDates, weekStart } from '../engine/time';
 import type { Employee, Shift } from '../engine/types';
 import type { Opening } from './assign';
 import type { ShiftTemplate } from './drag';
@@ -29,6 +30,7 @@ import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, t
 import { allowFor, heldOnceVerified, NOT_YOURS, ROTA_READ_ONLY } from './permissions';
 import type { ProposalDeps } from './proposals';
 import type { AgentView } from './useAppAgent';
+import { useTimeEntries } from './useTimeEntries';
 import { AccountMenu, TopNav } from './TopNav';
 import { useHrRecords, useRotaStore } from './store';
 import { Walkthrough, WhatsNewIntro } from './Walkthrough';
@@ -415,6 +417,13 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const metrics = useMemo(() => (preview ? scopeMetrics(view, siteIds, week) : baseMetrics), [view, preview, baseMetrics, siteIds, week]);
   const issues = useMemo(() => checkWeek(view, week, siteIds), [view, siteIds, week]);
   const dates = weekDates(week);
+  // A week that has traded is read from its takings and clocked hours, not its forecast.
+  const traded = dates[6] < today;
+  const clocked = useTimeEntries(undefined, week, addDays(week, 6), traded && section.scope === 'week' && !!section.plans);
+  const tradedFigures = useMemo(
+    () => (traded && clocked.entries ? tradedWeek(state, clocked.entries, siteIds, week) : null),
+    [traded, clocked.entries, state, siteIds, week],
+  );
   const blocks = issues.filter((i) => i.severity === 'block').length;
   const weekShifts = state.shifts.filter((s) => siteIds.includes(s.siteId) && dates.includes(s.date));
   const published = weekShifts.length > 0 && weekShifts.every((s) => s.published);
@@ -475,6 +484,10 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     if (t.id === 'sites') setSiteId(ALL);
     setTab(t.id);
   }
+  // However Sites is reached (Go to, Shifty, a walkthrough step), it opens across every site.
+  useEffect(() => {
+    if (activeTab === 'sites' && siteChoice !== ALL) setSiteId(ALL);
+  }, [activeTab, siteChoice]);
 
   function chooseView(v: RotaView) {
     setRotaView(v);
@@ -700,6 +713,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             showCost={showCost}
             onForecast={siteIds.length > 0 && siteIds.every((id) => allow('demand.manage', id)) ? () => void forecastWeek() : undefined}
             openSignal={pnlAsk}
+            traded={traded ? { figures: tradedFigures, clocked: !clocked.error } : undefined}
           />}
         </header>
 

@@ -91,15 +91,22 @@ All done on 28 October 2026. The changes are noted on each item.
 
 ## 3. Does the flow make sense
 
-- [ ] **What's new is out of date.** This week's cards still send people to the "left-hand bar" (the Features, What's new and Go to cards), and the new layout has no card of its own.
+Three fixed on 30 October 2026. The other two wait on a GM: the rules come before more rules.
+
+- [x] **What's new is out of date.** This week's cards still send people to the "left-hand bar" (the Features, What's new and Go to cards), and the new layout has no card of its own.
   - Fix: write the card for the top bar, the decisions bar and the Simple / Standard / Expert switch, and correct the old wording.
-- [ ] **Past weeks show a forecast P&L.** A week that has already traded shows "No forecast" and offers "Forecast from past takings".
+  - Done: this week's walkthrough has "A calmer rota screen", opening on Rota, and the README card has the same row. The Features, What's new and Go to cards, the README rows behind them and the calmer-look card now point to the bar at the top, the account menu and Ask Shifty.
+- [x] **Past weeks show a forecast P&L.** A week that has already traded shows "No forecast" and offers "Forecast from past takings".
   - Fix: show actual takings and actual labour for past weeks.
-- [ ] **Sites opened at one site.** Sites is the group overview, but a link that carries a site shows a one-row table.
+  - Done: once a week's Sunday is past, the strip reads Takings, Labour clocked, labour % and the budget on those takings, with each site's target weighted by what it took. The full P&L sets clocked labour against the rota as rostered, and gives each day as traded. Nothing offers a forecast or a publish. Someone who may not read clocked time sees "Not shared", not nought. `tradedWeek` in `src/engine/actuals.ts`, with unit tests and a browser check.
+- [x] **Sites opened at one site.** Sites is the overview of every site, but a link that carries a site shows a one-row table.
   - Fix: Sites always opens across every site, whatever the link says.
+  - Done: a link to Sites drops the site it names, and Sites reached any other way (Go to, Shifty, a walkthrough step) steps out to every site. A company scope still holds. A browser check covers the link.
 - [ ] **Review the decision rules with a GM.** Read the bar against two or three real weeks at real sites before it reaches every client. Agree what counts as a decision, the order and the wording.
-- [ ] **Keep doing says little.** Today it only ever says the week is published.
+  - Not code. Owner: a WS client partner with one GM, an hour, three real weeks. Record what was agreed here.
+- [ ] **Keep doing says little.** Today it only ever says the week is staffed, legal and inside the target.
   - Fix: add real positives once the rules above are agreed, for example a site on target for three weeks, or every request decided within a day.
+  - Held: waits on the review above. The traded-week figures (`tradedWeek`) are now there to judge "on target for three weeks" on actuals, not forecasts, once the rule is agreed.
 
 ## 4. Testing and tooling
 

@@ -111,14 +111,21 @@ export const RELEASES: Release[] = [
       {
         for: 'Owners',
         title: 'Choose which features you use',
-        body: 'Organisation, then Features: switch off the parts of Preshift your business does not use, such as Tronc, Prime cost or HR files, and they leave the left-hand bar for everyone. Nothing is deleted and nobody\'s access changes; switching one back on restores it as it was. Benchmarking and open shifts approved without a manager sit on the same screen, and every change is recorded with who made it.',
+        body: 'Organisation, then Features: switch off the parts of Preshift your business does not use, such as Tronc, Prime cost or HR files, and they leave the bar at the top of the screen for everyone. Nothing is deleted and nobody\'s access changes; switching one back on restores it as it was. Benchmarking and open shifts approved without a manager sit on the same screen, and every change is recorded with who made it.',
         tryIt: 'Count the sections your team never opens, then switch them off once your GMs know.',
         tab: 'features',
       },
       {
         for: 'Everyone',
+        title: 'A calmer rota screen',
+        body: 'The sections now sit in a bar across the top, grouped into menus, so the rota has the full width of the screen. Above the rota, the decisions bar lists what needs settling this week, most urgent first, each with the one button that settles it, and folds to a line once read. Simple, Standard and Expert, beside the views, choose how much the screen shows: Simple is the decisions and the timeline, Expert lays every view out at once.',
+        tryIt: 'Switch to Simple for a busy service, then fold the decisions bar once you have read it.',
+        tab: 'rota',
+      },
+      {
+        for: 'Everyone',
         title: 'A calmer look',
-        body: 'Labels read as words instead of small capitals, notices are quiet cards marked by a coloured dot, cards and controls are rounder, and Shifty sits at the end of the command bar instead of over the P&L. Same screens, easier to read on a busy shift.',
+        body: 'Labels read as words instead of small capitals, notices are quiet cards marked by a coloured dot, cards and controls are rounder, and Ask Shifty sits in the bottom right, with Ctrl K opening it from anywhere. Same screens, easier to read on a busy shift.',
       },
     ],
   },
@@ -129,12 +136,12 @@ export const RELEASES: Release[] = [
       {
         for: 'Everyone',
         title: 'This walkthrough',
-        body: 'Every Monday the new features open here, in the live app and the demo alike, each one on the screen it changed. You only see what your role is offered. What\'s new at the foot of the left-hand bar brings it back, and past weeks stay in the list.',
+        body: 'Every Monday the new features open here, in the live app and the demo alike, each one on the screen it changed. You only see what your role is offered. What\'s new, at the right of the bar at the top of the screen, brings it back, and past weeks stay in the list.',
       },
       {
         for: 'Everyone',
         title: 'Go to',
-        body: 'Type part of a section\'s name at the top of the left-hand bar, or press / from anywhere, and Enter opens the best match. Nobody needs to know which group a section lives in.',
+        body: 'Type part of a section\'s name into Go to, in the bar at the top of the screen, or press / from anywhere, and Enter opens the best match. Nobody needs to know which group a section lives in.',
         tryIt: 'Press / now and type "cash".',
       },
       {
