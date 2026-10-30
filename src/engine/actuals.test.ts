@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actualCompliance, blendedShifts, entriesNeedingApproval, knownAge, loadedHourlyRate, weekFlash, weekVariance } from './actuals';
+import { actualCompliance, blendedShifts, entriesNeedingApproval, knownAge, loadedHourlyRate, tradedWeek, weekFlash, weekVariance } from './actuals';
 import { cutCall } from './cutcall';
 import { addDays } from './time';
 import type { DaySales, DemandRule, Employee, HourForecast, RotaState, Shift, Site, TimeEntry } from './types';
@@ -120,6 +120,38 @@ describe('labour flash', () => {
     const flash = weekFlash(state({ shifts: [s1], sales }), [entry('c1', s1)], 'mar', WEEK, addDays(WEEK, 1));
     expect(flash.actualSales).toBe(1000);
     expect(flash.actualPct).toBeCloseTo(flash.actualCost / 1000, 5);
+  });
+});
+
+describe('a traded week', () => {
+  const ben: Site = { ...site, id: 'ben', name: 'Bermondsey', labourTargetPct: 0.3 };
+  const s1 = shift('s1', 'a', WEEK, 17 * H, 23 * H);
+  const s2 = { ...shift('s2', 'b', addDays(WEEK, 6), 12 * H, 20 * H), siteId: 'ben' };
+  const st = state({
+    sites: [site, ben],
+    shifts: [s1, s2],
+    sales: [
+      { siteId: 'mar', date: WEEK, netSales: 1000, source: 'till' },
+      { siteId: 'ben', date: addDays(WEEK, 6), netSales: 2000, source: 'till' },
+    ],
+  });
+  const entries = [entry('c1', s1, { clockOut: 22 * H }), entry('c2', s2, { siteId: 'ben' })];
+
+  it('adds each site\'s takings and clocked labour across the whole week, Sunday included', () => {
+    const t = tradedWeek(st, entries, ['mar', 'ben'], WEEK);
+    const mar = weekFlash(st, [entries[0]], 'mar', WEEK, addDays(WEEK, 7));
+    const ben = weekFlash(st, [entries[1]], 'ben', WEEK, addDays(WEEK, 7));
+    expect(t.sales).toBe(3000);
+    expect(t.hours).toBe(5 + 8);
+    expect(t.labour).toBeCloseTo(mar.actualCost + ben.actualCost, 2);
+    expect(t.rotaLabour).toBeGreaterThan(t.labour);
+    expect(t.varianceToTarget).toBeCloseTo(t.labour - 1000 * 0.28 - 2000 * 0.3, 2);
+    expect(t.days[0]).toMatchObject({ date: WEEK, sales: 1000 });
+    expect(t.days[6].sales).toBe(2000);
+  });
+
+  it('reads one site alone', () => {
+    expect(tradedWeek(st, entries, ['mar'], WEEK).sales).toBe(1000);
   });
 });
 
