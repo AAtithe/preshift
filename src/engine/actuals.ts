@@ -2,7 +2,7 @@ import type { Employee, RotaState, Shift, TimeEntry } from './types';
 import { checkWeek, type Issue } from './compliance';
 import { shiftPaidMinutes, weekCost, type WeekCost } from './cost';
 import { forecastSalesForDay, salesForTradingDay } from './demand';
-import { ageOn, weekDates } from './time';
+import { addDays, ageOn, weekDates } from './time';
 import { UK_RATES_2026_27, type UkRates } from './ukRates';
 
 /**
@@ -349,6 +349,42 @@ export function weekFlash(state: RotaState, entries: TimeEntry[], siteId: string
     varianceToTarget: actualCost - actualSales * targetPct,
     variance: weekVariance(state, entries, weekStartDate, asOf, siteId),
     compliance: actualCompliance(state, entries, weekStartDate, asOf, siteId),
+  };
+}
+
+/** A traded week across one site or several: what was taken and what labour cost, as clocked. */
+export interface TradedWeek {
+  sales: number;
+  /** Loaded labour from clocked time. */
+  labour: number;
+  hours: number;
+  /** What the rota planned to spend, for the gap between the two. */
+  rotaLabour: number;
+  /** Labour over what each site's target allows on its takings. Positive is over. */
+  varianceToTarget: number;
+  days: { date: string; sales: number; labour: number }[];
+}
+
+/**
+ * A week that is over, read from what happened rather than what was forecast: each site's flash
+ * with every day closed, added together. A forecast P&L for a week already traded only invites
+ * someone to forecast the past.
+ */
+export function tradedWeek(state: RotaState, entries: TimeEntry[], siteIds: string[], weekStartDate: string): TradedWeek {
+  const asOf = addDays(weekStartDate, 7);
+  const flashes = siteIds.map((id) => weekFlash(state, entries.filter((e) => e.siteId === id), id, weekStartDate, asOf));
+  const add = (key: 'actualSales' | 'actualCost' | 'actualHours' | 'rotaCost' | 'varianceToTarget') => flashes.reduce((s, f) => s + f[key], 0);
+  return {
+    sales: add('actualSales'),
+    labour: add('actualCost'),
+    hours: add('actualHours'),
+    rotaLabour: add('rotaCost'),
+    varianceToTarget: add('varianceToTarget'),
+    days: weekDates(weekStartDate).map((date, i) => ({
+      date,
+      sales: flashes.reduce((s, f) => s + f.days[i].actualSales, 0),
+      labour: flashes.reduce((s, f) => s + f.days[i].actualCost, 0),
+    })),
   };
 }
 

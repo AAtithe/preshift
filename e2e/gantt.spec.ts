@@ -37,8 +37,12 @@ test('the week reads one line per person, a day opens by the hour, and a bar dra
   await expect(page.locator('.gantt-day')).toHaveCount(7);
   await expect(page.locator('.gantt-group').first()).toBeVisible();
 
-  // A day's name opens it by the hour, with heads on against heads needed beneath.
-  await page.locator('.gantt-day').nth(4).click();
+  // A day's name opens it by the hour, with heads on against heads needed beneath. The build leaves
+  // the days already gone empty, so open a day it filled: the one the first bar is on, which is
+  // today or later whatever day of the week the check runs.
+  const firstDay = (await page.locator('.gantt-bar').first().getAttribute('title'))?.match(/: (\w{3}) \d\d:\d\d/)?.[1];
+  expect(firstDay).toBeTruthy();
+  await page.locator(`.gantt-day[title="Open ${firstDay} by the hour"]`).click();
   await expect(page.getByRole('tab', { name: 'Day' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.gantt-hour').first()).toBeVisible();
   await expect(page.locator('.gantt-head').first()).toBeVisible();
@@ -54,7 +58,7 @@ test('the week reads one line per person, a day opens by the hour, and a bar dra
     // Other checks move Marylebone's shifts at the same time, which can re-sort the lines under the
     // pointer: press only once the bar has held still and is really what lies under that point.
     // The decisions and notices above the rota can leave the first line at the foot of the screen,
-    // under the command bar: bring the bar to the middle first, as a person would scroll to it.
+    // under the Ask Shifty button: bring the bar to the middle first, as a person would scroll to it.
     await shift.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     let box = { x: 0, y: 0, width: 0, height: 0 };
     await expect

@@ -102,7 +102,8 @@ for (const scope of ['all sites', 'one site'] as const) {
       await expect(heading(page)).toHaveText(ORG.includes(label) ? orgTitle(label) : title);
       await expect(picker(page)).toHaveCount(ORG.includes(label) ? 0 : 1);
       await expect(page.getByLabel('Previous week')).toHaveCount(WEEK.includes(label) ? 1 : 0);
-      await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(WEEK.includes(label) ? 1 : 0);
+      // The rota P&L sits only where the week is planned.
+      await expect(page.getByRole('complementary', { name: 'Rota P&L' })).toHaveCount(PLANNING.includes(label) ? 1 : 0);
       await expect(page.getByRole('button', { name: 'Clear week' })).toHaveCount(PLANNING.includes(label) && !choosing ? 1 : 0);
       await expect(page.locator('main')).not.toBeEmpty();
     }

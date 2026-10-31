@@ -33,8 +33,8 @@ const COSTED_TIME: Access = { ...READS_TIME, also: ['costs.view'] };
 // sites asks which site. An item is shown only to someone it is offered to; the API still decides
 // what they get, so hiding an item is a courtesy, not the control.
 // Each section says what it is scoped by, so the header only shows controls that change what is on screen:
-// week sections get the scope, the week and the P&L rail; people sections get the scope; organisation
-// sections get neither. Only the planning sections carry the build and clear actions.
+// week sections get the scope and the week; people sections get the scope; organisation sections get
+// neither. Only the planning sections carry the build and clear actions and the rota P&L.
 export type Scope = 'week' | 'people' | 'org';
 // title heads an organisation section; it defaults to Organisation.
 /** hint says in a line what the section is for: the top bar shows it under the name. */
@@ -192,12 +192,14 @@ export function visibleNav(allow: Allow, siteIds: string[], audience?: Audience,
 export type Place = { tab: Tab; entityId: string; siteId: string; week: string };
 export function readPlace(fallbackWeek: string): Place {
   const q = new URLSearchParams(window.location.search);
-  const tab = q.get('view') as Tab | null;
+  const view = q.get('view') as Tab | null;
+  const tab = view && NAV_ITEMS.some((t) => t.id === view) ? view : 'sites';
   const week = q.get('week');
   return {
-    tab: tab && NAV_ITEMS.some((t) => t.id === tab) ? tab : 'sites',
+    tab,
     entityId: q.get('entity') ?? ALL,
-    siteId: q.get('site') ?? ALL,
+    // Sites is the overview of every site, so a link that names one still opens across them all.
+    siteId: tab === 'sites' ? ALL : q.get('site') ?? ALL,
     week: week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? weekStart(week) : fallbackWeek,
   };
 }

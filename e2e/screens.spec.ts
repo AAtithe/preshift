@@ -3,7 +3,9 @@ import { NAV_ITEMS } from '../src/ui/nav';
 
 // The rota screen and the sections around it, as a person meets them: every section fits a phone,
 // the editors close the way dialogs do and never throw work away, a finished week asks for nothing,
-// and a link to a section someone is not offered says why they landed elsewhere.
+// a finished week reads as traded, Sites is always every site, a link to a section someone is not
+// offered says why they landed elsewhere, Shifty is one keypress away, and only those who can change
+// the rota are asked to decide.
 
 const bar = (page: Page) => page.getByRole('navigation', { name: 'Management' });
 
@@ -72,6 +74,32 @@ test('a week that is over asks for no decisions', async ({ page }) => {
   await open(page, `?view=rota&site=${site}&week=2020-01-06`);
   await expect(page.locator('.tl-lane').first()).toBeVisible();
   await expect(page.getByRole('region', { name: 'Decisions this week' })).toHaveCount(0);
+  // Its P&L is what was taken and what labour cost, with nothing to forecast or publish.
+  const strip = page.getByRole('complementary', { name: 'Rota P&L' });
+  await expect(strip.locator('.pnl-label').filter({ hasText: /^Takings/ })).toBeVisible();
+  await expect(strip.getByText('No forecast')).toHaveCount(0);
+  await expect(strip.getByRole('button', { name: 'Forecast from past takings' })).toHaveCount(0);
+  await expect(strip.getByRole('button', { name: 'Sign off and publish' })).toHaveCount(0);
+});
+
+test('a link to Sites that names a site still opens across every site', async ({ page }) => {
+  await signIn(page);
+  const site = await firstSite(page);
+  await open(page, `?view=sites&site=${site}`);
+  await expect(page.locator('.mast-top .eyebrow')).toHaveText('Sites');
+  await expect.poll(() => new URL(page.url()).searchParams.get('site')).toBeNull();
+  await expect(page.getByRole('button', { name: 'Site or company' })).toContainText(/All sites/i);
+});
+
+test('Ask Shifty is the one place to ask: Ctrl K opens it, Escape closes it', async ({ page }) => {
+  await signIn(page);
+  const shifty = page.getByRole('dialog', { name: 'Shifty' });
+  await expect(page.getByRole('button', { name: 'Ask Shifty' })).toBeVisible();
+  await page.keyboard.press('Control+k');
+  await expect(shifty).toBeVisible();
+  await expect(shifty.getByPlaceholder('Ask a question, or say what to do...')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(shifty).toHaveCount(0);
 });
 
 test.describe('changing the rota', () => {
@@ -121,6 +149,15 @@ test.describe('changing the rota', () => {
     await bar(page).locator('[data-group="planning"] .nav-toggle').click();
     await bar(page).getByRole('button', { name: 'Rota', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'not part of your role' })).toHaveCount(0);
+    await page.evaluate(() => localStorage.removeItem('preshift.demoKey'));
+  });
+
+  test('someone who may only look at the rota is not asked to decide anything', async ({ page }) => {
+    await signIn(page);
+    await page.evaluate(() => localStorage.setItem('preshift.demoKey', 'dev-usr_sup'));
+    await page.goto('/app/?view=rota&site=mar');
+    await expect(page.locator('.tl-lane').first()).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Decisions this week' })).toHaveCount(0);
     await page.evaluate(() => localStorage.removeItem('preshift.demoKey'));
   });
 });

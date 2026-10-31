@@ -95,6 +95,8 @@ function tapMessage(action: TapAction, siteName: string, o: Overview): string {
 
 /** Read when the app loads, once, before anything can render twice. */
 const INVITE = readInvite();
+/** The staff app's chapter of the narrated walkthrough. Its start moves when the video is re-recorded. */
+const WATCH = '/walkthrough#t=1565';
 /** Waits here through signing in, and is sent once. */
 let pendingTap = readTap();
 registerWorker();
@@ -269,6 +271,7 @@ function Login({ onDone }: { onDone: (o: Overview) => void }) {
       <label>Password <input type="password" name="password" autoComplete="current-password" required /></label>
       <button className="primary staff-big" disabled={busy}>{busy ? 'Signing in' : 'Sign in'}</button>
       <p className="muted small">No login yet, or forgotten your password? Ask your manager to send you an invite link.</p>
+      <p className="small"><a className="staff-watch" href={WATCH}>See how the staff app works, in a one minute video</a></p>
     </form>
   );
 }
@@ -299,6 +302,7 @@ function Join({ info, onSubmit }: { info: { name: string; email: string }; onSub
       <label>Choose a password, at least 12 characters <input type="password" name="password" autoComplete="new-password" minLength={12} required /></label>
       <label>Password again <input type="password" name="confirm" autoComplete="new-password" minLength={12} required /></label>
       <button className="primary staff-big" disabled={busy}>{busy ? 'Setting up' : 'Set up my login'}</button>
+      <p className="small"><a className="staff-watch" href={WATCH}>See how the staff app works, in a one minute video</a></p>
     </form>
   );
 }

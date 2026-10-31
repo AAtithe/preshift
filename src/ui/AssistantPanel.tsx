@@ -15,7 +15,7 @@ interface Props {
   /** The sites in view: the assistant plans them together. */
   siteIds: string[];
   week: string;
-  /** A request handed over from Shifty or the command bar, ready to draft. */
+  /** A request handed over from Shifty, ready to draft. */
   initialInstruction?: string;
   /** Saves the draft; resolves to a problem to show, or null once saved. */
   onApply: (shifts: Shift[], baselines: Record<string, string>, instructions: string[]) => Promise<string | null>;

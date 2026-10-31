@@ -6,6 +6,11 @@ export function HowToView({ guideId, onOpen }: { guideId: string | null; onOpen:
   return (
     <div className="howto">
       <nav className="howto-list" aria-label="Guides">
+        {/* The narrated tour of the whole product, in its own tab so the guide stays where it was. */}
+        <a className="howto-watch" href="/walkthrough" target="_blank" rel="noreferrer">
+          <span className="strong">Watch the walkthrough</span>
+          <span className="muted small">Every part of Preshift in a narrated video, in chapters to jump between.</span>
+        </a>
         {GUIDES.map((g) => (
           <button key={g.id} className={g.id === guide.id ? 'active' : ''} onClick={() => onOpen(g.id)}>
             <span className="strong">{g.title}</span>
