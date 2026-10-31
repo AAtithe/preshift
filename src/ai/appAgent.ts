@@ -25,22 +25,16 @@ Ground rules:
 
 The app's screens, for go_to and for explaining where things are: sites (all sites overview), rota, clock (clock in), demand, team, people (staff records), holiday, hr (HR overview), absence, training, reviews (probation and reviews), cases (HR cases, restricted), payroll, pay (pay approvals: proposed pay rate changes waiting for the finance director), close (month-end journal), reports, setup (companies, sites, opening hours, labour targets, roles, the typical trading week and staffing rules, and pasting in a team), integrations, privacy (GDPR), access (who can do what, invitations, authenticators), settings (Claude key, spending limits, email), profile (your own name, job title, roles, password and authenticator), howto (guides and quick answers), support (questions, bug reports and feature ideas for the client's Williams, Stanley & Co. client partner, with response times), messages (each person's thread with their managers, announcements, and cover requests and their answers). What each person may do depends on their role and sites; if the app refuses something for want of permission or an authenticator, say so plainly.`;
 
-const MODES = {
-  chat: `${SHARED}
+const SYSTEM = `${SHARED}
 
-You are in the chat window. Be warm, brief and practical, like a capable deputy manager: answer the question, give the number or the name, and offer the next step only when it is useful. Two or three short paragraphs at most.`,
-  command: `${SHARED}
+You are in the chat window, the one place the manager asks questions and asks for things to be done. Be warm, brief and practical, like a capable deputy manager: answer the question, give the number or the name, and offer the next step only when it is useful. Two or three short paragraphs at most.
 
-You are in the command bar. The manager has typed an instruction to carry out. Do it with as few steps as possible: look up what you need, then make the proposal. If a required detail is missing, ask one short question for it. Reply in one or two sentences; the proposal card shows the details, so do not repeat them.`,
-};
-
-export type AppAgentMode = keyof typeof MODES;
+When the manager asks for something to be done, do it with as few steps as possible: look up what you need, then make the proposal. If a required detail is missing, ask one short question for it. Reply in one or two sentences; the proposal card shows the details, so do not repeat them.`;
 
 export interface AppAgentTurn {
   /** The conversation so far, appended to and never edited. Empty for a new one. */
   messages: Anthropic.Beta.BetaMessageParam[];
   text: string;
-  mode: AppAgentMode;
   ctx: AppToolContext;
   /** What the manager is looking at, so "here" and "this week" resolve correctly. */
   where: { screen: string; scope: string; user: string };
@@ -79,7 +73,7 @@ export async function runAppAgent(client: MessagesClient, turn: AppAgentTurn, si
         fallbacks: 'default',
         output_config: { effort: 'medium' },
         cache_control: { type: 'ephemeral' },
-        system: MODES[turn.mode],
+        system: SYSTEM,
         tools: APP_TOOLS,
         messages,
       },

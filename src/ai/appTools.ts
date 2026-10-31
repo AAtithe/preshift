@@ -13,7 +13,7 @@ import type { ToolDefinition } from './rotaTools';
 import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, ROUND_MINUTES, roundOf } from '../engine/cover';
 
 /**
- * Tools for Shifty (the chat) and the command bar. Lookups read the app's own data. Anything that
+ * Tools for Shifty, the chat that takes both questions and things to do. Lookups read the app's own data. Anything that
  * would change a record is only ever a proposal: the manager sees it as a card and confirms it, and
  * it is then carried out through the same actions and API checks as the screens. Personal data the
  * task does not need (NI numbers, addresses, absence reasons, HR notes) is never given to the model.

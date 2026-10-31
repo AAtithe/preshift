@@ -1588,7 +1588,7 @@ ul.plain { list-style: none; padding: 0; margin: 6px 0; }
 /* Softer finish. The same WS navy, blue wash and ledger P&L, with the calmer touches tried in the
    design directions: labels in sentence case rather than small capitals, notices as quiet cards
    marked by a dot instead of yellow slabs, rounder cards and controls, lighter shift outlines,
-   and room at the foot of the page so the command bar never covers the figures. */
+   and room at the foot of the page so the Ask Shifty button never covers the figures. */
 .eyebrow { font: 500 12px/1.35 var(--font); letter-spacing: 0.01em; text-transform: none; color: var(--muted); }
 .wordmark-with { font: 500 12px/1.3 var(--font); letter-spacing: 0; text-transform: none; }
 .op-label, .nav-where { font: 600 11px/1.3 var(--font); letter-spacing: 0.02em; text-transform: none; }

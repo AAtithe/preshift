@@ -1,6 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { useCallback, useRef, useState } from 'react';
-import { runAppAgent, type AppAgentMode } from '../ai/appAgent';
+import { runAppAgent } from '../ai/appAgent';
 import type { AppToolContext, Proposal } from '../ai/appTools';
 import { createBrowserClient, describeAgentError } from '../ai/rotaAgent';
 import type { TimeEntry } from '../engine/types';
@@ -27,7 +27,7 @@ let nextId = 0;
  * confirmed or cancelled is told to the model on the next message, so it never assumes a proposal
  * went through.
  */
-export function useAppAgent(mode: AppAgentMode, view: () => AgentView, deps: ProposalDeps) {
+export function useAppAgent(view: () => AgentView, deps: ProposalDeps) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
@@ -64,7 +64,6 @@ export function useAppAgent(mode: AppAgentMode, view: () => AgentView, deps: Pro
           {
             messages: messages.current,
             text,
-            mode,
             where,
             outcomes: outcomes.current.splice(0),
             ctx: { ...ctx, loadEntries: () => (entries.current ??= api.get<TimeEntry[]>('/v1/time-entries')) },
@@ -84,7 +83,7 @@ export function useAppAgent(mode: AppAgentMode, view: () => AgentView, deps: Pro
         setSteps([]);
       }
     },
-    [busy, mode, view, deps],
+    [busy, view, deps],
   );
 
   const stop = useCallback(() => abort.current?.abort(), []);
