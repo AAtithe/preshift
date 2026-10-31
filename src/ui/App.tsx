@@ -3,6 +3,7 @@ import { tradedWeek } from '../engine/actuals';
 import type { UnfilledGap } from '../engine/autoschedule';
 import { checkWeek } from '../engine/compliance';
 import { weekBrief, type DecisionAction } from '../engine/decisions';
+import { rotaHints } from '../engine/rotaHints';
 import { featureOn, hiddenTabs } from '../engine/features';
 import { newEmployee } from '../engine/employees';
 import { scopeMetrics } from '../engine/metrics';
@@ -22,6 +23,7 @@ import { WeekPicker } from './WeekPicker';
 import type { HrSection } from './HrFile';
 import { PnlStrip } from './PnlStrip';
 import { DecisionsBar } from './DecisionsBar';
+import { RotaHints } from './RotaHints';
 import { Tip } from './Tip';
 import { BillingBanner } from './BillingBanner';
 import { RestBreaches } from './RestBreaches';
@@ -371,6 +373,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const hidden = useMemo(() => hiddenTabs(me?.featuresOff), [me?.featuresOff]);
   // AI rota writing has no section of its own: switched off, the rota assistant is offered nowhere.
   const rotaAi = featureOn(me?.featuresOff, 'rotaai');
+  // Coaching on the draft goes with the Coach: switched off, neither is offered.
+  const coaching = featureOn(me?.featuresOff, 'coach');
   const nav = visibleNav(allow, allSiteIds, me?.user?.audience, hidden);
   const fallback = nav[0]?.items[0]?.id ?? 'profile';
   const activeTab = NAV_ITEMS.some((t) => t.id === tab && offered(t, allow, allSiteIds, me?.user?.audience, hidden)) ? tab : fallback;
@@ -592,6 +596,11 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
         : null,
     // dates is drawn afresh each render from the week, so the week stands for it.
     [single, canEdit, view, week, metrics, issues, showCost, today, unfilled, state.roles],
+  );
+  // Coaching while the week is still a draft, from the site's last four weeks: off once it is published.
+  const hints = useMemo(
+    () => (single && coaching && canEdit && !published ? rotaHints({ state: view, siteId: single.id, week, today, showCost }) : []),
+    [single, coaching, canEdit, published, view, week, today, showCost],
   );
   // Each day a decision concerns is tagged on the timeline with the decision's number.
   const marks = useMemo(() => {
@@ -830,6 +839,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 />
               )}
               {shown === 'rota' && single && brief && <DecisionsBar brief={brief} canEdit={canEdit} onAct={act} />}
+              {shown === 'rota' && single && <RotaHints hints={hints} onAct={act} />}
               {shown === 'rota' && single && (
                 <div className="view-bar">
                   {density !== 'simple' && (

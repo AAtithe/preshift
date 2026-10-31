@@ -1714,6 +1714,11 @@ button, select, input { border-radius: 8px; }
 .decision button { grid-column: 2; justify-self: start; padding: 5px 12px; font-size: 13px; }
 .decisions-keep { margin: 0; padding: 6px 14px; font-size: 13px; background: var(--good-bg); color: var(--good); }
 .decisions.calm { box-shadow: none; border-color: var(--rule); }
+/* Coaching on a draft: what the last weeks say, under the decisions */
+.hints { box-shadow: none; }
+.hint-tone { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); align-self: start; padding-top: 2px; }
+.hint-repeat .hint-tone { color: var(--bad-fill); }
+.hint-keep .hint-tone { color: var(--good); }
 
 /* An (i) that explains what is beside it, on hover, focus or tap */
 .info { position: relative; display: inline-flex; vertical-align: middle; }
