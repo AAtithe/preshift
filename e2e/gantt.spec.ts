@@ -37,8 +37,12 @@ test('the week reads one line per person, a day opens by the hour, and a bar dra
   await expect(page.locator('.gantt-day')).toHaveCount(7);
   await expect(page.locator('.gantt-group').first()).toBeVisible();
 
-  // A day's name opens it by the hour, with heads on against heads needed beneath.
-  await page.locator('.gantt-day').nth(4).click();
+  // A day's name opens it by the hour, with heads on against heads needed beneath. The build leaves
+  // the days already gone empty, so open a day it filled: the one the first bar is on, which is
+  // today or later whatever day of the week the check runs.
+  const firstDay = (await page.locator('.gantt-bar').first().getAttribute('title'))?.match(/: (\w{3}) \d\d:\d\d/)?.[1];
+  expect(firstDay).toBeTruthy();
+  await page.locator(`.gantt-day[title="Open ${firstDay} by the hour"]`).click();
   await expect(page.getByRole('tab', { name: 'Day' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.gantt-hour').first()).toBeVisible();
   await expect(page.locator('.gantt-head').first()).toBeVisible();
