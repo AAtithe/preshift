@@ -20,6 +20,8 @@ async function openGantt(page: Page) {
   // Rota sits in the Planning menu of the bar.
   await bar(page).locator('[data-group="planning"] .nav-toggle').click();
   await bar(page).getByRole('button', { name: 'Rota', exact: true }).click();
+  // Next week, where no shift has started yet: on a Sunday every shift this week has, and a started shift is locked.
+  await page.getByRole('button', { name: 'Next week' }).click();
   await page.getByRole('tab', { name: 'Gantt' }).click();
   await expect(page.locator('.gantt-axis')).toBeVisible();
   if ((await page.locator('.gantt-bar').count()) === 0) await page.getByRole('button', { name: 'Build from forecast' }).click();
