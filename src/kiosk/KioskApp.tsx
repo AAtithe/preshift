@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { formatMinute } from '../engine/time';
 
 /** The clocking chapter of the narrated walkthrough. Its start moves when the video is re-recorded. */
-const WATCH = '/walkthrough#t=893';
+const WATCH = '/walkthrough#t=923';
 
 type Status = 'not_in' | 'in' | 'break' | 'out' | 'elsewhere';
 type Action = 'in' | 'out' | 'break_start' | 'break_end';

@@ -20,6 +20,8 @@ async function openByPerson(page: Page) {
   await page.locator('.sp-option').filter({ has: page.locator('.sp-name').getByText('Marylebone', { exact: true }) }).click();
   await bar(page).locator('[data-group="planning"] .nav-toggle').click();
   await bar(page).getByRole('button', { name: 'Rota', exact: true }).click();
+  // Next week, where no shift has started yet: on a Sunday every shift this week has, and a started shift is locked.
+  await page.getByRole('button', { name: 'Next week' }).click();
   await page.getByRole('tab', { name: 'By person' }).click();
   await expect(page.locator('table.rota')).toBeVisible();
 }
