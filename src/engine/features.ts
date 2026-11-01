@@ -47,7 +47,7 @@ export const FEATURES: FeatureDef[] = [
   },
   {
     id: 'coach', label: 'Coach', group: 'Planning', tabs: ['coach'],
-    about: 'The three moves a week that would bring labour back to target, each one a change to the rota.',
+    about: 'The three moves a week that would bring labour back to target, each one a change to the rota, and coaching on a draft rota from the last four weeks: mistakes repeated, sales against forecast, and roles stacked over demand.',
   },
   {
     id: 'cutcall', label: 'Cut call', group: 'Hours and pay', tabs: ['cutcall'],

@@ -1039,6 +1039,7 @@ dd.tone-good { color: var(--good); }
 .howto-list button.active { border-color: var(--ink, var(--accent)); }
 .howto-watch { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; color: inherit; text-decoration: none; background: var(--surface); }
 .howto-watch:hover { border-color: var(--ink, var(--accent)); }
+.support-watch a { color: var(--ink, var(--accent)); font-weight: 600; }
 .guide { max-width: 72ch; line-height: 1.55; }
 article.guide { background: var(--card, var(--surface)); border: 1px solid var(--rule, var(--border)); border-radius: var(--radius); padding: 18px 22px; }
 .guide h2 { margin: 0 0 4px; }
@@ -1714,6 +1715,11 @@ button, select, input { border-radius: 8px; }
 .decision button { grid-column: 2; justify-self: start; padding: 5px 12px; font-size: 13px; }
 .decisions-keep { margin: 0; padding: 6px 14px; font-size: 13px; background: var(--good-bg); color: var(--good); }
 .decisions.calm { box-shadow: none; border-color: var(--rule); }
+/* Coaching on a draft: what the last weeks say, under the decisions */
+.hints { box-shadow: none; }
+.hint-tone { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); align-self: start; padding-top: 2px; }
+.hint-repeat .hint-tone { color: var(--bad-fill); }
+.hint-keep .hint-tone { color: var(--good); }
 
 /* An (i) that explains what is beside it, on hover, focus or tap */
 .info { position: relative; display: inline-flex; vertical-align: middle; }

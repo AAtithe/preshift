@@ -150,6 +150,11 @@ function Raise({ context, onOpen, act, desk }: { context: TicketContext; onOpen:
         Start typing and the answers that fit appear first; most questions are settled there. Do not paste staff personal details such as
         addresses, pay or right to work documents: name the person and the site, and your client partner will look them up with you.
       </p>
+      {/* A how-do-I is often answered faster by seeing it done; in its own tab so a half-written ticket is kept. */}
+      <p className="small support-watch">
+        Asking how to do something? It may be quicker to watch it.{' '}
+        <a href="/walkthrough" target="_blank" rel="noreferrer">Watch the walkthrough</a>, in chapters to jump between.
+      </p>
       <div className="toggle" role="radiogroup" aria-label="What is it">
         {(Object.keys(KIND_LABEL) as TicketKind[]).map((k) => (
           <button key={k} type="button" role="radio" aria-checked={form.kind === k} className={form.kind === k ? 'active' : ''} onClick={() => setForm({ ...form, kind: k })}>
