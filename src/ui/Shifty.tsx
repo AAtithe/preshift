@@ -19,7 +19,7 @@ const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD',
 export function Shifty({ view, deps }: { view: () => AgentView; deps: ProposalDeps }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
-  const agent = useAppAgent('chat', view, deps);
+  const agent = useAppAgent(view, deps);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
 

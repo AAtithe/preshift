@@ -20,7 +20,7 @@ const starter = (over: Record<string, unknown> = {}) => ({
   pay_basis: 'hourly', hourly_rate: 12.71, annual_salary: null, contracted_hours: null, email: null, phone: null, ...over,
 });
 
-describe('Shifty and command bar tools', () => {
+describe('Shifty tools', () => {
   it('proposes a starter without saving anything, and says they cannot be rostered yet', async () => {
     const c = ctx();
     const before = c.state.employees.length;
@@ -178,12 +178,12 @@ describe('the Shifty agent loop', () => {
       beta: { messages: { create: async (params: { messages: { role: string; content: unknown }[] }) => { sent.push(structuredClone(params)); return { model: 'claude-opus-5-5', usage: { input_tokens: 100, output_tokens: 10 }, ...replies.shift()! }; } } },
     } as unknown as Anthropic;
     const where = { screen: 'people', scope: 'Marylebone', user: 'gm@ws.example (member)' };
-    const first = await runAppAgent(client, { messages: [], text: 'Please add a new starter, Sam Lee', mode: 'command', ctx: ctx(), where });
+    const first = await runAppAgent(client, { messages: [], text: 'Please add a new starter, Sam Lee', ctx: ctx(), where });
     expect(first.reply).toBe('Here is Sam, ready for you to confirm.');
     expect(first.proposals.map((p) => p.kind)).toEqual(['add_starter']);
     expect(String(sent[0].messages[0].content)).toMatch(/\[Today 2026-10-19 09:00 UK time\. gm@ws\.example \(member\) is on the people screen, viewing Marylebone/);
 
-    await runAppAgent(client, { messages: first.messages, text: 'Thanks', mode: 'command', ctx: ctx(), where, outcomes: ['the manager confirmed "Add Sam Lee": Added Sam Lee as a starter.'] });
+    await runAppAgent(client, { messages: first.messages, text: 'Thanks', ctx: ctx(), where, outcomes: ['the manager confirmed "Add Sam Lee": Added Sam Lee as a starter.'] });
     const last = sent[2].messages;
     expect(last.slice(0, first.messages.length)).toEqual(first.messages);
     expect(String(last.at(-1)!.content)).toMatch(/Since your last reply: the manager confirmed "Add Sam Lee"/);
