@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 30
     env:
       # The customers' address, not the deployment's own URL, which sits behind Vercel's sign-in.
-      PRESHIFT_E2E_URL: ${{ vars.PRESHIFT_LIVE_URL || 'https://preshift.williamsstanley.co' }}
+      PRESHIFT_E2E_URL: ${{ vars.PRESHIFT_LIVE_URL || 'https://preshiftrota.co.uk' }}
       PRESHIFT_E2E_DEMO: '1'
     steps:
       - name: Wait for this commit to be live

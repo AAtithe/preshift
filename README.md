@@ -295,11 +295,11 @@ npm run test:e2e # browser checks of the management bar and iPad touch (Playwrig
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
 `PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there, or set `PRESHIFT_E2E_DEMO=1`
 to go in through its public demo with no account (for example
-`PRESHIFT_E2E_URL=https://preshift.williamsstanley.co PRESHIFT_E2E_DEMO=1 npm run test:e2e`). They only navigate; they
+`PRESHIFT_E2E_URL=https://preshiftrota.co.uk PRESHIFT_E2E_DEMO=1 npm run test:e2e`). They only navigate; they
 never build, clear, publish or save.
 
 The Live checks workflow (`.github/workflows/live.yml`) does exactly that against
-`https://preshift.williamsstanley.co` after every successful production deployment, nightly, and on
+`https://preshiftrota.co.uk` after every successful production deployment, nightly, and on
 demand from the Actions tab. A failure opens a "Live checks failing" issue, or adds to the open one,
 and the issue closes itself when the checks pass again. Set the `PRESHIFT_LIVE_URL` repository
 variable to point it somewhere else.
