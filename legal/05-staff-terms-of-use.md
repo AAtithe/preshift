@@ -17,9 +17,10 @@ it to one screen.
    in or out for anyone else. Clocking for someone else may be treated by your employer as a
    disciplinary matter.
 
-3. **Your phone tag and location.** If you clock in by touching your phone to a tag, Preshift
-   records the time and which tag. It does not track your location, and it is not running on
-   your phone when you are not using it.
+3. **Clocking in and your location.** Preshift records when you clock in and out, and how (card,
+   kiosk PIN, phone tag or the app). If your employer uses location clocking, your phone's
+   position is checked and saved only at the moment you clock in or out, to confirm you are at
+   work, and is deleted after [3 months]. Preshift never tracks you at any other time.
 
 4. **Messages.** You choose whether work messages reach you by WhatsApp, text or email, and you
    can change that in Settings at any time. Your employer will not use them for marketing.

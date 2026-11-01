@@ -111,10 +111,27 @@ Co., any professional advice it gives you is under your separate engagement lett
 under these Terms.
 
 4.5 **AI features.** Some features use artificial intelligence to draft rotas, answer questions,
-summarise or suggest actions. AI Outputs can be wrong or incomplete. A person must review every
-AI suggestion before it is applied. You must not use the Service to make a decision that has a
-legal or similarly significant effect on a member of staff (for example dismissal, discipline,
-pay or refusal of work) based solely on automated processing, without meaningful human review.
+summarise or suggest actions. AI Outputs can be wrong or incomplete. The Service presents every
+AI change as a proposal for a person to confirm, and that person must review it before applying
+it. You must not use the Service to make a decision that has a legal or similarly significant
+effect on a member of staff (for example dismissal, discipline, pay or refusal of work) based
+solely on automated processing, without meaningful human review.
+
+4.6 **Automatic settings you choose.** Some settings act without a manager in the loop, for
+example approving an open shift claim automatically when it is within the rules and the labour
+budget, giving a shift to the first eligible person to accept, offering shifts cheapest first, or
+scoring absence (Bradford factor) and retention risk. These are off unless you switch them on, or
+are information for a manager rather than a decision. Where you switch them on, you decide to use
+them as employer, you must tell affected staff how they work, and you must give staff a way to
+ask a manager to review an outcome.
+
+4.7 **Your own AI account.** AI features run on the Claude API account and key you save in
+Settings, under your own agreement with Anthropic, and Anthropic's charges are billed to you by
+Anthropic. Data sent to Anthropic through your key is sent on your instructions and governed by
+your agreement with Anthropic. We control what the Service sends: it is designed never to send NI
+numbers, addresses, absence reasons, HR notes, bank or medical details, but it will pass on
+anything a manager types into the assistant, so managers must not type special category data
+into it.
 
 ## 5. Accounts, users and staff
 
@@ -141,7 +158,12 @@ process data from each Connected System you link. Connected Systems are governed
 agreement with their provider. We are not responsible for their availability, accuracy, security
 or charges, or for a change they make that stops an integration working.
 
-6.2 When you send messages to staff by WhatsApp, SMS or email through the Service, you are the
+6.2 Some Connected Systems run on accounts and keys you hold yourself (for example your own email
+sending account, WhatsApp Business account, Twilio account, TeamPay account, Square token and
+Claude API key). Those providers act under your contract with them, charge you directly, and are
+your processors, not our sub-processors.
+
+6.3 When you send messages to staff by WhatsApp, SMS or email through the Service, you are the
 sender. You are responsible for the content, for having each recipient's consent where the law or
 the channel's rules require it, and for complying with the channel's own policies (including
 Meta's WhatsApp Business policies). The Service records each person's channel choice and consent
@@ -168,8 +190,15 @@ individual (for example benchmarking of labour % by site type) to operate and im
 and to show customers anonymous benchmarks. [Confirm: benchmarking is switchable off per
 organisation in Organisation, then Features.]
 
-7.5 We do not use Customer Data to train third party AI models, and our AI providers are
-contractually prohibited from doing so.
+7.5 We do not use Customer Data to train AI models, and we do not permit any sub-processor to do
+so. Where AI features run on your own Claude account (clause 4.7), Anthropic's commercial terms
+with you govern its use of that data.
+
+7.6 **Williams, Stanley & Co.** Williams, Stanley & Co., as our joint venture partner, provides
+support and finance features and sees the account owner's name and email, billing standing and
+summary counts for each customer. Where you are also a client of Williams, Stanley & Co., your
+support requests go to your WS client partner. It is bound by the confidentiality and data
+protection obligations in this Agreement and the Data Processing Agreement.
 
 ## 8. Acceptable use
 
