@@ -11,12 +11,15 @@ checklist (UK GDPR Articles 13 and 14).
 
 ## 1. Who we are
 
-Preshift Rota is provided by [CONTRACTING ENTITY], company number [NUMBER], registered office
-[ADDRESS] ("Preshift", "we", "us"). We are registered with the Information Commissioner's Office
+Preshift Rota is provided by TeamPay Payroll Limited, company number 17197586, registered office
+c/o Williams Stanley and Co, 144 Great Portland Street, London W1W 6QT ("Preshift", "we", "us"). We are registered with the Information Commissioner's Office
 under number [ICO REGISTRATION NUMBER]. Preshift Rota is a joint venture between Williams,
 Stanley & Co. Limited (company number 05860058) and Preshift.
 
-Contact for anything in this notice: [privacy@preshift.co.uk], or write to [ADDRESS].
+Contact for anything in this notice: [privacy@preshift.co.uk], or write to TeamPay Payroll Limited, c/o Williams Stanley and Co, 144 Great Portland Street, London W1W 6QT.
+
+If we also run your payroll through our TeamPay payroll service, that service has its own
+privacy notice and data processing terms. This notice covers Preshift Rota only.
 [If a Data Protection Officer is appointed, name and contact here. See to-do list D3.]
 
 ## 2. Two roles: read the one that applies to you
@@ -60,7 +63,9 @@ We do not sell personal data, and we do not use it for advertising.
 
 ## 5. International transfers
 
-Some providers are based in, or access data from, the United States. Where personal data leaves
+All Preshift Rota data is stored in the United Kingdom (London). Some providers are based in, or
+may access data from, the United States: Stripe (billing), our account email provider, web push
+services, Google Fonts (until self-hosted), and our hosting and database providers for support. Where personal data leaves
 the UK we rely on UK adequacy regulations (including the UK Extension to the EU-US Data Privacy
 Framework, where the provider is certified), or the International Data Transfer Agreement or UK
 Addendum to the EU Standard Contractual Clauses, with a transfer risk assessment. Details per

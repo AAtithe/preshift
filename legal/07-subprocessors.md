@@ -8,8 +8,8 @@ mechanism checked before publication (to-do list D7, D8).
 
 | Provider | What it does | Data | Location | Transfer mechanism |
 | --- | --- | --- | --- | --- |
-| Vercel Inc. | Hosting of the website, app, API and scheduled jobs | All Customer Data in transit and processing | [Region to set: London (lhr1) or EU]; US company | [UK Extension to DPF / IDTA. Confirm] |
-| Neon Inc. (Databricks) | Database | All Customer Data at rest | [Region to set: EU or London]; US company | [IDTA / UK Addendum. Confirm] |
+| Vercel Inc. | Hosting of the website, app, API and scheduled jobs | All Customer Data in transit and processing | United Kingdom (London); US company, support access from the US | [UK Extension to DPF / IDTA. Confirm] |
+| Neon Inc. (Databricks) | Database | All Customer Data at rest | United Kingdom (London); US company, support access from the US | [IDTA / UK Addendum. Confirm] |
 | Stripe Payments UK Ltd / Stripe Inc. | Subscription billing | Owner name and email, organisation name, billing address, VAT number, site count. No staff data | UK, EU, US | [UK Extension to DPF. Confirm] |
 | [Resend Inc.] | Account emails from Preshift itself (sign-up confirmation, support) | Recipient name and email, email content | US | [Confirm] |
 | Xero Ltd (via Preshift's Xero app) | Posting labour journals the Customer approves | Aggregated labour cost by site and role. No per-person lines | UK, US, Australia | [Confirm] |
@@ -37,12 +37,14 @@ are the Customer's processors, not ours. The Customer should list them in its ow
 | Meta Platforms (WhatsApp Business, Customer's own account) | Staff messages by WhatsApp |
 | Twilio Inc. (Customer's own account) | Staff messages by text |
 | Slack, Microsoft Teams (Customer's own webhooks) | Notifying managers a message is waiting. No message content |
-| TeamPay (Customer's own account) | Payroll |
 | Square (Customer's own token) | Till sales figures |
 | Hospitality Rewards | Staff recognition and benefits, where enabled. [Confirm whether controller or processor] |
 
-[Open point: TeamPay is connected with a Preshift deployment-level key although the payroll account
-is the Customer's. Confirm with TeamPay which party it treats as its customer, and whether it is
-our sub-processor. To-do list D7.]
+## Our own payroll service
+
+TeamPay payroll is provided by TeamPay Payroll Limited, the same company that provides Preshift Rota, under a
+separate agreement and its own data processing terms. It is not a sub-processor of Preshift Rota.
+When a Customer connects it, Preshift Rota passes the pay details listed in the Privacy Notice to
+it on the Customer's instruction.
 
 Last updated: [date]. Subscribe to changes: [privacy@preshift.co.uk].

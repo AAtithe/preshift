@@ -122,7 +122,7 @@ export const NAV: NavGroup[] = [
       // The labour programme: the ladder, milestones and the verified saving, in money.
       { id: 'programme', label: 'Programme', hint: 'The labour programme and the saving it has made', scope: 'week', access: { scope: ['costs.view'] } },
       { id: 'prime', label: 'Prime cost', hint: 'Labour and food cost together against sales', scope: 'week', siteOnly: true, access: COSTED_TIME },
-      // Minimum wage, right to work, Working Time and tips, priced as a regulator would.
+      // Minimum wage, right to work, Working Time and tips, sized against statutory maximums.
       { id: 'risk', label: 'Compliance risk', hint: 'Minimum wage, right to work and Working Time, priced', scope: 'week', siteOnly: true, access: COSTED_TIME },
       // Net pay, HMRC and pensions by date and company: pay totals for the business, so payroll and the close.
       { id: 'cash', label: 'Labour cash', hint: 'When pay, HMRC and pensions leave the bank', scope: 'org', title: 'Finance', access: { org: ['payroll.view', 'close.export'] } },

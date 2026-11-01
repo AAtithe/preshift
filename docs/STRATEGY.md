@@ -20,7 +20,7 @@ established facts. Treat each as a hypothesis.
 | | Fourth | Workforce.com | Sona | Preshift |
 | --- | --- | --- | --- | --- |
 | Primary buyer | Enterprise HR / ops | Ops, multi-site | Frontline ops | Owner, GM and finance together |
-| Cost shown on rota | Rate x hours, on-costs often estimated | Rate x hours plus configurable on-costs | Rate x hours | Fully loaded, reconciled to payroll, marginal cost per shift |
+| Cost shown on rota | Rate x hours, on-costs often estimated | Rate x hours plus configurable on-costs | Rate x hours | Fully loaded, checked against payroll, marginal cost per shift |
 | Forecast-led build | Available, heavy to configure | Available | Limited | Built in, from Preshift's own sales and covers feeds |
 | Ledger integration | Payroll export | Payroll | Payroll export | Labour accrual journal for a 3-day close |
 | Setup | Months, consultancy-led | Weeks | Fast | Done for you by WS and Preshift onboarding |

@@ -9,7 +9,7 @@ it to one screen.
 **Your employer uses Preshift Rota to run rotas, clocking in, leave and messages at work.**
 
 1. **Who is responsible.** Your employer gave you this login and decides how Preshift is used.
-   Your employer is responsible for your personal data in Preshift. We, [CONTRACTING ENTITY],
+   Your employer is responsible for your personal data in Preshift. We, TeamPay Payroll Limited (trading as Preshift Rota),
    run the software for them. Your employer's privacy notice explains how they use your data;
    ask your manager for it, or read the summary at [preshift.co.uk/privacy#staff].
 

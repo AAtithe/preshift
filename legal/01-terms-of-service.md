@@ -14,9 +14,9 @@ software, employment data, AI, messaging and payroll figures are added.
 
 ## 1. Who we are and what these Terms cover
 
-1.1 Preshift Rota (the "Service") is provided by [CONTRACTING ENTITY, a company registered in
-England and Wales with company number [NUMBER], whose registered office is at [ADDRESS]]
-("Preshift", "we", "us", "our"). Preshift Rota is a joint venture between Williams, Stanley & Co.
+1.1 Preshift Rota (the "Service") is provided by TeamPay Payroll Limited, a company registered in England and
+Wales with company number 17197586, whose registered office is at c/o Williams Stanley and Co, 144 Great Portland Street, London W1W 6QT
+("Preshift", "we", "us", "our"). Preshift Rota is a trading name of TeamPay Payroll Limited. Preshift Rota is a joint venture between Williams, Stanley & Co.
 Limited (company number 05860058) and Preshift.
 
 1.2 These Terms govern access to and use of the Service by the business that signs up for it or
@@ -102,7 +102,10 @@ confirmation that no breach exists.
 4.3 **Figures are estimates until payroll runs.** Shift costs, loaded labour, holiday accrual,
 tronc, SSP, labour cash forecasts, journals and payroll exports are calculated from your data and
 our models. Your payroll provider or bureau remains responsible for calculating and paying wages,
-deductions, PAYE, National Insurance, pensions and tronc, and for filings to HMRC. You must check
+deductions, PAYE, National Insurance, pensions and tronc, and for filings to HMRC. Where we also
+run your payroll through our separate TeamPay payroll service, that service is governed by its
+own agreement and data processing terms, not by these Terms, and Outputs from Preshift Rota
+remain estimates until the payroll run is approved under that agreement. You must check
 Outputs before relying on them, posting them or paying from them.
 
 4.4 **No professional advice.** Nothing in the Service, its help pages or its AI features is
@@ -159,9 +162,10 @@ agreement with their provider. We are not responsible for their availability, ac
 or charges, or for a change they make that stops an integration working.
 
 6.2 Some Connected Systems run on accounts and keys you hold yourself (for example your own email
-sending account, WhatsApp Business account, Twilio account, TeamPay account, Square token and
-Claude API key). Those providers act under your contract with them, charge you directly, and are
-your processors, not our sub-processors.
+sending account, WhatsApp Business account, Twilio account, Square token and Claude API key). Those providers act
+under your contract with them, charge you directly, and are your processors, not our
+sub-processors. Our TeamPay payroll service, if you use it, is a separate service under its own
+agreement (clause 4.3).
 
 6.3 When you send messages to staff by WhatsApp, SMS or email through the Service, you are the
 sender. You are responsible for the content, for having each recipient's consent where the law or
@@ -440,8 +444,8 @@ have exclusive jurisdiction.
 
 ## 17. Contact
 
-[CONTRACTING ENTITY]
-[Registered office]
+TeamPay Payroll Limited (trading as Preshift Rota)
+c/o Williams Stanley and Co, 144 Great Portland Street, London W1W 6QT
 Email: [hello@preshift.co.uk] · Support: [support@preshift.co.uk] · Legal notices:
 [legal@preshift.co.uk] · Data protection: [privacy@preshift.co.uk]
 

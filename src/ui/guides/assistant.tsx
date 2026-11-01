@@ -13,8 +13,8 @@ function AssistantGuide() {
       <h3>What it is for</h3>
       <p>
         The assistant drafts the week for you from a plain English request, for one site or for every site in view. It uses the
-        same costing and the same employment law checks as the rota itself, so every shift it suggests is legal and costed the
-        way payroll will cost it. Nothing changes until you press <strong>Apply draft</strong>.
+        same costing and the same employment law checks as the rota itself, so every shift it suggests has passed the checks
+        and is costed on the same basis as payroll. Check the draft as you would your own. Nothing changes until you press <strong>Apply draft</strong>.
       </p>
 
       <h3>How to ask</h3>

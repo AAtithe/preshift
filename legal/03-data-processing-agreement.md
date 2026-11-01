@@ -12,8 +12,8 @@ that clause, and WS's own terms need the same fix (to-do list W1).
 
 ## 1. Parties and roles
 
-1.1 This Data Processing Agreement ("DPA") is between the Customer (controller) and [CONTRACTING
-ENTITY] (processor), and forms part of the Agreement defined in the Terms of Service. Terms
+1.1 This Data Processing Agreement ("DPA") is between the Customer (controller) and TeamPay
+Payroll Limited (company number 17197586, trading as Preshift Rota) (processor), and forms part of the Agreement defined in the Terms of Service. Terms
 defined there have the same meaning here.
 
 1.2 Where a Customer group has several employing companies, the Customer enters into this DPA for
@@ -69,7 +69,12 @@ than this DPA, and remain liable to the Customer for each sub-processor's perfor
 
 5.4 Providers the Customer contracts with directly and connects using its own account or key
 (including its own Claude API account, email sending account, WhatsApp Business account, Twilio
-account, TeamPay account and EPOS) are the Customer's processors, not our sub-processors.
+account and EPOS) are the Customer's processors, not our sub-processors.
+
+5.5 Where the Customer also uses our TeamPay payroll service, we process payroll data under that
+service's own data processing terms. Data passed from Preshift Rota to the TeamPay payroll service
+is passed on the Customer's instruction and used only for running the Customer's payroll; we keep
+the two services' purposes, access and records separate.
 
 ## 6. International transfers
 
@@ -183,7 +188,8 @@ in HR notes or documents; add a product warning. To-do list P7.]
 - Data minimisation in AI features: NI numbers, addresses, absence reasons, HR notes, bank and
   medical details excluded from data sent to AI models.
 - Backups by the database provider with point in time recovery [confirm retention period].
-- Hosting region: [London or EU, to confirm and set. To-do list P1.]
+- Hosting and database region: United Kingdom (London). Customer Data at rest is stored only in
+  the UK.
 - Staff confidentiality obligations, data protection training on joining and annually.
 - Incident response procedure with breach notification under clause 8 [to write. To-do list D6].
 - [Cyber Essentials Plus certification and annual independent penetration test. To-do list S1,

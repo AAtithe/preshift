@@ -14,7 +14,12 @@ publication.
 
 | ID | P | Item | Owner |
 | --- | --- | --- | --- |
-| A1 | 1 | Decide the contracting entity. Which company signs with customers: Williams, Stanley & Co. Limited, a Preshift company, or a new joint venture company? Its name, number and registered office fill every [CONTRACTING ENTITY] in the drafts | TS + Preshift founders |
+| A1 | Done | Contracting entity decided (for now): TeamPay Payroll Limited, company number 17197586, incorporated 5 May 2026, registered office c/o Williams Stanley and Co, 144 Great Portland Street, London W1W 6QT. In every draft. Preshift Rota is stated as its trading name | TS |
+| A1a | 1 | Confirm the registered office on Companies House today matches the IN01 address above | Stat & Tax |
+| A1b | 1 | SIC code. The IN01 gives 78300 (other human resources provision). Selling software needs 62012 (business and domestic software development) or 58290 (other software publishing) added at the next confirmation statement | Stat & Tax |
+| A1c | 1 | One company now carries the payroll bureau and the rota software. A claim on either reaches the assets of both. Confirm the insurance covers both activities (S4), and keep the two services on separate agreements and data processing terms, as the drafts now do | TS + broker |
+| A1d | 2 | "For now" means the contract will move later. Terms clause 16.2 lets us transfer the Agreement to a group company or successor on notice. Confirm with the solicitor that it is enough to move every customer to a joint venture company without re-signing | Solicitor |
+| A1e | 2 | AML supervision. HMRC's guidance treats payroll services as accountancy services under the Money Laundering Regulations 2017. Confirm TeamPay Payroll Limited is supervised in its own name, not relying on WS's ICAEW supervision | TS |
 | A2 | 1 | Joint venture agreement between WS and Preshift: ownership of the code and IP, who employs the developers, revenue split, who bears liability and insurance, data sharing between the partners, exit and what happens to customers and data if the JV ends | TS + solicitor |
 | A3 | 1 | Data roles between WS and Preshift. WS sees every customer's owner details and billing standing, and support tickets go to WS client partners. Decide whether WS is a sub-processor of the JV, a joint controller, or the operator itself, and document it | TS + solicitor |
 | A4 | 1 | Instruct a solicitor (commercial SaaS plus employment data) to review all seven drafts. Budget and deadline | TS |
@@ -23,7 +28,17 @@ publication.
 | A7 | 2 | Trade mark search and filing for PRESHIFT (classes 9, 35, 42) | Solicitor |
 | A8 | 2 | Companies (Trading Disclosures) Regulations 2008: website footer, emails and invoices to show registered name, number, place of registration and registered office | Product |
 
-## B. Marketing claims: fix now (Priority 1)
+## B. Marketing claims: done 1 November 2026
+
+All rewritten in the site, README, What's new archive, in-app help, the support answers and the
+AI rota assistant's instructions. Two further untrue claims were found while checking the code
+and fixed: the site said nobody could be rostered outside their availability, and only trained
+people could be put on a role. Both are warnings, not blocks (`src/engine/compliance.ts:207,210`).
+The table below is kept as the record of what changed and why.
+
+Rule going forward: before any new claim about compliance goes on the site, check whether the
+engine blocks it, warns on it, or allows an override. Only a hard block may be described as
+"cannot".
 
 The Terms say compliance checks are aids and payroll figures are estimates. The website says the
 opposite. An entire agreement clause will not reliably protect us from a misrepresentation claim,
@@ -74,7 +89,7 @@ and the ASA can act on the copy regardless of the contract. Rewrite before anyth
 
 | ID | P | Item | Why |
 | --- | --- | --- | --- |
-| P1 | 1 | Set and verify the Vercel function region and Neon region to London or EU, and state it | The DPA and Privacy Notice cannot say where data is until this is set (`src/engine/gdpr.ts:585`) |
+| P1 | Done | Data stored in the UK (London), confirmed by TS. Stated in the Privacy Notice, DPA Annex 2, the sub-processor list and the product's own processor register (`src/engine/gdpr.ts:588`) | Keep a screenshot of the Vercel and Neon region settings on file as evidence |
 | P2 | 1 | Complete the in-product processor list: it omits Stripe, Xero, Square, Vercel Analytics, Google Fonts, push services and the feed APIs | Customers' own registers are generated from it (`src/engine/gdpr.ts:366-594`) and are wrong today |
 | P3 | 2 | Customer exit: an export of all data for an organisation, and deletion of the organisation after the period in Terms 10.5 | The Terms promise both; neither exists |
 | P4 | 2 | Run retention automatically (nightly cron) rather than only when an administrator presses Apply | Retention periods are meaningless if nobody presses the button (`server/routes/privacy.ts:174`) |

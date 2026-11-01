@@ -9,7 +9,7 @@ in onboarding. It is a template for the employer to adapt, not advice; the help 
 
 ## [EMPLOYER NAME]: how we use Preshift Rota
 
-We use Preshift Rota, provided by [CONTRACTING ENTITY], to plan rotas, record when you work, manage
+We use Preshift Rota, provided by TeamPay Payroll Limited, to plan rotas, record when you work, manage
 leave and absence, keep HR records, message you about work, and work out labour costs. Preshift
 acts on our instructions. We remain responsible for your data.
 
