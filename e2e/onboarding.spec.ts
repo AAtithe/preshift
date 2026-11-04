@@ -32,8 +32,21 @@ test('Import reads a team export, maps its columns and previews it without savin
   ].join('\n');
   await page.locator('.import-panel input[type=file]').setInputFiles({ name: 'export.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(page.getByText('Columns in export.csv')).toBeVisible();
-  await expect(page.getByText(/1 ready to add/)).toBeVisible();
+  await expect(page.getByText(/1 person ready to add/)).toBeVisible();
   await expect(page.getByText(/Row 4 \(Morgan Blake\)/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Map the columns with Shifty' })).toBeVisible();
   await page.screenshot({ path: 'test-results/import.png', fullPage: true });
+});
+
+test('Import previews training certificates from an export, matched to the courses inspectors ask for', async ({ page }) => {
+  await signIn(page, '/app/?view=setup');
+  await page.getByRole('button', { name: /Import$/ }).click();
+  await page.getByRole('tab', { name: /Training/ }).click();
+  const org = await (await page.request.get('/v1/employees')).json() as { name: string; status?: string }[];
+  const someone = org.find((e) => e.status !== 'leaver')!.name;
+  const csv = ['Employee,Course,Date Completed,Expiry', `${someone},Level 2 Food Safety,12/03/2024,`, 'Nobody Known,Allergens,01/01/2025,'].join('\n');
+  await page.locator('.import-panel input[type=file]').setInputFiles({ name: 'training.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(page.getByText('Food hygiene level 2')).toBeVisible();
+  await expect(page.getByText(/Not on Preshift: Nobody Known \(1\)/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/import-training.png', fullPage: true });
 });

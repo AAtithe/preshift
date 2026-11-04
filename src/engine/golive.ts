@@ -212,7 +212,7 @@ const STEPS: StepSpec[] = [
     phase: 'team',
     label: 'Every record clear to roster',
     why: 'Anyone without a right to work check, or paid below the minimum for their age, is held off the rota. That is the law doing its job: an illegal worker carries a civil penalty of up to £60,000.',
-    how: 'Staff: open each person flagged, record the right to work check with its date and a copy, and correct date of birth or pay.',
+    how: 'Set-up, Import, Right to work: bring the checks across with their dates, then upload a copy of what was seen on each person\'s file. Correct date of birth or pay in Staff.',
     screen: 'people',
     dueDay: 4,
     after: ['team'],

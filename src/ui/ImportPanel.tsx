@@ -1,28 +1,21 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { describeAgentError, createBrowserClient } from '../ai/rotaAgent';
 import { IMPORT_FIELDS, mapColumnsWithAI, type ImportKind } from '../ai/importMapper';
-import { newEmployee } from '../engine/employees';
 import { parseCsv } from '../engine/bookingImport';
-import { HOLIDAY_COLUMNS, importHoliday, importPeople, importShifts, PEOPLE_COLUMNS, SHIFT_COLUMNS } from '../engine/externalImport';
-import { onboardingTemplate, TEMPLATE_SHEETS } from '../engine/importTemplate';
-import type { Employee, RotaState } from '../engine/types';
+import { normal } from '../engine/externalImport';
+import { onboardingTemplate } from '../engine/importTemplate';
+import type { Employee, HrRecord, RotaState } from '../engine/types';
 import { readXlsx, writeXlsx, type Sheet } from '../engine/xlsx';
 import { api, ApiError } from './api';
+import { IMPORT_ALIASES, IMPORT_KINDS, planImport } from './importPlan';
 
-// Set-up, Import: the team, holiday balances at go-live and the rota ahead, from an Excel workbook or
-// CSV, the onboarding template or an export from the old system. Columns are matched by name; any
-// can be chosen by hand, or Shifty maps them from the headers and the kind of value in each, never
-// anyone's personal details. Nothing is saved until the preview has been read and confirmed.
-
-const KINDS: { id: ImportKind; label: string; sheet: string; about: string }[] = [
-  { id: 'team', label: 'Team', sheet: TEMPLATE_SHEETS.team, about: 'Everyone who works for you. Do this first: holiday balances and shifts are matched to people already on Preshift.' },
-  { id: 'holiday', label: 'Holiday balances', sheet: TEMPLATE_SHEETS.holiday, about: "Each person's holiday position on the day you go live, so balances and the holiday pay accrual carry on from your old system rather than starting from nought." },
-  { id: 'rota', label: 'Rota', sheet: TEMPLATE_SHEETS.rota, about: 'Shifts already planned for the weeks ahead. They arrive as a draft for you to check and publish.' },
-];
-const ALIASES = { team: PEOPLE_COLUMNS, rota: SHIFT_COLUMNS, holiday: HOLIDAY_COLUMNS } as const;
+// Set-up, Import: the team, right to work, HR files and documents, training, holiday and TOIL
+// balances at go-live, absences, and the rota ahead, from an Excel workbook or CSV: the onboarding
+// template or an export from the old system. Columns are matched by name; any can be chosen by hand,
+// or Shifty maps them from the headers and the kind of value in each, never anyone's personal details.
+// Nothing is saved until the preview has been read and confirmed.
 
 const problem = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
-const hours = (n: number) => `${Math.round(n * 10) / 10}h`;
 
 function saveBytes(name: string, bytes: Uint8Array) {
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -35,12 +28,14 @@ function saveBytes(name: string, bytes: Uint8Array) {
 
 /** The sheet most likely to hold this kind: the template's own, else the one whose headers match most. */
 function bestSheet(sheets: Sheet[], kind: ImportKind): number {
-  const named = sheets.findIndex((s) => s.name.toLowerCase() === KINDS.find((k) => k.id === kind)!.sheet.toLowerCase());
+  const named = sheets.findIndex((s) => s.name.toLowerCase() === IMPORT_KINDS.find((k) => k.id === kind)!.sheet.toLowerCase());
   if (named >= 0 && sheets[named].rows.length > 1) return named;
-  const known = new Set(Object.values(ALIASES[kind]).flat());
-  const score = (s: Sheet) => (s.rows.slice(0, 10).flat().filter((c) => known.has(c.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim())).length);
+  const known = new Set(Object.values(IMPORT_ALIASES[kind]).flat());
+  const score = (s: Sheet) => s.rows.slice(0, 10).flat().filter((c) => known.has(normal(c))).length;
   return sheets.reduce((best, s, i) => (score(s) > score(sheets[best]) ? i : best), 0);
 }
+
+type Done = { ok: number; failed: { name: string; reason: string }[]; notes: string[] };
 
 export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () => Promise<void> }) {
   const [kind, setKind] = useState<ImportKind>('team');
@@ -50,27 +45,32 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
   const [siteId, setSiteId] = useState(state.sites[0]?.id ?? '');
   const [usDates, setUsDates] = useState(false);
   const [chosen, setChosen] = useState<Record<string, string>>({});
-  const [ai, setAi] = useState<{ busy: boolean; notes?: string; error?: string; costUsd?: number }>({ busy: false });
-  const [busy, setBusy] = useState(false);
+  const [ai, setAi] = useState<{ busy: boolean; notes?: string; error?: string }>({ busy: false });
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ ok: number; failed: { name: string; reason: string }[]; note?: string } | null>(null);
+  const [done, setDone] = useState<Done | null>(null);
+  // Training and documents already on file, so the same certificate is not recorded twice.
+  const [hrRecords, setHrRecords] = useState<HrRecord[]>([]);
   const today = new Date().toISOString().slice(0, 10);
 
-  const rows = sheets?.[sheetIndex]?.rows ?? null;
-  const columns = chosen as never;
-  const preview = useMemo(() => {
-    if (!rows) return null;
-    if (kind === 'team') return { kind, r: importPeople(rows, state, { usDates, columns }) } as const;
-    if (kind === 'holiday') return { kind, r: importHoliday(rows, state, today, { columns }) } as const;
-    return { kind, r: importShifts(rows, state, { siteId, usDates, columns }) } as const;
-  }, [rows, kind, state, usDates, columns, siteId, today]);
+  useEffect(() => {
+    if (kind !== 'training' && kind !== 'documents') return;
+    api.get<HrRecord[]>('/v1/hr/records').then(setHrRecords).catch(() => setHrRecords([]));
+  }, [kind, done]);
 
-  function reset(next: ImportKind = kind) {
+  const rows = sheets?.[sheetIndex]?.rows ?? null;
+  const plan = useMemo(
+    () => (rows ? planImport({ kind, rows, state, hrRecords, today, siteId, usDates, columns: chosen }) : null),
+    [rows, kind, state, hrRecords, today, siteId, usDates, chosen],
+  );
+
+  function choose(next: ImportKind) {
     setKind(next);
     setChosen({});
     setAi({ busy: false });
     setDone(null);
     setError(null);
+    // The same workbook serves every tab: each opens on its own sheet.
     if (sheets) setSheetIndex(bestSheet(sheets, next));
   }
 
@@ -82,9 +82,7 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
     setFileName(file.name);
     try {
       if (/\.xls$/i.test(file.name)) throw new Error('That is an old Excel file (.xls). Open it in Excel and save it as .xlsx, or as CSV, then upload again.');
-      const list = /\.(csv|txt|tsv)$/i.test(file.name)
-        ? [{ name: file.name, rows: parseCsv(await file.text()) }]
-        : await readXlsx(new Uint8Array(await file.arrayBuffer()));
+      const list = /\.(csv|txt|tsv)$/i.test(file.name) ? [{ name: file.name, rows: parseCsv(await file.text()) }] : await readXlsx(new Uint8Array(await file.arrayBuffer()));
       if (!list.some((s) => s.rows.length > 1)) throw new Error('The file has no rows under its headers.');
       setSheets(list);
       setSheetIndex(bestSheet(list, kind));
@@ -100,105 +98,81 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
     try {
       const m = await mapColumnsWithAI(createBrowserClient(), kind, rows);
       setChosen(m.columns);
-      setAi({ busy: false, notes: m.notes, costUsd: m.costUsd });
+      setAi({ busy: false, notes: m.notes });
     } catch (e) {
       setAi({ busy: false, error: describeAgentError(e) });
     }
   }
 
   async function apply() {
-    if (!preview) return;
-    setBusy(true);
+    if (!plan) return;
     setError(null);
-    const failed: { name: string; reason: string }[] = [];
-    let ok = 0;
-    let note: string | undefined;
-    try {
-      if (preview.kind === 'team') {
-        // One at a time through the starter route, so each is checked and set up in payroll as from People.
-        let awaiting = 0;
-        for (const p of preview.r.people) {
-          const site = state.sites.find((s) => s.id === (p.siteId ?? siteId));
-          if (!site) {
-            failed.push({ name: p.person.name, reason: 'No site.' });
-            continue;
-          }
-          const base = newEmployee(site.id, site.entityId, p.person.roleIds[0], today);
-          const { id: _id, startDate: _start, ...rest } = { ...base, ...p.person };
-          const body: Partial<Employee> = { ...rest, ...(p.person.startDate ? { startDate: p.person.startDate } : {}), ...(p.email ? { email: p.email } : {}) };
-          try {
-            const saved = await api.post<Employee>('/v1/employees', body);
-            if (saved.pendingPay) awaiting++;
-            ok++;
-          } catch (e) {
-            failed.push({ name: p.person.name, reason: problem(e) });
-          }
+    const result: Done = { ok: 0, failed: [], notes: [] };
+    let awaitingPay = 0;
+    // One call at a time, each through the same checks as the screens, so one refusal stops nothing else.
+    for (const [i, call] of plan.calls.entries()) {
+      setBusy(`Saving ${i + 1} of ${plan.calls.length}`);
+      try {
+        const res = await (call.method === 'POST' ? api.post<unknown>(call.path, call.body) : call.method === 'PUT' ? api.put<unknown>(call.path, call.body) : api.patch<unknown>(call.path, call.body));
+        if (call.path === '/v1/rota/import') {
+          const r = res as { added: number; refused: { index: number; reason: string }[]; weeks: string[] };
+          const shifts = (call.body as { shifts: { employeeId: string; date: string }[] }).shifts;
+          result.ok += r.added;
+          for (const x of r.refused) result.failed.push({ name: `${state.employees.find((e) => e.id === shifts[x.index].employeeId)?.name ?? 'Shift'}, ${shifts[x.index].date}`, reason: x.reason });
+          if (r.weeks.length) result.notes.push(`Added as a draft to the weeks of ${r.weeks.join(', ')}. Open the rota for each week, check it against the forecast and publish.`);
+        } else {
+          if ((res as Employee | undefined)?.pendingPay) awaitingPay++;
+          result.ok++;
         }
-        if (awaiting) note = `${awaiting} ${awaiting === 1 ? 'rate is' : 'rates are'} waiting for the finance director under Pay approvals. Until approved, those people are on nought and cannot be costed or paid.`;
-      } else if (preview.kind === 'holiday') {
-        for (const h of preview.r.rows) {
-          try {
-            await api.patch(`/v1/employees/${encodeURIComponent(h.employeeId)}`, { holiday: h.holiday });
-            ok++;
-          } catch (e) {
-            failed.push({ name: h.name, reason: problem(e) });
-          }
-        }
-      } else {
-        const shifts = preview.r.shifts.map(({ published: _p, ...s }) => s);
-        const res = await api.post<{ added: number; skipped: number; refused: { index: number; reason: string }[]; weeks: string[] }>('/v1/rota/import', { shifts });
-        ok = res.added;
-        const name = (i: number) => state.employees.find((e) => e.id === shifts[i].employeeId)?.name ?? 'Shift';
-        for (const r of res.refused) failed.push({ name: `${name(r.index)}, ${shifts[r.index].date}`, reason: r.reason });
-        note = res.weeks.length ? `Added as a draft to the weeks of ${res.weeks.join(', ')}. Open the rota for each week, check it against the forecast and publish.` : undefined;
+      } catch (e) {
+        result.failed.push({ name: call.label, reason: problem(e) });
       }
-      await onDone();
-      setDone({ ok, failed, note });
-    } catch (e) {
-      setError(problem(e));
     }
-    setBusy(false);
+    if (awaitingPay) result.notes.push(`${awaitingPay} ${awaitingPay === 1 ? 'rate is' : 'rates are'} waiting for the finance director under Pay approvals. Until approved, those people are on nought and cannot be costed or paid.`);
+    const next = IMPORT_KINDS[IMPORT_KINDS.findIndex((k) => k.id === kind) + 1];
+    if (next && !result.failed.length) result.notes.push(`Next: ${next.label}.`);
+    await onDone();
+    setDone(result);
+    setBusy(null);
   }
 
   const fields = IMPORT_FIELDS[kind];
-  const headers = preview?.r.headers ?? [];
-  const matched = preview?.r.columns as Record<string, number | undefined> | undefined;
-  const ready = preview ? (preview.kind === 'team' ? preview.r.people.length : preview.kind === 'holiday' ? preview.r.rows.length : preview.r.shifts.length) : 0;
-  const what = kind === 'team' ? (ready === 1 ? 'person' : 'people') : kind === 'holiday' ? (ready === 1 ? 'holiday balance' : 'holiday balances') : ready === 1 ? 'shift' : 'shifts';
+  const about = IMPORT_KINDS.find((k) => k.id === kind)!.about;
 
   return (
     <div className="import-panel">
       <p className="step-intro">
-        Bring your team, holiday balances and rota across from your old system in one go. Download the template and fill it in, or
-        upload an export from your old rota, HR or payroll system as it is: columns are found by their names. Check the preview,
-        then confirm. Nothing is saved before that.
+        Bring everything across from your old system: the team, right to work checks, HR files and documents, training, holiday and
+        TOIL balances, absences and the rota ahead. Download the template and fill it in, or upload exports from your old rota, HR or
+        payroll system as they are: columns are found by their names. Work through the tabs in order. Each shows a preview, and
+        nothing is saved until you confirm it.
       </p>
       <p>
         <button onClick={() => saveBytes('Preshift onboarding template.xlsx', writeXlsx(onboardingTemplate(state)))}>Download the Excel template</button>
-        <span className="muted small"> With your own roles and sites listed, and how to fill in each column.</span>
+        <span className="muted small"> One sheet for each tab, with your own roles and sites listed and how to fill in each column.</span>
       </p>
 
       <div className="segmented" role="tablist">
-        {KINDS.map((k) => (
-          <button key={k.id} role="tab" aria-selected={kind === k.id} className={kind === k.id ? 'active' : ''} onClick={() => reset(k.id)}>{k.label}</button>
+        {IMPORT_KINDS.map((k, i) => (
+          <button key={k.id} role="tab" aria-selected={kind === k.id} className={kind === k.id ? 'active' : ''} onClick={() => choose(k.id)}>{i + 1}. {k.label}</button>
         ))}
       </div>
-      <p className="muted small">{KINDS.find((k) => k.id === kind)!.about}</p>
+      <p className="muted small">{about}</p>
 
       <div className="setup-row">
         <label>
           File (.xlsx or .csv)
-          <input type="file" accept=".xlsx,.csv,.txt,.xls" onChange={(e) => { const f = e.target.files?.[0]; if (f) void open(f); }} />
+          <input type="file" accept=".xlsx,.csv,.txt,.xls" onChange={(e) => { const f = e.target.files?.[0]; if (f) void open(f); e.target.value = ''; }} />
         </label>
         {sheets && sheets.length > 1 && (
           <label>
             Sheet
-            <select value={sheetIndex} onChange={(e) => { setSheetIndex(Number(e.target.value)); setChosen({}); }}>
+            <select value={sheetIndex} onChange={(e) => { setSheetIndex(Number(e.target.value)); setChosen({}); setDone(null); }}>
               {sheets.map((s, i) => <option key={i} value={i}>{s.name}</option>)}
             </select>
           </label>
         )}
-        {kind !== 'holiday' && (
+        {(kind === 'team' || kind === 'rota') && (
           <label>
             Site, where the file names none
             <select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
@@ -214,22 +188,19 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
       </div>
       {error && <p className="notice error">{error}</p>}
 
-      {preview && rows && (
+      {plan && (
         <>
-          <h3 className="section-title">Columns in {fileName}</h3>
+          <h3 className="section-title">Columns in {fileName}{sheets && sheets.length > 1 ? `, ${sheets[sheetIndex].name}` : ''}</h3>
           <table className="table">
             <thead><tr><th>Preshift needs</th><th>Read from</th></tr></thead>
             <tbody>
-              {Object.entries(fields).map(([field, about]) => (
+              {Object.entries(fields).map(([field, label]) => (
                 <tr key={field}>
-                  <td>{about}</td>
+                  <td>{label}</td>
                   <td>
-                    <select
-                      value={matched?.[field] !== undefined ? headers[matched[field]!] : ''}
-                      onChange={(e) => setChosen((c) => ({ ...c, [field]: e.target.value }))}
-                    >
+                    <select value={plan.columns[field] !== undefined ? plan.headers[plan.columns[field]!] : ''} onChange={(e) => setChosen((c) => ({ ...c, [field]: e.target.value }))}>
                       <option value="">Not in the file</option>
-                      {headers.filter((h) => h.trim()).map((h) => <option key={h} value={h}>{h}</option>)}
+                      {plan.headers.filter((x) => x.trim()).map((x) => <option key={x} value={x}>{x}</option>)}
                     </select>
                   </td>
                 </tr>
@@ -238,76 +209,48 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
           </table>
           <p className="small">
             <button disabled={ai.busy} onClick={() => void mapWithShifty()}>{ai.busy ? 'Shifty is reading the columns' : 'Map the columns with Shifty'}</button>
-            <span className="muted"> Shifty sees the headers and the kind of value in each column. Names, emails, dates of birth and other personal details are masked before anything is sent.</span>
+            <span className="muted"> Shifty sees the headers and the kind of value in each column. Names, emails, dates of birth, NI numbers and other personal details are masked before anything is sent.</span>
           </p>
           {ai.notes && <p className="notice">Shifty: {ai.notes} Check the columns above before going on.</p>}
           {ai.error && <p className="notice error">{ai.error}</p>}
-          {preview.r.unused.length > 0 && <p className="muted small">Not read: {preview.r.unused.join(', ')}.</p>}
+          {plan.unused.length > 0 && <p className="muted small">Not read: {plan.unused.join(', ')}.</p>}
 
           <h3 className="section-title">Preview</h3>
-          {preview.kind === 'team' && (
-            <>
-              <p>{preview.r.people.length} ready to add.{preview.r.existing.length ? ` ${preview.r.existing.length} already on Preshift, left out.` : ''}</p>
-              {preview.r.people.some((p) => !p.person.rightToWork?.checked) && (
-                <p className="small">{(() => { const n = preview.r.people.filter((p) => !p.person.rightToWork?.checked).length; return n === 1 ? '1 person has' : `${n} people have`; })()} no right to work check date: they are added but cannot be rostered until the check is recorded with a copy in Staff.</p>
-              )}
-              {preview.r.unknownRoles.length > 0 && <p className="notice">Roles not set up here: {preview.r.unknownRoles.map((r) => `${r.name} (${r.rows})`).join(', ')}. Add them under Set-up, Roles, then upload again, or those rows are left out.</p>}
-              {preview.r.unknownSites.length > 0 && <p className="notice">Sites not set up here: {preview.r.unknownSites.map((r) => `${r.name} (${r.rows})`).join(', ')}. Those people go to the site chosen above.</p>}
-            </>
+          {plan.info.map((m, i) => <p key={i} className={i ? 'small' : undefined}>{m}</p>)}
+          {plan.warnings.map((m, i) => <p key={i} className="notice">{m}</p>)}
+          {plan.unknownPeople.length > 0 && (
+            <p className="notice">
+              Not on Preshift: {plan.unknownPeople.slice(0, 12).map((x) => `${x.name} (${x.rows})`).join(', ')}
+              {plan.unknownPeople.length > 12 ? ` and ${plan.unknownPeople.length - 12} more` : ''}. Import the team first, or check the names match.
+            </p>
           )}
-          {preview.kind === 'holiday' && (
-            <>
-              <p>{preview.r.rows.length} balances ready{preview.r.inDays ? ', read as days and turned into hours on each person\'s contracted day' : ', in hours'}.</p>
-              {preview.r.rows.length > 0 && (
-                <table className="table">
-                  <thead><tr><th>Name</th><th className="num">Carried over</th><th className="num">Accrued at go-live</th><th className="num">Taken at go-live</th><th className="num">Remaining on Preshift</th><th /></tr></thead>
-                  <tbody>
-                    {preview.r.rows.slice(0, 200).map((h) => (
-                      <tr key={h.line}>
-                        <td>{h.name}</td>
-                        <td className="num">{h.holiday.carriedOverHours !== undefined ? hours(h.holiday.carriedOverHours) : '-'}</td>
-                        <td className="num">{h.holiday.openingAccruedHours !== undefined ? hours(h.holiday.openingAccruedHours) : 'From the dates'}</td>
-                        <td className="num">{h.holiday.openingTakenHours !== undefined ? hours(h.holiday.openingTakenHours) : '-'}</td>
-                        <td className="num">{hours(h.remainingHours)}</td>
-                        <td className="muted small">{h.note}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              <p className="muted small">The remaining figure is what Preshift will show today: the leave year&apos;s entitlement for fixed hours staff, holiday earned so far for irregular hours staff. Check a few against your old system before confirming. The untaken balance feeds the holiday pay accrual on the balance sheet.</p>
-            </>
+          {plan.table && plan.table.rows.length > 0 && (
+            <div className="grid-wrap">
+              <table className="table">
+                <thead><tr>{plan.table.head.map((x, i) => <th key={i}>{x}</th>)}</tr></thead>
+                <tbody>{plan.table.rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} className={j === r.length - 1 && c.length > 30 ? 'muted small' : undefined}>{c}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
           )}
-          {preview.kind === 'rota' && (
-            <>
-              <p>{preview.r.shifts.length} shifts ready{preview.r.weeks.length ? `, in the weeks of ${preview.r.weeks.join(', ')}` : ''}.{preview.r.duplicates ? ` ${preview.r.duplicates} already on the rota, left out.` : ''}</p>
-              {preview.r.roleFromPerson > 0 && <p className="small">{preview.r.roleFromPerson} with no role Preshift recognises are given the person&apos;s own role.</p>}
-              {preview.r.unknownRoles.length > 0 && <p className="muted small">Roles in the file not set up here: {preview.r.unknownRoles.map((r) => r.name).join(', ')}.</p>}
-              {preview.r.unknownSites.length > 0 && <p className="notice">Sites not set up here: {preview.r.unknownSites.map((r) => `${r.name} (${r.rows})`).join(', ')}. Those shifts are left out.</p>}
-            </>
-          )}
-          {'unknownPeople' in preview.r && preview.r.unknownPeople.length > 0 && (
-            <p className="notice">Not on Preshift: {preview.r.unknownPeople.slice(0, 12).map((p) => `${p.name} (${p.rows})`).join(', ')}{preview.r.unknownPeople.length > 12 ? ` and ${preview.r.unknownPeople.length - 12} more` : ''}. Import the team first, or check the names match.</p>
-          )}
-          {preview.r.errors.length > 0 && (
+          {plan.errors.length > 0 && (
             <ul className="issues">
-              {preview.r.errors.slice(0, 50).map((m, i) => <li key={i} className="block">{m}</li>)}
-              {preview.r.errors.length > 50 && <li className="muted">And {preview.r.errors.length - 50} more.</li>}
+              {plan.errors.slice(0, 50).map((m, i) => <li key={i} className="block">{m}</li>)}
+              {plan.errors.length > 50 && <li className="muted">And {plan.errors.length - 50} more.</li>}
               <li className="muted">These rows are left out. Fix them in the file and upload it again.</li>
             </ul>
           )}
 
           <p>
-            <button className="primary" disabled={busy || ready === 0} onClick={() => void apply()}>
-              {busy ? 'Saving' : `${kind === 'holiday' ? 'Save' : 'Add'} ${ready} ${what}`}
+            <button className="primary" disabled={!!busy || plan.ready === 0} onClick={() => void apply()}>
+              {busy ?? `${plan.verb} ${plan.ready} ${plan.noun}`}
             </button>
           </p>
         </>
       )}
 
       {done && (
-        <div className="notice">
-          {done.ok} saved.{done.failed.length ? ` ${done.failed.length} refused:` : ''} {done.note}
+        <div className="notice" role="status">
+          {done.ok} saved.{done.failed.length ? ` ${done.failed.length} refused:` : ''} {done.notes.join(' ')}
           {done.failed.length > 0 && (
             <ul className="issues">
               {done.failed.slice(0, 50).map((f, i) => <li key={i} className="block">{f.name}: {f.reason}</li>)}

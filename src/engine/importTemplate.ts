@@ -6,19 +6,31 @@
 import type { RotaState } from './types';
 import type { SheetOut } from './xlsx';
 
-export const TEMPLATE_SHEETS = { team: 'Team', rota: 'Rota', holiday: 'Holiday balances' } as const;
+export const TEMPLATE_SHEETS = {
+  team: 'Team', rtw: 'Right to work', documents: 'HR file', training: 'Training', holiday: 'Holiday balances', toil: 'TOIL', absences: 'Absences', rota: 'Rota',
+} as const;
 
 export const TEMPLATE_HEADERS = {
   team: ['Name', 'Email', 'Roles', 'Site', 'Hourly rate', 'Annual salary', 'Date of birth', 'Contracted hours', 'Start date', 'Right to work checked on'],
   rota: ['Name', 'Date', 'Start time', 'End time', 'Unpaid break', 'Role', 'Site'],
   holiday: ['Name', 'Accrued hours', 'Taken hours', 'Carried over hours', 'Remaining hours', 'Entitlement weeks'],
+  rtw: ['Name', 'Right to work checked on', 'Evidence', 'Visa expiry', 'Term time hour limit'],
+  documents: [
+    'Name', 'Job title', 'Contract type', 'Written statement issued', 'Written statement signed', 'Handbook acknowledged', 'Probation end', 'Probation passed',
+    'Fixed term end', 'Notice weeks', 'NI number', 'Address', 'Postcode', 'Emergency contact', 'Emergency contact relationship', 'Emergency contact phone', 'Line manager',
+    'Document', 'Document date',
+  ],
+  training: ['Name', 'Course', 'Date completed', 'Expiry date', 'Provider'],
+  toil: ['Name', 'TOIL balance hours', 'As at'],
+  absences: ['Name', 'Absence type', 'First day', 'Last day', 'Reason', 'Fit note', 'Return to work date', 'Notes'],
 };
 
 const README: [string, string][] = [
   ['Preshift onboarding workbook', ''],
   ['', ''],
   ['What this is for', 'Bring your team, your rota and everyone\'s holiday position across from your old system in one go. Fill in the three sheets, or paste exports from your old rota, HR or payroll system into them, then upload this file in Preshift under Set-up, Import. Nothing is saved until you have checked a preview of every row.'],
-  ['The order to do it in', '1. Team first: people must exist before they can be on a rota or have a holiday balance. 2. Holiday balances. 3. Rota, for the weeks ahead only.'],
+  ['The order to do it in', '1. Team first: people must exist before anything else can be matched to them. 2. Right to work. 3. HR file. 4. Training. 5. Holiday balances. 6. TOIL. 7. Absences. 8. Rota, for the weeks ahead only. Each sheet is uploaded on its own tab under Import, from this same file.'],
+  ['Copies of documents', 'Passports, share code checks, signed contracts, certificates and fit notes cannot come through a spreadsheet. The dates and details do; upload the copies on each person\'s file afterwards. For right to work, the copy is what gives you the statutory excuse.'],
   ['Dates', 'Day first, as 09/11/2026, or 2026-11-09. American dates (month first) can be switched on when you upload.'],
   ['Times', '24 hour, as 17:30, or 5:30pm. A finish earlier than the start runs past midnight: 18:00 to 02:00 is an eight hour close.'],
   ['', ''],
@@ -40,6 +52,30 @@ const README: [string, string][] = [
   ['Remaining hours', 'Use this instead of accrued and taken if it is all your old system gives. For fixed hours staff it is read as the year\'s entitlement left.'],
   ['Entitlement weeks', 'Fixed hours staff on more than the statutory 5.6 weeks.'],
   ['', ''],
+  ['Right to work sheet', 'One row per person, for their current check.'],
+  ['Right to work checked on', 'The date the documents were checked. Required: a check without its date is not a statutory excuse, so the row is left out.'],
+  ['Evidence', 'What was seen: British passport, share code, BRP, birth certificate and NI letter.'],
+  ['Visa expiry', 'For time-limited permission only. Leave blank, or write None, where there is no time limit.'],
+  ['Term time hour limit', 'Students on a visa: the most hours a week allowed in term time.'],
+  ['', ''],
+  ['HR file sheet', 'Anything left blank stays as it is on Preshift. Dates as above.'],
+  ['Contract type', 'Permanent, fixed term, casual (zero hours) or apprentice.'],
+  ['Written statement issued and signed', 'The written statement of employment particulars is a day one right. Give the dates; upload the signed copy afterwards, or send it to sign in the staff app.'],
+  ['NI number', 'Checked for a valid format. Without it payroll runs on an emergency basis.'],
+  ['Emergency contact', 'Name and phone are both needed.'],
+  ['Line manager', 'Their name, as on the Team sheet.'],
+  ['Document and Document date', 'Any other document on file, such as a uniform policy or a signed opt-out, with the date it was signed or given.'],
+  ['', ''],
+  ['Training sheet', 'One row per certificate. Course names are matched to the courses inspectors ask for (food hygiene level 2 and 3, allergens, Challenge 25, personal licence, first aid, fire, manual handling, COSHH); anything else is kept under its own name.'],
+  ['Expiry date', 'Leave blank to use the course\'s usual renewal, as when a course is recorded by hand. Write None for a certificate that does not expire.'],
+  ['', ''],
+  ['TOIL sheet', 'Time off in lieu owed to each person on the day you go live, in hours (or use a header with days in it, such as TOIL balance days). It becomes their opening balance; earned and taken are recorded on Preshift from then on.'],
+  ['', ''],
+  ['Absences sheet', 'Sickness and other absence, for absence triggers, the Bradford factor and return to work conversations. Twelve months back is enough.'],
+  ['Absence type', 'Sickness, unauthorised, compassionate, dependants, maternity or paternity (family), unpaid, or anything else (kept as written). Holiday booked for days still to come is added as leave; holiday already taken is in the holiday balance, so it is not added twice. TOIL rows are left to the TOIL sheet.'],
+  ['Last day', 'Blank for a single day. Write Ongoing for someone still off.'],
+  ['Reason', 'Health data: kept on the HR file and shown only to those who read it.'],
+  ['', ''],
   ['Rota sheet', 'Shifts for the weeks ahead, one row per shift. They arrive as a draft: check them against the forecast and publish as normal. A shift already on the rota is not added twice. Open shifts with nobody on them are left for you to post from the rota.'],
   ['Name', 'As on the Team sheet.'],
   ['Date, Start time, End time', 'Required.'],
@@ -60,7 +96,12 @@ export function onboardingTemplate(state: Pick<RotaState, 'roles' | 'sites'>): S
   return [
     { name: 'Read me', rows: README, widths: [32, 110], wrap: true },
     { name: TEMPLATE_SHEETS.team, header: true, rows: [TEMPLATE_HEADERS.team], widths: widths(TEMPLATE_HEADERS.team) },
+    { name: TEMPLATE_SHEETS.rtw, header: true, rows: [TEMPLATE_HEADERS.rtw], widths: widths(TEMPLATE_HEADERS.rtw) },
+    { name: TEMPLATE_SHEETS.documents, header: true, rows: [TEMPLATE_HEADERS.documents], widths: widths(TEMPLATE_HEADERS.documents) },
+    { name: TEMPLATE_SHEETS.training, header: true, rows: [TEMPLATE_HEADERS.training], widths: widths(TEMPLATE_HEADERS.training) },
     { name: TEMPLATE_SHEETS.holiday, header: true, rows: [TEMPLATE_HEADERS.holiday], widths: widths(TEMPLATE_HEADERS.holiday) },
+    { name: TEMPLATE_SHEETS.toil, header: true, rows: [TEMPLATE_HEADERS.toil], widths: widths(TEMPLATE_HEADERS.toil) },
+    { name: TEMPLATE_SHEETS.absences, header: true, rows: [TEMPLATE_HEADERS.absences], widths: widths(TEMPLATE_HEADERS.absences) },
     { name: TEMPLATE_SHEETS.rota, header: true, rows: [TEMPLATE_HEADERS.rota], widths: widths(TEMPLATE_HEADERS.rota) },
     { name: 'Lists', header: true, rows: lists, widths: [28, 28] },
   ];

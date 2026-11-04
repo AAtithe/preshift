@@ -225,6 +225,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/rota/weeks': true,
   // Shifts imported from another system land in the sandbox's own rota, as a draft.
   'POST /v1/rota/import': true,
+  // Time off in lieu on the sandbox's fictional team.
+  'POST /v1/employees/:id/toil': true,
   // Managers' overrides of the rest rules, kept in the sandbox's own rota.
   'GET /v1/rota/overrides': true,
   'GET /v1/rota/changes': true,

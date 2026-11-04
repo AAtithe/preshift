@@ -205,6 +205,8 @@ export function anonymise(e: Employee, today: string): Employee {
     ...plain,
     ...(plain.hr ? { hr } : {}),
     ...(plain.absences ? { absences: plain.absences.map(({ id, type, from, to }) => ({ id, type, from, to })) } : {}),
+    // Hours owed stay with the pay record; what anyone wrote about them does not.
+    ...(plain.toil ? { toil: plain.toil.map(({ note: _note, ...t }) => t) } : {}),
     name: anonymousName(e.id),
     dateOfBirth: e.dateOfBirth ? `${e.dateOfBirth.slice(0, 4)}-01-01` : '',
     anonymisedOn: today,

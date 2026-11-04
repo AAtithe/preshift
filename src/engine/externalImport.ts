@@ -28,7 +28,7 @@ export type ShiftField = 'name' | 'firstName' | 'lastName' | 'email' | 'date' | 
 /** Ids, numbers and codes: "Employee ID" is never a name, "Location Code" never a site. */
 const IDENTIFIER = /\b(id|number|no|code|ref|reference|key|uuid)$/;
 
-const normal = (h: string) => h.toLowerCase().replace(/^﻿/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+export const normal = (h: string) => h.toLowerCase().replace(/^﻿/, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
 /** Column names, normalised, that each field is found under. First match wins, so the most specific come first. */
 export const PEOPLE_COLUMNS: Record<PeopleField, string[]> = {
@@ -128,7 +128,7 @@ export function table(input: string | string[][], aliases: Record<string, string
 }
 
 /** A date in any style the exports use; with usDates, 11/09/2026 is 9 November. */
-function dateOf(raw: string, usDates: boolean): string | null {
+export function dateOf(raw: string, usDates: boolean): string | null {
   const v = raw.trim();
   if (!v) return null;
   return parseDateTime(v, usDates)?.date ?? parseUkDate(v);
@@ -153,27 +153,27 @@ const money = (raw: string) => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-const fullName = (cell: (f: string) => string) => {
+export const fullName = (cell: (f: string) => string) => {
   const whole = cell('name');
   if (whole) return whole.replace(/\s+/g, ' ').trim();
   return [cell('firstName'), cell('lastName')].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 };
 
 /** Names looked up as people write them: case, spacing and "Surname, First" all match. */
-const nameKey = (n: string) => {
+export const nameKey = (n: string) => {
   const t = n.toLowerCase().replace(/\s+/g, ' ').trim();
   const comma = t.match(/^([^,]+),\s*(.+)$/);
   return comma ? `${comma[2]} ${comma[1]}` : t;
 };
 
-function finder<T extends { id: string; name: string }>(items: T[]) {
+export function finder<T extends { id: string; name: string }>(items: T[]) {
   const by = new Map(items.map((x) => [nameKey(x.name), x.id]));
   for (const x of items) by.set(x.id.toLowerCase(), x.id);
   return (raw: string) => by.get(nameKey(raw));
 }
 
-const tally = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
-const sorted = (map: Map<string, number>) => [...map].sort((a, b) => b[1] - a[1]).map(([name, rows]) => ({ name, rows }));
+export const tally = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
+export const sorted = (map: Map<string, number>) => [...map].sort((a, b) => b[1] - a[1]).map(([name, rows]) => ({ name, rows }));
 
 export interface PeopleImport extends ColumnMatch<PeopleField> {
   people: (PastedPerson & { siteId?: string; email?: string })[];

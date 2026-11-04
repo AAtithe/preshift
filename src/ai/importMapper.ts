@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { parseTime } from '../engine/bookingImport';
 import { HOLIDAY_COLUMNS, PEOPLE_COLUMNS, SHIFT_COLUMNS, table } from '../engine/externalImport';
+import { ABSENCE_COLUMNS, DOCUMENT_COLUMNS, RTW_COLUMNS, TOIL_COLUMNS, TRAINING_COLUMNS } from '../engine/hrImport';
 import type { MessagesClient } from './messagesClient';
 import { usageCostUsd } from './pricing';
 import { ROTA_MODEL } from './rotaAgent';
@@ -12,7 +13,7 @@ import { ROTA_MODEL } from './rotaAgent';
 // column (roles, sites, contracted hours) and times of day are shown, because they say what the
 // column is without saying who anyone is. The manager sees the mapping and can change it before anything is read.
 
-export type ImportKind = 'team' | 'rota' | 'holiday';
+export type ImportKind = 'team' | 'rota' | 'holiday' | 'absences' | 'toil' | 'documents' | 'training' | 'rtw';
 
 export const IMPORT_FIELDS: Record<ImportKind, Record<string, string>> = {
   team: {
@@ -52,9 +53,80 @@ export const IMPORT_FIELDS: Record<ImportKind, Record<string, string>> = {
     remaining: 'Holiday balance remaining',
     entitlementWeeks: 'Contractual entitlement in weeks a year',
   },
+  absences: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    type: 'Kind of absence: sickness, compassionate, unpaid, maternity, holiday and so on',
+    from: 'First day off',
+    to: 'Last day off',
+    days: 'Number of days off, where there is no last day',
+    reason: 'Reason or illness',
+    fitNote: 'Whether a fit note was received',
+    returnToWork: 'Date of the return to work conversation',
+    notes: 'Notes or comments',
+  },
+  toil: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    balance: 'Time off in lieu owed now',
+    earned: 'Time off in lieu earned',
+    taken: 'Time off in lieu taken',
+    asOf: 'The date the balance stands at',
+  },
+  documents: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    jobTitle: 'Job title',
+    contractType: 'Contract or employment type: permanent, fixed term, casual, apprentice',
+    contractIssuedOn: 'Date the contract or written statement was issued',
+    contractSignedOn: 'Date the contract or written statement was signed',
+    handbookAcknowledgedOn: 'Date the staff handbook was acknowledged',
+    probationEnd: 'Last day of probation',
+    probationPassedOn: 'Date probation was passed',
+    fixedTermEnd: 'End of a fixed-term contract',
+    noticeWeeks: 'Notice period in weeks',
+    niNumber: 'National Insurance number',
+    address: 'Home address',
+    postcode: 'Postcode',
+    emergencyName: 'Emergency contact or next of kin name',
+    emergencyRelationship: 'Emergency contact relationship',
+    emergencyPhone: 'Emergency contact phone number',
+    manager: 'Line manager',
+    document: 'Name of another document on file',
+    documentDate: 'Date that document was signed or given',
+  },
+  training: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    course: 'Course, certificate or qualification',
+    date: 'Date passed or completed',
+    expiry: 'Certificate expiry or renewal date',
+    notes: 'Provider, awarding body or certificate number',
+  },
+  rtw: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    checkedOn: 'Date the right to work check was done',
+    evidence: 'Document or evidence seen: passport, share code, BRP',
+    expiry: 'When time-limited permission to work expires',
+    studentHours: 'Student term time weekly hour limit',
+  },
 };
 
-const ALIASES: Record<ImportKind, Record<string, string[]>> = { team: PEOPLE_COLUMNS, rota: SHIFT_COLUMNS, holiday: HOLIDAY_COLUMNS };
+const ALIASES: Record<ImportKind, Record<string, string[]>> = {
+  team: PEOPLE_COLUMNS, rota: SHIFT_COLUMNS, holiday: HOLIDAY_COLUMNS,
+  absences: ABSENCE_COLUMNS, toil: TOIL_COLUMNS, documents: DOCUMENT_COLUMNS, training: TRAINING_COLUMNS, rtw: RTW_COLUMNS,
+};
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NUMBER = /^-?[£$€]?\d+(?:[.,]\d+)?$/;
@@ -115,7 +187,10 @@ export async function mapColumnsWithAI(client: MessagesClient, kind: ImportKind,
     description: 'Say which column of the file holds each field Preshift needs. Null where no column holds it.',
     input_schema: { type: 'object' as const, properties: { ...properties, notes: { type: 'string', description: 'One or two plain sentences for the manager: anything doubtful, and anything the file is missing that the import needs.' } }, required: [...Object.keys(fields), 'notes'], additionalProperties: false },
   };
-  const what = { team: 'a team or employee list', rota: 'a rota or schedule of shifts', holiday: 'holiday balances' }[kind];
+  const what = {
+    team: 'a team or employee list', rota: 'a rota or schedule of shifts', holiday: 'holiday balances', absences: 'an absence or sickness record',
+    toil: 'time off in lieu balances', documents: 'personnel file details: contracts, probation, NI numbers, emergency contacts', training: 'training certificates', rtw: 'right to work checks',
+  }[kind];
   const response = await client.beta.messages.create(
     {
       model: ROTA_MODEL,

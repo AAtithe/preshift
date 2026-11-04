@@ -51,8 +51,9 @@ email of the organisation that runs Preshift, as the sign-up link is. `golive.nu
 
 ## Bringing data across
 
-Set-up, Import takes the team, holiday balances and the rota ahead from an Excel workbook or CSV. Two
-routes, and the second is usually faster:
+Set-up, Import takes everything across from an Excel workbook or CSV, in eight tabs: team, right to
+work, HR file and documents, training, holiday balances, TOIL, absences and the rota ahead. Two routes,
+and the second is usually faster:
 
 1. Download the Excel template from that screen. It lists the customer's own roles and sites and
    explains every column. They fill in Team, Holiday balances and Rota, and upload it.
@@ -61,10 +62,20 @@ routes, and the second is usually faster:
    Shifty". Shifty sees the headers and the kind of value in each column; names, emails, dates of birth,
    NI and phone numbers are masked first.
 
-Order matters: team first, then holiday balances, then the rota. Every import shows a preview and
-saves nothing until it is confirmed.
+Order matters: the tabs are numbered in the order to work them, team first and rota last, because
+everything else is matched to people already on Preshift. Every import shows a preview and saves
+nothing until it is confirmed.
 
-Holiday balances are the one to get right, because they are a balance sheet number. Coaching point:
+Copies never come through a spreadsheet. Right to work checks, signed statements, certificates and
+fit notes come across as dates and details; the preview counts the copies still to upload. Coaching
+point: a right to work check without a copy of the documents is no statutory excuse, so the day 3
+call ends with a list of whose copies are missing and who is uploading them by when.
+
+TOIL is owed pay. Its opening balance sits beside the holiday pay provision on the Holiday screen and
+belongs in the same accrual. Ask every customer whether they bank overtime as TOIL; most hospitality
+operators do informally, on a spreadsheet nobody reconciles.
+
+Holiday and TOIL balances are the ones to get right, because they are balance sheet numbers. Coaching point:
 before confirming, pick three people (one fixed hours, one irregular hours, one with carry over) and
 check the "Remaining on Preshift" column against the old system's figure. If they agree, the holiday
 pay accrual starts from the right place. If they do not, it is almost always a start date, contracted
