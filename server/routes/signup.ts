@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { User } from '../../src/engine/access';
+import { LEGAL_VERSION } from '../../src/engine/legal';
 import { putBilling } from '../billing';
 import type { AppContext } from '../context';
 import { emailSetting, parseEmailSettings, sendMail, signupEmail, signupExistingEmail } from '../mail';
@@ -37,7 +38,28 @@ interface PendingSignup {
   business: string;
   /** Epoch seconds. */
   expires: number;
+  /** The Terms, Data Processing Agreement and Privacy Notice version ticked on the form, and when. */
+  terms?: { version: string; at: string };
 }
+
+/**
+ * The record that a business accepted the Terms: who, for which business, which version, when. Kept
+ * as its own setting, not only in the audit trail, which keeps just the latest events and would lose
+ * it. It is evidence of the contract, so nothing in the app changes or deletes it.
+ */
+export interface TermsAcceptance {
+  orgId: string;
+  version: string;
+  /** When the box was ticked on the sign-up form. */
+  acceptedAt: string;
+  /** When the email was proved and the organisation made, which is when the contract starts. */
+  confirmedAt: string;
+  email: string;
+  name: string;
+  business: string;
+}
+
+export const termsSetting = (orgId: string) => `terms_accepted:${orgId}`;
 
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
 const pendingSetting = (hash: string) => `signup:${hash}`;
@@ -79,6 +101,8 @@ export function signupRoutes(app: FastifyInstance, ctx: AppContext, options: { e
     const business = clean(req.body?.business, 120);
     if (!EMAIL.test(email)) return backToLogin(reply, { error: 'email', signup: '1' });
     if (!name || !business) return backToLogin(reply, { error: 'details', signup: '1' });
+    // The business agrees to the Terms and the Data Processing Agreement before anything is made.
+    if (req.body?.terms !== LEGAL_VERSION) return backToLogin(reply, { error: 'terms', signup: '1' });
 
     // Caps before anything is sent. Saying "busy" reveals nothing about anyone's account.
     const today = store.todayISO();
@@ -95,7 +119,7 @@ export function signupRoutes(app: FastifyInstance, ctx: AppContext, options: { e
         await sendMail(settings, signupExistingEmail(email, `${settings.appUrl}/login`));
       } else if (!existing) {
         const token = randomBytes(32).toString('base64url');
-        const pending: PendingSignup = { email, name, business, expires: nowSeconds() + SIGNUP_HOURS * 3600 };
+        const pending: PendingSignup = { email, name, business, expires: nowSeconds() + SIGNUP_HOURS * 3600, terms: { version: LEGAL_VERSION, at: new Date().toISOString() } };
         await store.setSetting(pendingSetting(tokenHash(token)), JSON.stringify(pending));
         await sendMail(settings, signupEmail(email, name, business, `${settings.appUrl}/login#signup=${token}`, SIGNUP_HOURS));
       }
@@ -109,7 +133,9 @@ export function signupRoutes(app: FastifyInstance, ctx: AppContext, options: { e
   app.post<{ Body: { token?: string } }>('/auth/signup/link', hidden, async (req, reply) => {
     const found = await readPending(ctx, typeof req.body?.token === 'string' ? req.body.token : '');
     if (!found || found.pending.expires < nowSeconds()) return reply.code(404).send({ error: 'badlink' });
-    return { email: found.pending.email, name: found.pending.name, business: found.pending.business };
+    const { email, name, business, terms } = found.pending;
+    // A link sent before the box existed, or before the Terms changed, asks for it again on this page.
+    return { email, name, business, termsNeeded: terms?.version === LEGAL_VERSION ? null : LEGAL_VERSION };
   });
 
   app.post<{ Body: Record<string, string> }>('/auth/signup/complete', hidden, async (req, reply) => {
@@ -121,6 +147,8 @@ export function signupRoutes(app: FastifyInstance, ctx: AppContext, options: { e
     if (found.pending.expires < nowSeconds()) return backToLogin(reply, { error: 'expired' });
     if (passwordProblem(req.body?.password)) return back('weak');
     if (req.body.password !== req.body?.confirm) return back('mismatch');
+    const tickedNow = req.body?.terms === LEGAL_VERSION;
+    if (found.pending.terms?.version !== LEGAL_VERSION && !tickedNow) return back('terms');
 
     // Single use, even when the link is opened twice at once: whoever writes the claim first wins.
     const claim = randomUUID();
@@ -152,6 +180,17 @@ export function signupRoutes(app: FastifyInstance, ctx: AppContext, options: { e
     };
     org.users.push(owner);
     audit(org, name, 'org.signed_up', { business, trialDays: options.trialDays });
+    const acceptance: TermsAcceptance = {
+      orgId,
+      version: LEGAL_VERSION,
+      acceptedAt: found.pending.terms?.version === LEGAL_VERSION ? found.pending.terms.at : at,
+      confirmedAt: at,
+      email,
+      name,
+      business,
+    };
+    await store.setSetting(termsSetting(orgId), JSON.stringify(acceptance));
+    audit(org, name, 'org.terms_accepted', { version: LEGAL_VERSION });
     audit(org, name, 'access.owner_created');
     await store.save(org);
     const trialEndsAt = new Date(ctx.now().getTime() + options.trialDays * 86_400_000).toISOString();

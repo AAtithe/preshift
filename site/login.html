@@ -46,6 +46,11 @@
       .button-secondary { display: block; text-align: center; text-decoration: none; font-weight: 600; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); background: transparent; }
       .button-secondary:hover, .button-secondary:focus-visible { background: var(--good-bg); }
       .button-secondary + .button-secondary { margin-top: 8px; }
+      .agree { grid-template-columns: auto 1fr; align-items: start; gap: 8px; font-size: 12px; line-height: 1.45; }
+      .agree input { width: 16px; height: 16px; margin: 1px 0 0; padding: 0; accent-color: var(--accent); }
+      .agree a { color: var(--accent); }
+      .legal { color: var(--muted); font-size: 11px; text-align: center; margin: 18px 0 0; }
+      .legal a { color: var(--muted); }
       [hidden] { display: none; }
     </style>
   </head>
@@ -70,6 +75,7 @@
       <p class="msg bad" id="elsewhere" role="alert" hidden>That email already has a Preshift account. Open the link again and sign in with its password.</p>
       <p class="msg bad" id="registered" role="alert" hidden>That email already has a Preshift account. Sign in with it instead.</p>
       <p class="msg bad" id="details" role="alert" hidden>Give your business name and your own name.</p>
+      <p class="msg bad" id="terms" role="alert" hidden>Tick the box to agree to the Terms of Service and the Data Processing Agreement for your business.</p>
       <p class="msg bad" id="busy" role="alert" hidden>Too many sign-ups just now. Try again tomorrow, or email hello@preshift.co.uk.</p>
       <p class="msg bad" id="nosignup" role="alert" hidden>Sign-up is not open on this system. Email hello@preshift.co.uk to get started.</p>
       <p class="msg ok" id="signedout" hidden>You have signed out.</p>
@@ -101,6 +107,10 @@
           <label>Business name <input name="business" autocomplete="organization" maxlength="120" required /></label>
           <label>Your name <input name="name" autocomplete="name" maxlength="120" required /></label>
           <label>Your work email <input type="email" name="email" autocomplete="email" required /></label>
+          <label class="agree">
+            <input type="checkbox" name="terms" value="2026-11-04" required />
+            <span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> and the <a href="/dpa" target="_blank">Data Processing Agreement</a> on behalf of my business, and I have read the <a href="/privacy" target="_blank">Privacy Notice</a>.</span>
+          </label>
           <button type="submit">Email me a link</button>
         </form>
         <p class="foot">Already have an account? <a href="/login">Sign in</a></p>
@@ -113,6 +123,10 @@
           <input type="hidden" name="token" />
           <label>Password, at least 12 characters <input type="password" name="password" autocomplete="new-password" minlength="12" required /></label>
           <label>Password again <input type="password" name="confirm" autocomplete="new-password" minlength="12" required /></label>
+          <label class="agree" id="confirm-terms" hidden>
+            <input type="checkbox" name="terms" value="2026-11-04" disabled />
+            <span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> and the <a href="/dpa" target="_blank">Data Processing Agreement</a> on behalf of my business, and I have read the <a href="/privacy" target="_blank">Privacy Notice</a>.</span>
+          </label>
           <button type="submit">Start my trial</button>
         </form>
       </section>
@@ -161,6 +175,7 @@
           <button type="submit">Create owner account</button>
         </form>
       </section>
+      <p class="legal"><a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/cookies">Cookies</a> &middot; <a href="/dpa">DPA</a></p>
     </main>
     <script>
       const params = new URLSearchParams(location.search);
@@ -169,7 +184,7 @@
         for (const input of document.querySelectorAll('input[name=next]')) input.value = next;
       }
       // A message shows when the server names it as the error; "signed out" and "sent" are bare flags.
-      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'suspended', 'badlink', 'expired', 'elsewhere', 'registered', 'details', 'busy', 'nosignup']) {
+      for (const id of ['invalid', 'locked', 'taken', 'email', 'weak', 'mismatch', 'suspended', 'badlink', 'expired', 'elsewhere', 'registered', 'details', 'terms', 'busy', 'nosignup']) {
         if (params.get('error') === id) document.getElementById(id).hidden = false;
       }
       for (const id of ['signedout', 'sent', 'signupsent']) if (params.has(id)) document.getElementById(id).hidden = false;
@@ -200,6 +215,15 @@
           .then((r) => (r.ok ? r.json() : Promise.reject()))
           .then((who) => {
             document.getElementById('confirm-title').textContent = 'Welcome, ' + who.name;
+            // A link sent before the Terms changed asks for agreement here instead.
+            if (who.termsNeeded) {
+              const agree = document.getElementById('confirm-terms');
+              const box = agree.querySelector('input');
+              agree.hidden = false;
+              box.disabled = false;
+              box.required = true;
+              box.value = who.termsNeeded;
+            }
             document.getElementById('confirm-who').textContent =
               'Your email ' + who.email + ' is confirmed. Choose a password only you know to open ' + who.business + ' on Preshift.';
           })

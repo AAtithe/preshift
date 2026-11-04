@@ -1,7 +1,10 @@
 # Preshift Rota: legal to-do list
 
 1 November 2026. Owner column is a proposal; assign before the first review meeting.
-Status: every document in `legal/` is a DRAFT. Nothing goes on the website until A1 to A4 are done.
+Status, 4 November 2026: the Terms, Privacy Notice, DPA, Staff Terms, Cookies and Sub-processors pages are live at
+/terms, /privacy, /dpa, /staff-terms, /cookies and /subprocessors, generated from `legal/` by `npm run legal`, and
+sign-up requires agreement to version 2026-11-04. Published at TS's instruction before solicitor review: A4 is now the
+most urgent item, because every new customer is contracting on these words.
 
 ## How to read this
 
@@ -22,7 +25,7 @@ publication.
 | A1e | 2 | AML supervision. HMRC's guidance treats payroll services as accountancy services under the Money Laundering Regulations 2017. Confirm TeamPay Payroll Limited is supervised in its own name, not relying on WS's ICAEW supervision | TS |
 | A2 | 1 | Joint venture agreement between WS and Preshift: ownership of the code and IP, who employs the developers, revenue split, who bears liability and insurance, data sharing between the partners, exit and what happens to customers and data if the JV ends | TS + solicitor |
 | A3 | 1 | Data roles between WS and Preshift. WS sees every customer's owner details and billing standing, and support tickets go to WS client partners. Decide whether WS is a sub-processor of the JV, a joint controller, or the operator itself, and document it | TS + solicitor |
-| A4 | 1 | Instruct a solicitor (commercial SaaS plus employment data) to review all seven drafts. Budget and deadline | TS |
+| A4 | 1, urgent | Instruct a solicitor (commercial SaaS plus employment data) to review all seven drafts. Budget and deadline | TS |
 | A5 | 2 | Register the company with ICO and pay the data protection fee; put the registration number in the Privacy Notice | Finance |
 | A6 | 2 | VAT registration for the contracting entity, if new; Stripe account in the right entity's name | Finance |
 | A7 | 2 | Trade mark search and filing for PRESHIFT (classes 9, 35, 42) | Solicitor |
@@ -59,12 +62,12 @@ and the ASA can act on the copy regardless of the contract. Rewrite before anyth
 
 | ID | Item | Where |
 | --- | --- | --- |
-| C1 | Sign-up: required tick box "I agree to the Terms of Service and Data Processing Agreement on behalf of [business], and have read the Privacy Notice", with links. Record user, organisation, version, time and IP | `site/login.html:100`, `server/routes/signup.ts` |
+| C1 | Done. Sign-up form requires the box, carrying version 2026-11-04 (`src/engine/legal.ts`); a link sent before then asks again on the password step. Each acceptance is kept as `terms_accepted:<org>` with who, which business, version, when ticked and when confirmed; not in the audit trail alone, which keeps only the latest 5,000 events. No IP address is kept, matching the Privacy Notice | `server/routes/signup.ts` |
 | C2 | Invited managers: same acceptance on first sign-in, recorded | `server/routes/access.ts:178` |
 | C3 | Staff app and kiosk: show Staff Terms of Use (`legal/05`) at first sign-in with links to the privacy summary; record acceptance | `staff/`, `src/staff/StaffApp.tsx` |
 | C4 | Versioning: store which version each organisation accepted; prompt owners to accept a materially changed version (clause 15) | Server |
-| C5 | Footer and app links: replace the four `href="#"` links in `site/index.html:1121`; add the same links to login, demo, walkthrough, the app's Help menu, the staff app and the kiosk | Site, app |
-| C6 | Publish the legal pages as static pages under `site/` (terms, privacy, dpa, subprocessors, cookies) once approved | Product |
+| C5 | Partly done. Footer, sign-in and demo pages link to the legal pages. Still to add: the app's Help menu, the staff app and the kiosk | Site, app |
+| C6 | Done. Static pages under `site/`, routes in `scripts/build-vercel.mjs`, and `server/legal.test.ts` fails if a page drifts from its source, if a placeholder or internal note would be published, or if the sign-up box and the version disagree | Product |
 | C7 | Group Plan Order Form template (over 20 sites): sites, term, fees, 90 day renewal notice, service levels, signatures | Solicitor, from `legal/01` |
 | C8 | WS engagement letter: a Preshift Rota schedule for WS clients who receive it within the WS fee, pointing to these Terms and the DPA | WS ops |
 
@@ -94,9 +97,11 @@ and the ASA can act on the copy regardless of the contract. Rewrite before anyth
 | P3 | 2 | Customer exit: an export of all data for an organisation, and deletion of the organisation after the period in Terms 10.5 | The Terms promise both; neither exists |
 | P4 | 2 | Run retention automatically (nightly cron) rather than only when an administrator presses Apply | Retention periods are meaningless if nobody presses the button (`server/routes/privacy.ts:174`) |
 | P5 | 2 | Self-host the fonts and remove Google Fonts | Removes a US transfer of every visitor's IP; removes a sub-processor |
-| P6 | 2 | Analytics opt-out in Settings, Privacy | Condition of the cookieless analytics exemption |
+| P6 | Done | Analytics opt-out: a button on /cookies sets `preshift.analytics.off` on the device, and `src/main.tsx` sends nothing while it is set | Condition of the cookieless analytics exemption |
 | P7 | 3 | Warning on HR notes and documents not to store criminal records data; confirm the AI assistant warns managers not to type health details | Criminal offence data needs an Article 10 condition we have not planned for |
 | P8 | 2 | Automated features: make sure automatic approval of open shift claims and "first legal yes" are off by default, explained on screen, and that staff can ask for a manager review | Article 22 and the Data (Use and Access) Act 2025 safeguards; Terms 4.6 says they are off unless switched on |
+| P10 | 2 | Clear the daily sign-up and demo counters (keyed hash of the IP address) older than a few days. They are never deleted today; the Privacy Notice commits to 12 months at most | `server/routes/signup.ts`, `server/demo.ts` |
+| P11 | 2 | Create privacy@, legal@ and security@preshift.co.uk mailboxes or aliases, monitored daily, then point the published pages at them. Until then everything goes to hello@ and support@, so a subject access request or breach report must not sit in a sales inbox | TS |
 | P9 | 3 | Staff app: privacy summary screen and link to the employer's notice (template `legal/04`) | Staff currently see no privacy information at all |
 
 ## S. Security and insurance

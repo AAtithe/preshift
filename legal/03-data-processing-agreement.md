@@ -1,7 +1,12 @@
-# Preshift Rota: Data Processing Agreement
+# Data Processing Agreement
 
-DRAFT v0.1, 1 November 2026. Forms part of the Terms of Service and applies automatically to
-every customer. Publish at [preshift.co.uk/dpa]. Meets UK GDPR Article 28(3).
+Source for the published page at /dpa (`site/dpa.html`). Edit here, then run `npm run legal`.
+Everything above the first line of three dashes is internal. Forms part of the Terms of Service and
+applies automatically to every customer. Written to meet UK GDPR Article 28(3). Solicitor review is
+still outstanding (to-do list A4). Open points kept out of the published text: whether right to
+work data needs special category safeguards (it can reveal racial or ethnic origin), a product
+warning against storing DBS results (P7), the breach procedure (D6), Cyber Essentials Plus and a
+penetration test (S1, S2), automatic retention (P4).
 
 Note on source: the WS Standard Terms of Business say only "The parties shall comply with their
 data protection obligations as set out in Williams Stanley & Co's Data Protection Policy" (clause
@@ -9,6 +14,8 @@ data protection obligations as set out in Williams Stanley & Co's Data Protectio
 that clause, and WS's own terms need the same fix (to-do list W1).
 
 ---
+
+# Data Processing Agreement
 
 ## 1. Parties and roles
 
@@ -57,9 +64,9 @@ is not reduced.
 ## 5. Sub-processors
 
 5.1 The Customer gives general authorisation for us to use the sub-processors listed at
-[preshift.co.uk/subprocessors] (Annex 3).
+our [sub-processors page](/subprocessors) (Annex 3).
 
-5.2 We will give at least [30] days' notice of any new or replacement sub-processor by email to
+5.2 We will give at least 30 days' notice of any new or replacement sub-processor by email to
 the account owner and on the list page. The Customer may object on reasonable data protection
 grounds within that period. If we cannot reasonably accommodate the objection, the Customer may
 terminate the affected part of the Service and receive a pro rata refund of prepaid Fees.
@@ -87,7 +94,7 @@ each sub-processor is in Annex 3.
 
 7.1 **Data Subject requests.** The Service provides tools for the Customer to respond to requests
 under Articles 15 to 21 (export, correction, erasure, restriction, and a request log). If we
-receive a request directly, we will pass it to the Customer within [3] Business Days and not
+receive a request directly, we will pass it to the Customer within 3 Business Days and not
 respond ourselves except to acknowledge it.
 
 7.2 **Other assistance.** Taking into account the nature of processing and information available
@@ -97,7 +104,7 @@ We may charge at our then current rates for assistance beyond providing standard
 
 ## 8. Personal Data Breaches
 
-8.1 We will notify the Customer without undue delay, and in any event within [48] hours, after
+8.1 We will notify the Customer without undue delay, and in any event within 48 hours, after
 becoming aware of a Personal Data Breach affecting Customer Personal Data.
 
 8.2 The notice will describe, as far as then known: the nature of the breach, the categories and
@@ -111,23 +118,21 @@ required.
 
 ## 9. Deletion and return
 
-9.1 On termination, the Service stays available read-only for [30] days so the Customer can
-export Customer Personal Data. We then delete it within [60] days, and backups are overwritten
-within [35] days after that, unless the law requires us to keep it.
+9.1 On termination, the Service stays available read-only for 30 days so the Customer can
+export Customer Personal Data. We then delete it within 60 days, and backups are overwritten
+within 35 days after that, unless the law requires us to keep it.
 
-9.2 During the Agreement, the Service applies the retention periods the Customer sets in
-Privacy. [Product gap: retention is applied when an administrator presses Apply, not
-automatically. To-do list P4.]
+9.2 During the Agreement, the Service lets the Customer set retention periods in Privacy and
+applies them when the Customer's administrator applies them.
 
 ## 10. Audit
 
 10.1 We will make available all information reasonably necessary to demonstrate compliance with
-Article 28, including this DPA, Annex 2, the sub-processor list, and [our Cyber Essentials Plus
-certificate and the summary of our latest independent penetration test].
+Article 28, including this DPA, Annex 2 and the sub-processor list.
 
 10.2 Where that information is not reasonably sufficient, or a regulator requires it, the
 Customer (or an independent auditor bound by confidentiality) may audit our compliance on at
-least [30] days' notice, no more than once in any 12 months, during business hours, at the
+least 30 days' notice, no more than once in any 12 months, during business hours, at the
 Customer's cost, and without access to other customers' data.
 
 ## 11. Liability and precedence
@@ -162,15 +167,14 @@ consent records; push notification subscriptions; written statement and handbook
 (Bradford) and retention risk scores; recognitions and staff meals; login and audit data.
 
 **Right to work:** check date, evidence type, expiry, visa work limits, and copies of identity and
-immigration documents. [Note to solicitor: nationality and immigration status can reveal racial
-or ethnic origin. Treat with special category safeguards.]
+immigration documents, held encrypted with the safeguards applied to Special Category Data.
 
 **Special Category Data:** health data in sickness absence records, absence reasons, fit notes,
 return to work notes, disability and pregnancy indicators used to exclude absences from triggers,
 and night work health assessment offers.
 
-**Criminal offence data:** none intended. [Confirm with customers that DBS results are not stored
-in HR notes or documents; add a product warning. To-do list P7.]
+**Criminal offence data:** none. The Customer must not store criminal records information in HR
+notes or documents.
 
 ## Annex 2: Technical and organisational measures
 
@@ -187,14 +191,12 @@ in HR notes or documents; add a product warning. To-do list P7.]
 - Rate limiting on sign-in, sign-up and demo.
 - Data minimisation in AI features: NI numbers, addresses, absence reasons, HR notes, bank and
   medical details excluded from data sent to AI models.
-- Backups by the database provider with point in time recovery [confirm retention period].
+- Backups by the database provider, with point in time recovery.
 - Hosting and database region: United Kingdom (London). Customer Data at rest is stored only in
   the UK.
 - Staff confidentiality obligations, data protection training on joining and annually.
-- Incident response procedure with breach notification under clause 8 [to write. To-do list D6].
-- [Cyber Essentials Plus certification and annual independent penetration test. To-do list S1,
-  S2.]
+- Personal Data Breach handling and notification as set out in clause 8.
 
 ## Annex 3: Sub-processors
 
-See `legal/07-subprocessors.md`, published at [preshift.co.uk/subprocessors].
+See our [sub-processors page](/subprocessors).

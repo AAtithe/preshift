@@ -1050,6 +1050,10 @@ section {
 .foot-base .mono {
   color: color-mix(in srgb, var(--cream) 55%, transparent);
 }
+.foot-base > .mono {
+  max-width: 64ch;
+  line-height: 1.6;
+}
 .foot-base nav {
   display: flex;
   flex-wrap: wrap;

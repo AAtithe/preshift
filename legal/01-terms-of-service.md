@@ -1,8 +1,10 @@
-# Preshift Rota: Terms of Service
+# Terms of Service
 
-DRAFT v0.1, 1 November 2026. Not for publication until reviewed by a solicitor. Every item in
-[square brackets] is a decision or a fact still to be confirmed; the legal to-do list
-(`legal/00-legal-to-do.md`) tracks each one.
+Source for the published page at /terms (`site/terms.html`). Edit here, then run `npm run legal`;
+`server/legal.test.ts` fails if the two drift. Everything above the first line of three dashes is
+internal. Sign-up records which version each business accepted (`src/engine/legal.ts`): bump
+LEGAL_VERSION for any material change and give 30 days' notice (clause 15). Solicitor review is
+still outstanding (to-do list A4).
 
 Source: adapted from the Williams, Stanley & Co. Standard Terms of Business (June 2025, 90 day
 term) and the WS Insights Terms of Service (August 2026). The accountancy-only clauses (client
@@ -11,6 +13,8 @@ off) are removed, because Preshift Rota is software, not a professional service.
 software, employment data, AI, messaging and payroll figures are added.
 
 ---
+
+# Terms of Service
 
 ## 1. Who we are and what these Terms cover
 
@@ -33,7 +37,7 @@ acting for the purposes of your trade or business.
 
 In these Terms:
 
-- **Agreement**: these Terms, any Order Form, the Data Processing Agreement (`legal/03`), and the
+- **Agreement**: these Terms, any Order Form, the [Data Processing Agreement](/dpa), and the
   Acceptable Use rules in clause 8. If they conflict, the Order Form wins, then the Data
   Processing Agreement, then these Terms.
 - **Authorised User**: an owner, manager, supervisor or finance user the Customer gives a login to.
@@ -47,7 +51,7 @@ In these Terms:
 - **Customer Data**: all data the Customer, its Authorised Users or Staff Users put into the
   Service or allow it to collect from a Connected System, including personal data about staff.
 - **Fees**: the charges for the Service set out on the pricing page at sign-up or in an Order Form.
-- **Group Plan**: a plan for more than [20] sites, agreed by Order Form.
+- **Group Plan**: a plan for more than 20 sites, agreed by Order Form.
 - **Intellectual Property Rights**: patents, rights to inventions, copyright and related rights,
   trade marks, business names and domain names, rights in get-up, goodwill, rights in designs,
   rights in computer software, database rights, rights in confidential information (including
@@ -74,14 +78,14 @@ records, messaging with staff, and labour figures for finance.
 3.2 We will provide the Service with reasonable care and skill and substantially as described in
 the in-app help and on the pricing page. We may improve, change or withdraw features, provided we
 do not materially reduce the core functionality of the plan you have paid for during a paid
-period. We will give you at least [30] days' notice of withdrawing a feature you use.
+period. We will give you at least 30 days' notice of withdrawing a feature you use.
 
 3.3 We will use reasonable endeavours to make the Service available 24 hours a day, but we do not
 guarantee uninterrupted or error-free operation. Planned maintenance will be carried out outside
 peak trading hours where we reasonably can. Any service level we commit to is in an Order Form.
 
-3.4 Support is by email at [support@preshift.co.uk] and in the app on Business Days, [09:00 to
-17:30 UK time].
+3.4 Support is by email at support@preshift.co.uk and in the app on Business Days, 09:00 to
+17:30 UK time.
 
 ## 4. What the Service is not: your responsibilities as employer
 
@@ -140,16 +144,16 @@ into it.
 
 5.1 You are responsible for: the accuracy of your sign-up details; who you give access to and at
 what level; keeping logins, PINs, authenticator codes, API keys and clock-in tags secure; and
-removing access promptly when someone leaves. Tell us straight away at [security@preshift.co.uk]
+removing access promptly when someone leaves. Tell us straight away at support@preshift.co.uk
 if you suspect unauthorised use.
 
 5.2 You are responsible for your Authorised Users' and Staff Users' use of the Service as if it
-were your own. Staff Users accept the Staff Terms of Use (`legal/05`) when they first sign in,
-but those terms do not reduce your responsibilities under this Agreement.
+were your own. Staff Users' own use is subject to the [Staff Terms of Use](/staff-terms), but those
+terms do not reduce your responsibilities under this Agreement.
 
 5.3 Before inviting a member of staff, you must give them the information about how their data
-will be used that the law requires of you as their employer. The staff privacy notice template in
-`legal/04` is provided to help.
+will be used that the law requires of you as their employer. We can provide a template insert
+for your employee privacy notice on request.
 
 5.4 We may suspend any login we reasonably suspect is being used without authority or in breach
 of clause 8, and will tell you why as soon as we can.
@@ -180,10 +184,10 @@ to host, copy, process and display Customer Data only to provide, secure and sup
 and as set out in the Data Processing Agreement.
 
 7.2 For personal data in Customer Data, you are the controller and we are your processor. The
-Data Processing Agreement (`legal/03`) forms part of this Agreement and applies automatically.
+[Data Processing Agreement](/dpa) forms part of this Agreement and applies automatically.
 For personal data we collect for our own purposes (account administration, billing, security,
 support and improving the Service), we are controller, as described in our Privacy Notice
-(`legal/02`).
+([Privacy Notice](/privacy)).
 
 7.3 You are responsible for the accuracy, quality and lawfulness of Customer Data and for having
 a lawful basis to put it into the Service, including any special category data (for example
@@ -191,8 +195,8 @@ sickness and health records) and data about workers under 18.
 
 7.4 We may create and use aggregated data that does not identify you, any of your sites or any
 individual (for example benchmarking of labour % by site type) to operate and improve the Service
-and to show customers anonymous benchmarks. [Confirm: benchmarking is switchable off per
-organisation in Organisation, then Features.]
+and, where you opt in to benchmarking, to show customers who have also opted in anonymous
+benchmarks.
 
 7.5 We do not use Customer Data to train AI models, and we do not permit any sub-processor to do
 so. Where AI features run on your own Claude account (clause 4.7), Anthropic's commercial terms
@@ -226,22 +230,22 @@ You and your users must not:
 pricing page at the time you subscribe. Annual plans are paid in advance and charged at 10 months
 for 12. The first site is always charged.
 
-9.2 **Free trial.** New customers may have a free trial of [14] days with no card required. At the
-end of the trial, the Service becomes read-only until you subscribe. Your data is kept for
-[90] days after the trial ends and then deleted unless you subscribe.
+9.2 **Free trial.** New customers may have a free trial of 14 days with no card required. At the
+end of the trial, the Service becomes read-only until you subscribe. If you do not
+subscribe within 90 days after the trial ends, we may delete your data.
 
-9.3 **Group Plans.** Fees for more than [20] sites are as set out in the Order Form.
+9.3 **Group Plans.** Fees for more than 20 sites are as set out in the Order Form.
 
 9.4 **Williams, Stanley & Co. clients.** Where your engagement letter with Williams, Stanley & Co.
 includes Preshift Rota, the Fees are within your WS fee and you are not billed under this clause.
-When that engagement ends, you may subscribe on the self-serve plan; we will give you [30] days to
+When that engagement ends, you may subscribe on the self-serve plan; we will give you 30 days to
 do so before the Service becomes read-only.
 
 9.5 **Founding operators.** Any founding discount applies for the period stated when it was
 offered and then ends automatically, after which the then current Fees apply.
 
 9.6 **Payment.** Self-serve Fees are collected by card or Direct Debit through Stripe, in advance
-for each billing period. Group Plan Fees are invoiced and payable within [14] days of invoice by
+for each billing period. Group Plan Fees are invoiced and payable within 14 days of invoice by
 Direct Debit or BACS unless the Order Form says otherwise. All Fees exclude VAT, which you pay at
 the prevailing rate.
 
@@ -249,7 +253,7 @@ the prevailing rate.
 Fees from the date it is added, pro rata; removing a site reduces them from the next billing
 period.
 
-9.8 **Price changes.** We may change the Fees by giving at least [30] days' written notice. The
+9.8 **Price changes.** We may change the Fees by giving at least 30 days' written notice. The
 change applies from your next billing period after the notice ends (or, for a Group Plan, from
 the next renewal). If you do not accept the change, you may cancel before it takes effect.
 
@@ -259,7 +263,8 @@ remedies:
 - (a) you will pay interest on the overdue amount from the due date until payment, before or
   after judgment, at 4% a year above the Bank of England base rate from time to time, but at 4% a
   year for any period when that rate is below 0%; and
-- (b) after [14] days' notice, we may make the Service read-only until payment is made in full.
+- (b) if a payment still fails after our payment provider's automatic retries, the Service
+  becomes read-only until payment is made in full.
   While read-only, you can still view and export your data, pay, and meet data protection
   requests from your staff.
 
@@ -288,15 +293,15 @@ the end of the Initial Term or any renewal.
   procedure in another jurisdiction.
 
 10.4 We may terminate immediately by written notice if you fail to pay any amount within
-[30] days of its due date, or if you seriously or repeatedly breach clause 8.
+30 days of its due date, or if you seriously or repeatedly breach clause 8.
 
 10.5 **On termination:**
 
 - (a) your right to use the Service ends, and you must pay all outstanding Fees;
-- (b) the Service stays available read-only for [30] days so you can export your data (rotas,
+- (b) the Service stays available read-only for 30 days so you can export your data (rotas,
   timesheets, HR records and documents, payroll exports) in the formats the Service offers;
-- (c) after that period we delete Customer Data within [60] days, except where the law requires
-  us to keep it, and except backups which are overwritten in the normal cycle within [35] days;
+- (c) after that period we delete Customer Data within 60 days, except where the law requires
+  us to keep it, and except backups which are overwritten in the normal cycle within 35 days;
 - (d) clauses that are intended to survive (including 4, 7, 11, 12, 13 and 16) continue; and
 - (e) termination does not affect rights and liabilities that have accrued.
 
@@ -364,11 +369,11 @@ goodwill; or any indirect or consequential loss.
 
 13.5 Subject to clauses 13.2 and 13.6, each party's total liability in each contract year is
 limited to the greater of (a) the Fees paid and payable by you in the 12 months before the event
-giving rise to the claim and (b) [£5,000].
+giving rise to the claim and (b) £5,000.
 
 13.6 Subject to clause 13.2, our total liability for breach of the Data Processing Agreement or of
-data protection law is limited to [the greater of £[250,000] and three times the Fees paid and
-payable in the 12 months before the event]. [Set this to match the cyber insurance limit.]
+data protection law is limited to the greater of £250,000 and three times the Fees paid and
+payable in the 12 months before the event.
 
 13.7 The limits in this clause reflect the insurance cover we have been able to arrange. You are
 responsible for insuring against any loss beyond them.
@@ -383,16 +388,16 @@ become, aware of the event, we have no liability for that event.
 
 ## 14. Complaints
 
-14.1 If you are unhappy with the Service, tell us at [support@preshift.co.uk]. We will look into
+14.1 If you are unhappy with the Service, tell us at support@preshift.co.uk. We will look into
 it carefully and promptly, explain the position and do everything reasonable to put it right.
 
 14.2 If you are still not satisfied, a director of Preshift will review it and respond in writing
-within [20] Business Days. Complaints about your data protection rights may also be made to the
+within 20 Business Days. Complaints about your data protection rights may also be made to the
 Information Commissioner's Office (ico.org.uk).
 
 ## 15. Changes to these Terms
 
-15.1 We may update these Terms. We will give you at least [30] days' notice of a material change
+15.1 We may update these Terms. We will give you at least 30 days' notice of a material change
 by email and in the app, except where a change is required sooner by law or for security. The
 version number and date are at the top.
 
@@ -430,7 +435,7 @@ minimum extent necessary to make it valid; if that is not possible, it is delete
 Agreement is unaffected.
 
 16.7 **Notices.** Notices must be in writing and sent by email: to you at the account owner's
-email address; to us at [legal@preshift.co.uk]. An email notice is received at the time of
+email address; to us at hello@preshift.co.uk. An email notice is received at the time of
 transmission or, if outside 09:00 to 17:00 on a Business Day, when business hours resume. This
 clause does not apply to service of legal proceedings.
 
@@ -446,14 +451,9 @@ have exclusive jurisdiction.
 
 TeamPay Payroll Limited (trading as Preshift Rota)
 c/o Williams Stanley and Co, 144 Great Portland Street, London W1W 6QT
-Email: [hello@preshift.co.uk] · Support: [support@preshift.co.uk] · Legal notices:
-[legal@preshift.co.uk] · Data protection: [privacy@preshift.co.uk]
-
----
+Email: hello@preshift.co.uk · Support: support@preshift.co.uk
 
 ## Schedule: our pricing approach
-
-Adapted from the WS fixed price statement.
 
 We price per site, never per head. Hospitality hires seasonally and turns staff over fast, and a
 per head price taxes exactly the flexibility a rota exists to manage. You know what you will pay

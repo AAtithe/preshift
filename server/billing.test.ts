@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { customerSetting, formEncode, getBilling, putBilling, signStripePayload, standingOf, verifyStripeSignature, type BillingRecord } from './billing';
 import { emailSetting } from './mail';
+import { LEGAL_VERSION } from '../src/engine/legal';
+import { termsSetting } from './routes/signup';
 import { enrol, kit, type Kit } from './testkit';
 
 // Self sign-up and billing: a business starts a trial from the sign-in page, proving its email
@@ -83,7 +85,7 @@ describe('self sign-up', () => {
 
   it('confirms the email, then makes an organisation with the person as owner on a free trial', async () => {
     const k = await boot({ signup: true });
-    const sent = await k.form('/auth/signup', { business: 'Harbour Kitchens Ltd', name: 'Ben Shaw', email: 'Ben@Harbour.example' });
+    const sent = await k.form('/auth/signup', { terms: LEGAL_VERSION, business: 'Harbour Kitchens Ltd', name: 'Ben Shaw', email: 'Ben@Harbour.example' });
     expect(sent.location).toBe('/login?signupsent=1');
     expect(sent.cookie).toBeUndefined();
     expect(mails).toHaveLength(1);
@@ -93,7 +95,7 @@ describe('self sign-up', () => {
     expect(await k.store.getUser('ben@harbour.example')).toBeNull();
 
     const token = tokenIn(mails[0].text);
-    expect((await k.call('POST', '/auth/signup/link', null, { token })).body).toEqual({ email: 'ben@harbour.example', name: 'Ben Shaw', business: 'Harbour Kitchens Ltd' });
+    expect((await k.call('POST', '/auth/signup/link', null, { token })).body).toEqual({ email: 'ben@harbour.example', name: 'Ben Shaw', business: 'Harbour Kitchens Ltd', termsNeeded: null });
     expect((await k.call('POST', '/auth/signup/link', null, { token: 'forged' })).status).toBe(404);
 
     const weak = await k.form('/auth/signup/complete', { token, password: 'short', confirm: 'short' });
@@ -111,7 +113,11 @@ describe('self sign-up', () => {
     expect(org.users).toHaveLength(1);
     expect(org.users[0]).toMatchObject({ email: 'ben@harbour.example', name: 'Ben Shaw', status: 'active', audience: 'operator' });
     expect(org.users[0].memberships.map((m) => m.roleId)).toEqual(['owner']);
-    expect(org.audit.map((a) => a.action)).toEqual(expect.arrayContaining(['org.signed_up', 'access.owner_created']));
+    expect(org.audit.map((a) => a.action)).toEqual(expect.arrayContaining(['org.signed_up', 'access.owner_created', 'org.terms_accepted']));
+    // The contract record outlives the audit trail, which keeps only the latest events.
+    const accepted = JSON.parse((await k.store.getSetting(termsSetting(account.orgId)))!);
+    expect(accepted).toMatchObject({ orgId: account.orgId, version: LEGAL_VERSION, email: 'ben@harbour.example', name: 'Ben Shaw', business: 'Harbour Kitchens Ltd' });
+    expect(Date.parse(accepted.acceptedAt)).toBeLessThanOrEqual(Date.parse(accepted.confirmedAt));
 
     const billing = (await getBilling(k.store, account.orgId))!;
     expect(Date.parse(billing.trialEndsAt) - Date.now()).toBeGreaterThan(13 * DAY);
@@ -127,7 +133,7 @@ describe('self sign-up', () => {
 
   it('lets the new owner, once their authenticator is set up, start set-up from the business they named', async () => {
     const k = await boot({ signup: true });
-    await k.form('/auth/signup', { business: 'Harbour Kitchens Ltd', name: 'Ben Shaw', email: 'ben@harbour.example' });
+    await k.form('/auth/signup', { terms: LEGAL_VERSION, business: 'Harbour Kitchens Ltd', name: 'Ben Shaw', email: 'ben@harbour.example' });
     const done = await k.form('/auth/signup/complete', { token: tokenIn(mails[0].text), password: 'bens own long password', confirm: 'bens own long password' });
     // Set-up needs the authenticator: until then it is held but off, which the app walks them through.
     const me = await k.call('GET', '/v1/me', done.cookie!);
@@ -140,7 +146,7 @@ describe('self sign-up', () => {
 
   it('answers the same for an email that already has an account, and tells only its inbox', async () => {
     const k = await boot({ signup: true });
-    const res = await k.form('/auth/signup', { business: 'Anything', name: 'Someone', email: OLIVIA });
+    const res = await k.form('/auth/signup', { terms: LEGAL_VERSION, business: 'Anything', name: 'Someone', email: OLIVIA });
     expect(res.location).toBe('/login?signupsent=1');
     expect(mails).toHaveLength(1);
     expect(mails[0].subject).toBe('You already have a Preshift account');
@@ -150,13 +156,44 @@ describe('self sign-up', () => {
 
   it('caps the emails one address can be sent', async () => {
     const k = await boot({ signup: true });
-    for (let i = 0; i < 4; i++) await k.form('/auth/signup', { business: 'Harbour', name: 'Ben', email: 'ben@harbour.example' });
+    for (let i = 0; i < 4; i++) await k.form('/auth/signup', { terms: LEGAL_VERSION, business: 'Harbour', name: 'Ben', email: 'ben@harbour.example' });
     expect(mails).toHaveLength(3);
   }, 15_000);
 
+  it('refuses a form whose Terms box is not ticked, or was ticked for an older version', async () => {
+    const k = await boot({ signup: true });
+    const unticked = await k.form('/auth/signup', { business: 'Harbour', name: 'Ben', email: 'ben@harbour.example' });
+    expect(unticked.location).toContain('error=terms');
+    expect(unticked.location).toContain('signup=1');
+    const stale = await k.form('/auth/signup', { terms: '2020-01-01', business: 'Harbour', name: 'Ben', email: 'ben@harbour.example' });
+    expect(stale.location).toContain('error=terms');
+    expect(mails).toEqual([]);
+  });
+
+  it('asks for the Terms on the password step when the link was sent before they were agreed', async () => {
+    const k = await boot({ signup: true });
+    await k.form('/auth/signup', { terms: LEGAL_VERSION, business: 'Harbour Kitchens Ltd', name: 'Ben Shaw', email: 'ben@harbour.example' });
+    const token = tokenIn(mails[0].text);
+    // As a link sent before the box existed: the pending sign-up carries no agreement.
+    const key = (await import('node:crypto')).createHash('sha256').update(token).digest('hex');
+    const pending = JSON.parse((await k.store.getSetting(`signup:${key}`))!);
+    delete pending.terms;
+    await k.store.setSetting(`signup:${key}`, JSON.stringify(pending));
+
+    expect((await k.call('POST', '/auth/signup/link', null, { token })).body.termsNeeded).toBe(LEGAL_VERSION);
+    const refused = await k.form('/auth/signup/complete', { token, password: 'bens own long password', confirm: 'bens own long password' });
+    expect(refused.location).toContain('error=terms');
+    expect(await k.store.getUser('ben@harbour.example')).toBeNull();
+
+    const done = await k.form('/auth/signup/complete', { token, terms: LEGAL_VERSION, password: 'bens own long password', confirm: 'bens own long password' });
+    expect(done.location).toBe('/app/?view=setup');
+    const account = (await k.store.getUser('ben@harbour.example'))!;
+    expect(JSON.parse((await k.store.getSetting(termsSetting(account.orgId)))!)).toMatchObject({ version: LEGAL_VERSION });
+  });
+
   it('refuses a form with no business or name', async () => {
     const k = await boot({ signup: true });
-    expect((await k.form('/auth/signup', { business: '', name: 'Ben', email: 'ben@harbour.example' })).location).toContain('error=details');
+    expect((await k.form('/auth/signup', { terms: LEGAL_VERSION, business: '', name: 'Ben', email: 'ben@harbour.example' })).location).toContain('error=details');
     expect(mails).toEqual([]);
   });
 });
