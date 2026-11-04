@@ -82,7 +82,7 @@ const SECTIONS = NAV_ITEMS.map((t) => `${t.id}: ${t.label}`).join('\n');
 /** The instructions the weekly job sends with the week's changes. */
 export function draftPrompt(week: string, changes: MergedChange[], house: string): string {
   return [
-    `Write the What's new for the ${releaseLabel(week).replace('Week', 'week')} in Preshift, a rota and labour app for UK hospitality run by Williams, Stanley & Co.`,
+    `Write the What's new for the ${releaseLabel(week).replace('Week', 'week')} in Preshift Rota, a rota and labour app for UK hospitality run by Williams, Stanley & Co.`,
     'The readers are general managers, finance teams, operators and staff at bars, restaurants and cafes. They are busy and act on numbers.',
     '',
     'House rules for the card, from docs/WHATS_NEW.md:',

@@ -104,7 +104,7 @@ export function insightRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.put<{ Body: { rows: HourActual[] } }>(
     '/v1/actuals',
-    { ...write, schema: { tags: ['Forecast'], description: 'Preshift Reports, or the till, pushes what each hour actually took. Upserts by site, date and hour.', body: forecastBody } },
+    { ...write, schema: { tags: ['Forecast'], description: 'Preshift Rota Reports, or the till, pushes what each hour actually took. Upserts by site, date and hour.', body: forecastBody } },
     async (req) => {
       const org = orgOf(req);
       // What a site took is demand data, as takings are.

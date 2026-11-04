@@ -10,7 +10,7 @@ const reply: DraftReply = {
   test: 'Build next week and fill one short hour.',
 };
 
-const README = `# Preshift
+const README = `# Preshift Rota
 
 Intro.
 

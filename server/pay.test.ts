@@ -240,7 +240,7 @@ describe('the rule for pay approvals', () => {
       sent.push(JSON.parse(String(init.body)));
       return new Response(JSON.stringify({ id: `m_${sent.length}` }), { status: 200 });
     });
-    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test_1234567890abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
+    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test_1234567890abcd', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
     const org = await k.store.load('demo');
     // The demo's waiting change was proposed today: inside the turnaround, but the cut-off is days away.
     let done = await remindApprovers(k.store, org, '2026-10-21');

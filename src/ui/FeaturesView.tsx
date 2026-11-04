@@ -30,7 +30,7 @@ const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'nume
 const names = (ids: string[]) => ids.map((id) => featureOf(id)?.label ?? id).join(', ');
 
 /**
- * Which parts of Preshift the organisation uses. Switches are staged and saved together, so an owner
+ * Which parts of Preshift Rota the organisation uses. Switches are staged and saved together, so an owner
  * sees the whole change before anyone loses a section. Switching off hides; it never deletes, and it
  * never changes who may do what: that stays on the Access tab.
  */
@@ -117,7 +117,7 @@ export function FeaturesView({ state, onChanged, onOpen }: { state: RotaState; o
           <div>
             <h2>Features</h2>
             <p className="muted small">
-              Choose which parts of Preshift your organisation uses. A feature switched off leaves the bar for everyone, whatever their roles, so
+              Choose which parts of Preshift Rota your organisation uses. A feature switched off leaves the bar for everyone, whatever their roles, so
               each team sees only what it works with. Nothing is deleted: records stay, the law still applies, and switching a feature back on
               restores it as it was. Who may do what is set on the{' '}
               <button type="button" className="link" onClick={() => onOpen('access')}>Access</button> tab, not here.

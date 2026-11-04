@@ -1,4 +1,4 @@
-// The staff app's service worker: shows pushes from Preshift and opens the app when one is tapped.
+// The staff app's service worker: shows pushes from Preshift Rota and opens the app when one is tapped.
 // It caches nothing, so the app is always what the server last built.
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -13,7 +13,7 @@ self.addEventListener('push', (event) => {
   }
   const base = self.registration.scope;
   event.waitUntil(
-    self.registration.showNotification(message.title || 'Preshift', {
+    self.registration.showNotification(message.title || 'Preshift Rota', {
       body: message.body || '',
       // One tag per kind: a newer rota change replaces the older one rather than stacking.
       tag: message.tag || undefined,

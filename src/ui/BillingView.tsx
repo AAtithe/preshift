@@ -4,7 +4,7 @@ import { api, ApiError } from './api';
 import { plural } from './BillingBanner';
 
 // Billing, for an organisation that signed itself up: the trial, the subscription and the sites paid
-// for. Cards, invoices, VAT details and cancelling are on Stripe's own pages, so Preshift never sees a
+// for. Cards, invoices, VAT details and cancelling are on Stripe's own pages, so Preshift Rota never sees a
 // card. An organisation billed under its Williams, Stanley & Co. engagement sees only that.
 
 export type Standing = 'managed' | 'trial' | 'active' | 'past_due' | 'lapsed';
@@ -124,7 +124,7 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
         {billing.engagement && billing.standing !== 'managed' && (
           <p className="small">
             Moving to billing under your engagement with Williams, Stanley & Co. on {day(billing.engagement.from)}. Your card subscription
-            ends then and is not renewed; the firm bills you from that date. Nothing changes in how you use Preshift.
+            ends then and is not renewed; the firm bills you from that date. Nothing changes in how you use Preshift Rota.
           </p>
         )}
         {billing.standing === 'trial' && billing.fromEngagement && (
@@ -181,7 +181,7 @@ export function BillingView({ canSettings }: { canSettings: boolean }) {
                 {group && (
                   <p className="small">
                     You have {plural(chosen.sites, 'site')}. Groups of more than {billing.pricing?.selfServeMaxSites} sites are on a group plan agreed
-                    with us: email <a href="mailto:hello@preshift.co.uk?subject=Preshift%20group%20plan">hello@preshift.co.uk</a>.
+                    with us: email <a href="mailto:hello@preshift.co.uk?subject=Preshift Rota%20group%20plan">hello@preshift.co.uk</a>.
                   </p>
                 )}
               </>

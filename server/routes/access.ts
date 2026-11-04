@@ -188,7 +188,7 @@ export function signInRoutes(app: FastifyInstance, ctx: AppContext, options: { d
     const existing = await store.getUser(user.email);
     let account: UserRecord;
     if (existing) {
-      // Already signs in to Preshift: they prove it is them with the password they have. A link
+      // Already signs in to Preshift Rota: they prove it is them with the password they have. A link
       // that set a new one would hand the account, and every organisation it opens, to whoever
       // held the link, and an inviter holds it whenever email is not set up.
       if (existing.lockedUntil > now()) return back('locked');
@@ -443,7 +443,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
       if (url.protocol !== 'https:' && url.hostname !== 'localhost') throw new Error('not https');
       appUrl = url.origin;
     } catch {
-      throw new HttpError(400, 'invalid_app_url', 'Enter the address people open Preshift at, starting https://.');
+      throw new HttpError(400, 'invalid_app_url', 'Enter the address people open Preshift Rota at, starting https://.');
     }
     // Blank keeps the saved secret, null removes it.
     const given = req.body?.webhookSecret;
@@ -465,7 +465,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
 
 
 
-  // Features: which parts of Preshift the organisation uses. Read by everyone through /v1/me; changed
+  // Features: which parts of Preshift Rota the organisation uses. Read by everyone through /v1/me; changed
   // here by a person who manages settings, with every change kept in the audit trail.
   const featureChanges = (org: OrgData) =>
     org.audit

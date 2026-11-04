@@ -33,7 +33,7 @@ class RecordingPayroll implements PayrollProvider {
     return { payrollId: payrollId ?? `p_${employerId}_${this.seq++}` };
   }
   async listEmployees() {
-    // A payroll with nobody on it before Preshift, so every starter is created.
+    // A payroll with nobody on it before Preshift Rota, so every starter is created.
     return [];
   }
   async markLeaver(employerId: string, payrollId: string) {

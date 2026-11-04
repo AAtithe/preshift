@@ -2,7 +2,7 @@ import type { Employee, RotaState, TimeEntry } from './types';
 import { addDays, parseISODate, taxYearOf, toISODate } from './time';
 
 /**
- * UK GDPR and the Data Protection Act 2018, applied to what Preshift actually holds about staff.
+ * UK GDPR and the Data Protection Act 2018, applied to what Preshift Rota actually holds about staff.
  * Three duties are built in: keep each kind of personal data no longer than its purpose needs
  * (Article 5(1)(e)), answer people's requests about their data within a month (Articles 12 to 22),
  * and keep a record of processing (Article 30). The law sets minimums in places (HMRC, the Home
@@ -464,7 +464,7 @@ export function processingRegister(
       lawfulBasis: 'Legitimate interests (6(1)(f))',
       categories: 'Names, roles, pay rate, age, availability, leave and hours for one site and week',
       recipients: flags.assistant ? 'Anthropic (Claude API)' : 'Not in use',
-      retention: 'Not kept by Preshift. Check Anthropic’s API retention terms in the data processing addendum',
+      retention: 'Not kept by Preshift Rota. Check Anthropic’s API retention terms in the data processing addendum',
       held: flags.assistant ? live.length : 0,
     },
     {
@@ -584,7 +584,7 @@ export function processingRegister(
     {
       name: 'Vercel and Neon',
       role: 'Hosting and database',
-      data: 'Everything Preshift holds',
+      data: 'Everything Preshift Rota holds',
       location: 'Region as deployed; check both are set to London or the EU',
       safeguard: 'Article 28 contract; UK addendum or IDTA for any US access',
       active: true,

@@ -140,11 +140,11 @@ export const NAV: NavGroup[] = [
       // Every client they hold a role in, and adding a new one. The API lists only the caller's own.
       { id: 'clients', label: 'Clients', hint: 'Every client you hold a role in', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['costs.view'], audience: 'ws' } },
       // Every self sign-up's trial, subscription and revenue: WS customer operations only. The API also
-      // insists on the organisation that runs Preshift.
+      // insists on the organisation that runs Preshift Rota.
       { id: 'customers', label: 'Customers', hint: 'Trials, subscriptions and revenue', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['customers.view'], audience: 'ws' } },
       { id: 'settings', label: 'Settings', hint: 'Sign-in, keys and organisation settings', scope: 'org', access: { org: ['settings.manage'] } },
-      // Which parts of Preshift the organisation uses: sections switched off leave the bar for everyone.
-      { id: 'features', label: 'Features', hint: 'Switch off the parts of Preshift you do not use', scope: 'org', access: { org: ['settings.manage'] } },
+      // Which parts of Preshift Rota the organisation uses: sections switched off leave the bar for everyone.
+      { id: 'features', label: 'Features', hint: 'Switch off the parts of Preshift Rota you do not use', scope: 'org', access: { org: ['settings.manage'] } },
       // The trial, the subscription and the sites paid for. Paying is a settings decision.
       { id: 'billing', label: 'Billing', hint: 'Your trial, subscription and invoices', scope: 'org', access: { org: ['settings.manage'] } },
     ],
@@ -155,7 +155,7 @@ export const NAV: NavGroup[] = [
     id: 'help',
     heading: 'Help',
     items: [
-      { id: 'howto', label: 'How to', hint: 'Short guides to each part of Preshift', scope: 'org', title: 'Help', access: 'everyone' },
+      { id: 'howto', label: 'How to', hint: 'Short guides to each part of Preshift Rota', scope: 'org', title: 'Help', access: 'everyone' },
       // Questions, bugs and ideas for the client's WS client partner. The API decides who answers.
       { id: 'support', label: 'Support', hint: 'Ask your WS client partner a question', scope: 'org', title: 'Help', access: 'everyone' },
     ],

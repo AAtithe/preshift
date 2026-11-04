@@ -123,7 +123,7 @@ export const publicFetch: Fetch = (async (input: string | URL | Request, init?: 
   const url = new URL(String(input instanceof Request ? input.url : input));
   if (url.protocol !== 'https:') throw new FeedError('Feeds must use https');
   return new Promise<Response>((resolve, reject) => {
-    const req = request(url, { method: 'GET', lookup: guardedLookup, timeout: TIMEOUT_MS, headers: { 'user-agent': 'Preshift/1.0', accept: '*/*' } }, (res) => {
+    const req = request(url, { method: 'GET', lookup: guardedLookup, timeout: TIMEOUT_MS, headers: { 'user-agent': 'Preshift Rota/1.0', accept: '*/*' } }, (res) => {
       const status = res.statusCode ?? 0;
       // No redirects: a public address must not be able to bounce the server inwards.
       if (status >= 300 && status < 400) {

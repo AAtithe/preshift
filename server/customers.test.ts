@@ -6,7 +6,7 @@ import { holdClock } from './testClock';
 holdClock();
 
 // Customers: every self sign-up's trial, subscription and revenue on one page, for WS customer
-// operations alone, only in the organisation that runs Preshift, counts and billing standing only.
+// operations alone, only in the organisation that runs Preshift Rota, counts and billing standing only.
 
 const SAM = 'sam.okoro@williamsstanley.example';
 const SAM_MFA = 'demo-usr_ws_partner';

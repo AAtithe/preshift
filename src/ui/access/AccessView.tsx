@@ -454,7 +454,7 @@ export function AccessView({ state }: Props) {
           {page === 'duties' && (
             <>
               <p className="muted lead">
-                Some duties should never sit with one person, because together they let someone pay themselves or someone who does not exist. Preshift
+                Some duties should never sit with one person, because together they let someone pay themselves or someone who does not exist. Preshift Rota
                 refuses the worst pairing outright and asks for an accepted reason on the rest. Checks run across every role a person holds.
               </p>
               <div className="grid-wrap">

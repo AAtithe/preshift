@@ -188,7 +188,7 @@ export function seedTimeEntries(state: RotaState, today: string): TimeEntry[] {
     const quiet = ratio < 0.96;
     const busy = ratio > 1.03 || ((day === 4 || day === 5) && noise(`busy${key}`) > 0.2);
     const status = date < thisWeek ? ('approved' as const) : ('submitted' as const);
-    const approval = status === 'approved' ? { approvedBy: 'Preshift demo', approvedAt: `${addDays(date, 2)}T10:00:00.000Z` } : {};
+    const approval = status === 'approved' ? { approvedBy: 'Preshift Rota demo', approvedAt: `${addDays(date, 2)}T10:00:00.000Z` } : {};
 
     for (const s of shifts) {
       const e = state.employees.find((x) => x.id === s.employeeId)!;

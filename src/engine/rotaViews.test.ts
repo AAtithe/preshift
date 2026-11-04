@@ -258,7 +258,7 @@ describe('fairness ledger', () => {
     expect(other.cut).toBe(Math.max(0, rest[0].contractedHours - 6) * 4);
   });
 
-  it('counts contracted hours only for weeks the site has a rota, so weeks before it used Preshift are not hours cut', () => {
+  it('counts contracted hours only for weeks the site has a rota, so weeks before it used Preshift Rota are not hours cut', () => {
     const base = state([]);
     const e = base.employees.find((x) => x.siteId === 'mar' && x.payBasis === 'hourly' && x.contractedHours > 0 && x.status !== 'leaver')!;
     const f = fairness({ ...base, shifts: [shift(e.id, addDays(TODAY, 1), 11 * H, 17 * H)] }, 'mar', TODAY);

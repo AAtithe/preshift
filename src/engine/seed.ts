@@ -391,7 +391,7 @@ export function seedHrRecords(today = toISODate(new Date())): HrRecord[] {
   const people = withHr(employees(today), today).filter((e) => e.status !== 'leaver');
   const records: HrRecord[] = [];
   const add = (r: Omit<HrRecord, 'id' | 'createdBy' | 'createdAt'>) =>
-    records.push({ ...r, id: `hr-${records.length + 1}`, createdBy: 'Preshift demo', createdAt: today });
+    records.push({ ...r, id: `hr-${records.length + 1}`, createdBy: 'Preshift Rota demo', createdAt: today });
   const plusYears = (iso: string, years: number) => `${Number(iso.slice(0, 4)) + years}${iso.slice(4)}`;
 
   people.forEach((e, i) => {

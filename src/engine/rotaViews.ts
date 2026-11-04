@@ -479,7 +479,7 @@ export type FairnessMeasure = 'weekends' | 'closes' | 'lates' | 'cut';
 
 export interface Fairness {
   weekStarts: string[];
-  /** Weeks with a rota at the site. Weeks before the site used Preshift say nothing about hours, so only these count. */
+  /** Weeks with a rota at the site. Weeks before the site used Preshift Rota say nothing about hours, so only these count. */
   rotaWeeks: string[];
   rows: FairnessRow[];
   average: Record<FairnessMeasure, number>;

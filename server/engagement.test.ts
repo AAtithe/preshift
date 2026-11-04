@@ -229,11 +229,11 @@ describe('moving a WS client to card billing', () => {
     expect(standingOf((await getBilling(k.store, 'org-back'))!, c.now(), true).standing).toBe('trial');
   });
 
-  it('warns the partner when a client also pays Preshift by card, so the firm does not bill it twice', async () => {
+  it('warns the partner when a client also pays Preshift Rota by card, so the firm does not bill it twice', async () => {
     const { k } = await boot();
     await customer(k, 'org-card', { partner: true, billing: paying() });
     const row = (await k.call('GET', '/v1/clients', await k.as(SAM, SAM_MFA))).body.clients.find((x: { orgId: string }) => x.orgId === 'org-card');
     expect(row.billing).toMatchObject({ mode: 'card', standing: 'active' });
-    expect(row.attention.join(' ')).toContain('Pays Preshift by card through Stripe');
+    expect(row.attention.join(' ')).toContain('Pays Preshift Rota by card through Stripe');
   });
 });

@@ -23,7 +23,7 @@ function fakeXero(answer: (req: Sent) => { status?: number; body?: unknown }) {
 
 const config = { clientId: 'client', clientSecret: 'secret', redirectUri: 'https://preshift.example/v1/integrations/xero/callback', scopes: 'openid offline_access accounting.transactions' };
 const journal = {
-  narration: 'Preshift labour accrual w/e 2026-10-25',
+  narration: 'Preshift Rota labour accrual w/e 2026-10-25',
   date: '2026-10-25',
   lines: [
     { accountCode: '5000', description: 'Wages - Server', amount: 1000, tracking: { name: 'Site', option: 'MAR' } },

@@ -212,7 +212,7 @@ export function EposSetup({ onSynced }: { onSynced?: () => void }) {
           {environment !== 'simulator' && (
             <p className="muted small">
               In the Square Developer Console, create an application, then copy its production access token. It needs ORDERS_READ and
-              MERCHANT_PROFILE_READ. Preshift checks it with Square before saving, keeps it on the server, and never shows it again.
+              MERCHANT_PROFILE_READ. Preshift Rota checks it with Square before saving, keeps it on the server, and never shows it again.
             </p>
           )}
 

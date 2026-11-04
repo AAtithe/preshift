@@ -433,7 +433,7 @@ function RegisterCard({ register, today }: { register: Register; today: string }
     <section className="settings-card">
       <h2>Record of processing (Article 30)</h2>
       <p className="muted small">
-        Built from what Preshift holds today, so it does not drift. Each company in the group is the controller for its own staff and
+        Built from what Preshift Rota holds today, so it does not drift. Each company in the group is the controller for its own staff and
         must be registered with the ICO. Add it to the group's wider record alongside customer, supplier and CCTV processing.
       </p>
       <table className="table">

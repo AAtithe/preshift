@@ -116,7 +116,7 @@ export function GrantDialog({ state, me, users, target, onDone, onClose }: Props
                         </optgroup>
                       ))}
                     </select>
-                    <span className="hint">Linking it lets Preshift stop them approving their own hours.</span>
+                    <span className="hint">Linking it lets Preshift Rota stop them approving their own hours.</span>
                   </label>
                 )}
                 {existing && <p className="bad-text span2">There is already an account for this email: {existing.name}. Open them and grant a role instead.</p>}

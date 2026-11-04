@@ -40,5 +40,5 @@ if (process.env.NODE_ENV !== 'production' && ctx.store instanceof MemoryStore) {
 setInterval(() => void ctx.dispatcher.processDue(), 15_000).unref();
 
 await app.listen({ port, host: '0.0.0.0' });
-app.log.info(`Preshift API on :${port}, docs at /docs, payroll via ${ctx.providerFor('demo').name}`);
+app.log.info(`Preshift Rota API on :${port}, docs at /docs, payroll via ${ctx.providerFor('demo').name}`);
 if (process.env.PRESHIFT_DEMO === '1') app.log.info('Public demo on: open /demo for a sandbox of your own, alongside the dev account');

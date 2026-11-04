@@ -126,7 +126,7 @@ function ClaudeKey() {
       <h2>Rota assistant</h2>
       <p className="muted small">
         The assistant uses your organisation's Claude API key. It is kept on the server, used only for the assistant, and
-        never shown again after you save it. Preshift stops the assistant at the limits below; a limit on the key in the
+        never shown again after you save it. Preshift Rota stops the assistant at the limits below; a limit on the key in the
         Claude Console is a sensible second line.
       </p>
       <p className="small">
@@ -253,7 +253,7 @@ function EmailSetup() {
         </label>
         <label>
           Send from
-          <input required placeholder="Preshift <rota@yourdomain.co.uk>" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} />
+          <input required placeholder="Preshift Rota <rota@yourdomain.co.uk>" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} />
         </label>
         <label>
           App address used in links
@@ -264,7 +264,7 @@ function EmailSetup() {
             <p className="muted small">
               Delivery reports: in Resend, add a webhook to <code>{email.webhook.url}</code> for the events email.sent,
               email.delivered, email.delivery_delayed, email.bounced, email.complained and email.failed, then paste its signing
-              secret here. Bounces then show on the Access tab against the person. Leave opens and clicks off: Preshift does not
+              secret here. Bounces then show on the Access tab against the person. Leave opens and clicks off: Preshift Rota does not
               track them. Without the webhook, "Check now" on a person asks Resend instead.
             </p>
             <label>

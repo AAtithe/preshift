@@ -523,7 +523,7 @@ describe('managers\' morning email', () => {
       return new Response(JSON.stringify({ id: `m_${sent.length}` }), { status: 200, headers: { 'content-type': 'application/json' } });
     });
     expect(await sendManagerDigests(k.store, today)).toEqual({ orgs: 0, sent: 0 });
-    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
+    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
     const first = await sendManagerDigests(k.store, today);
     expect(first.orgs).toBe(1);
     expect(first.sent).toBe(sent.length);

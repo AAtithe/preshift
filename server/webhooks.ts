@@ -5,7 +5,7 @@ import type { OrgData, Store } from './store';
 
 /**
  * Outbound webhooks: a partner system (EPOS, BI, an in-house tool) registers an https address
- * and the events it wants, and Preshift posts each one there, signed, as it happens.
+ * and the events it wants, and Preshift Rota posts each one there, signed, as it happens.
  *
  * Events are thin on purpose. Each carries what changed and the ids to fetch, never pay, dates of
  * birth or other personal data, so a leaked or misdirected webhook gives nothing away. The partner
@@ -108,7 +108,7 @@ const KEEP_DONE = 200;
 const TIMEOUT_MS = 3000;
 const backoffMs = (attempt: number) => Math.min(30_000 * 2 ** (attempt - 1), 3_600_000);
 
-/** Detail fields that may go into an event. Anything else in the audit detail stays inside Preshift. */
+/** Detail fields that may go into an event. Anything else in the audit detail stays inside Preshift Rota. */
 // Never an absence's type (sickness is health data), its dates, a file name or a document's hash.
 const SAFE_FIELDS = [
   'id', 'ids', 'siteId', 'siteIds', 'weekStart', 'entityId', 'fields', 'leaveDate', 'rows', 'run', 'variance', 'count', 'added', 'unfilled',
@@ -145,7 +145,7 @@ export function signWebhook(secret: string, body: string, timestamp = Math.floor
 export const newWebhookSecret = () => `whsec_${randomBytes(24).toString('base64url')}`;
 
 /**
- * Only https to a public address. A webhook is the one place a customer can make Preshift's servers
+ * Only https to a public address. A webhook is the one place a customer can make Preshift Rota's servers
  * call out, so it must not be pointed at our own network or a cloud metadata address. Plain http is
  * allowed to localhost outside production, for building an integration on a laptop.
  */
@@ -219,7 +219,7 @@ async function send(endpoint: WebhookEndpoint, d: WebhookDelivery, fetcher: Fetc
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'user-agent': 'Preshift-Webhooks/1',
+        'user-agent': 'Preshift Rota-Webhooks/1',
         'preshift-event-id': d.event.id,
         'preshift-event-type': d.event.type,
         'preshift-signature': signWebhook(endpoint.secret, body),

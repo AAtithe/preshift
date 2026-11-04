@@ -1,4 +1,4 @@
-// How a message leaves Preshift: WhatsApp (Meta's Cloud API), text (Twilio), email (Resend) to a
+// How a message leaves Preshift Rota: WhatsApp (Meta's Cloud API), text (Twilio), email (Resend) to a
 // member of staff, and Slack or Teams to a site's managers. The organisation's keys are saved by
 // an admin under Settings, in the settings store, never in organisation data, so no data endpoint
 // can return them.
@@ -27,7 +27,7 @@ export interface WhatsAppSettings {
   accessToken: string;
   /** The Meta app's secret, which signs the webhook Meta posts replies to. */
   appSecret: string;
-  /** Made by Preshift: Meta sends it back once when the webhook is set up. */
+  /** Made by Preshift Rota: Meta sends it back once when the webhook is set up. */
   verifyToken: string;
   /**
    * An approved template with one body parameter, such as "Message from work: {{1}}". WhatsApp
@@ -182,13 +182,13 @@ const cut = (s: string, max: number, more: string) => (s.length <= max ? s : `${
 
 export async function sendWhatsApp(fetcher: Fetch, cfg: WhatsAppSettings, to: string, text: string, freeText: boolean): Promise<Sent> {
   const message = freeText
-    ? { type: 'text', text: { body: cut(text, 4000, '(more in the Preshift app)'), preview_url: false } }
+    ? { type: 'text', text: { body: cut(text, 4000, '(more in the Preshift Rota app)'), preview_url: false } }
     : {
         type: 'template',
         template: {
           name: cfg.template,
           language: { code: cfg.language },
-          components: [{ type: 'body', parameters: [{ type: 'text', text: cut(flat(text), 1000, '(more in the Preshift app)') }] }],
+          components: [{ type: 'body', parameters: [{ type: 'text', text: cut(flat(text), 1000, '(more in the Preshift Rota app)') }] }],
         },
       };
   try {
@@ -216,7 +216,7 @@ export async function sendSms(fetcher: Fetch, cfg: SmsSettings, to: string, text
         authorization: `Basic ${Buffer.from(`${cfg.accountSid}:${cfg.authToken}`).toString('base64')}`,
         'content-type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({ To: to, From: cfg.from, Body: cut(text, 1500, '(more in the Preshift app)') }).toString(),
+      body: new URLSearchParams({ To: to, From: cfg.from, Body: cut(text, 1500, '(more in the Preshift Rota app)') }).toString(),
     });
     if (!res.ok) return { ok: false, detail: `Twilio refused it (${res.status})` };
     return { ok: true, providerId: (res.body as { sid?: string } | null)?.sid };
@@ -225,11 +225,11 @@ export async function sendSms(fetcher: Fetch, cfg: SmsSettings, to: string, text
   }
 }
 
-/** A notice to a team channel: a line of text and a button into Preshift. */
+/** A notice to a team channel: a line of text and a button into Preshift Rota. */
 export async function postTeam(fetcher: Fetch, channel: TeamChannel, url: string, text: string, link: string | null): Promise<Sent> {
   const body =
     channel === 'slack'
-      ? { text: link ? `${text} <${link}|Open in Preshift>` : text }
+      ? { text: link ? `${text} <${link}|Open in Preshift Rota>` : text }
       : {
           type: 'message',
           attachments: [
@@ -240,7 +240,7 @@ export async function postTeam(fetcher: Fetch, channel: TeamChannel, url: string
                 type: 'AdaptiveCard',
                 version: '1.4',
                 body: [{ type: 'TextBlock', text, wrap: true }],
-                ...(link ? { actions: [{ type: 'Action.OpenUrl', title: 'Open in Preshift', url: link }] } : {}),
+                ...(link ? { actions: [{ type: 'Action.OpenUrl', title: 'Open in Preshift Rota', url: link }] } : {}),
               },
             },
           ],
@@ -469,7 +469,7 @@ export async function carryNotifications(ctx: Pick<AppContext, 'store' | 'fetch'
     const channel = reach.get(employeeId)?.channel;
     if (!employee || (channel !== 'whatsapp' && channel !== 'sms')) continue;
     const text = notes.map((n) => `${n.title}. ${n.body}`).join('\n');
-    const message = addMessage(org, directThread(org, employee, 'Preshift', at), { at, from: { kind: 'system', name: 'Rota' }, body: text, via: 'app' });
+    const message = addMessage(org, directThread(org, employee, 'Preshift Rota', at), { at, from: { kind: 'system', name: 'Rota' }, body: text, via: 'app' });
     message.deliveries = await deliverToStaff(out, employee, text, { subject: notes[0].title, urgent: notes.some((n) => n.urgent) });
     const carried = message.deliveries.find((d) => (d.channel === 'whatsapp' || d.channel === 'sms') && (d.status === 'sent' || d.status === 'held'));
     // Not carried (the provider refused it): left pending, so the email still goes.

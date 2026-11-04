@@ -49,7 +49,7 @@ const workedShifts = (org: OrgData) => entriesAsShifts(org.timeEntries);
 export function applyTerms(org: OrgData, actor: string, c: PayChange, e: Employee, on: string) {
   const before = { ...e };
   Object.assign(e, c.after);
-  // Linked to TeamPay with pay that differed: once Preshift's pay matches payroll's, nothing is left to decide.
+  // Linked to TeamPay with pay that differed: once Preshift Rota's pay matches payroll's, nothing is left to decide.
   if (e.payrollReview) e.payrollReview = refreshReview(e, e.payrollReview);
   c.appliedOn = on;
   const owed = c.effectiveFrom ? backPayFor(c, c.effectiveFrom, on, workedShifts(org), org.state.shifts) : null;
@@ -101,11 +101,11 @@ export function applyDuePayChanges(org: OrgData, today: string): number {
     if (!e) continue;
     if (!sameTerms(payTermsOf(e), c.before)) {
       Object.assign(c, { status: 'superseded', note: `${e.name}'s pay changed before this took effect on ${c.effectiveFrom}, so it was not applied. Propose it again from the pay in force.` });
-      audit(org, 'Preshift', 'pay.change_withdrawn', { id: c.id, employeeId: e.id });
+      audit(org, 'Preshift Rota', 'pay.change_withdrawn', { id: c.id, employeeId: e.id });
       continue;
     }
-    applyTerms(org, 'Preshift', c, e, today);
-    audit(org, 'Preshift', 'pay.change_applied', { id: c.id, employeeId: e.id });
+    applyTerms(org, 'Preshift Rota', c, e, today);
+    audit(org, 'Preshift Rota', 'pay.change_applied', { id: c.id, employeeId: e.id });
     applied++;
   }
   return applied;
@@ -133,7 +133,7 @@ export async function remindApprovers(store: Store, org: OrgData, today: string)
       if ((await sendMail(settings, payApprovalEmail(u.email, u.name, digest, linkFor(settings, '/app/?view=pay'), escalated))) !== null) sent++;
     }
   }
-  audit(org, 'Preshift', 'pay.reminder_sent', { waiting: digest.waiting, overdue: digest.overdue, people: sent, escalated: digest.escalate });
+  audit(org, 'Preshift Rota', 'pay.reminder_sent', { waiting: digest.waiting, overdue: digest.overdue, people: sent, escalated: digest.escalate });
   return { sent, escalated: digest.escalate };
 }
 

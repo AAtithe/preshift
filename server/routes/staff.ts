@@ -751,7 +751,7 @@ function pushRoutes(app: FastifyInstance, ctx: AppContext) {
     async (req) => {
       const { org, employee, login } = await requireStaff(req, store);
       const { endpoint, keys, label } = req.body;
-      if (!keys || !validEndpoint(endpoint)) throw new HttpError(422, 'invalid_subscription', 'This phone gave an address Preshift does not send to. Try again, or use another browser.');
+      if (!keys || !validEndpoint(endpoint)) throw new HttpError(422, 'invalid_subscription', 'This phone gave an address Preshift Rota does not send to. Try again, or use another browser.');
       // A phone that subscribes again replaces itself; past five, the oldest goes.
       const others = (login.push ?? []).filter((d) => d.endpoint !== endpoint);
       const device: PushDevice = { endpoint, p256dh: keys.p256dh, auth: keys.auth, addedAt: new Date().toISOString(), ...(label?.trim() ? { label: label.trim() } : {}) };
@@ -778,12 +778,12 @@ function pushRoutes(app: FastifyInstance, ctx: AppContext) {
   );
 
   /**
-   * The person's payslips and P60s, fetched from payroll as they ask and never kept by Preshift.
+   * The person's payslips and P60s, fetched from payroll as they ask and never kept by Preshift Rota.
    * Only their own: the payroll id comes from their record, never from the request.
    */
   async function payDocuments(org: OrgData, employee: Employee) {
     const provider = ctx.providerFor(org.orgId);
-    if (!provider.listPayDocuments) return { available: false as const, reason: 'Your payroll does not share payslips with Preshift yet.' };
+    if (!provider.listPayDocuments) return { available: false as const, reason: 'Your payroll does not share payslips with Preshift Rota yet.' };
     if (!employee.payrollId) return { available: false as const, reason: 'You are not set up in payroll yet. Your first payslip will show here once you are paid.' };
     let employerId: string;
     try {
@@ -796,7 +796,7 @@ function pushRoutes(app: FastifyInstance, ctx: AppContext) {
       return { available: true as const, employerId, documents };
     } catch (err) {
       // Not found: the payroll has no payslips to share this way yet, which is not worth trying again.
-      if ((err as { status?: number }).status === 404) return { available: false as const, reason: 'Your payroll does not share payslips with Preshift yet.' };
+      if ((err as { status?: number }).status === 404) return { available: false as const, reason: 'Your payroll does not share payslips with Preshift Rota yet.' };
       return { available: false as const, reason: 'Payroll did not answer just now. Try again in a few minutes.' };
     }
   }
@@ -904,7 +904,7 @@ function pushRoutes(app: FastifyInstance, ctx: AppContext) {
     const devices = login.push ?? [];
     if (devices.length === 0) throw new HttpError(409, 'push_off', 'Notifications are not on for any of your phones yet.');
     const keys = await vapidKeys(store);
-    const message = { title: 'Notifications are on', body: `Hello ${employee.name.split(' ')[0]}. This is how Preshift will tell you about your rota.`, url: '/staff/#inbox', tag: 'test' };
+    const message = { title: 'Notifications are on', body: `Hello ${employee.name.split(' ')[0]}. This is how Preshift Rota will tell you about your rota.`, url: '/staff/#inbox', tag: 'test' };
     const results = await Promise.all(devices.map((d) => sendPush(keys, d, message, pushSubject())));
     if (results.includes('gone')) await store.putStaffLogin({ ...login, push: devices.filter((_, i) => results[i] !== 'gone') });
     return { sent: results.filter((r) => r === 'sent').length, failed: results.filter((r) => r === 'failed').length, gone: results.filter((r) => r === 'gone').length };

@@ -201,7 +201,7 @@ export const APP_TOOLS: ToolDefinition[] = [
     name: 'propose_ask_cover',
     description:
       'Proposes asking for cover for one shift by id (from list_shifts), when its person cannot work it, for the manager to confirm. ' +
-      'Preshift asks only the people who could legally work it (trained, free, within availability, rest and hours rules, agreed to ' +
+      'Preshift Rota asks only the people who could legally work it (trained, free, within availability, rest and hours rules, agreed to ' +
       'work at the site), cheapest first, by the staff app and the channel each chose. The result says who would be asked and why ' +
       'others would not. If the person is off sick, propose the absence too with propose_record_absence. The note goes to everyone ' +
       'asked: use it for what helps them decide (a busy night, an early finish), never for why the person is off.',
