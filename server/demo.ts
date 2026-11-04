@@ -232,6 +232,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/setup/status': true,
   'PUT /v1/setup': true,
   'POST /v1/setup/start-fresh': true,
+  // The go-live plan reads the caller's own organisation, counts only.
+  'GET /v1/golive': true,
   // The access controls, shown on the sandbox's fictional team. None of them has an account, and
   // anything that issues an invitation, a reset link or touches an authenticator is refused below.
   'GET /v1/me': true,

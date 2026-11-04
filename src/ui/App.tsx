@@ -26,6 +26,7 @@ import { DecisionsBar } from './DecisionsBar';
 import { RotaHints } from './RotaHints';
 import { Tip } from './Tip';
 import { BillingBanner } from './BillingBanner';
+import { GoLiveBanner, GoLiveView, useGoLive } from './GoLiveView';
 import { RestBreaches } from './RestBreaches';
 import type { Account } from './SettingsView';
 import { ALL, NAV_ITEMS, offered, placeQuery, readPlace, sitesFor, visibleNav, type AtAll, type NavItem, type Tab } from './nav';
@@ -416,6 +417,9 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   // A site-only section opened across several sites shows the site chooser instead.
   const needsSite = !notHere && !!section.siteOnly && !single;
   const shown = notHere || needsSite ? null : activeTab;
+  // The go-live plan, for whoever runs the organisation's settings: read again on each change of section,
+  // so a step done on one screen shows done on the next. Never for the demo, which is never going live.
+  const goLive = useGoLive(allow('settings.manage') && !account?.demo, activeTab);
 
   const baseMetrics = useMemo(() => scopeMetrics(state, siteIds, week), [state, siteIds, week]);
   const metrics = useMemo(() => (preview ? scopeMetrics(view, siteIds, week) : baseMetrics), [view, preview, baseMetrics, siteIds, week]);
@@ -757,6 +761,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   <button className="link" onClick={hideSample}>Hide</button>
                 </div>
               )}
+              {activeTab !== 'golive' && <GoLiveBanner plan={goLive} onOpen={() => setTab('golive')} />}
               {section.scope !== 'org' ? (
                 <RemindersBanner key={`${siteIds.join()}:${activeTab}`} siteIds={siteIds} sites={state.sites} today={today} onOpen={(id) => { setSiteId(id); setTab('calendar'); }} />
               ) : null}
@@ -1075,6 +1080,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                   scopeName={single ? single.name : entityId ? state.entities.find((e) => e.id === entityId)?.name ?? 'entity' : 'group'}
                 />
               )}
+              {shown === 'golive' && <GoLiveView plan={goLive} onOpen={(t) => setTab(t as Tab)} />}
               {shown === 'setup' && <SetupView state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} />}
               {shown === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} today={today} onOpen={setTab} />

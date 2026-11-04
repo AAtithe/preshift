@@ -26,6 +26,7 @@ import { payrollLinkRoutes } from './routes/payrollLink';
 import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
+import { goLiveRoutes } from './routes/golive';
 import { timeRoutes } from './routes/time';
 import { labourRoutes } from './routes/labour';
 import { authenticatorRoutes } from './routes/authenticator';
@@ -59,6 +60,7 @@ import { carryNotifications, keepMessages, releaseHeld } from './messaging';
 import { requestRoutes } from './routes/requests';
 import { deliverNotifications } from './notify';
 import { sendManagerDigests } from './digest';
+import { sendGoLiveNudges } from './golive';
 import { runShiftAlerts } from './reminders';
 import { webRoutes } from './routes/web';
 import { syncAllRewards, welfareRoutes } from './routes/welfare';
@@ -365,11 +367,15 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     return { ok: true };
   });
 
-  // Each morning: every manager hears what staff have asked for that is theirs to decide. Once a
-  // day per organisation, however often it is called.
+  // Each morning: every manager hears what staff have asked for that is theirs to decide, and a new
+  // business's owner hears of a go-live step gone late. Once a day per organisation, however often it is called.
   app.get('/internal/digest', { schema: { hide: true } }, async (req, reply) => {
     if (!env.CRON_SECRET || req.headers.authorization !== `Bearer ${env.CRON_SECRET}`) return reply.code(401).send();
-    return { ok: true, ...(await sendManagerDigests(store, londonToday(ctx), (msg, detail) => app.log.error(detail, msg))) };
+    const log = (msg: string, detail: Record<string, unknown>) => app.log.error(detail, msg);
+    // The same morning run nudges any self sign-up whose go-live plan has a step gone late.
+    const digests = await sendManagerDigests(store, londonToday(ctx), log);
+    const nudges = await sendGoLiveNudges(store, londonToday(ctx), ctx.now(), log);
+    return { ok: true, ...digests, ...nudges };
   });
 
   // Every five minutes: shift reminders, the next wave of open shift offers, and an alert when someone has not clocked in for a shift
@@ -502,6 +508,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     employeeRoutes(api, ctx);
     payRoutes(api, ctx);
     setupRoutes(api, ctx);
+    goLiveRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);

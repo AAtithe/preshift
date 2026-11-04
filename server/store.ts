@@ -183,6 +183,8 @@ export interface OrgData {
   cutAlerts?: Record<string, { behind?: string; ahead?: string }>;
   /** The London day the managers' morning digest last went out, so it goes once a day. */
   lastDigest?: string;
+  /** Go-live: the steps the owner has been nudged about, and the day the business went live. Absent until first worked out. */
+  goLive?: import('./golive').GoLiveRecord;
   /** Events waiting to reach, or recently sent to, those systems. */
   webhookDeliveries?: WebhookDelivery[];
   users: User[];

@@ -10,6 +10,7 @@ import { addDays, ageOn, formatMinute, parseClock, weekDates, weekStart } from '
 import type { Absence, AbsenceType, Employee, RotaState, Shift, TimeEntry } from '../engine/types';
 import { minimumWageFor } from '../engine/ukRates';
 import type { ToolDefinition } from './rotaTools';
+import type { GoLivePlan } from '../engine/golive';
 import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, ROUND_MINUTES, roundOf } from '../engine/cover';
 
 /**
@@ -23,7 +24,7 @@ import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil,
 export const SCREENS = [
   'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'periods', 'pay', 'close', 'reports', 'hr', 'absence',
   'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'customers', 'billing', 'requests', 'adoption', 'cash',
-  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages', 'rights', 'features',
+  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages', 'rights', 'features', 'golive',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 
@@ -42,6 +43,8 @@ export interface AppToolContext {
   loadEntries: () => Promise<TimeEntry[]>;
   /** The organisation has switched off AI rota writing, so there is no rota assistant to hand over to. */
   rotaAiOff?: boolean;
+  /** The organisation's go-live plan, for whoever runs its settings; refused for anyone else. */
+  loadGoLive?: () => Promise<GoLivePlan>;
 }
 
 interface Detail {
@@ -229,6 +232,14 @@ export const APP_TOOLS: ToolDefinition[] = [
       'For building or reshaping a whole rota (several shifts, a day or a week), hands the request to the rota assistant, ' +
       'which drafts it against the forecast for the manager to review. Use this rather than many single shifts.',
     input_schema: object({ instruction: { type: 'string', description: "The manager's request, in their words." } }),
+  },
+  {
+    name: 'go_live_plan',
+    description:
+      "The organisation's plan for getting started on Preshift: each step from the authenticator to the first published rota, takings and " +
+      'clocking, whether it is done, late or next, why it matters and how to do it. Use it for "what should I do next", "how do I get set up" ' +
+      'or "how far are we". Counts only. Only owners and others who run the settings can see it.',
+    input_schema: object({}),
   },
   {
     name: 'go_to',
@@ -724,6 +735,28 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         const instruction = str(input, 'instruction');
         const proposal: Proposal = { id: proposalId(), kind: 'draft_rota', instruction, summary: 'Draft this with the rota assistant', details: [{ label: 'Request', value: instruction }], warnings: [] };
         return { result: { handed_over: true, note: 'The manager can open the rota assistant from the card; nothing is changed yet.' }, label: proposal.summary, proposal };
+      }
+
+      case 'go_live_plan': {
+        if (!ctx.loadGoLive) throw new InputError('The go-live plan is not available here.');
+        const plan = await ctx.loadGoLive().catch(() => null);
+        if (!plan) throw new InputError('Only someone who manages the organisation settings, with their authenticator, can see the go-live plan.');
+        const open = plan.steps.filter((s) => !s.done);
+        return {
+          result: {
+            headline: plan.headline,
+            day: plan.day,
+            of_days: plan.length,
+            done: plan.done,
+            of: plan.of,
+            live: plan.live,
+            trial_ends: plan.trialEndsOn,
+            next: plan.next && { label: plan.next.label, why: plan.next.why, how: plan.next.how, screen: plan.next.screen, due: plan.next.dueOn },
+            late: plan.late.map((s) => s.label),
+            still_to_do: open.map((s) => ({ label: s.label, status: s.status, due: s.dueOn, optional: s.optional, progress: s.progress, screen: s.screen })),
+          },
+          label: 'Read the go-live plan',
+        };
       }
 
       case 'go_to': {

@@ -1,0 +1,88 @@
+# Customer onboarding: the process
+
+How a new business goes from sign-up to running its week on Preshift, what the product does at each
+point, and what the WS team does around it. Read this before you take your first onboarding call.
+
+## The principle
+
+A customer is not onboarded when their data is loaded. They are onboarded when a GM has built a
+week from the forecast, published it to the team, and seen clocked hours and takings come back
+against it. Until then they have bought software. After it they have a labour line they control.
+Everything below is built to get them to that point inside the 14 day trial, because a trial that
+has not published a rota by day 7 rarely converts.
+
+Coaching point for the team: never measure an onboarding by steps ticked. Measure it by the date of
+the first published rota and the first week with labour % worked from real takings. Those two dates
+are what the customer will remember as "it worked".
+
+## What the product does
+
+Getting started (Organisation, then Getting started) is the customer's own plan. Each step is proved
+by their data, never ticked by hand. It sits in `src/engine/golive.ts`, is served at `GET /v1/golive`
+to anyone with `settings.manage`, and is read by Shifty (`go_live_plan`) so "what should I do next"
+gets a real answer. A one-line banner shows on every screen until they are live.
+
+| Phase | Due by | Step | Proved by |
+| --- | --- | --- | --- |
+| Secure the account | Day 0 | Authenticator | The owner's authenticator confirmed |
+| Set up the business | Day 1 | Companies | Every company has a company number and PAYE reference |
+| | Day 1 | Sites | Every site has opening hours and a labour target |
+| | Day 2 | Trading week | Every site has a typical week, and staffing rules exist |
+| Bring in the team | Day 3 | Team loaded | At least one current person |
+| | Day 4 | Records clear | Nobody held off the rota (right to work, minimum wage, date of birth) |
+| | Day 4 | Email | The organisation's email is set up |
+| | Day 4 | Managers (if it applies) | Another manager invited |
+| | Day 5 | Staff app | Half the team signed in to the staff app |
+| First rota | Day 5 | Build | Shifts this week or later |
+| | Day 7 | Publish | A week published |
+| Run the week on it | Day 10 | Takings | Takings on at least 3 of the last 14 days |
+| | Day 10 | Clocking | Time clocked |
+| | Day 12 (if it applies) | Payroll | Everyone set up in TeamPay |
+| Decide | Day before the trial ends | Subscribe | A subscription in force (self sign-ups only) |
+
+A step past its day reads Late. Optional steps never do, and never hold back going live. Live means
+every required step done; the day it first happens is kept, with `golive.live` on the audit trail.
+
+The morning nudge: on the same run as the managers' digest (`/internal/digest`), a self sign-up's owner
+gets one email when a step goes late, naming it, why it matters and how to do it. One email per step,
+never more than one every two days, nothing once live, and never to a WS client. Sent through the
+email of the organisation that runs Preshift, as the sign-up link is. `golive.nudged` on the audit trail.
+
+## What the team does
+
+The product carries the customer between the touchpoints. The team owns the touchpoints. Customers
+(for customer operations) and Clients (for client partners) already flag who needs a call; work from
+those, not from memory.
+
+| When | Who | What good looks like |
+| --- | --- | --- |
+| Day 0, within 2 working hours of sign-up | Customer operations | A 10 minute welcome call. Agree the date of their first published rota, and write it down. Confirm who their payroll is with and which till they use. Do not demo: open Getting started together and do step 1 with them. |
+| Day 3 | Customer operations | Check the plan. If the team is not loaded, offer to take their payroll export and paste it in on a screen share. This is the step most trials die on. |
+| Day 7 | Customer operations | The rota review. If published: walk the labour % against target with the GM and show them the Coach. If not: find the blocker, usually records held back for right to work, and fix it on the call. Customers flags "A week in and no rota published": this is that call. |
+| Day 10 to 12 | Customer operations | The value call. Show the first week of labour % from real takings, and clocked against rota. Put a pound figure on what they saw. Then ask for the decision. |
+| Trial ends in 3 days | Customer operations | Only if not subscribed. Customers flags it. |
+| Live | Client partner, where they become a WS client | Hand over to the labour programme (`docs/PROGRAMME.md`): Baseline, Control, Optimise, Embed. |
+
+For WS clients (added from Clients), the client partner runs the same calls on the same days. There
+is no trial or nudge: the partner is the nudge.
+
+## How to run a good onboarding call
+
+- Lead with their number, not our features. Ask what labour ran at last month as a share of sales.
+  Most operators do not know it to a point. That is the reason to finish onboarding.
+- One next step, with a date. Not a list. Getting started shows the next step; say it out loud and
+  agree when it will be done.
+- Do the hard step with them. Loading the team and clearing right to work records are where trials
+  stall. Twenty minutes on a screen share saves the conversion.
+- Write it down. Note the agreed first-rota date on the customer's record so the day 7 call checks
+  against a commitment, not a hope.
+
+## Where it lives
+
+| Piece | File |
+| --- | --- |
+| The plan and its rules | `src/engine/golive.ts`, tests in `src/engine/golive.test.ts` |
+| The facts, the route and the nudge | `server/golive.ts`, `server/routes/golive.ts`, tests in `server/golive.test.ts` |
+| The nudge email | `goLiveNudgeEmail` in `server/mail.ts` |
+| The screen and banner | `src/ui/GoLiveView.tsx` |
+| Shifty | `go_live_plan` in `src/ai/appTools.ts` |

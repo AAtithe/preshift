@@ -1,3 +1,4 @@
+import type { GoLivePlan } from '../engine/golive';
 import type Anthropic from '@anthropic-ai/sdk';
 import { useCallback, useRef, useState } from 'react';
 import { runAppAgent } from '../ai/appAgent';
@@ -66,7 +67,7 @@ export function useAppAgent(view: () => AgentView, deps: ProposalDeps) {
             text,
             where,
             outcomes: outcomes.current.splice(0),
-            ctx: { ...ctx, loadEntries: () => (entries.current ??= api.get<TimeEntry[]>('/v1/time-entries')) },
+            ctx: { ...ctx, loadEntries: () => (entries.current ??= api.get<TimeEntry[]>('/v1/time-entries')), loadGoLive: () => api.get<GoLivePlan>('/v1/golive') },
           },
           abort.current.signal,
           (s) => setSteps((list) => [...list, s]),
