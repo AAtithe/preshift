@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { customerSetting, getBilling, putBilling, signStripePayload, standingOf, type BillingRecord } from './billing';
+import { holdClock } from './testClock';
 import { account, kit, TODAY, type Kit } from './testkit';
 
 // Moving a customer between paying by card through Stripe and being billed under a Williams, Stanley &
@@ -10,10 +11,8 @@ const SAM = 'sam.okoro@williamsstanley.example';
 const SAM_MFA = 'demo-usr_ws_partner';
 const STRIPE_ENV = { STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', STRIPE_PRICE_ID: 'price_site' };
 const DAY = 86_400_000;
-// The test kit's store keeps its day at TODAY, so the clock here starts there too: dates the routes work
-// out from the store's day and dates the test works out from its clock then agree, whatever the real date.
-const START = Date.parse(`${TODAY}T12:00:00.000Z`);
-const PERIOD_END = Math.floor((START + 20 * DAY) / 1000);
+// Counted from the held day (holdClock below), not the real one, so the period ends where the tests expect.
+const PERIOD_END = Math.floor((Date.parse(`${TODAY}T12:00:00Z`) + 20 * DAY) / 1000);
 
 let stripe: { path: string; body: URLSearchParams; idempotency?: string }[] = [];
 const fake = async (url: string, init: RequestInit = {}) => {
@@ -36,10 +35,12 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fake);
 });
 afterEach(() => vi.unstubAllGlobals());
+// The sample's store counts its days from a fixed date: held there, a pay-by date set from it cannot pass in real time.
+holdClock(TODAY);
 
 /** A clock the test can move forward. */
 function clock() {
-  let at = START;
+  let at = Date.now();
   return { now: () => new Date(at), advance: (days: number) => { at += days * DAY; } };
 }
 
@@ -86,7 +87,7 @@ async function customer(k: Kit, orgId: string, options: { partner?: boolean; bil
 }
 
 const paying = (): BillingRecord => ({
-  trialEndsAt: new Date(START - 30 * DAY).toISOString(), createdAt: new Date(START - 44 * DAY).toISOString(),
+  trialEndsAt: new Date(Date.now() - 30 * DAY).toISOString(), createdAt: new Date(Date.now() - 44 * DAY).toISOString(),
   customerId: 'cus_1', subscriptionId: 'sub_1', itemId: 'si_1', status: 'active', quantity: 2, interval: 'month',
   currentPeriodEnd: new Date(PERIOD_END * 1000).toISOString(),
 });
@@ -145,7 +146,7 @@ describe('moving a card customer to a WS engagement', () => {
   it('moves a trial with no subscription from today, without calling Stripe', async () => {
     const { k, c } = await boot();
     await grantCustomers(k);
-    await customer(k, 'org-trial', { billing: { trialEndsAt: new Date(START + 5 * DAY).toISOString(), createdAt: new Date(START).toISOString() } });
+    await customer(k, 'org-trial', { billing: { trialEndsAt: new Date(Date.now() + 5 * DAY).toISOString(), createdAt: new Date().toISOString() } });
     const res = await k.call('POST', '/v1/customers/org-trial/engagement', await k.as(SAM, SAM_MFA));
     expect(res.status).toBe(200);
     expect(stripe).toHaveLength(0);
@@ -179,7 +180,7 @@ describe('moving a WS client to card billing', () => {
     const listed = (await k.call('GET', '/v1/clients', sam)).body.clients.find((x: { orgId: string }) => x.orgId === 'org-client');
     expect(listed.billing).toMatchObject({ mode: 'engagement', standing: 'managed' });
 
-    const payBy = new Date(START + 10 * DAY).toISOString().slice(0, 10);
+    const payBy = new Date(Date.now() + 10 * DAY).toISOString().slice(0, 10);
     const res = await k.call('POST', '/v1/clients/org-client/card-billing', sam, { payBy });
     expect(res.status).toBe(200);
     expect(res.body.billing).toMatchObject({ mode: 'to-card' });
@@ -208,7 +209,7 @@ describe('moving a WS client to card billing', () => {
     const { k } = await boot();
     await customer(k, 'org-client', { partner: true });
     const sam = await k.as(SAM, SAM_MFA);
-    const far = new Date(START + 120 * DAY).toISOString().slice(0, 10);
+    const far = new Date(Date.now() + 120 * DAY).toISOString().slice(0, 10);
     expect((await k.call('POST', '/v1/clients/org-client/card-billing', sam, { payBy: far })).status).toBe(400);
     const org = await k.store.load('org-client');
     org.users.find((u) => u.id === 'usr_org-client')!.status = 'suspended';
@@ -220,7 +221,7 @@ describe('moving a WS client to card billing', () => {
 
   it('ignores late news about the subscription that ended with the earlier move to the engagement', async () => {
     const { k, c } = await boot();
-    const owner = await customer(k, 'org-back', { partner: true, billing: { ...paying(), status: 'canceled', engagement: { from: new Date(START - DAY).toISOString(), at: new Date(START).toISOString(), by: 'Ops' } } });
+    const owner = await customer(k, 'org-back', { partner: true, billing: { ...paying(), status: 'canceled', engagement: { from: new Date(Date.now() - DAY).toISOString(), at: new Date().toISOString(), by: 'Ops' } } });
     const sam = await k.as(SAM, SAM_MFA);
     expect((await k.call('POST', '/v1/clients/org-back/card-billing', sam, {})).status).toBe(200);
     const r = (await getBilling(k.store, 'org-back'))!;
