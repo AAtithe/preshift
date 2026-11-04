@@ -42,6 +42,10 @@ export interface GoLiveFacts {
   people: number;
   /** Current people with something that stops them being rostered: no right to work check, pay below the legal minimum, no date of birth. */
   peopleBlocked: number;
+  /** Current people already working before go-live (no start date, or one before today): their holiday position must be carried in. */
+  holidayDue: number;
+  /** Of those, the ones with an opening holiday position recorded: carried over, accrued or taken before Preshift. */
+  holidayOpened: number;
   /** Other people with a manager's sign-in, active or invited. */
   managers: number;
   emailReady: boolean;
@@ -196,7 +200,7 @@ const STEPS: StepSpec[] = [
     phase: 'team',
     label: 'Load your team',
     why: 'Nobody can be rostered until they are on Preshift. Pasting the team in from a payroll export takes minutes, not an afternoon.',
-    how: 'Set-up, Team: paste from a spreadsheet or payroll export (name, roles, rate or salary, date of birth, contracted hours, start date, right to work checked on).',
+    how: 'Set-up, Import: upload the Excel template or an export from your old system, and Shifty maps the columns. Or Set-up, Team: paste a list.',
     screen: 'setup',
     dueDay: 3,
     after: ['sites'],
@@ -214,6 +218,19 @@ const STEPS: StepSpec[] = [
     after: ['team'],
     done: (f) => !f.sample && f.people > 0 && f.peopleBlocked === 0,
     progress: (f) => (f.sample || !f.people ? null : f.peopleBlocked ? `${f.peopleBlocked} of ${f.people} held back` : 'Everyone clear'),
+  },
+  {
+    code: 'holiday',
+    phase: 'team',
+    label: 'Holiday balances carried in',
+    why: 'Holiday is a liability on the balance sheet. Without each person\'s position at go-live, balances start from nought, people are told the wrong figure, and the holiday pay accrual is understated.',
+    how: 'Set-up, Import, Holiday balances: upload the balances from your old system or the template, in hours or days.',
+    screen: 'setup',
+    dueDay: 5,
+    after: ['team'],
+    applies: (f) => f.holidayDue > 0 || f.people === 0,
+    done: (f) => !f.sample && f.people > 0 && f.holidayOpened >= f.holidayDue,
+    progress: (f) => (f.sample || !f.holidayDue ? null : of(f.holidayOpened, f.holidayDue, 'balances in')),
   },
   {
     code: 'email',
@@ -256,7 +273,7 @@ const STEPS: StepSpec[] = [
     phase: 'rota',
     label: 'Build your first rota',
     why: 'This is the moment the product earns its keep: the week built from forecast demand, every shift costed as payroll will cost it, and anything illegal stopped.',
-    how: 'Rota, next week: Build from the forecast, then move what you know better than the forecast. Watch labour % against the target as you go.',
+    how: 'Rota, next week: Build from the forecast, then move what you know better than the forecast. Watch labour % against the target as you go. Rotas already planned in your old system come across under Set-up, Import, Rota.',
     screen: 'rota',
     dueDay: 5,
     after: ['trading', 'team'],

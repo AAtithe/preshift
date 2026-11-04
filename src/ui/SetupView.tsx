@@ -19,6 +19,7 @@ import { isAroundTheClock } from '../engine/demand';
 import { formatMinute, parseClock, toISODate } from '../engine/time';
 import type { DemandRule, Department, Employee, RotaState, Role, Site, SiteArea } from '../engine/types';
 import { api, ApiError } from './api';
+import { ImportPanel } from './ImportPanel';
 import { money } from './format';
 
 interface Status {
@@ -37,8 +38,10 @@ interface Props {
   startOnTeam?: boolean;
 }
 
-const STEPS = ['Companies', 'Sites', 'Roles', 'Trading and staffing', 'Review and save', 'Team'] as const;
+const STEPS = ['Companies', 'Sites', 'Roles', 'Trading and staffing', 'Review and save', 'Team', 'Import'] as const;
 const TEAM_STEP = 5;
+/** Team, holiday balances and the rota from Excel, the template or the old system's exports. Needs saved sites, as the team step does. */
+const IMPORT_STEP = 6;
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const problem = (e: unknown) => {
@@ -148,8 +151,8 @@ export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
           <li key={label}>
             <button
               className={i === step ? 'active' : i < step ? 'done' : ''}
-              disabled={i === TEAM_STEP && (dirty || !state.sites.length)}
-              title={i === TEAM_STEP && (dirty || !state.sites.length) ? 'Save the set-up first' : undefined}
+              disabled={i >= TEAM_STEP && (dirty || !state.sites.length)}
+              title={i >= TEAM_STEP && (dirty || !state.sites.length) ? 'Save the set-up first' : undefined}
               onClick={() => setStep(i)}
             >
               <span>{i + 1}</span> {label}
@@ -165,6 +168,7 @@ export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
         {step === 3 && <TradingStep draft={draft} setDraft={setDraft} />}
         {step === 4 && <ReviewStep draft={draft} issues={issues} />}
         {step === TEAM_STEP && <TeamStep state={state} onAdded={onSaved} />}
+        {step === IMPORT_STEP && <ImportPanel state={state} onDone={onSaved} />}
       </section>
 
       {message && <div className={`notice${message.bad ? ' error' : ''}`} role={message.bad ? 'alert' : 'status'}>{message.text}</div>}
@@ -172,6 +176,7 @@ export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
       <div className="setup-nav">
         <button disabled={step === 0} onClick={() => setStep(step - 1)}>Back</button>
         {step < 4 && <button className="primary" onClick={() => setStep(step + 1)}>Next: {STEPS[step + 1]}</button>}
+        {step === TEAM_STEP && <button onClick={() => setStep(IMPORT_STEP)}>Import from Excel or another system</button>}
         {step === 4 && (
           <button className="primary" disabled={busy || blocking.length > 0 || !dirty} title={blocking.length ? 'Fix the items marked in red first' : !dirty ? 'Nothing has changed' : undefined} onClick={() => void save()}>
             {busy ? 'Saving' : 'Save set-up'}
@@ -585,7 +590,9 @@ function TeamStep({ state, onAdded }: { state: RotaState; onAdded: () => Promise
   return (
     <>
       <p className="step-intro">
-        Paste your team from Excel, Google Sheets or a payroll export, one person per line, in this order: Name, Roles, Rate or
+        Have a spreadsheet, or an export from your old rota, HR or payroll system? Use Import, the next step: it reads Excel
+        files with the columns in any order, brings holiday balances and the rota across too, and Shifty can map the columns.
+        Or paste your team from Excel, Google Sheets or a payroll export, one person per line, in this order: Name, Roles, Rate or
         salary, Date of birth, Contracted hours, Start date, Right to work checked on. Separate several roles with a slash, e.g.
         Server/Host. Anything over £1,000 is read as an annual salary. Leave the start date blank for people already working for
         you. Nobody can be rostered without a right to work check on file: give the date it was done, or record it in People

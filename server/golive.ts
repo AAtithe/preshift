@@ -88,6 +88,8 @@ export async function goLiveFacts(store: Store, org: OrgData, today: string, now
     staffingRules: state.demandRules.filter((r) => siteIds.has(r.siteId)).length,
     people: people.length,
     peopleBlocked: people.filter((e) => reviewEmployee(e, today).some((c) => c.severity === 'block')).length,
+    holidayDue: people.filter((e) => !e.startDate || e.startDate < today).length,
+    holidayOpened: people.filter((e) => (!e.startDate || e.startDate < today) && (e.holiday?.carriedOverHours !== undefined || e.holiday?.openingAccruedHours !== undefined || e.holiday?.openingTakenHours !== undefined)).length,
     managers: org.users.filter((u) => u.audience === 'operator' && u.id !== owner?.id && !samples.has(u.id) && (u.status === 'active' || u.status === 'invited')).length,
     emailReady: !!parseEmailSettings(await store.getSetting(emailSetting(org.orgId))),
     onStaffApp: logins.filter((l) => l.activatedAt && current.has(l.employeeId)).length,

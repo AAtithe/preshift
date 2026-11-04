@@ -299,6 +299,49 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     return reply.code(204).send();
   });
 
+  // Shifts brought across from another rota system (src/engine/externalImport.ts), as a draft. Each
+  // goes through exactly the checks of a shift added by hand; any that fail are reported with the
+  // reason and the rest are added. A shift already on the rota (same person, day and start) is skipped.
+  app.post<{ Body: { shifts: Shift[] } }>(
+    '/v1/rota/import',
+    {
+      ...write,
+      schema: {
+        tags: ['Rota'],
+        description:
+          'Adds shifts imported from another system as an unpublished draft. Each is checked as POST /v1/shifts checks it; ' +
+          'those refused come back with the reason, by their place in the list. Same person, day and start as a shift on the rota is skipped.',
+        body: { type: 'object', required: ['shifts'], additionalProperties: false, properties: { shifts: { type: 'array', maxItems: 5000, items: shiftBody } } },
+      },
+    },
+    async (req) => {
+      const org = orgOf(req);
+      const g = guard(ctx, req, org);
+      const onRota = new Set(org.state.shifts.map((s) => `${s.employeeId}|${s.date}|${s.startMinute}`));
+      const added: Shift[] = [];
+      const refused: { index: number; reason: string }[] = [];
+      let skipped = 0;
+      req.body.shifts.forEach((body, index) => {
+        const shift = withArea({ ...body, id: `s_${randomUUID()}`, published: false });
+        const key = `${shift.employeeId}|${shift.date}|${shift.startMinute}`;
+        if (onRota.has(key)) return void skipped++;
+        try {
+          validateShift(org, shift);
+          g.allow('rota.edit', shift.siteId);
+          allowRoster(g, org, shift);
+          assertRotaOpen(org, [shift]);
+        } catch (err) {
+          return void refused.push({ index, reason: err instanceof Error ? err.message : 'Refused' });
+        }
+        onRota.add(key);
+        added.push(shift);
+      });
+      org.state.shifts.push(...added);
+      if (added.length) audit(org, actorName(g), 'rota.imported', { shifts: added.length, refused: refused.length, skipped });
+      return { added: added.length, skipped, refused, weeks: [...new Set(added.map((s) => weekStart(s.date)))].sort() };
+    },
+  );
+
   app.get<{ Querystring: SiteWeek }>('/v1/rota/week', { ...read, schema: { tags: ['Rota'], querystring: siteWeekQuery } }, async (req) => {
     const org = orgOf(req);
     const { siteId, weekStart: ws } = req.query;

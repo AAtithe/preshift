@@ -46,7 +46,7 @@ describe('nudges', () => {
     const plan = goLivePlan({
       startedOn: '2026-10-01', today: TODAY, billing: 'trial', trialEndsOn: '2026-10-25', ownerAuthenticator: true, sample: false,
       companies: 1, companiesComplete: 1, sites: 1, sitesWithTarget: 1, sitesWithTradingWeek: 1, roles: 1, staffingRules: 1,
-      people: 0, peopleBlocked: 0, managers: 0, emailReady: true, onStaffApp: 0, shiftsAhead: 0, published: 0, takingsDays: 0, clocked: 0, inPayroll: 0,
+      people: 0, peopleBlocked: 0, holidayDue: 0, holidayOpened: 0, managers: 0, emailReady: true, onStaffApp: 0, shiftsAhead: 0, published: 0, takingsDays: 0, clocked: 0, inPayroll: 0,
     });
     return { ...plan, late: plan.late.filter((s) => codes.includes(s.code)) };
   };

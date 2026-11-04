@@ -30,6 +30,7 @@ gets a real answer. A one-line banner shows on every screen until they are live.
 | | Day 2 | Trading week | Every site has a typical week, and staffing rules exist |
 | Bring in the team | Day 3 | Team loaded | At least one current person |
 | | Day 4 | Records clear | Nobody held off the rota (right to work, minimum wage, date of birth) |
+| | Day 5 | Holiday balances | Everyone already working has an opening position (carried over, accrued or taken) |
 | | Day 4 | Email | The organisation's email is set up |
 | | Day 4 | Managers (if it applies) | Another manager invited |
 | | Day 5 | Staff app | Half the team signed in to the staff app |
@@ -48,6 +49,27 @@ gets one email when a step goes late, naming it, why it matters and how to do it
 never more than one every two days, nothing once live, and never to a WS client. Sent through the
 email of the organisation that runs Preshift, as the sign-up link is. `golive.nudged` on the audit trail.
 
+## Bringing data across
+
+Set-up, Import takes the team, holiday balances and the rota ahead from an Excel workbook or CSV. Two
+routes, and the second is usually faster:
+
+1. Download the Excel template from that screen. It lists the customer's own roles and sites and
+   explains every column. They fill in Team, Holiday balances and Rota, and upload it.
+2. Upload the exports from their old rota, HR or payroll system as they are. Columns are matched by
+   name. Where a header is not recognised, choose the column by hand or press "Map the columns with
+   Shifty". Shifty sees the headers and the kind of value in each column; names, emails, dates of birth,
+   NI and phone numbers are masked first.
+
+Order matters: team first, then holiday balances, then the rota. Every import shows a preview and
+saves nothing until it is confirmed.
+
+Holiday balances are the one to get right, because they are a balance sheet number. Coaching point:
+before confirming, pick three people (one fixed hours, one irregular hours, one with carry over) and
+check the "Remaining on Preshift" column against the old system's figure. If they agree, the holiday
+pay accrual starts from the right place. If they do not, it is almost always a start date, contracted
+hours or leave year start that is wrong, and that is worth fixing before payroll relies on it.
+
 ## What the team does
 
 The product carries the customer between the touchpoints. The team owns the touchpoints. Customers
@@ -57,7 +79,7 @@ those, not from memory.
 | When | Who | What good looks like |
 | --- | --- | --- |
 | Day 0, within 2 working hours of sign-up | Customer operations | A 10 minute welcome call. Agree the date of their first published rota, and write it down. Confirm who their payroll is with and which till they use. Do not demo: open Getting started together and do step 1 with them. |
-| Day 3 | Customer operations | Check the plan. If the team is not loaded, offer to take their payroll export and paste it in on a screen share. This is the step most trials die on. |
+| Day 3 | Customer operations | Check the plan. If the team is not loaded, get their exports on a screen share and run Set-up, Import with them: team, then holiday balances. This is the step most trials die on. |
 | Day 7 | Customer operations | The rota review. If published: walk the labour % against target with the GM and show them the Coach. If not: find the blocker, usually records held back for right to work, and fix it on the call. Customers flags "A week in and no rota published": this is that call. |
 | Day 10 to 12 | Customer operations | The value call. Show the first week of labour % from real takings, and clocked against rota. Put a pound figure on what they saw. Then ask for the decision. |
 | Trial ends in 3 days | Customer operations | Only if not subscribed. Customers flags it. |
@@ -85,4 +107,5 @@ is no trial or nudge: the partner is the nudge.
 | The facts, the route and the nudge | `server/golive.ts`, `server/routes/golive.ts`, tests in `server/golive.test.ts` |
 | The nudge email | `goLiveNudgeEmail` in `server/mail.ts` |
 | The screen and banner | `src/ui/GoLiveView.tsx` |
+| Import, template and AI mapping | `src/engine/externalImport.ts`, `src/engine/xlsx.ts`, `src/engine/importTemplate.ts`, `src/ai/importMapper.ts`, `src/ui/ImportPanel.tsx` |
 | Shifty | `go_live_plan` in `src/ai/appTools.ts` |
