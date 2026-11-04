@@ -1,11 +1,11 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { dayCover, isOpenHour, type CoverHour } from '../engine/demand';
 import type { Issue } from '../engine/compliance';
 import { isEmployedOn, ruleAge } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
-import { dropBlocker, keyChange, moveShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf, type ShiftTemplate } from './drag';
+import { clipKey, dropBlocker, keyChange, moveShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf, typingIn, type ShiftTemplate } from './drag';
 import { DragReadout } from './DragReadout';
 import { dayLabel, hours, money, pct } from './format';
 import { type Resolve, useShiftDrag } from './useShiftDrag';
@@ -106,7 +106,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
   });
 
   function keyMove(e: KeyboardEvent, shift: Shift) {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+    if (clipKey(e) === 'copy') {
       e.preventDefault();
       onClip(templateOf(shift, roleOf(shift.roleId)?.name ?? 'Shift'));
       return;
@@ -163,6 +163,28 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
     else onAdd(shift);
   }
 
+  // Ctrl+V (Cmd+V on a Mac) pastes what is held into the cell last pointed at or tabbed to, so a
+  // click on Paste in one cell does not keep later pastes there. A cell with no Paste button takes none.
+  const target = useRef<HTMLTableCellElement | null>(null);
+  const cellAt = (el: EventTarget | null) => (el instanceof Element ? el.closest<HTMLTableCellElement>('td[data-emp][data-date]') : null);
+  const pasteRef = useRef(paste);
+  pasteRef.current = paste;
+  const canPaste = !!clip && !!onEdit;
+  useEffect(() => {
+    if (!canPaste) return;
+    const key = (ev: globalThis.KeyboardEvent) => {
+      if (clipKey(ev) !== 'paste' || typingIn(document.activeElement) || document.querySelector('[role=dialog]')) return;
+      const cell = (target.current?.isConnected ? target.current : null) ?? cellAt(document.activeElement);
+      if (!cell || !cell.querySelector('.add.paste')) return;
+      const employee = state.employees.find((x) => x.id === cell.dataset.emp);
+      if (!employee) return;
+      ev.preventDefault();
+      pasteRef.current(employee, cell.dataset.date!);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [canPaste, state.employees]);
+
   const types = (state.shiftTypes ?? []).filter((t) => t.siteId === site.id);
   const cover = dates.map((d) => dayCover(state, site.id, d));
   const coverMax = Math.max(1, ...cover.flat().map((h) => Math.max(h.required, h.scheduled)));
@@ -208,18 +230,23 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
           <div className="clip-bar" role="status">
             <span>
               Holding <b>{clip.label}</b> {formatMinute(clip.startMinute)}-{formatMinute(clip.endMinute)}
-              {clip.breakMinutes ? `, ${clip.breakMinutes}m break` : ''}. Click Paste on any person and day.
+              {clip.breakMinutes ? `, ${clip.breakMinutes}m break` : ''}. Click Paste on any person and day, or point at a day and press Ctrl+V.
             </span>
             <button className="primary" onClick={() => onClip(null)}>Done</button>
           </div>
         ) : (
-          <span className="muted small">To copy a shift, open it and press Copy, or select it and press Ctrl+C.</span>
+          <span className="muted small">To copy a shift, open it and press Copy, or select it and press Ctrl+C. Then Ctrl+V pastes it on the day you point at.</span>
         )}
       </div>
     )}
     <div className={`panel grid-wrap${hint ? ' hinting' : ''}${clip ? ' pasting' : ''}`}>
       {hint && <DragHint onDismiss={dismissHint} />}
-      <table className="rota">
+      <table
+        className="rota"
+        onPointerOver={(ev) => { target.current = cellAt(ev.target); }}
+        onFocus={(ev) => { target.current = cellAt(ev.target); }}
+        onPointerLeave={() => { target.current = null; }}
+      >
         <thead data-sticky-top>
           <tr>
             <th className="who">
@@ -360,7 +387,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                             })}
                             {onLeave && shifts.length === 0 && <span className="leave-tag">On leave</span>}
                             {!onLeave && onEdit && (clip ? (
-                              <button className="add paste" onClick={() => paste(e, date)} aria-label={`Paste ${clip.label} for ${e.name}`}>
+                              <button className="add paste" onClick={() => paste(e, date)} aria-label={`Paste ${clip.label} for ${e.name}`} title="Click, or press Ctrl+V here">
                                 Paste
                               </button>
                             ) : (
