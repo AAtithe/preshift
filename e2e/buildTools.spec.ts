@@ -69,8 +69,24 @@ test('the week, its notes and cover sit on the rota, and a shift type pastes ont
   const refused = page.getByText(/Not pasted\./);
   await expect(pasted.or(refused).first()).toBeVisible();
   if (process.env.PRESHIFT_E2E_SHOTS) await page.screenshot({ path: `${process.env.PRESHIFT_E2E_SHOTS}/by-person.png`, fullPage: true });
+
+  // Ctrl+V pastes the same shift on the day under the pointer, with no click on Paste.
+  const keyTarget = page.locator('table.rota td[data-emp]').filter({ has: page.getByRole('button', { name: /Paste/ }) }).filter({ hasNot: page.locator('.chip') }).nth(1);
+  const keyEmp = await keyTarget.getAttribute('data-emp');
+  const keyDate = await keyTarget.getAttribute('data-date');
+  const keyCell = page.locator(`table.rota td[data-emp="${keyEmp}"][data-date="${keyDate}"]`);
+  await keyCell.hover();
+  await page.keyboard.press('ControlOrMeta+v');
+  const keyPasted = keyCell.locator('.chip');
+  await expect(keyPasted.or(refused).first()).toBeVisible();
+
   await page.keyboard.press('Escape');
   await expect(page.locator('.clip-bar')).toHaveCount(0);
+  if ((await keyPasted.count()) > 0) {
+    await keyPasted.click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+    await expect(keyCell.locator('.chip')).toHaveCount(0);
+  }
   if ((await pasted.count()) > 0) {
     await pasted.click();
     await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
