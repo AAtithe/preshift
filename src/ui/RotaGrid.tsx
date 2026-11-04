@@ -47,6 +47,33 @@ interface ChipEntry {
 }
 
 const HINT_KEY = 'preshift.hint.drag.v1';
+const SECTIONS_KEY = (siteId: string) => `preshift.rota.sections.v1.${siteId}`;
+
+/** Which department sections are minimised (header only) or hidden (gone, restorable) for a site. */
+interface SectionState {
+  collapsed: Department[];
+  hidden: Department[];
+}
+
+function readSections(siteId: string): SectionState {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SECTIONS_KEY(siteId)) ?? 'null');
+    if (raw && Array.isArray(raw.collapsed) && Array.isArray(raw.hidden)) return raw;
+  } catch {
+    // Private mode or bad data: every section shows.
+  }
+  return { collapsed: [], hidden: [] };
+}
+
+function writeSections(siteId: string, v: SectionState) {
+  try {
+    localStorage.setItem(SECTIONS_KEY(siteId), JSON.stringify(v));
+  } catch {
+    // Private mode: the choice lasts for this visit only.
+  }
+}
+
+const toggled = (list: Department[], d: Department) => (list.includes(d) ? list.filter((x) => x !== d) : [...list, d]);
 
 function hintSeen() {
   try {
@@ -58,6 +85,15 @@ function hintSeen() {
 
 export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit, onPreview, onCommit, onBlocked, baseLabourCost, clip, onClip, onAdd, onManageTypes }: Props) {
   const [hint, setHint] = useState(() => !hintSeen());
+  const [sections, setSections] = useState<SectionState>(() => readSections(site.id));
+  useEffect(() => setSections(readSections(site.id)), [site.id]);
+  function updateSections(next: SectionState) {
+    setSections(next);
+    writeSections(site.id, next);
+  }
+  const toggleCollapsed = (d: Department) => updateSections({ ...sections, collapsed: toggled(sections.collapsed, d) });
+  const hideSection = (d: Department) => updateSections({ ...sections, hidden: [...sections.hidden.filter((x) => x !== d), d] });
+  const showSection = (d: Department) => updateSections({ ...sections, hidden: sections.hidden.filter((x) => x !== d) });
 
   // Escape puts down whatever is held, wherever the focus is.
   useEffect(() => {
@@ -143,6 +179,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
     dept,
     people: people.filter((e) => deptOf(e) === dept),
   })).filter((g) => g.people.length > 0);
+  const hiddenGroups = groups.filter((g) => sections.hidden.includes(g.dept));
 
   const issuesFor = (employeeId: string) => issues.filter((i) => i.employeeId === employeeId);
   const today = toISODate(new Date());
@@ -252,11 +289,34 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
           </tr>
         </thead>
         <tbody>
-          {groups.map((g) => {
+          {hiddenGroups.length > 0 && (
+            <tr className="group hidden-sections">
+              <th colSpan={dates.length + 2}>
+                <span className="group-label">
+                  Hidden
+                  {hiddenGroups.map((g) => (
+                    <button key={g.dept} type="button" className="link" onClick={() => showSection(g.dept)} title={`Show ${DEPT_LABEL[g.dept]} again`}>
+                      Show {DEPT_LABEL[g.dept]} ({g.people.length})
+                    </button>
+                  ))}
+                </span>
+              </th>
+            </tr>
+          )}
+          {groups.filter((g) => !sections.hidden.includes(g.dept)).map((g) => {
             const groupCost = g.people.reduce((s, e) => s + (metrics.cost.employees.get(e.id)?.total ?? 0), 0);
+            const collapsed = sections.collapsed.includes(g.dept);
             return (
-              <Group key={g.dept} dept={g.dept} meta={showCost ? `${g.people.length} · ${money(groupCost)}` : `${g.people.length}`} span={dates.length + 2}>
-                {g.people.map((e) => {
+              <Group
+                key={g.dept}
+                dept={g.dept}
+                meta={showCost ? `${g.people.length} · ${money(groupCost)}` : `${g.people.length}`}
+                span={dates.length + 2}
+                collapsed={collapsed}
+                onToggle={() => toggleCollapsed(g.dept)}
+                onHide={() => hideSection(g.dept)}
+              >
+                {!collapsed && g.people.map((e) => {
                   const personIssues = issuesFor(e.id);
                   const weekLevel = personIssues.filter((i) => !i.shiftId);
                   const ec = metrics.cost.employees.get(e.id);
@@ -486,15 +546,37 @@ function DragHint({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-function Group({ dept, meta, span, children }: { dept: Department; meta: string; span: number; children: ReactNode }) {
+interface GroupProps {
+  dept: Department;
+  meta: string;
+  span: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  onHide: () => void;
+  children: ReactNode;
+}
+
+function Group({ dept, meta, span, collapsed, onToggle, onHide, children }: GroupProps) {
   return (
     <>
-      <tr className="group">
+      <tr className={`group ${collapsed ? 'collapsed' : ''}`}>
         <th colSpan={span}>
           <span className="group-label">
-            <i style={{ background: DEPT_COLOR[dept] }} />
-            {DEPT_LABEL[dept]}
-            <span className="muted">{meta}</span>
+            <button
+              type="button"
+              className="group-toggle"
+              aria-expanded={!collapsed}
+              onClick={onToggle}
+              title={collapsed ? `Expand ${DEPT_LABEL[dept]}` : `Minimise ${DEPT_LABEL[dept]}`}
+            >
+              <span className="chev" aria-hidden>{collapsed ? '▸' : '▾'}</span>
+              <i style={{ background: DEPT_COLOR[dept] }} />
+              {DEPT_LABEL[dept]}
+            </button>
+            <span className="muted">{meta}{collapsed ? ' · minimised' : ''}</span>
+            <button type="button" className="link group-hide" onClick={onHide} title={`Hide ${DEPT_LABEL[dept]} from the grid`}>
+              Hide
+            </button>
           </span>
         </th>
       </tr>

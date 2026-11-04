@@ -364,6 +364,12 @@ select:focus, input:focus { outline: none; border-color: var(--ink); box-shadow:
 .group-label { display: flex; align-items: center; gap: 8px; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
 .group-label i { display: none; }
 .group-label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.group-toggle { display: inline-flex; align-items: center; gap: 6px; background: none; border: none; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
+.group-toggle .chev { width: 10px; color: var(--muted); }
+.group-label button.link { font: 400 11px/1 var(--mono); text-transform: none; letter-spacing: 0; }
+.group-label .group-hide { margin-left: auto; opacity: 0; }
+.rota tr.group:hover .group-hide, .group-hide:focus-visible { opacity: 1; }
+@media (hover: none) { .group-label .group-hide { opacity: 1; } }
 .rota td.leave { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--paper-2) 6px 7px); }
 .leave-tag { font: 600 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .rota .tot { min-width: 120px; text-align: right; }

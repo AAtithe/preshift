@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { customerSetting, getBilling, putBilling, signStripePayload, standingOf, type BillingRecord } from './billing';
-import { account, kit, type Kit } from './testkit';
+import { holdClock } from './testClock';
+import { account, kit, TODAY, type Kit } from './testkit';
 
 // Moving a customer between paying by card through Stripe and being billed under a Williams, Stanley &
 // Co. engagement. To the engagement: Stripe stops at the end of the period already paid, so nobody pays
@@ -10,7 +11,8 @@ const SAM = 'sam.okoro@williamsstanley.example';
 const SAM_MFA = 'demo-usr_ws_partner';
 const STRIPE_ENV = { STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', STRIPE_PRICE_ID: 'price_site' };
 const DAY = 86_400_000;
-const PERIOD_END = Math.floor((Date.now() + 20 * DAY) / 1000);
+// Counted from the held day (holdClock below), not the real one, so the period ends where the tests expect.
+const PERIOD_END = Math.floor((Date.parse(`${TODAY}T12:00:00Z`) + 20 * DAY) / 1000);
 
 let stripe: { path: string; body: URLSearchParams; idempotency?: string }[] = [];
 const fake = async (url: string, init: RequestInit = {}) => {
@@ -33,6 +35,8 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fake);
 });
 afterEach(() => vi.unstubAllGlobals());
+// The sample's store counts its days from a fixed date: held there, a pay-by date set from it cannot pass in real time.
+holdClock(TODAY);
 
 /** A clock the test can move forward. */
 function clock() {
