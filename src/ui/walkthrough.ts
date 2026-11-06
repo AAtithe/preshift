@@ -30,6 +30,67 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    week: '2026-11-02',
+    test: 'Before you publish next week, open Coaching for this draft at your site and deal with every Again card: fix it, or write down why it stays. At the weekly review each GM names one card they acted on and what it changed on the labour line.',
+    steps: [
+      {
+        for: 'GMs',
+        title: 'Coaching for this draft',
+        body: 'While a week is still a draft, a panel under the decisions reads your site\'s last four weeks and tells you what they mean for this one. Again is a mistake you have made before and are making again: a day over the labour target week after week, or a weekday that keeps taking more or less than its sales forecast. Tip is something to fix in this draft, such as three chefs on at the same time when the forecast needs two, or a day carrying more hours than its usual pace. Keep doing is a day you have pulled back inside target. It goes once the week is published.',
+        tryIt: 'Build next week from forecast, read every Again card, and press Go to on the first one.',
+        tab: 'rota',
+        lens: 'timeline',
+      },
+      {
+        for: 'GMs',
+        title: 'Copy, paste and shift types',
+        body: 'On By person, Copy in the shift editor, or Ctrl+C on a selected shift, picks up its times, break and role, and every cell then offers Paste, which saves at once: click it, or point at a day, or Tab to it, and press Ctrl+V. Shift types are set up once per site, with their times, break and role, and picked from Build from above the grid. Leave and availability still refuse a paste, with the reason.',
+        tryIt: 'Save your usual close as a shift type, then paste it onto the rest of the week.',
+        tab: 'rota',
+        lens: 'people',
+      },
+      {
+        for: 'GMs',
+        title: 'Cover and key dates on the grid',
+        body: 'Each day heading on By person now carries cover against demand hour by hour across every role, red where short and amber where over, and it moves as you drag. Bank holidays, trading occasions, local events and school holidays run along the top of every rota view.',
+        tab: 'rota',
+        lens: 'people',
+      },
+      {
+        for: 'GMs',
+        title: 'Day notes for the team',
+        body: 'A day can carry several notes, each a booking, event, closure, delivery, staffing point or plain note, with a time if it has one, and a note can repeat weekly. Mark a note for the team and everyone working that day sees it under their shift in the staff app and on the site kiosk. Unmarked notes stay with managers.',
+        tryIt: 'Add Thursday\'s delivery as a weekly note for the team.',
+        tab: 'rota',
+      },
+      {
+        for: 'GMs',
+        title: 'Weddings, buyouts and functions',
+        body: 'Private events come in from Tripleseat or SevenRooms, or by hand on Calendar. A confirmed event adds its own team by guest ratio, from set-up to clear-down, on top of normal trade, and an exclusive hire takes the public trade out while it runs. Provisional events show what they would need and move nothing until confirmed.',
+        tryIt: 'Enter your next function and check the extra heads it puts on that day\'s demand.',
+        tab: 'calendar',
+      },
+      {
+        for: 'GMs',
+        title: 'A traded week reads as traded',
+        body: 'Open a week that is over and the rota shows what happened: takings, clocked labour, labour % and the budget on what you actually took. The full P&L sets clocked labour against the rota day by day. Nothing offers a forecast or a publish on a week already gone.',
+        tryIt: 'Open last week and compare clocked labour with what you rostered.',
+        tab: 'rota',
+      },
+      {
+        for: 'Everyone',
+        title: 'One place to ask',
+        body: 'The Tell Preshift bar has gone. Ask Shifty, bottom right, takes questions and things to do, and Ctrl K opens it from anywhere. On a phone the less used planning actions fold behind More, so the rota comes up sooner.',
+      },
+      {
+        for: 'Everyone',
+        title: 'Watch it done',
+        body: 'A narrated walkthrough of Preshift, chapter by chapter, opens from the top of How to, from Support and from the staff app. For a how do I question it is often the fastest answer.',
+        tab: 'howto',
+      },
+    ],
+  },
+  {
     week: '2026-10-26',
     test: 'Publish next week at one site, then move one shift. By Monday, check Rota seen on Staff requests: everyone working that week should have confirmed the version they will turn up to, and anyone who has not is the first conversation of the week.',
     steps: [

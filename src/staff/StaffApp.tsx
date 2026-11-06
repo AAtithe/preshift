@@ -96,7 +96,7 @@ function tapMessage(action: TapAction, siteName: string, o: Overview): string {
 /** Read when the app loads, once, before anything can render twice. */
 const INVITE = readInvite();
 /** The staff app's chapter of the narrated walkthrough. Its start moves when the video is re-recorded. */
-const WATCH = '/walkthrough#t=1565';
+const WATCH = '/walkthrough#t=1469';
 /** Waits here through signing in, and is sent once. */
 let pendingTap = readTap();
 registerWorker();
