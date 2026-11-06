@@ -102,8 +102,8 @@ export function ledgerProblems(lines: JournalLine[], accounts: LedgerAccount[], 
   for (const code of [...new Set(lines.map((l) => l.accountCode))]) {
     const account = chart.get(code);
     const used = lines.find((l) => l.accountCode === code)!.description;
-    if (!account) problems.push({ severity: 'block', message: `Account ${code} (${used}) is not in the chart of accounts. Add it in the ledger, or change the code in Preshift.` });
-    else if (account.status !== 'ACTIVE') problems.push({ severity: 'block', message: `Account ${code} (${account.name}) is archived. Restore it in the ledger, or change the code in Preshift.` });
+    if (!account) problems.push({ severity: 'block', message: `Account ${code} (${used}) is not in the chart of accounts. Add it in the ledger, or change the code in Preshift Rota.` });
+    else if (account.status !== 'ACTIVE') problems.push({ severity: 'block', message: `Account ${code} (${account.name}) is archived. Restore it in the ledger, or change the code in Preshift Rota.` });
   }
 
   const categories = new Map(tracking.map((t) => [t.name.toLowerCase(), t]));
@@ -116,7 +116,7 @@ export function ledgerProblems(lines: JournalLine[], accounts: LedgerAccount[], 
     }
     const options = new Set(category.options.map((o) => o.toLowerCase()));
     const missing = [...new Set(tagged.filter((l) => l.trackingName === name && !options.has(l.trackingOption.toLowerCase())).map((l) => l.trackingOption))];
-    if (missing.length) problems.push({ severity: 'block', message: `"${name}" has no option for ${missing.join(', ')}. Add ${missing.length === 1 ? 'it' : 'them'} in the ledger, named as each site's tracking code in Preshift.` });
+    if (missing.length) problems.push({ severity: 'block', message: `"${name}" has no option for ${missing.join(', ')}. Add ${missing.length === 1 ? 'it' : 'them'} in the ledger, named as each site's tracking code in Preshift Rota.` });
   }
   if (tagged.length < lines.length && tagged.length > 0) {
     problems.push({ severity: 'warn', message: 'Some lines carry no site: intercompany recharges and Employment Allowance for a company without sites of its own. That is expected.' });

@@ -151,7 +151,7 @@ export function accountingRoutes(app: FastifyInstance, ctx: AppContext, opts: Op
       }
       // A demo visitor's books are fictional and must never reach a real ledger.
       if (isSandbox(org.orgId)) throw new HttpError(403, 'demo', 'The demo connects to the simulated ledger only.');
-      if (!auth) throw new HttpError(409, 'xero_not_configured', 'Xero is not set up on this server. Its app credentials are added by whoever runs Preshift.');
+      if (!auth) throw new HttpError(409, 'xero_not_configured', 'Xero is not set up on this server. Its app credentials are added by whoever runs Preshift Rota.');
       const state = randomBytes(24).toString('base64url');
       const expires = ctx.now().getTime() + STATE_MINUTES * 60_000;
       await ctx.store.setSetting(xeroStateSetting(state), JSON.stringify({ orgId: org.orgId, email: req.principal.email, expires }));
@@ -159,7 +159,7 @@ export function accountingRoutes(app: FastifyInstance, ctx: AppContext, opts: Op
     },
   );
 
-  // Xero sends the person back here, signed in to Preshift in the same browser that left.
+  // Xero sends the person back here, signed in to Preshift Rota in the same browser that left.
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/v1/integrations/xero/callback',
     { schema: { hide: true, querystring: { type: 'object', properties: { code: { type: 'string' }, state: { type: 'string' }, error: { type: 'string' } } } } },

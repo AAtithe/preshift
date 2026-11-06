@@ -157,7 +157,7 @@ export function ApiKeys() {
     <section className="settings-card">
       <h2>API keys</h2>
       <p className="muted small">
-        For other systems to plug into Preshift: an EPOS pushing sales, a BI tool reading labour, an in-house app. Make one key per
+        For other systems to plug into Preshift Rota: an EPOS pushing sales, a BI tool reading labour, an in-house app. Make one key per
         system, give it only what it needs, and revoke it when the system is retired. Each key reaches this organisation only.
         The full reference is in the <a className="link" href="/docs" target="_blank" rel="noopener">API docs</a>.
       </p>
@@ -309,7 +309,7 @@ export function Webhooks() {
     <section className="settings-card">
       <h2>Webhooks</h2>
       <p className="muted small">
-        Tell another system the moment something changes here: a rota published, a starter added, hours approved. Preshift posts
+        Tell another system the moment something changes here: a rota published, a starter added, hours approved. Preshift Rota posts
         each event to your https address, signed with the endpoint's secret, and retries for several hours if it is down. Events
         carry ids only, never pay or personal details; the other system reads the detail back with its API key.
       </p>

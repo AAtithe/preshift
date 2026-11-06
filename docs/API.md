@@ -1,6 +1,6 @@
-# Preshift API and the TeamPay integration
+# Preshift Rota API and the TeamPay integration
 
-Preshift is API-first. The web app uses the same public API as any partner, EPOS, or client
+Preshift Rota is API-first. The web app uses the same public API as any partner, EPOS, or client
 system, so anything a screen can do, an integration can do. The OpenAPI document is served at
 `/docs` (UI) and `/docs/json` (machine readable).
 
@@ -22,9 +22,9 @@ locally. Set these to connect to real TeamPay:
 | `TEAMPAY_EMPLOYER_ID` | The client's employer in TeamPay, for an organisation with one company only. A group sets an employer on each company instead (`PATCH /v1/entities/:id`); this variable is never used for more than one company. |
 | `TEAMPAY_WEBHOOK_SECRET` | Signing secret for inbound webhooks |
 | `PRESHIFT_API_KEYS` | JSON list of `{key, orgId, name, scopes, userId?}`. Outside production a `dev-key` (acting as the demo owner) and a `dev-<userId>` key per demo person exist. On Vercel there is no fallback key: with none set, only signed-in people reach the API (see `server/vercel.ts`) |
-| `PRESHIFT_PUBLIC_URL` | Optional. The address people reach Preshift on, for example `https://rota.example.co.uk`, used as the issuer for Sign in with Preshift. Set it only behind a proxy that changes the host name |
+| `PRESHIFT_PUBLIC_URL` | Optional. The address people reach Preshift Rota on, for example `https://rota.example.co.uk`, used as the issuer for Sign in with Preshift Rota. Set it only behind a proxy that changes the host name |
 | `PRESHIFT_SECRET_KEY` | Optional, 64 hex characters. Encrypts authenticator secrets (AES-256-GCM) with a key that never sits in the database. Without it a key is made once and kept in the settings table; outside a deployment a fixed development key is used. Never change it once people have enrolled |
-| `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
+| `PRESHIFT_DATABASE_URL` | Neon Postgres connection string for Preshift Rota's own database. On Vercel, if unset, the `DATABASE_URL` from the project's Neon integration is used; elsewhere a generic `DATABASE_URL` is ignored. Unset means in-memory storage. Preshift Rota refuses any database that already holds another system's tables, and `/health` reports `database_not_dedicated` if so |
 | `PRESHIFT_DEMO` | `1` switches on the public demo alongside customers: a private sandbox per visitor from `/demo`, on a route allowlist, simulator payroll, wiped at midnight UK time. Unset is the kill switch. See the README |
 | `PRESHIFT_DEMO_CLAUDE_KEY` | Claude API key the demo sandboxes share for the rota assistant, capped per sandbox and per day. Never a customer's key. Unset means the assistant is off in the demo |
 | `PRESHIFT_PUSH_CONTACT` | Optional. The `mailto:` or `https:` contact push services are given with each staff app notification (VAPID). Defaults to `mailto:support@preshift.co.uk`. The VAPID key pair itself is made on first use and kept in the database |
@@ -35,7 +35,7 @@ locally. Set these to connect to real TeamPay:
 | `STRIPE_PRICE_ID` | The monthly Stripe price, graduated per site from `src/engine/pricing.ts`. Make it with `npm run stripe:prices`, which prints the value. The subscription's quantity is the organisation's site count |
 | `STRIPE_PRICE_ID_ANNUAL` | The yearly price made by the same script (two months free). Without it only monthly billing is offered |
 | `PRESHIFT_APP_URL` | Optional. The address Stripe returns people to after Checkout and the customer portal; defaults to the address they came in on |
-| `XERO_CLIENT_ID` | The Preshift app's client id from the Xero developer portal (a Web app). With the secret set, settings people can connect Xero on Close; without them only the simulated Xero is offered, in the demo and development |
+| `XERO_CLIENT_ID` | The Preshift Rota app's client id from the Xero developer portal (a Web app). With the secret set, settings people can connect Xero on Close; without them only the simulated Xero is offered, in the demo and development |
 | `XERO_CLIENT_SECRET` | The app's client secret |
 | `XERO_REDIRECT_URI` | Optional. Where Xero returns people: must match the redirect URI registered on the app exactly. Defaults to `PRESHIFT_APP_URL` followed by `/v1/integrations/xero/callback`, so one of the two must be set |
 | `XERO_SCOPES` | Optional. Defaults to `openid profile email offline_access accounting.transactions accounting.settings.read`. An app created under Xero's granular scopes sets the equivalents for manual journals, accounts and tracking |
@@ -96,7 +96,7 @@ outside production each seeded person has one (`dev-<userId>`) and the demo can 
 ## Plugging in: API keys
 
 The API is open to any system a customer wants to connect: an EPOS pushing sales, a BI tool reading
-labour, an in-house app, a partner product. Nobody at Preshift has to issue anything.
+labour, an in-house app, a partner product. Nobody at Preshift Rota has to issue anything.
 
 1. A person signed in with `settings.manage` (which needs their authenticator) opens Settings,
    API keys, names the key after the system that will use it and ticks what it may do. Each scope
@@ -181,9 +181,9 @@ Polling tells a partner too late. Webhooks tell it the moment something changes.
 - Settings shows events not yet delivered, with the error and a Retry now button. Send test
   posts a `webhook.test` event and reports what the endpoint answered.
 - Addresses must be public https. Private, link-local and cloud metadata addresses are refused, so
-  a webhook cannot be used to reach Preshift's own network. `http://localhost` is allowed outside
+  a webhook cannot be used to reach Preshift Rota's own network. `http://localhost` is allowed outside
   production for building a receiver on a laptop.
-- The public demo refuses keys and webhooks (anyone could otherwise make Preshift call any
+- The public demo refuses keys and webhooks (anyone could otherwise make Preshift Rota call any
   address); its API docs stay open.
 
 Webhook endpoints: `GET /v1/webhooks/events`, `GET/POST /v1/webhooks`, `PATCH/DELETE /v1/webhooks/:id`,
@@ -192,7 +192,7 @@ Webhook endpoints: `GET /v1/webhooks/events`, `GET/POST /v1/webhooks`, `PATCH/DE
 
 ## Plugging in: Claude and other MCP clients
 
-Preshift is also an MCP (Model Context Protocol) server, so Claude, or any assistant that speaks
+Preshift Rota is also an MCP (Model Context Protocol) server, so Claude, or any assistant that speaks
 MCP, can read the rota, cost and compliance and run the week in plain English: "what is labour
 at Marylebone next week against target", "build the group for the 26th and tell me what will
 not publish", "approve Friday's clocked time at the bar".
@@ -209,7 +209,7 @@ not publish", "approve Friday's clocked time at the bar".
   apply exactly as they would to the same key calling the API. `tools/list` shows only the tools
   the key may run, each marked read-only or not, and removing a shift is marked destructive so a
   client asks before it runs.
-- A refusal comes back as the tool's result with Preshift's reason (a compliance block, a missing
+- A refusal comes back as the tool's result with Preshift Rota's reason (a compliance block, a missing
   permission), so the model can put it right rather than fail. An unknown tool or method is a
   JSON-RPC error.
 - Each tool call is two requests against the key's 300 a minute: one to `/mcp`, one to the API.
@@ -238,20 +238,20 @@ not publish", "approve Friday's clocked time at the bar".
 Connecting Claude with a key, in Claude Code:
 
 ```bash
-claude mcp add --transport http preshift https://<your Preshift address>/mcp \
+claude mcp add --transport http preshift https://<your Preshift Rota address>/mcp \
   --header "Authorization: Bearer psk_..."
 ```
 
-### Sign in with Preshift (claude.ai)
+### Sign in with Preshift Rota (claude.ai)
 
 claude.ai connects with no key at all. Add a custom connector (Settings, Connectors) with the
-address `https://<your Preshift address>/mcp` and press Connect. Claude finds Preshift's sign-in
-on its own, opens it, and the person signs in to Preshift as they normally do. They then see
+address `https://<your Preshift Rota address>/mcp` and press Connect. Claude finds Preshift Rota's sign-in
+on its own, opens it, and the person signs in to Preshift Rota as they normally do. They then see
 every organisation they work in and what Claude will be able to do, tick the boxes, and Claude is
 connected. Claude Code and Claude Desktop use the same sign-in when added without a key header.
 
 One connection reaches every organisation the person ticked, so someone at Williams, Stanley & Co.
-who looks after twenty clients connects once, at the one Preshift address, not twenty times.
+who looks after twenty clients connects once, at the one Preshift Rota address, not twenty times.
 
 - The consent page lists each organisation where the person has an active access record, all
   ticked, and names the others with the reason they are left out (no access record, invitation
@@ -281,14 +281,14 @@ who looks after twenty clients connects once, at the one Preshift address, not t
   used twice ends the whole connection, as it means someone holds a copy. Codes last five
   minutes and work once, with their own verifier, for their own app and address.
 - A connection ends at once when the person disconnects it from Connected apps
-  (`/oauth/connections`, linked at the bottom left of Preshift, listing every connection with the
+  (`/oauth/connections`, linked at the bottom left of Preshift Rota, listing every connection with the
   organisations it reaches), when it is revoked, or when their password is reset.
 - Redirect addresses must be https, or http on `localhost` for desktop clients, and must match
   what the app registered exactly. A bad one is shown as an error, never followed.
 - Every connection and disconnection is in each organisation's audit trail (`oauth.connected`,
   `oauth.revoked`). Calls made through it are logged like any key's, as `oauth:<grant id>`.
 - Clients, codes and tokens are kept in the settings table, hashed, so nothing new needs setting
-  up. Set `PRESHIFT_PUBLIC_URL` if Preshift sits behind a proxy that changes the host name;
+  up. Set `PRESHIFT_PUBLIC_URL` if Preshift Rota sits behind a proxy that changes the host name;
   otherwise the address is taken from the request.
 
 Locally, `npm run dev` serves it at `http://localhost:8787/mcp` with `dev-key`. Add a tool in
@@ -346,7 +346,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Building aids | `GET/POST /v1/shift-types`, `DELETE /v1/shift-types/:id` (a site's saved shift patterns: times, unpaid break and an optional role), `GET/POST /v1/day-notes`, `PUT/DELETE /v1/day-notes/:id` (notes on a day at a site: a booking, event, closure, delivery or staffing note with an optional time; `team` shows it in the staff app beside the shifts that day and on the site kiosk; `weekly` repeats it on the same weekday, to `until` if given; a range lists a weekly note once from its first day) |
 | Rota | `GET /v1/rota/week`, `POST /v1/rota/build`, `/clear`, `/publish` (publish refuses blocking breaches). The week's `issues` include `young-midnight` (an under 18 between midnight and 04:00, blocking), `night-average` (a night worker opted out of the 48 hour week averaging over 8 hours in 24 across 17 weeks, each earlier week clocked time or else that week's rota, and from the first week on the pattern so far) and `night-health` (a night worker with no current health assessment offer). Shift times are minutes from midnight on the shift's date, up to 2880, so a finish the next morning is above 1440 |
 | Rest overrides | `GET /v1/rota/overrides`, `POST /v1/rota/overrides` with `{weekStart, key, reason}`, `DELETE /v1/rota/overrides/:id`. Daily and weekly rest breaches carry an `overrideKey`; a person with the right to publish the rota at the breach's site (never a system key) posts it with a reason of at least 15 characters, and the breach publishes as a warning naming them and their reason. The key covers that breach as it stood: moving either shift, or changing the days worked, makes a new breach that blocks again. Overrides and withdrawals go to the audit log, and each publish records the overrides it went out under. |
-| Forecast | `GET/PUT /v1/forecast` (Preshift Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=`. `GET /v1/forecast/accuracy/report?siteIds=a,b&week=&weeks=` (1 to 26, default 8) is the same over several sites and weeks, by the day so a site that only keys in daily takings is measured too: for each site and week, the days measured (a forecast and takings, before today), day error and, where the till sends hours, hourly error, bias, sales over and under forecast and the labour each implies at the site's own target, the days that were on the typical week alone, and days of the week wrong by 10% or more the same way across three weeks or more. Sites the caller cannot see are left out; none at all is 403. Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. `POST /v1/forecast/from-takings` `{siteId or siteIds, weekStart, replace?}` works the week out of each site's own takings: the same day 52 weeks back scaled by the last four weeks against the same weeks a year earlier (at least six matched days, a change between half and double), else the last six same weekdays with takings, the latest counting most and the highest and lowest dropped from five or more. Days with no takings count as closed. Hours split the day as the site's past forecasts for that weekday did, else a standard lunch and dinner curve; covers follow the site's own spend per head. Days already forecast are left alone unless `replace` is true; each day comes back with its basis, the takings days it used and a note |
+| Forecast | `GET/PUT /v1/forecast` (Preshift Rota Reports pushes hourly sales and covers here; a change to a modelled hour is kept as an override), `POST /v1/forecast/model` (baseline model for a site's week from till history; overridden hours keep their figure), `PATCH /v1/forecast/hour` (override one hour with a reason), `GET/POST /v1/forecast/adjustments`, `DELETE /v1/forecast/adjustments/:id` (weather, events, closures; a closure also closes the floor), `GET /v1/forecast/accuracy?siteId=&from=&to=`. `GET /v1/forecast/accuracy/report?siteIds=a,b&week=&weeks=` (1 to 26, default 8) is the same over several sites and weeks, by the day so a site that only keys in daily takings is measured too: for each site and week, the days measured (a forecast and takings, before today), day error and, where the till sends hours, hourly error, bias, sales over and under forecast and the labour each implies at the site's own target, the days that were on the typical week alone, and days of the week wrong by 10% or more the same way across three weeks or more. Sites the caller cannot see are left out; none at all is 403. Rows worked from a site's typical week carry `source: "profile"`; pushed rows never do, and always win. `POST /v1/rota/build` forecasts any week with no rows at all from the typical week first. `POST /v1/forecast/from-takings` `{siteId or siteIds, weekStart, replace?}` works the week out of each site's own takings: the same day 52 weeks back scaled by the last four weeks against the same weeks a year earlier (at least six matched days, a change between half and double), else the last six same weekdays with takings, the latest counting most and the highest and lowest dropped from five or more. Days with no takings count as closed. Hours split the day as the site's past forecasts for that weekday did, else a standard lunch and dinner curve; covers follow the site's own spend per head. Days already forecast are left alone unless `replace` is true; each day comes back with its basis, the takings days it used and a note |
 | Takings | `GET/PUT/DELETE /v1/sales` (a till or EPOS integration pushes each day's net takings per site; `PUT` adds or replaces by site and day, `DELETE ?siteId&date` removes one so reports fall back to the forecast) |
 | EPOS | `GET /v1/integrations/epos` (the connected till, which site takes which location, the last sync), `GET /v1/integrations/epos/locations`, `POST /v1/integrations/epos/sync` (`{from?, to?}`, defaults to the last seven finished days, at most 92 days; keeps days keyed in by hand). Connecting, matching and disconnecting need a signed-in person with settings.manage; syncing needs demand.manage at every matched site, the same right as keying takings in. |
 | Calendar | `GET /v1/calendar?siteId=&from=&to=` (occasions, events, weather by day, what the model applies and why, reminders), `GET /v1/reminders?siteIds=` (what is due now), `POST /v1/reminders` (`done`, `dismiss`, or `expect` with a factor, which becomes a forecast adjustment; a second answer replaces the first), `PUT /v1/sites/:id/location`, `POST /v1/outside/refresh` (weather, feeds and the forecast ahead, now), `GET /v1/weather`, `GET/POST /v1/event-feeds`, `DELETE /v1/event-feeds/:id` (past events are kept as history), `GET/POST /v1/local-events`, `DELETE /v1/local-events/:id` (hand-entered only) |
@@ -368,7 +368,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 | Pay periods | `GET /v1/pay-schedules` (each company's payrolls, people on each and the next six periods), `POST /v1/pay-schedules/preview` (`{schedule}`: problems, or the next twelve periods), `PUT /v1/entities/:id/pay-schedules` (`{schedules}`, settings.manage; `invalid_schedule`, `schedule_in_use`, `period_in_flight`; an empty list goes back to weekly), `PUT /v1/employees/:id/pay-schedule` (`{scheduleId}`, payroll.send), `GET /v1/pay-periods?date=&previous=` (the period each payroll is in, and up to 12 before, with status and cutoff), `GET /v1/pay-periods/:entityId/:scheduleId/:periodStart` (time cards and history), `POST .../lock-rota` (time.lock at every site the period reaches; nobody whose rota for a day in it is locked is offered an open shift that day, and `POST /v1/open-shifts` answers `rota_locked` when only locked people could take it), `POST .../unlock-rota` (`{reason}`; refused once passed), `POST .../approve` (`{employeeIds?}`, time.approve; needs the rota locked), `POST .../pass` (`{reason?}`, payroll.send; needs the period ended, the rota locked and every card approved; a second pass is a correction and needs a reason) |
 | Cut call | `GET /v1/cut-call?siteId=` (`costs.view` at the site) answers `{date, call, flash}` for now in London, on the trading day: at 00:20 for a site open until 03:00, `date` is the day before and the call reads that evening's trading; `call` is the trading pace, the reforecast day, `recommendations` (each with `newEnd`, `minutesSaved`, `saving` on the person's whole week, `compensation` deducted once short notice pay has started, else `wouldOwe`), `keptAtNoCost` and `short`; `flash` is labour so far and by close, as amounts and as a share of sales, with the cuts taken, and `headroom` against target. `POST /v1/cut-call/apply` (`rota.edit`; `{siteId, cuts: [{shiftId, endMinute, breakMinutes}]}`) applies early finishes for today only, all or none, keeps each shift published and tells the person at once (`rota_changed`); audited as `cutcall.applied`. The five minute scheduled run emails whoever publishes each trading site's rota once a day when the call is confident and saves at least £25 (`cutcall.alert_behind`), and once when pace is 115% or more with hours short (`cutcall.alert_ahead`) |
 | Employment rights | Employment Rights Act 2025 measures for zero and low hours workers (hourly, contracted below `lowHoursThreshold`). `GET /v1/employment-rights?siteId=` answers `{settings, assumptions, canEditSettings, canOffer, canWaive, shortNotice, totals: {owed, paid, wouldHaveCost, waived}, candidates, offers}`. `GET/PUT /v1/employment-rights/settings` (`lowHoursThreshold`, `referenceWeeks`, `compensationShare`, `shortNoticeHours`, `responseDays`, `shortNoticeFrom`, `guaranteedHoursFrom`; a start date of `null` clears it). The numbers are assumptions until the regulations are made, and nothing is owed until a start date is set: before then each figure is what it would cost. Short notice: after every write (except staff requests, the staff app and employee records, which are the worker's own requests or the end of the job), each published shift is compared with what it was; one cancelled, cut or moved inside `shortNoticeHours` of its start for a covered worker is logged against what they were first told, as `era.short_notice`, and an edit that gives the time back clears it. Owed pay goes to TeamPay with the next hours batch for the employing company as an `adjustment` (`reference` is the record id), accrued with its on-costs, and the record carries `sentIn`. `POST /v1/employment-rights/short-notice/:id/waive` (`{reason}`) before it is paid. Guaranteed hours: candidates are worked out on clocked hours over the reference weeks, `due` once the measure has started and a full period is in, and left out for a reference period after an offer unless it lapsed. `POST /v1/employment-rights/offers` (`{employeeId, offeredHours}`, more than their contract) records the offer and returns the letter; `POST /v1/employment-rights/offers/:id/response` (`{response: accepted\|declined}`) before `respondBy`; accepting raises contracted hours to the offer and queues the change for TeamPay. The rota week also carries a `wtr-average` warning when the week's rota takes a person's rolling 17 week average (clocked hours for the previous 16 weeks, any site) over 48 without an opt-out |
-| Linking existing TeamPay staff | `GET /v1/integrations/payroll/link?entityId=` (`payroll.view`: the company's TeamPay records beside its people, with suggested matches, held starters and links awaiting a decision), `POST /v1/employees/:id/payroll-link` `{payrollId, keep?: 'payroll' \| 'preshift'}` (`payroll.send`; also settles an existing link's differences. Pay follows the two-person rule: `keep: 'payroll'` raises TeamPay's pay as a pay change for finance to approve and the person's hours wait until then; `keep: 'preshift'` overrides what TeamPay pays, so it needs `pay.approve`; never on your own pay; a business with nobody else who can approve applies either at once), `POST /v1/employees/:id/payroll-new-starter` (confirms a held starter is not on TeamPay), `DELETE /v1/employees/:id/payroll-link` (only before any hours have gone to TeamPay under it). Before creating a starter the outbox reads the employer's TeamPay employees: Preshift's own reference or exactly one record with the same name and date of birth is linked, not created; a near match (same date of birth and surname, or same name) is held with reason `possible_match`, two exact matches with `ambiguous_match`. Differences are never overwritten either way: the person carries `payrollReview`, nothing is sent to TeamPay for them, their name, date of birth, pay and hours cannot be edited, and an hours batch including anyone with an undecided pay difference is refused with `payroll_review`. |
+| Linking existing TeamPay staff | `GET /v1/integrations/payroll/link?entityId=` (`payroll.view`: the company's TeamPay records beside its people, with suggested matches, held starters and links awaiting a decision), `POST /v1/employees/:id/payroll-link` `{payrollId, keep?: 'payroll' \| 'preshift'}` (`payroll.send`; also settles an existing link's differences. Pay follows the two-person rule: `keep: 'payroll'` raises TeamPay's pay as a pay change for finance to approve and the person's hours wait until then; `keep: 'preshift'` overrides what TeamPay pays, so it needs `pay.approve`; never on your own pay; a business with nobody else who can approve applies either at once), `POST /v1/employees/:id/payroll-new-starter` (confirms a held starter is not on TeamPay), `DELETE /v1/employees/:id/payroll-link` (only before any hours have gone to TeamPay under it). Before creating a starter the outbox reads the employer's TeamPay employees: Preshift Rota's own reference or exactly one record with the same name and date of birth is linked, not created; a near match (same date of birth and surname, or same name) is held with reason `possible_match`, two exact matches with `ambiguous_match`. Differences are never overwritten either way: the person carries `payrollReview`, nothing is sent to TeamPay for them, their name, date of birth, pay and hours cannot be edited, and an hours batch including anyone with an undecided pay difference is refused with `payroll_review`. |
 | Finance | `GET /v1/journal?weekStart=&basis=rota\|actual\|auto&format=json\|xero-csv` |
 | Appropriate policy document | `GET /v1/privacy/policy-documents` (with the register): each employing company's document for sickness and other health data and where it stands (`block` when sickness is held with none on record, `warn` when not reviewed, not signed or past review, else `ok`). `PUT /v1/privacy/policy-documents/:entityId` (privacy.manage, a person): `{title, url?, reviewedBy?, reviewedOn?, signedBy?, signedOn?, reviewDue?}`; a signature needs the director and the date, after the review. Review is due a year after signing unless set |
 | Inbound | `POST /v1/integrations/teampay/webhook/:orgId` (HMAC signed, no API key) |
@@ -384,14 +384,14 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 ```
 
 1. One person record. Starters, changes to pay fields and leavers are queued for TeamPay at
-   the moment they are saved. TeamPay returns its employee id, which Preshift stores.
+   the moment they are saved. TeamPay returns its employee id, which Preshift Rota stores.
 2. Payroll is paid from approved clocked time, never from the rota. Unapproved time blocks
    the submission.
 3. Every change goes through an outbox with an idempotency key. If TeamPay is down, the change
    waits and retries with backoff (up to 8 attempts); it is never lost and never sent twice.
    Failures stay visible with a retry button.
 4. A sent period locks. A correction is a new versioned submission that supersedes the last.
-5. When TeamPay completes the run it sends `payroll.run.completed`. Preshift fetches the run
+5. When TeamPay completes the run it sends `payroll.run.completed`. Preshift Rota fetches the run
    and reports the variance between what was accrued and what payroll cost, per person.
 6. Tronc stays in TeamPay Tronc and allocates from the same hours TeamPay receives.
 
@@ -400,7 +400,7 @@ rules live in `src/engine/access.ts`, which the API enforces and the browser run
 Each company sets the payrolls it runs (`entity.paySchedules`), and each person is paid on one of
 them (`employee.payScheduleId`, absent for the company's first). A company that sets none runs
 weekly, Monday to Sunday, paid the Friday after, with hours due by noon on the Tuesday: what
-Preshift did before calendars could be set.
+Preshift Rota did before calendars could be set.
 
 | Frequency | Settings | How the dates fall |
 | --- | --- | --- |
@@ -443,7 +443,7 @@ TeamPay employer and runs its own payroll. Every call to TeamPay names the emplo
 - Sending is all or nothing: if any company with hours has no TeamPay employer, nothing is sent
   (409 `payroll_employer_missing`). Starters for such a company fail in the outbox with the
   reason, and go through on retry once the employer is set.
-- A pay run webhook carries `employer_id`. Preshift matches it to the company and compares the
+- A pay run webhook carries `employer_id`. Preshift Rota matches it to the company and compares the
   run with that company's accrual only. A run for an employer no company is set up as is refused
   (422) and not marked processed, so TeamPay's retry succeeds once it is set.
 - Moving a person who is already in payroll to another company is refused (409
@@ -470,7 +470,7 @@ assumptions until checked against the API reference:
 - Header names for the employer (`x-teampay-employer`), idempotency (`idempotency-key`) and the
   webhook signature (`x-teampay-signature: sha256=<hex HMAC of the raw body>`).
 - How TeamPay treats a resubmitted hours batch for the same period (replace or add).
-- Pay schedules other than weekly. Preshift periods are weekly in this build.
+- Pay schedules other than weekly. Preshift Rota periods are weekly in this build.
 - That `POST /hours` accepts `sickness` (`employee_id`, `dates`, `qualifying_days_per_week`, `ssp_estimate`) and `adjustments` (`employee_id`, `amount`, `description`, `reference`, for back pay), and that a pay run returns `ssp` per person. Without `ssp` the pay run SSP check stays empty; without `adjustments`, back pay is keyed in TeamPay by hand.
 
 Because WS runs TeamPay, these can be settled in one working session: `docs/TEAMPAY_CONFIRMATION.md` is the agenda, with a live check to run against the sandbox. Change that file, run
@@ -631,7 +631,7 @@ net, not the main path.
 
 ## Before real client data
 
-- Give Preshift its own Neon project and set `PRESHIFT_DATABASE_URL`. Do not share a database
+- Give Preshift Rota its own Neon project and set `PRESHIFT_DATABASE_URL`. Do not share a database
   with the WS operations platform: the JV is a separate controller of its client data.
 - Per-organisation TeamPay credentials (the code already resolves the provider per org).
 - Staff authentication for the mobile app (clocking) alongside API keys for systems.

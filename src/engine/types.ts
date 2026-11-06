@@ -904,7 +904,7 @@ export interface StockCount {
   value: number;
 }
 
-/** A field where Preshift and the payroll record disagree. */
+/** A field where Preshift Rota and the payroll record disagree. */
 export interface PayrollDifference {
   field: 'name' | 'dateOfBirth' | 'payBasis' | 'hourlyRate' | 'annualSalary' | 'contractedHours';
   label: string;

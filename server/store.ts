@@ -834,7 +834,7 @@ export class PgStore implements Store {
 
   private init() {
     this.ready ??= (async () => {
-      // Interlock: Preshift only ever runs in a database of its own. If this one already holds
+      // Interlock: Preshift Rota only ever runs in a database of its own. If this one already holds
       // another system's tables, refuse to touch it rather than write the JV's data alongside them.
       const foreign = await this.query(
         `select count(*)::int as n from information_schema.tables
@@ -845,7 +845,7 @@ export class PgStore implements Store {
         throw new HttpError(
           503,
           'database_not_dedicated',
-          'This database already belongs to another system, so Preshift will not use it. Give Preshift its own Neon database.',
+          'This database already belongs to another system, so Preshift Rota will not use it. Give Preshift Rota its own Neon database.',
         );
       }
       await this.query('create schema if not exists preshift', []);
@@ -958,7 +958,7 @@ export class PgStore implements Store {
     org.version = Number(rows[0].version);
   }
 
-  /** Whether the database is reachable and Preshift's own; for the health check. */
+  /** Whether the database is reachable and Preshift Rota's own; for the health check. */
   async status(): Promise<'ok' | string> {
     try {
       await this.init();

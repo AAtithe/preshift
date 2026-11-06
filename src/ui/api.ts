@@ -1,4 +1,4 @@
-// The web app is a client of the public Preshift API, with no private back door.
+// The web app is a client of the public Preshift Rota API, with no private back door.
 // It authenticates with the sign-in session cookie and carries no key, locally as well as live.
 // One exception, in development builds only: someone may choose to act as a demo person, and then
 // that person's demo key is sent instead, until they go back to their own sign-in.
@@ -48,7 +48,7 @@ const UPLOAD_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'
 
 /** Longest the app waits, unasked, for the server to take requests again. */
 const RETRY_CAP_SECONDS = 30;
-export const BUSY = 'Preshift is busy for a moment. Wait a few seconds, then try again.';
+export const BUSY = 'Preshift Rota is busy for a moment. Wait a few seconds, then try again.';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const raw = body instanceof Blob;

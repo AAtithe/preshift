@@ -53,7 +53,7 @@ export function rotaJournal(
   accounts: JournalAccounts = DEFAULT_ACCOUNTS,
 ): JournalLine[] {
   const date = addDays(weekStartDate, 6);
-  const narration = `Preshift labour accrual w/e ${date}`;
+  const narration = `Preshift Rota labour accrual w/e ${date}`;
   const lines: JournalLine[] = [];
   const entityOf = (id: string) => state.entities.find((e) => e.id === id);
 

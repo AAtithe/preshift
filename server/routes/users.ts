@@ -156,7 +156,7 @@ async function deliver(store: Store, org: OrgData, path: string, mail: (link: st
 /** Sends an invitation link to the person invited, naming who invited them and the role they start with. */
 async function sendInvite(store: Store, org: OrgData, actor: Actor, user: User, link: { path: string; expiresAt: string }, handOver = false, emailOnly = false) {
   const role = roleOf(user.memberships.find((m) => m.active)?.roleId ?? '')?.name ?? 'a member of the team';
-  // Someone who already signs in to Preshift accepts with their own password, not a new one.
+  // Someone who already signs in to Preshift Rota accepts with their own password, not a new one.
   const existing = !!(await store.getUser(user.email));
   const sent = await deliver(store, org, link.path, (url) => inviteEmail(user.email, user.name, nameOf(actor), role, url, INVITE_DAYS, existing), { kind: 'invite', userId: user.id, by: nameOf(actor) }, handOver, emailOnly);
   return { expiresAt: link.expiresAt, ...sent };

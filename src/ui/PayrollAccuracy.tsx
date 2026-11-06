@@ -108,7 +108,7 @@ export function PayrollAccuracy({ state, entityIds, scopeName }: Props) {
         <div className="grid-wrap report-block">
           <div className="entity-journal-head">
             <h3>Missed the same way more than once</h3>
-            <span className="muted small">A one-off miss is a late clock-out. The same miss every week is a rate, a contract or a pension setting that differs between Preshift and payroll. Fix the record.</span>
+            <span className="muted small">A one-off miss is a late clock-out. The same miss every week is a rate, a contract or a pension setting that differs between Preshift Rota and payroll. Fix the record.</span>
           </div>
           <table className="table">
             <thead>

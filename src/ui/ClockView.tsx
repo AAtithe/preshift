@@ -39,7 +39,7 @@ interface NdefReaderLike {
 }
 const NdefReader = (globalThis as unknown as { NDEFReader?: new () => NdefReaderLike }).NDEFReader;
 
-const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not reach Preshift. Check the connection and try again.');
+const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not reach Preshift Rota. Check the connection and try again.');
 
 /**
  * The shift sign-in screen. Runs on a tablet at the site's entrance: staff tap an RFID card on a
@@ -275,7 +275,7 @@ export function ClockView({ state, siteId, today, onSetGeofence, onSetBadge, can
           <span>
             {site.geofence
               ? `Set: ${site.geofence.radiusMetres} m round ${site.geofence.lat.toFixed(5)}, ${site.geofence.lng.toFixed(5)}`
-              : 'Not set. Anyone signed in to Preshift can clock staff in by name from anywhere.'}
+              : 'Not set. Anyone signed in to Preshift Rota can clock staff in by name from anywhere.'}
           </span>
           <label className="small muted">
             Radius{' '}

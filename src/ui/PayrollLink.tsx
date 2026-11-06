@@ -84,7 +84,7 @@ export function PayrollLink({ state, entityId, canLink, onChanged }: Props) {
   const link = (p: Person, payrollId: string, keep?: 'payroll' | 'preshift') =>
     act(`${p.name} linked.`, () => api.post(`/v1/employees/${p.employeeId}/payroll-link`, { payrollId, ...(keep ? { keep } : {}) }));
   const settle = (p: Person, keep: 'payroll' | 'preshift') =>
-    act(`${p.name}: ${keep === 'payroll' ? "TeamPay's details taken into Preshift" : "Preshift's details sent to TeamPay"}.`, () =>
+    act(`${p.name}: ${keep === 'payroll' ? "TeamPay's details taken into Preshift Rota" : "Preshift Rota's details sent to TeamPay"}.`, () =>
       api.post(`/v1/employees/${p.employeeId}/payroll-link`, { payrollId: p.payrollId, keep }),
     );
   const confirmNew = (p: Person) =>
@@ -113,9 +113,9 @@ export function PayrollLink({ state, entityId, canLink, onChanged }: Props) {
         <>
           <h3 className="section-title">Needs a decision ({review.length})</h3>
           <p className="small">
-            Linked, but Preshift and TeamPay disagree. Nothing is sent to TeamPay for them, and their hours wait, until it is
+            Linked, but Preshift Rota and TeamPay disagree. Nothing is sent to TeamPay for them, and their hours wait, until it is
             settled. Pay follows the two-person rule: choosing TeamPay's pay sends it to finance as a pay change to approve, and
-            sending Preshift's pay over what TeamPay pays is finance's own decision.
+            sending Preshift Rota's pay over what TeamPay pays is finance's own decision.
           </p>
           {review.map((p) => (
             <div key={p.employeeId} className="link-card">
@@ -128,7 +128,7 @@ export function PayrollLink({ state, entityId, canLink, onChanged }: Props) {
               )}
               <div className="row-actions">
                 <button disabled={busy || !canLink || !!p.pendingPay} onClick={() => void settle(p, 'payroll')}>TeamPay is right</button>
-                <button disabled={busy || !canLink} onClick={() => void settle(p, 'preshift')}>Preshift is right</button>
+                <button disabled={busy || !canLink} onClick={() => void settle(p, 'preshift')}>Preshift Rota is right</button>
                 <button className="link" disabled={busy || !canLink} onClick={() => void unlink(p)}>Wrong person, unlink</button>
               </div>
             </div>
@@ -217,7 +217,7 @@ export function PayrollLink({ state, entityId, canLink, onChanged }: Props) {
 function Differences({ diffs }: { diffs: PayrollDifference[] }) {
   return (
     <table className="table compact">
-      <thead><tr><th /><th>Preshift</th><th>TeamPay</th></tr></thead>
+      <thead><tr><th /><th>Preshift Rota</th><th>TeamPay</th></tr></thead>
       <tbody>
         {diffs.map((d) => (
           <tr key={d.field}>
@@ -243,7 +243,7 @@ function LinkChoice({ diffs, busy, canLink, onLink }: {
         <Differences diffs={diffs} />
         <div className="row-actions">
           <button className="primary" disabled={busy || !canLink} onClick={() => void onLink('payroll')}>Link, TeamPay is right</button>
-          <button disabled={busy || !canLink} onClick={() => void onLink('preshift')}>Link, Preshift is right</button>
+          <button disabled={busy || !canLink} onClick={() => void onLink('preshift')}>Link, Preshift Rota is right</button>
         </div>
       </>
     );

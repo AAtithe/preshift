@@ -18,7 +18,7 @@ import { summarise } from './clients';
 // - Every customer at once breaks the rule that a person sees only the organisations they work in, so
 //   it is one permission (customers.view), on one role (WS customer operations), with an authenticator,
 //   and only counted in the system's own organisation, the first one, where Williams, Stanley & Co.
-//   runs Preshift. The role granted anywhere else shows nothing: no client can grant itself a view of
+//   runs Preshift Rota. The role granted anywhere else shows nothing: no client can grant itself a view of
 //   every other client. Never an API key.
 // - Counts and billing standing only. The owner's name and email, so someone can call them; never a
 //   customer's staff, pay or personnel data.
@@ -170,7 +170,7 @@ export function customerRoutes(app: FastifyInstance, ctx: AppContext, options: {
     if (g.actor.kind !== 'user') throw new HttpError(403, 'forbidden', 'Customers are listed for WS customer operations only.');
     g.allow('customers.view');
     if (also) g.allow(also);
-    if (org.orgId !== FIRST_ORG) throw new HttpError(403, 'forbidden', 'Customers are listed only in the organisation that runs Preshift. Switch to it first.');
+    if (org.orgId !== FIRST_ORG) throw new HttpError(403, 'forbidden', 'Customers are listed only in the organisation that runs Preshift Rota. Switch to it first.');
     return g.actor.user.name;
   }
 

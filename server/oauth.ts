@@ -1,4 +1,4 @@
-// Sign in with Preshift for Claude and other MCP clients: OAuth 2.1 with PKCE, dynamic client
+// Sign in with Preshift Rota for Claude and other MCP clients: OAuth 2.1 with PKCE, dynamic client
 // registration, and the discovery documents the MCP authorisation spec asks for. claude.ai finds
 // all of it from the connector's address alone, so nobody copies a key anywhere.
 //
@@ -191,7 +191,7 @@ export async function oauthPrincipal(bearer: string, store: UserStore, asked?: s
   };
 }
 
-/** The address people reach Preshift on, for the discovery documents and the issuer. */
+/** The address people reach Preshift Rota on, for the discovery documents and the issuer. */
 export function baseUrl(req: FastifyRequest, env: NodeJS.ProcessEnv = process.env) {
   if (env.PRESHIFT_PUBLIC_URL) return env.PRESHIFT_PUBLIC_URL.replace(/\/+$/, '');
   const proto = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https' ? 'https' : 'http';
@@ -272,7 +272,7 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
       authorization_servers: [baseUrl(req)],
       scopes_supported: OAUTH_SCOPES,
       bearer_methods_supported: ['header'],
-      resource_name: 'Preshift',
+      resource_name: 'Preshift Rota',
     });
   app.get('/.well-known/oauth-protected-resource', hidden, resourceDoc);
   app.get('/.well-known/oauth-protected-resource/mcp', hidden, resourceDoc);
@@ -327,7 +327,7 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
    */
   async function check(p: AuthorizeParams): Promise<{ client: OAuthClient; scopes: Scope[] } | { problem: string } | { redirectError: string; client: OAuthClient }> {
     const client = p.client_id ? await readJson<OAuthClient>(store, key.client(p.client_id)) : null;
-    if (!client) return { problem: 'This app is not registered with Preshift. Remove the connector and add it again.' };
+    if (!client) return { problem: 'This app is not registered with Preshift Rota. Remove the connector and add it again.' };
     if (!p.redirect_uri || !client.redirectUris.includes(p.redirect_uri)) return { problem: 'This app asked to return to an address it did not register.' };
     if (p.response_type !== 'code') return { redirectError: 'unsupported_response_type', client };
     if (p.code_challenge_method !== 'S256' || !p.code_challenge || !PKCE.test(p.code_challenge)) return { redirectError: 'invalid_request', client };
@@ -400,10 +400,10 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
     return html(
       reply,
       200,
-      'Connect to Preshift',
-      `<h1>Connect ${escape(checked.client.name)} to Preshift</h1>
+      'Connect to Preshift Rota',
+      `<h1>Connect ${escape(checked.client.name)} to Preshift Rota</h1>
 <p>${escape(checked.client.name)} will act as you in each organisation you tick. In each it can only do what you can do there, at the sites you can do it, and only what you allow below.</p>
-<p class="quiet">It will return to ${escape(host)}. Approving pay, payroll, personnel files and settings stay in Preshift itself. Disconnect at any time from Connected apps, at the bottom left of Preshift.</p>
+<p class="quiet">It will return to ${escape(host)}. Approving pay, payroll, personnel files and settings stay in Preshift Rota itself. Disconnect at any time from Connected apps, at the bottom left of Preshift Rota.</p>
 <form method="post" action="/oauth/authorize">${hiddenFields}
 <h2 style="font-size:15px;margin:16px 0 4px">Organisations</h2>${orgBoxes}${notOffered}
 <h2 style="font-size:15px;margin:16px 0 4px">What it may do</h2>${boxes}
@@ -412,7 +412,7 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
   });
 
   app.post<{ Body: AuthorizeParams & Record<string, string> }>('/oauth/authorize', hidden, async (req, reply) => {
-    if (!sameSite(req)) return html(reply, 403, 'Cannot connect', '<h1>Cannot connect</h1><p>Approve from the Preshift page itself.</p>');
+    if (!sameSite(req)) return html(reply, 403, 'Cannot connect', '<h1>Cannot connect</h1><p>Approve from the Preshift Rota page itself.</p>');
     const p = req.body ?? {};
     // The scopes come from the boxes ticked, never from the original request.
     const ticked = OAUTH_SCOPES.filter((s) => p[`tick:${s}`] === '1');
@@ -491,14 +491,14 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
         // A refresh token used twice means it was copied: end the whole grant, as OAuth 2.1 advises.
         const used = await store.getSetting(key.refreshUsed(h));
         const reused = used ? await readJson<OAuthGrant>(store, key.grant(used.split(':')[0])) : null;
-        if (reused) await revokeGrant(store, reused, 'Preshift (refresh token reused)');
+        if (reused) await revokeGrant(store, reused, 'Preshift Rota (refresh token reused)');
         return tokenError(reply, 'invalid_grant', 'That refresh token is unknown, used or expired.');
       }
       const g = await readJson<OAuthGrant>(store, key.grant(grantId));
       if (!g || g.revokedAt || g.refreshHash !== h || g.refreshExpiresAt <= nowSeconds()) return tokenError(reply, 'invalid_grant', 'That refresh token is unknown, used or expired.');
       if (b.client_id && b.client_id !== g.clientId) return tokenError(reply, 'invalid_grant', 'That refresh token belongs to another app.');
       const account = await accountOf(store, g);
-      if (!account || !grantOrgs(g).some((o) => orgsOfAccount(account).includes(o.orgId))) return tokenError(reply, 'invalid_grant', 'Sign in to Preshift again.');
+      if (!account || !grantOrgs(g).some((o) => orgsOfAccount(account).includes(o.orgId))) return tokenError(reply, 'invalid_grant', 'Sign in to Preshift Rota again.');
       if (!(await claimOnce(store, key.refreshUsed(h), g.id))) return tokenError(reply, 'invalid_grant', 'That refresh token is unknown, used or expired.');
       // A narrower set may be asked for on refresh, never a wider one.
       if (b.scope) {
@@ -541,12 +541,12 @@ export function oauthRoutes(app: FastifyInstance, store: Store) {
       reply,
       200,
       'Connected apps',
-      `<h1>Connected apps</h1><p>Apps you have let act as you, in every organisation you work in. Disconnecting stops them at once, everywhere.</p>${rows ? `<table>${rows}</table>` : '<p class="quiet">None yet. To connect Claude, add this Preshift address followed by /mcp as a custom connector in Claude.</p>'}<p class="quiet" style="margin-top:20px"><a href="/app/" style="color:inherit">Back to Preshift</a></p>`,
+      `<h1>Connected apps</h1><p>Apps you have let act as you, in every organisation you work in. Disconnecting stops them at once, everywhere.</p>${rows ? `<table>${rows}</table>` : '<p class="quiet">None yet. To connect Claude, add this Preshift Rota address followed by /mcp as a custom connector in Claude.</p>'}<p class="quiet" style="margin-top:20px"><a href="/app/" style="color:inherit">Back to Preshift Rota</a></p>`,
     );
   });
 
   app.post<{ Params: { id: string } }>('/oauth/connections/:id/revoke', hidden, async (req, reply) => {
-    if (!sameSite(req)) return html(reply, 403, 'Refused', '<h1>Refused</h1><p>Disconnect from the Preshift page itself.</p>');
+    if (!sameSite(req)) return html(reply, 403, 'Refused', '<h1>Refused</h1><p>Disconnect from the Preshift Rota page itself.</p>');
     const me = await who(req);
     if (!me) return reply.code(302).header('location', '/login').send();
     const g = await readJson<OAuthGrant>(store, key.grant(req.params.id));

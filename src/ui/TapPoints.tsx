@@ -42,7 +42,7 @@ export function TapPoints({ siteId, siteName }: { siteId: string; siteName: stri
     try {
       await fn();
     } catch (e) {
-      setMessage(e instanceof ApiError ? e.message : 'Could not reach Preshift. Try again.');
+      setMessage(e instanceof ApiError ? e.message : 'Could not reach Preshift Rota. Try again.');
     } finally {
       setBusy(false);
     }

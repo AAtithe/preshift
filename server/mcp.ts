@@ -1,4 +1,4 @@
-// The Preshift MCP connector: lets Claude, or any Model Context Protocol client, read and run
+// The Preshift Rota MCP connector: lets Claude, or any Model Context Protocol client, read and run
 // the rota through the same public API a partner uses. Served at POST /mcp as stateless
 // Streamable HTTP (JSON responses, no event stream), so it runs unchanged on Vercel.
 //
@@ -18,7 +18,7 @@ export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER_INFO = { name: 'preshift', title: 'Preshift Rota', version: '1.0.0' };
 
 const INSTRUCTIONS =
-  'Preshift is the rota, time and payroll system for UK hospitality run with Williams, Stanley & Co. ' +
+  'Preshift Rota is the rota, time and payroll system for UK hospitality run with Williams, Stanley & Co. ' +
   'One connection can reach several organisations (a person at Williams, Stanley & Co. works across many clients): ' +
   'call list_organisations first, and pass organisation on every other tool whenever it lists more than one. ' +
   'Then use list_sites and list_roles to learn the ids. Weeks start on Monday: pass weekStart as that Monday (YYYY-MM-DD). ' +
@@ -334,7 +334,7 @@ async function callTool(app: FastifyInstance, store: Store, req: FastifyRequest,
   const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
   return {
     result: {
-      content: [{ type: 'text', text: isError ? `Preshift refused (${res.statusCode}): ${text}` : text }],
+      content: [{ type: 'text', text: isError ? `Preshift Rota refused (${res.statusCode}): ${text}` : text }],
       ...(data && typeof data === 'object' && !Array.isArray(data) && !isError ? { structuredContent: data } : {}),
       isError,
     },
@@ -393,7 +393,7 @@ export function mcpRoutes(app: FastifyInstance, store: Store, auth: (req: Fastif
     if (!sameOrigin(req)) return reply.code(403).send({ error: 'forbidden', message: 'Cross-origin requests to the connector are refused' });
   };
 
-  // A 401 names the discovery document, so claude.ai can find Sign in with Preshift on its own.
+  // A 401 names the discovery document, so claude.ai can find Sign in with Preshift Rota on its own.
   const challenge = async (req: FastifyRequest, reply: FastifyReply, payload: unknown) => {
     if (reply.statusCode === 401) reply.header('www-authenticate', `Bearer resource_metadata="${resourceMetadataUrl(req)}"`);
     return payload;
@@ -417,7 +417,7 @@ export function mcpRoutes(app: FastifyInstance, store: Store, auth: (req: Fastif
 
   // Stateless: no server-sent event stream and no session to end.
   const notHere = async (_req: FastifyRequest, reply: FastifyReply) =>
-    reply.code(405).header('allow', 'POST').send({ error: 'method_not_allowed', message: 'The Preshift connector answers POST only' });
+    reply.code(405).header('allow', 'POST').send({ error: 'method_not_allowed', message: 'The Preshift Rota connector answers POST only' });
   app.get('/mcp', hidden, notHere);
   app.delete('/mcp', hidden, notHere);
 }

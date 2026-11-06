@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryStore } from './store';
 import { account, kit, TODAY, type Kit } from './testkit';
 
-// Sign in with Preshift for claude.ai: discovery, registration, consent, tokens, and every way a
+// Sign in with Preshift Rota for claude.ai: discovery, registration, consent, tokens, and every way a
 // connection ends. A token acts as its person, so their sites and roles decide what it can do.
 
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
@@ -43,7 +43,7 @@ const mcp = (k: Kit, bearer: string, method: string, params?: unknown) =>
     payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method, ...(params ? { params } : {}) }),
   });
 
-describe('Sign in with Preshift', () => {
+describe('Sign in with Preshift Rota', () => {
   it('is found from the connector address alone', async () => {
     const k = await kit();
     const nobody = await k.app.inject({ method: 'POST', url: '/mcp', headers: { host: 'rota.example', 'content-type': 'application/json' }, payload: '{}' });
@@ -73,7 +73,7 @@ describe('Sign in with Preshift', () => {
     expect(out.headers.location).toBe(`/login?next=${encodeURIComponent(url)}`);
     const page = await k.app.inject({ method: 'GET', url, headers: { cookie: await k.as(PRIYA) } });
     expect(page.statusCode).toBe(200);
-    expect(page.body).toContain('Connect Claude to Preshift');
+    expect(page.body).toContain('Connect Claude to Preshift Rota');
     expect(page.body).toContain('name="tick:rota:read" value="1" checked');
     expect(page.body).not.toContain('name="tick:rota:write" value="1" checked');
   });

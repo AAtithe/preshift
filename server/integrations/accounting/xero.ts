@@ -8,7 +8,7 @@ const AUTHORIZE = 'https://login.xero.com/identity/connect/authorize';
 const API = 'https://api.xero.com';
 
 /**
- * What Preshift asks Xero for: to sign the person in, to stay connected without asking again
+ * What Preshift Rota asks Xero for: to sign the person in, to stay connected without asking again
  * (offline_access), to post manual journals, and to read the chart of accounts and tracking it checks
  * them against. Apps created under Xero's granular scopes set XERO_SCOPES to the equivalents.
  */

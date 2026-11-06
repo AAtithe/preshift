@@ -1,4 +1,4 @@
-// What Preshift costs, in one place. The Billing page, Stripe Checkout, the script that creates the
+// What Preshift Rota costs, in one place. The Billing page, Stripe Checkout, the script that creates the
 // Stripe prices (scripts/stripe-prices.ts) and the marketing site's pricing section all read these
 // figures; server/pricing.test.ts fails if the site's copy drifts from them.
 //

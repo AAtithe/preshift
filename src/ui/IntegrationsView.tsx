@@ -6,7 +6,7 @@ import type { Account } from './SettingsView';
 import { describeRewardsSync, type RewardsStatus } from './WelfareSettings';
 import type { XeroStatus } from './XeroPanel';
 
-// One page that answers "what is Preshift connected to, and is each connection healthy".
+// One page that answers "what is Preshift Rota connected to, and is each connection healthy".
 // Nothing is configured here: each card reads live status and points to where the setting lives.
 
 interface PayrollStatus {
@@ -37,9 +37,9 @@ const HEALTH_LABEL: Record<Health, string> = {
 
 export type IntegrationTarget = 'payroll' | 'close' | 'clock' | 'settings' | 'welfare';
 
-// Connections Preshift does not have yet. Each card says what manual step it would remove.
+// Connections Preshift Rota does not have yet. Each card says what manual step it would remove.
 const REQUEST = (name: string) =>
-  `mailto:hello@preshift.co.uk?subject=${encodeURIComponent(`Preshift integration: ${name}`)}`;
+  `mailto:hello@preshift.co.uk?subject=${encodeURIComponent(`Preshift Rota integration: ${name}`)}`;
 
 interface Props {
   state: RotaState;
@@ -143,7 +143,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
   return (
     <div className="integrations">
       <p className="muted small integrations-lede">
-        Everything Preshift exchanges data with, and whether each connection is working. Labour should reach payroll and the ledger
+        Everything Preshift Rota exchanges data with, and whether each connection is working. Labour should reach payroll and the ledger
         without anyone re-keying it; any card not showing Connected is a step someone is still doing by hand.
       </p>
       <div className="integrations-summary">
@@ -346,7 +346,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         >
           <dl className="facts">
             <dt>Today</dt>
-            <dd>Any ATS can create starters through the Preshift API</dd>
+            <dd>Any ATS can create starters through the Preshift Rota API</dd>
           </dl>
         </Card>
 
@@ -455,7 +455,7 @@ export function IntegrationsView({ state, account, canSettings, today, onOpen }:
         </Card>
 
         <Card
-          name="Preshift API"
+          name="Preshift Rota API"
           kind="Build your own"
           health={null}
           purpose="The open REST API the web app itself runs on. Anything this app does, an EPOS, BI tool or in-house system can do too, and webhooks tell it the moment a rota is published, a starter is added or hours are approved."

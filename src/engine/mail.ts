@@ -1,4 +1,4 @@
-// What became of an email Preshift sent, as the People list carries it, and what that asks of
+// What became of an email Preshift Rota sent, as the People list carries it, and what that asks of
 // whoever manages access. Shared by the API and the browser, so the overview and the server agree.
 
 import { ukDate, type Attention, type User } from './access';
@@ -11,7 +11,7 @@ export interface MailView {
   to: string;
   kind: MailKind;
   userId?: string;
-  /** A staff app invitation names the employee, who has no Preshift account. */
+  /** A staff app invitation names the employee, who has no Preshift Rota account. */
   employeeId?: string;
   sentAt: string;
   by: string;

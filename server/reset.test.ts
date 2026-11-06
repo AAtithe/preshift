@@ -11,7 +11,7 @@ import { codeAt, stepAt } from './totp';
 
 const OWNER = { email: 'owner@ws.example', password: 'correct horse battery' };
 const MEMBER = { email: 'gm@ws.example', password: 'members own password' };
-const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' };
 
 function pglite(): Query {
   const db = new PGlite();
@@ -389,7 +389,7 @@ describe('what became of each email', () => {
     expect((await t.report(once)).json().recorded).toBe(true);
     expect((await t.report(once)).json().recorded).toBe(false);
     expect((await t.call('GET', `/v1/access/emails?userId=${ama.id}`, t.owner)).json()[0].status).toBe('delayed');
-    // Emails Preshift never sent, and events it does not track, are acknowledged and ignored.
+    // Emails Preshift Rota never sent, and events it does not track, are acknowledged and ignored.
     expect((await t.report(signed('email.delivered', 'not-ours'))).json()).toEqual({ ok: true, recorded: false });
     expect((await t.report(signed('email.opened', emailId))).json()).toEqual({ ok: true, recorded: false });
   });

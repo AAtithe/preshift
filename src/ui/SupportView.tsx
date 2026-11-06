@@ -370,7 +370,7 @@ function Library({ onOpen }: { onOpen: (tab: string) => void }) {
   return (
     <section className="settings-card">
       <h2>Help library</h2>
-      <p className="muted small">The questions operators ask most, and where in Preshift each one is fixed.</p>
+      <p className="muted small">The questions operators ask most, and where in Preshift Rota each one is fixed.</p>
       <div className="settings-form">
         <label>
           Search

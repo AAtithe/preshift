@@ -1,6 +1,6 @@
 import type { PayRunEmployee, PayrollHoursBatch } from '../../../src/engine/timesheet';
 
-/** What Preshift sends payroll about a person. Payroll owns tax codes, NI numbers and bank details. */
+/** What Preshift Rota sends payroll about a person. Payroll owns tax codes, NI numbers and bank details. */
 export interface PayrollEmployee {
   externalRef: string; // our employee id
   name: string;
@@ -15,10 +15,10 @@ export interface PayrollEmployee {
   startDate?: string;
 }
 
-/** A person as the payroll holds them, for matching to Preshift's own records. */
+/** A person as the payroll holds them, for matching to Preshift Rota's own records. */
 export interface PayrollRecord {
   payrollId: string;
-  /** Preshift's employee id, when Preshift created the record. */
+  /** Preshift Rota's employee id, when Preshift Rota created the record. */
   externalRef?: string;
   name: string;
   dateOfBirth?: string;
@@ -42,7 +42,7 @@ export interface PayRun {
 
 /**
  * A payslip or P60 as the payroll holds it, for the person's own phone. Fetched when they ask and
- * never stored by Preshift: the payroll is where pay records live.
+ * never stored by Preshift Rota: the payroll is where pay records live.
  */
 export interface PayDocument {
   id: string;
@@ -65,7 +65,7 @@ export interface PayDocument {
 }
 
 /**
- * The contract between Preshift and a payroll. TeamPay is the native
+ * The contract between Preshift Rota and a payroll. TeamPay is the native
  * implementation; anything else (BrightPay, Staffology) would implement the
  * same interface, so nothing above this line knows which payroll it talks to.
  */

@@ -9,7 +9,7 @@ import { isSandbox } from '../sandbox';
 import { audit } from '../store';
 import { backToLogin, EMAIL, FIRST_ORG, newAccount, normalise, signIn } from './access';
 
-// Self sign-up: a business starts a free trial without anyone at Preshift or Williams, Stanley & Co.
+// Self sign-up: a business starts a free trial without anyone at Preshift Rota or Williams, Stanley & Co.
 // setting it up. It makes a new, empty organisation with the person as its owner, on a trial that
 // Billing then turns into a subscription.
 //

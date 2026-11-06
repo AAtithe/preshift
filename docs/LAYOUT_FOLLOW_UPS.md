@@ -41,9 +41,9 @@ All fixed on 27 October 2026. The changes are noted on each item.
 - [x] **"Build the empty days" does more than it says.** It fills every short hour in the rest of the week, including days that already have shifts. On Marylebone it added Tuesday shifts as well as the empty days.
   - Fix: either rename the button "Build the rest of the week", or add a build for one day and use that.
   - Done: the button is now "Build the week from the forecast", which is what it does.
-- [x] **Rate-limit screen.** Reloading quickly locks the app on "Cannot reach Preshift: Slow down: this key has made more than 300 requests this minute". That is developer wording and a dead end. A demo role trips it after about 15 reloads, because each load makes about 20 API calls.
+- [x] **Rate-limit screen.** Reloading quickly locks the app on "Cannot reach Preshift Rota: Slow down: this key has made more than 300 requests this minute". That is developer wording and a dead end. A demo role trips it after about 15 reloads, because each load makes about 20 API calls.
   - Done when: the message is plain English and the app retries by itself after the wait the server gives.
-  - Done: the app waits the time the server names (up to 30 seconds) and asks once more. A second refusal reads "Preshift is busy for a moment. Wait a few seconds, then try again."
+  - Done: the app waits the time the server names (up to 30 seconds) and asks once more. A second refusal reads "Preshift Rota is busy for a moment. Wait a few seconds, then try again."
 - [x] **Unfilled gaps sit outside the decisions.** After a build, "7 gaps could not be filled legally" shows as a separate red card above the decisions bar.
   - Fix: make it a decision ("7 hours cannot be filled legally: hire or cross-train") and remove the separate card.
   - Done: on one site's rota they are a decision, ranked after the empty days, with Dismiss, and the days are tagged on the timeline. The separate card still shows on Sites, where the bar does not.
@@ -66,9 +66,9 @@ All fixed on 27 October 2026. The changes are noted on each item.
 
 All done on 28 October 2026. The changes are noted on each item.
 
-- [x] **Two AI entry points.** The Tell Preshift bar and the Shifty button both sit fixed at the foot of every screen and cover content. On a phone they take about 130px.
+- [x] **Two AI entry points.** The Tell Preshift Rota bar and the Shifty button both sit fixed at the foot of every screen and cover content. On a phone they take about 130px.
   - Fix: merge them into one "Ask Shifty" button, with Ctrl K opening it.
-  - Done: the Tell Preshift bar is gone. Ask Shifty, in the bottom right, takes questions and things to do, every change as a card to confirm. Ctrl K (Cmd K on a Mac) opens it from anywhere, and Escape closes it. The How to guide says so.
+  - Done: the Tell Preshift Rota bar is gone. Ask Shifty, in the bottom right, takes questions and things to do, every change as a card to confirm. Ctrl K (Cmd K on a Mac) opens it from anywhere, and Escape closes it. The How to guide says so.
 - [x] **Two banners on every screen.** "You are looking at the sample group" and "Coming up" are two cards on every section.
   - Fix: one notices line, with the sample-group message dismissible once read.
   - Done: the sample-group notice and Coming up share one card, a rule between them, and the sample notice has Hide, remembered on the device.

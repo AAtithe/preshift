@@ -2,9 +2,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PRICING, type Interval } from '../src/engine/pricing';
 import type { Store } from './store';
 
-// Billing for organisations that signed themselves up. Preshift sells to them through Stripe: one
+// Billing for organisations that signed themselves up. Preshift Rota sells to them through Stripe: one
 // subscription per organisation, priced per site, paid by card through Stripe Checkout, with cards,
-// invoices and cancelling handled in Stripe's own customer portal. Preshift never sees a card number.
+// invoices and cancelling handled in Stripe's own customer portal. Preshift Rota never sees a card number.
 //
 // The rules:
 // - Only an organisation that signed itself up has a billing record. Everyone else (the first
@@ -81,7 +81,7 @@ export interface BillingRecord {
 }
 
 export const billingSetting = (orgId: string) => `billing:${orgId}`;
-/** Which organisation a Stripe customer belongs to, written when Preshift makes the customer. */
+/** Which organisation a Stripe customer belongs to, written when Preshift Rota makes the customer. */
 export const customerSetting = (customerId: string) => `stripe_customer:${customerId}`;
 
 export async function getBilling(store: Store, orgId: string): Promise<BillingRecord | null> {

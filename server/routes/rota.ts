@@ -619,7 +619,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
     return org.state.forecast.filter(inRange(req.query)).filter(guard(ctx, req, org).at('rota.view'));
   });
 
-  // Preshift Reports (or any forecasting source) pushes hourly sales and covers here.
+  // Preshift Rota Reports (or any forecasting source) pushes hourly sales and covers here.
   app.put<{ Body: { rows: HourForecast[] } }>('/v1/forecast', { ...write, schema: { tags: ['Forecast'], body: forecastBody } }, async (req) => {
     const org = orgOf(req);
     const g = guard(ctx, req, org);

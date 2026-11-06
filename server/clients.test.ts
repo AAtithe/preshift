@@ -8,7 +8,7 @@ import { kit, tokenOf, type Kit } from './testkit';
 
 const SAM = 'sam.okoro@williamsstanley.example';
 const SAM_MFA = 'demo-usr_ws_partner';
-const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' };
 const OWNER = { email: 'ben@harbour.example', password: 'bens own long password' };
 
 let sent: { to: string[]; text: string }[] = [];
