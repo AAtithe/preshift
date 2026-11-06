@@ -17,4 +17,4 @@ export async function call<T>(method: string, path: string, body?: unknown): Pro
   return data as T;
 }
 
-export const say = (e: unknown) => (e instanceof Problem ? e.message : 'Could not reach Preshift. Check your signal and try again.');
+export const say = (e: unknown) => (e instanceof Problem ? e.message : 'Could not reach Preshift Rota. Check your signal and try again.');

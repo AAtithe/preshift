@@ -20,7 +20,7 @@ interface View {
 const problem = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
 
 /**
- * Where messages to staff and notices to managers go beyond Preshift. Staff choose and agree to
+ * Where messages to staff and notices to managers go beyond Preshift Rota. Staff choose and agree to
  * WhatsApp or text themselves in the staff app; this only connects what they may choose from.
  */
 export function MessagingSetup({ sites }: { sites: Site[] }) {
@@ -75,7 +75,7 @@ export function MessagingSetup({ sites }: { sites: Site[] }) {
     <section className="settings-card">
       <h2>Messaging channels</h2>
       <p className="muted small">
-        Every message, announcement and rota notice is kept in Preshift, one thread per person, with who read it. These channels only carry it to people's
+        Every message, announcement and rota notice is kept in Preshift Rota, one thread per person, with who read it. These channels only carry it to people's
         phones. Staff choose WhatsApp, text or email in the staff app and agree to it there, with their own number; nobody can choose for them. Slack and
         Teams tell managers that something needs them, with a link, and never carry what staff wrote: staff write about sickness and childcare, and a
         team channel is read by people who have no need to know.
@@ -87,7 +87,7 @@ export function MessagingSetup({ sites }: { sites: Site[] }) {
       <p className="muted small">
         Through Meta's WhatsApp Business Cloud API, from your own business number. WhatsApp lets a business send free text only within 24 hours of the
         person's last message; otherwise it must be an approved template. Create a Utility template with one body variable, such as "Message from work: {'{{1}}'}",
-        and enter its name here. Preshift uses free text when it can and the template when it must.
+        and enter its name here. Preshift Rota uses free text when it can and the template when it must.
       </p>
       <form className="settings-form" onSubmit={saveWa}>
         <label>Phone number ID <input required inputMode="numeric" value={wa.phoneNumberId} onChange={(e) => setWa({ ...wa, phoneNumberId: e.target.value })} /></label>
@@ -101,7 +101,7 @@ export function MessagingSetup({ sites }: { sites: Site[] }) {
       {view?.whatsapp.set && view.whatsapp.webhook && (
         <p className="muted small">
           Replies: in your Meta app, under WhatsApp, Configuration, set the callback URL to <code>{view.whatsapp.webhook.url}</code>, the verify token to{' '}
-          <code>{view.whatsapp.webhook.verifyToken}</code>, and subscribe to messages. {view.appUrl ? '' : 'Set up email first, so Preshift knows its own address.'}
+          <code>{view.whatsapp.webhook.verifyToken}</code>, and subscribe to messages. {view.appUrl ? '' : 'Set up email first, so Preshift Rota knows its own address.'}
         </p>
       )}
 
@@ -111,7 +111,7 @@ export function MessagingSetup({ sites }: { sites: Site[] }) {
       <form className="settings-form" onSubmit={saveSms}>
         <label>Account SID <input required placeholder="AC..." value={sms.accountSid} onChange={(e) => setSms({ ...sms, accountSid: e.target.value })} /></label>
         <label>{view?.sms.set ? 'Replace auth token (blank keeps it)' : 'Auth token'} <input type="password" autoComplete="off" required={!view?.sms.set} value={sms.authToken} onChange={(e) => setSms({ ...sms, authToken: e.target.value })} /></label>
-        <label>From <input required placeholder="+447700900000 or Preshift" value={sms.from} onChange={(e) => setSms({ ...sms, from: e.target.value })} /></label>
+        <label>From <input required placeholder="+447700900000 or Preshift Rota" value={sms.from} onChange={(e) => setSms({ ...sms, from: e.target.value })} /></label>
         <button className="primary" type="submit">Save</button>
         {view?.sms.set && <button type="button" className="danger" onClick={() => confirm('Turn off text messages?') && void act('Text messages are off.', () => api.del('/v1/settings/messaging/sms'))}>Turn off</button>}
       </form>

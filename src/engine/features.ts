@@ -1,4 +1,4 @@
-// The parts of Preshift an organisation can switch off. Shared by the API, which keeps the list an
+// The parts of Preshift Rota an organisation can switch off. Shared by the API, which keeps the list an
 // organisation has switched off and refuses an unknown or core one, and the browser, which hides
 // the sections behind a switched-off feature from everyone.
 //
@@ -42,7 +42,7 @@ export const FEATURES: FeatureDef[] = [
   },
   {
     id: 'rotaai', label: 'AI rota writing', group: 'Planning', tabs: [],
-    about: 'The rota assistant drafts or reshapes a week from a request, and Claude can build one through the Preshift connector.',
+    about: 'The rota assistant drafts or reshapes a week from a request, and Claude can build one through the Preshift Rota connector.',
     offMeans: 'Managers write the rota themselves. Build from forecast and single shift changes still work; no AI draft can be saved.',
   },
   {
@@ -60,7 +60,7 @@ export const FEATURES: FeatureDef[] = [
   {
     id: 'tronc', label: 'Tronc', group: 'Hours and pay', tabs: ['tronc'],
     about: 'Tips and service charge shared out by the tronc run, ready for payroll.',
-    offMeans: 'Only for a business that does not run a tronc through Preshift. Tips law still applies.',
+    offMeans: 'Only for a business that does not run a tronc through Preshift Rota. Tips law still applies.',
   },
   {
     id: 'pay', label: 'Pay approvals', group: 'Hours and pay', tabs: ['pay'],

@@ -54,7 +54,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
-const say = (e: unknown) => (e instanceof Problem ? e.message : 'Cannot reach Preshift. Check the wifi, then try again.');
+const say = (e: unknown) => (e instanceof Problem ? e.message : 'Cannot reach Preshift Rota. Check the wifi, then try again.');
 
 /** Web NFC, on Android Chrome: reads a card with the tablet itself. iPads have no web NFC. */
 interface NdefReaderLike {
@@ -253,7 +253,7 @@ export function KioskApp() {
           <h1>This iPad is not set up as a kiosk</h1>
           <p>A manager sets it up once, on this iPad:</p>
           <ol>
-            <li>Sign in to Preshift here.</li>
+            <li>Sign in to Preshift Rota here.</li>
             <li>Choose the site, then Clock in, then Clock-in setup.</li>
             <li>Under Kiosks, press Turn this device into a kiosk.</li>
           </ol>
@@ -269,7 +269,7 @@ export function KioskApp() {
     return (
       <div className="kiosk kiosk-center">
         <div className="kiosk-card kiosk-setup">
-          <h1>Cannot reach Preshift</h1>
+          <h1>Cannot reach Preshift Rota</h1>
           <p>Check the wifi. The kiosk will try again every minute.</p>
           <button className="kiosk-button primary" onClick={() => void load()}>Try again now</button>
         </div>

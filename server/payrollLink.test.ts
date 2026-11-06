@@ -149,7 +149,7 @@ describe('linking by hand', () => {
     expect(approved.payrollReview).toBeUndefined();
   });
 
-  it("needs finance to send Preshift's pay over what TeamPay pays", async () => {
+  it("needs finance to send Preshift Rota's pay over what TeamPay pays", async () => {
     const t = await setup();
     const tp = t.simulator.addExisting(t.employer, { name: 'Sam Cook', dateOfBirth: '1990-01-01', hourlyRate: 14.25, contractedHours: 40 });
     const sam = (await t.call('POST', '/v1/employees', SAM)).body;

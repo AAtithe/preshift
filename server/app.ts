@@ -122,7 +122,7 @@ function payrollFromEnv(env: NodeJS.ProcessEnv): { provider: PayrollProvider; si
 }
 
 /**
- * Which database Preshift uses. PRESHIFT_DATABASE_URL wins. On Vercel only, the
+ * Which database Preshift Rota uses. PRESHIFT_DATABASE_URL wins. On Vercel only, the
  * DATABASE_URL that the project's Neon integration sets is used otherwise; a
  * generic DATABASE_URL anywhere else (a laptop, a CI box, a coding container)
  * is ignored. Either way PgStore refuses a database that holds another
@@ -197,10 +197,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   await app.register(swagger, {
     openapi: {
       info: {
-        title: 'Preshift API',
+        title: 'Preshift Rota API',
         version: '1.0.0',
         description:
-          'Rota, time and attendance, and payroll for UK hospitality. Every Preshift screen runs on this API, ' +
+          'Rota, time and attendance, and payroll for UK hospitality. Every Preshift Rota screen runs on this API, ' +
           'and payroll is native to TeamPay: starters, leavers and approved hours flow to TeamPay, and pay runs flow back ' +
           'to reconcile against the labour accrual. Access is role based, scoped by site, and checked for paired duties.\n\n' +
           'Authenticate with `Authorization: Bearer psk_...`, a key a person with the settings permission makes under Settings, API keys, limited to the scopes ' +
@@ -400,7 +400,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
   stripeWebhookRoutes(app, ctx, stripe);
   // Claude and other MCP clients, with the same keys and the same rules as the API it calls.
   mcpRoutes(app, store, auth);
-  // Sign in with Preshift for claude.ai and other MCP clients: tokens that act as the person who approved them.
+  // Sign in with Preshift Rota for claude.ai and other MCP clients: tokens that act as the person who approved them.
   oauthRoutes(app, store);
   staffRoutes(app, ctx);
   // Messages in the staff app, and replies by WhatsApp: each checks its own proof of who is asking.

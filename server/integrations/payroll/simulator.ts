@@ -11,7 +11,7 @@ import { signHmac, verifyHmac } from './teampay';
 /**
  * An in-process stand-in for TeamPay, used in development, demos and tests
  * when no TeamPay keys are configured. It behaves like the real thing from
- * Preshift's side: it holds employees, takes hours, honours idempotency keys,
+ * Preshift Rota's side: it holds employees, takes hours, honours idempotency keys,
  * runs payroll and emits signed webhooks.
  */
 export class TeamPaySimulator implements PayrollProvider {
@@ -59,7 +59,7 @@ export class TeamPaySimulator implements PayrollProvider {
       .map(({ employerId: _employer, siteId: _site, irregularHours: _irregular, pensionEnrolled: _pension, ...e }) => e);
   }
 
-  /** Puts a person on the simulated payroll as if they were there before Preshift, for linking demos and tests. */
+  /** Puts a person on the simulated payroll as if they were there before Preshift Rota, for linking demos and tests. */
   addExisting(employerId: string, record: Omit<PayrollRecord, 'payrollId'> & { payrollId?: string }) {
     const payrollId = record.payrollId ?? `tp_emp_${randomUUID().slice(0, 8)}`;
     this.employees.set(payrollId, {

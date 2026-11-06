@@ -107,7 +107,7 @@ export function WelfareSettings({ overview, onChanged }: { overview: WelfareOver
   const disconnect = () =>
     run('Disconnect', async () => {
       await api.del('/v1/integrations/rewards');
-      return 'Disconnected. Ask Hospitality Rewards to close the memberships: Preshift can no longer reach them.';
+      return 'Disconnected. Ask Hospitality Rewards to close the memberships: Preshift Rota can no longer reach them.';
     });
 
   const eligibility = () =>
@@ -175,7 +175,7 @@ export function WelfareSettings({ overview, onChanged }: { overview: WelfareOver
         <section className="settings-card">
           <h2>Hospitality Rewards</h2>
           <p className="muted small">
-            Staff discounts, wellbeing support and recognition points for hospitality teams. Preshift enrols everyone who has started and
+            Staff discounts, wellbeing support and recognition points for hospitality teams. Preshift Rota enrols everyone who has started and
             not opted out, removes leavers the day after their last day, and credits the points managers give. It sends name, work email,
             site, company and start date: never pay, age, absence or anything from the personnel file.
           </p>

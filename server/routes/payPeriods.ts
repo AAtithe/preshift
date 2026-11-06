@@ -430,11 +430,11 @@ export function payPeriodRoutes(app: FastifyInstance, ctx: AppContext) {
       if (batch.lines.length) {
         const employer = employerStatus(org, entity, ctx.employers);
         if (!employer.employerId) throw new HttpError(409, 'payroll_employer_missing', employer.problem ?? `${entity.name} has no TeamPay employer.`, [entity.id]);
-        // A rate Preshift and TeamPay disagree on, undecided, would pay hours at a rate nobody has confirmed.
+        // A rate Preshift Rota and TeamPay disagree on, undecided, would pay hours at a rate nobody has confirmed.
         const inBatch = new Set(batch.lines.map((l) => l.employeeId));
         const undecided = org.state.employees.filter((e) => inBatch.has(e.id) && e.payrollReview?.differences.some((d) => d.pay));
         if (undecided.length) {
-          throw new HttpError(409, 'payroll_review', `Pay for ${undecided.map((e) => e.name).join(', ')} differs between Preshift and TeamPay. Decide which is right in Payroll, then pass.`, undecided.map((e) => e.id));
+          throw new HttpError(409, 'payroll_review', `Pay for ${undecided.map((e) => e.name).join(', ')} differs between Preshift Rota and TeamPay. Decide which is right in Payroll, then pass.`, undecided.map((e) => e.id));
         }
       }
       const costs = accruedFor(org, ids, period.periodStart, period.periodEnd);

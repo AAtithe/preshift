@@ -339,7 +339,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         .map((b) => ({ ...b, batch: { ...b.batch, sickness: sicknessIn(org, b.entity.id, periodStart, periodEnd, ctx.store.todayISO()) } }));
       if (batches.length === 0) throw new HttpError(422, 'no_hours', 'No approved hours in this period');
 
-      // Hours carry a rate. Someone whose rate in Preshift and in TeamPay disagree, undecided, would be
+      // Hours carry a rate. Someone whose rate in Preshift Rota and in TeamPay disagree, undecided, would be
       // paid at a rate nobody has confirmed, so the batch waits for that decision.
       const inBatch = new Set(batches.flatMap((b) => b.batch.lines.map((l) => l.employeeId)));
       const undecided = org.state.employees.filter((e) => inBatch.has(e.id) && e.payrollReview?.differences.some((d) => d.pay));
@@ -347,7 +347,7 @@ export function payrollRoutes(app: FastifyInstance, ctx: AppContext) {
         throw new HttpError(
           409,
           'payroll_review',
-          `Pay for ${undecided.map((e) => e.name).join(', ')} differs between Preshift and TeamPay. Decide which is right in Payroll, then send.`,
+          `Pay for ${undecided.map((e) => e.name).join(', ')} differs between Preshift Rota and TeamPay. Decide which is right in Payroll, then send.`,
           undecided.map((e) => e.id),
         );
       }

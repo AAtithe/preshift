@@ -31,7 +31,7 @@ export interface ClientSummary {
   billing: { mode: 'engagement' | 'card' | 'to-engagement' | 'to-card'; from?: string; standing: 'managed' | 'trial' | 'active' | 'past_due' | 'lapsed' };
 }
 
-/** How the client pays Preshift, in words. */
+/** How the client pays Preshift Rota, in words. */
 function billingText(b: ClientSummary['billing']) {
   const on = (iso?: string) => (iso ? day(iso) : '');
   if (b.mode === 'engagement') return 'Under the WS engagement';
@@ -122,7 +122,7 @@ export function ClientsView() {
     void run(async () => {
       await api.post(`/v1/clients/${encodeURIComponent(c.orgId)}/card-billing`, { payBy });
       setToCard(null);
-      setNotice(`${c.name} now pays Preshift by card. Its owner sees a Billing page asking them to subscribe by ${day(`${payBy}T12:00:00Z`)}. Send the engagement's final invoice as usual.`);
+      setNotice(`${c.name} now pays Preshift Rota by card. Its owner sees a Billing page asking them to subscribe by ${day(`${payBy}T12:00:00Z`)}. Send the engagement's final invoice as usual.`);
       await refresh();
     });
   }
@@ -286,7 +286,7 @@ export function ClientsView() {
                             <dd className={c.notInPayroll ? 'warn-text' : undefined}>{c.notInPayroll}</dd>
                             <dt>Email</dt>
                             <dd>{c.emailReady ? 'Set up' : 'Not set up'}</dd>
-                            <dt>Pays Preshift</dt>
+                            <dt>Pays Preshift Rota</dt>
                             <dd className={c.billing.standing === 'lapsed' || c.billing.standing === 'past_due' ? 'bad-text' : undefined}>{billingText(c.billing)}</dd>
                           </dl>
                           {c.attention.length > 0 && (
@@ -309,7 +309,7 @@ export function ClientsView() {
                           {toCard?.orgId === c.orgId && (
                             <form className="client-to-card form" onSubmit={(e) => { e.preventDefault(); moveToCard(c, toCard.payBy); }}>
                               <p className="span2 small">
-                                From now on {c.name} pays Preshift by card through Stripe, not under the engagement. Its owner gets a Billing page and a
+                                From now on {c.name} pays Preshift Rota by card through Stripe, not under the engagement. Its owner gets a Billing page and a
                                 banner asking them to subscribe, with no free trial. If they have not subscribed by the date below, changes pause
                                 until they do; everything stays readable. Tell the client before you do this, and send the engagement's final invoice as usual.
                               </p>

@@ -18,7 +18,7 @@ function KioskGuide() {
 
       <h3>Set it up, once, on the iPad itself</h3>
       <ol className="guide-steps">
-        <li>On the iPad, open Preshift in Safari and sign in as yourself.</li>
+        <li>On the iPad, open Preshift Rota in Safari and sign in as yourself.</li>
         <li>Choose the site, open Clock in, then Clock-in setup.</li>
         <li>Under Kiosks, press Turn this device into a kiosk, name it (for example, Staff entrance iPad) and confirm.</li>
         <li>

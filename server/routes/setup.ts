@@ -12,7 +12,7 @@ import { audit, type OrgData } from '../store';
 
 const SAMPLE_EMPLOYEE = new RegExp(`^(${SAMPLE_SITE_IDS.join('|')})-\\d+$`);
 /** Sample HR records are stamped with this author, so they can be told from real ones. */
-const SAMPLE_HR_AUTHOR = 'Preshift demo';
+const SAMPLE_HR_AUTHOR = 'Preshift Rota demo';
 
 const sampleUserIds = (today: string) => new Set(seedUsers(today).users.map((u) => u.id));
 

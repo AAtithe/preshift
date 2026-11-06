@@ -11,7 +11,7 @@ import { enrol, kit, type Kit } from './testkit';
 
 const OLIVIA = 'olivia@marylebonegroup.example';
 const OLIVIA_MFA = 'demo-usr_owner';
-const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift <hello@preshift.example>', appUrl: 'https://rota.preshift.example' };
+const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift Rota <hello@preshift.example>', appUrl: 'https://rota.preshift.example' };
 const STRIPE_ENV = { STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', STRIPE_PRICE_ID: 'price_site', STRIPE_PRICE_ID_ANNUAL: 'price_site_year' };
 const DAY = 86_400_000;
 
@@ -149,7 +149,7 @@ describe('self sign-up', () => {
     const res = await k.form('/auth/signup', { terms: LEGAL_VERSION, business: 'Anything', name: 'Someone', email: OLIVIA });
     expect(res.location).toBe('/login?signupsent=1');
     expect(mails).toHaveLength(1);
-    expect(mails[0].subject).toBe('You already have a Preshift account');
+    expect(mails[0].subject).toBe('You already have a Preshift Rota account');
     expect(mails[0].text).not.toContain('#signup=');
     expect((await k.store.getUser(OLIVIA))!.orgId).toBe('demo');
   });
@@ -256,7 +256,7 @@ describe('billing', () => {
     expect(stripe.find((c) => c.path === '/checkout/sessions')!.body.has('subscription_data[trial_end]')).toBe(false);
   });
 
-  it('believes Stripe only with its signature, and only for a customer Preshift made', async () => {
+  it('believes Stripe only with its signature, and only for a customer Preshift Rota made', async () => {
     const k = await boot();
     await selfServe(k, { customerId: 'cus_1' });
     await k.store.setSetting(customerSetting('cus_1'), 'demo');

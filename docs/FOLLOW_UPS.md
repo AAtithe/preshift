@@ -8,12 +8,12 @@ Work through this list in order. The software is built. What is left for people 
 - [ ] Make sure each finance director sets up their authenticator on day one. Until they do, every pay change waits. The Access overview lists them under "Must enrol".
 - [ ] Get the sickness appropriate policy document reviewed by employment or data protection counsel. The draft is at https://claude.ai/artifact/WmE4HQPUkKDoZx1egMzhAn.
 - [ ] Have a director sign the document for each employing company. Record the review and the signature under Organisation, GDPR, Appropriate policy document. The flag clears when both are recorded.
-- [ ] Put the yearly review of the policy document in the diary. Preshift flags it once it passes the review date.
+- [ ] Put the yearly review of the policy document in the diary. Preshift Rota flags it once it passes the review date.
 - [ ] Adopt the pay approval rule (2 working days, Monday cut-off) at Williams, Stanley & Co. and send it to clients. The draft is at https://claude.ai/artifact/YLmrec5FcKUMZYEnHdsiRA.
 - [ ] Set each client's turnaround and cut-off day under Pay approvals, Change the rule, where they differ from the defaults.
 - [ ] Set up email under Settings on every live account, so the morning reminder reaches finance. Without it nothing is sent.
 - [ ] Confirm with TeamPay that its API takes the new `sickness` and `adjustments` fields on hours batches, and returns `ssp` per person on pay runs. Until it does, the SSP check stays empty and back pay has to be keyed in TeamPay by hand. See docs/API.md, "What must be confirmed with the TeamPay API reference".
-- [ ] Before relying on the SSP estimate, check the April 2026 rules against GOV.UK: no waiting days, no lower earnings limit, the lower of £123.25 a week or 80% of average weekly earnings. Secondary sources disagree on whether a period of sickness still needs 4 days in a row. Preshift pays from day one.
+- [ ] Before relying on the SSP estimate, check the April 2026 rules against GOV.UK: no waiting days, no lower earnings limit, the lower of £123.25 a week or 80% of average weekly earnings. Secondary sources disagree on whether a period of sickness still needs 4 days in a row. Preshift Rota pays from day one.
 
 ## 2. What was built, and how to check it
 

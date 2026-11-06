@@ -206,7 +206,7 @@ describe('staff logins', () => {
 });
 
 describe('staff app invitation emails', () => {
-  const EMAIL = { resendApiKey: 're_test_abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+  const EMAIL = { resendApiKey: 're_test_abcd', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' };
   let sent: { to: string[]; subject: string; text: string; html: string }[] = [];
   let refuse = false;
   afterEach(() => vi.unstubAllGlobals());
@@ -238,7 +238,7 @@ describe('staff app invitation emails', () => {
     expect(JSON.stringify(res.body)).not.toMatch(/invite=/);
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toEqual(['priya@example.com']);
-    expect(sent[0].subject).toBe('GM invited you to the Preshift staff app');
+    expect(sent[0].subject).toBe('GM invited you to the Preshift Rota staff app');
     expect(sent[0].text).toMatch(/Marylebone/);
 
     // The emailed link is the one that works.
@@ -270,7 +270,7 @@ describe('staff app invitation emails', () => {
     // The reset goes to her own address. Old sessions end once she uses it.
     const again = await t.manager('POST', '/v1/staff-logins/mar-1/invite');
     expect(again.body).toMatchObject({ emailed: true, to: 'priya@example.com' });
-    expect(sent[1].subject).toBe('Your new Preshift staff app link');
+    expect(sent[1].subject).toBe('Your new Preshift Rota staff app link');
     const resetLink = Object.fromEntries(new URLSearchParams(new URL(linkIn(sent[1].text)).hash.slice(1)));
     const reset = await t.call('POST', '/v1/staff/join', { ...resetLink, email: 'priya@example.com', password: 'a brand new password' });
     expect(reset.status).toBe(200);

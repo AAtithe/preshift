@@ -6,7 +6,7 @@ import type { Guide } from './index';
 function Answers() {
   return (
     <>
-      <p>The questions managers ask most, and where in Preshift each one is fixed. Not here? Ask your client partner under Help, Support.</p>
+      <p>The questions managers ask most, and where in Preshift Rota each one is fixed. Not here? Ask your client partner under Help, Support.</p>
       {HELP_ARTICLES.map((a) => (
         <details key={a.id} className="help-article">
           <summary>{a.title}</summary>

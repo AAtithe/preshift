@@ -1,9 +1,9 @@
 // Builds the Vercel deployment with the Build Output API (.vercel/output):
 //   /         marketing site (site/)
 //   /walkthrough   the narrated product walkthrough video (site/walkthrough.html, site/video/)
-//   /v1, /docs, /health   Preshift API as one bundled Node function, which also serves:
+//   /v1, /docs, /health   Preshift Rota API as one bundled Node function, which also serves:
 //   /mcp                  the MCP connector for Claude and other MCP clients (server/mcp.ts)
-//   /oauth/*, /.well-known/oauth-*   Sign in with Preshift for that connector (server/oauth.ts)
+//   /oauth/*, /.well-known/oauth-*   Sign in with Preshift Rota for that connector (server/oauth.ts)
 //   /login, /auth/*       sign-in, first-run owner setup and sign-out
 //   /demo, /demo/start    the public demo's start page and a sandbox per visitor (PRESHIFT_DEMO=1)
 //   /app/                 the rota web app (Vite build), only to signed-in people

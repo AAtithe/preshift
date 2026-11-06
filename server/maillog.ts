@@ -1,4 +1,4 @@
-// What became of each email Preshift sent: Resend's reports, by webhook or by asking, kept against
+// What became of each email Preshift Rota sent: Resend's reports, by webhook or by asking, kept against
 // the person. A link that never arrived must not look the same as one that did.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -12,7 +12,7 @@ export const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
 const KEEP_DAYS = 180;
 const KEEP_MAX = 2000;
 
-/** Resend's webhook event types, and what Preshift calls them. Opens and clicks are not tracked. */
+/** Resend's webhook event types, and what Preshift Rota calls them. Opens and clicks are not tracked. */
 const WEBHOOK_TYPES: Record<string, MailEventType> = {
   'email.sent': 'sent',
   'email.delivered': 'delivered',
@@ -70,7 +70,7 @@ function prune(org: OrgData, now: Date) {
 
 /**
  * Adds a report to its email, once: the event id is how a retried webhook is recognised. Returns
- * the email when the report was new and about an email Preshift sent, else null.
+ * the email when the report was new and about an email Preshift Rota sent, else null.
  */
 export function addEvent(org: OrgData, mailId: string, event: MailRecord['events'][number]): MailRecord | null {
   const record = org.mail[mailId];
@@ -125,7 +125,7 @@ export function verifyWebhook(secret: string, headers: Record<string, unknown>, 
   });
 }
 
-/** The report a webhook body carries, or null for an event Preshift does not track. */
+/** The report a webhook body carries, or null for an event Preshift Rota does not track. */
 export function fromWebhook(eventId: string, body: unknown): { mailId: string; event: MailRecord['events'][number] } | null {
   const b = body as { type?: unknown; created_at?: unknown; data?: Record<string, unknown> } | null;
   const type = typeof b?.type === 'string' ? WEBHOOK_TYPES[b.type] : undefined;

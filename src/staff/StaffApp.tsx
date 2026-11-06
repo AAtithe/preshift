@@ -162,7 +162,7 @@ export function StaffApp() {
       <header className="staff-top">
         <span className="brand-mark" aria-hidden>P</span>
         <div className="staff-top-text">
-          <div className="brand-name">Preshift</div>
+          <div className="brand-name">Preshift Rota</div>
           {data && view === 'home' ? <div className="brand-sub">{data.employee.name}</div> : <div className="brand-sub">For staff</div>}
         </div>
         {view === 'home' && (
@@ -392,10 +392,10 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
 
   const tagged = data.sites.some((s) => s.tag);
   let where: { tone: 'good' | 'bad' | 'muted'; text: string };
-  if (!target?.geofence && tagged) where = { tone: 'muted', text: 'Touch the back of your phone to the Preshift tag at the staff entrance to clock in or out.' };
+  if (!target?.geofence && tagged) where = { tone: 'muted', text: 'Touch the back of your phone to the Preshift Rota tag at the staff entrance to clock in or out.' };
   else if (!target?.geofence) where = { tone: 'bad', text: 'Your site has not set up phone clocking yet. Use the tablet or card reader at work.' };
   else if (geo.status === 'locating') where = { tone: 'muted', text: 'Finding your location' };
-  else if (geo.status === 'denied') where = { tone: 'bad', text: 'Location is blocked for Preshift. Allow it in your phone settings to clock in.' };
+  else if (geo.status === 'denied') where = { tone: 'bad', text: 'Location is blocked for Preshift Rota. Allow it in your phone settings to clock in.' };
   else if (geo.status !== 'ok' || !check) where = { tone: 'bad', text: 'Your phone cannot find its location right now.' };
   else if (check.ok) where = { tone: 'good', text: `You are at ${target.name}` };
   else if (check.reason === 'too_imprecise') where = { tone: 'bad', text: 'Your location is too rough to confirm. Turn on precise location, or step outside for a moment.' };
@@ -454,7 +454,7 @@ function Home({ data, onChange, onSignedOut }: { data: Overview; onChange: (o: O
         >
           {busy ? 'Saving' : data.open ? (data.open.onBreak ? 'End break and clock out' : 'Clock out') : 'Clock in'}
         </button>
-        {tagged && target?.geofence && <p className="muted small">Or touch your phone to the Preshift tag at the staff entrance.</p>}
+        {tagged && target?.geofence && <p className="muted small">Or touch your phone to the Preshift Rota tag at the staff entrance.</p>}
         {message && <p className={`staff-msg ${message.tone}`} role="status">{message.text}</p>}
       </section>
 

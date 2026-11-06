@@ -3,7 +3,7 @@ import { EposError, type EposLocation, type EposProvider } from './provider';
 
 type Fetch = typeof fetch;
 
-/** The Square API version Preshift is written against. Square keeps old versions working. */
+/** The Square API version Preshift Rota is written against. Square keeps old versions working. */
 export const SQUARE_VERSION = '2025-01-23';
 
 const BASE = {
@@ -128,7 +128,7 @@ export class SquareProvider implements EposProvider {
       .then((b: { errors?: { detail?: string; code?: string }[] }) => b.errors?.[0]?.detail ?? b.errors?.[0]?.code)
       .catch(() => undefined);
     if (res.status === 401) throw new EposError('Square refused the access token. Check it is the production token for the right account, or create a new one.', false, 401);
-    if (res.status === 403) throw new EposError(`The access token lacks a permission Preshift needs (ORDERS_READ and MERCHANT_PROFILE_READ). ${detail ?? ''}`.trim(), false, 403);
+    if (res.status === 403) throw new EposError(`The access token lacks a permission Preshift Rota needs (ORDERS_READ and MERCHANT_PROFILE_READ). ${detail ?? ''}`.trim(), false, 403);
     const retryable = res.status === 429 || res.status >= 500;
     throw new EposError(`Square returned ${res.status}${detail ? `: ${detail}` : ''}`, retryable, res.status);
   }
@@ -167,7 +167,7 @@ export class SquareProvider implements EposProvider {
         for (const o of body.orders ?? []) {
           if (!o.closed_at) continue;
           const currency = o.total_money?.currency;
-          if (currency && currency !== 'GBP') throw new EposError(`Square order ${o.id} is in ${currency}. Preshift reports in pounds.`, false);
+          if (currency && currency !== 'GBP') throw new EposError(`Square order ${o.id} is in ${currency}. Preshift Rota reports in pounds.`, false);
           orders.push({ locationId: o.location_id, closedAt: o.closed_at, netSales: squareNetSales(o), tips: squareTips(o), serviceCharge: squareServiceCharge(o) });
         }
         cursor = body.cursor;

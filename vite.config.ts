@@ -3,7 +3,7 @@ import type { ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(() => {
-  // The Preshift API runs on :8787 in development (npm run dev starts both). It also handles
+  // The Preshift Rota API runs on :8787 in development (npm run dev starts both). It also handles
   // sign-in, the sign-in page, the rota assistant's route to Claude, and the MCP connector with its sign-in.
   const api = 'http://localhost:8787';
   const proxy: Record<string, string | ProxyOptions> = {

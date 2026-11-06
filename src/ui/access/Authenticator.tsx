@@ -57,7 +57,7 @@ export function AuthenticatorBar({ me }: { me: Me | null }) {
       </div>
     ) : (
       <div className="auth-bar bad">
-        <span>Your role needs an authenticator, but this server is not set up for them yet (PRESHIFT_SECRET_KEY). Ask whoever runs Preshift.</span>
+        <span>Your role needs an authenticator, but this server is not set up for them yet (PRESHIFT_SECRET_KEY). Ask whoever runs Preshift Rota.</span>
       </div>
     );
   } else if (a.enrolled && !a.verified && a.canVerify) {
@@ -137,7 +137,7 @@ export function EnrolDialog({ email, onClose }: { email: string; onClose: () => 
       <div className="modal" role="dialog" aria-label="Set up authenticator" onClick={(e) => e.stopPropagation()}>
         <h2>Set up your authenticator</h2>
         <p className="muted small">
-          An authenticator app on your phone makes a new 6-digit code every 30 seconds. Preshift asks for one each time you sign in
+          An authenticator app on your phone makes a new 6-digit code every 30 seconds. Preshift Rota asks for one each time you sign in
           before it switches on {RIGHTS}, so a stolen password alone cannot move money. Google Authenticator, Microsoft
           Authenticator, 1Password and others all work.
         </p>
@@ -190,12 +190,12 @@ export function RecoveryCodes({ codes, email, onDone }: { codes: string[]; email
       <div className="modal" role="dialog" aria-label="Recovery codes">
         <h2>Keep these recovery codes</h2>
         <p className="muted small">
-          If you lose your phone, each of these lets you in once. They are shown now and never again: Preshift keeps only a
+          If you lose your phone, each of these lets you in once. They are shown now and never again: Preshift Rota keeps only a
           fingerprint of each. Save them in your password manager or print them and keep them safe.
         </p>
         <ul className="recovery-codes">{codes.map((c) => <li key={c}><code>{c}</code></li>)}</ul>
         <div className="modal-actions">
-          <button onClick={() => download(`preshift-recovery-codes-${email}.txt`, `Preshift recovery codes for ${email}\nEach works once.\n\n${codes.join('\n')}\n`, 'text/plain')}>
+          <button onClick={() => download(`preshift-recovery-codes-${email}.txt`, `Preshift Rota recovery codes for ${email}\nEach works once.\n\n${codes.join('\n')}\n`, 'text/plain')}>
             Download as a file
           </button>
           <span className="spacer" />

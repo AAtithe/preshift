@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
-    <title>Sign in to Preshift</title>
+    <title>Sign in to Preshift Rota</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f4d3a%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 font-family=%22sans-serif%22 font-weight=%22700%22 fill=%22white%22 text-anchor=%22middle%22%3EP%3C/text%3E%3C/svg%3E" />
     <style>
       :root {
@@ -59,7 +59,7 @@
       <div class="brand">
         <span class="mark" aria-hidden="true">P</span>
         <div>
-          <div class="name">Preshift</div>
+          <div class="name">Preshift Rota</div>
           <div class="sub">Rota by Preshift and Williams, Stanley &amp; Co.</div>
         </div>
       </div>
@@ -72,8 +72,8 @@
       <p class="msg bad" id="suspended" role="alert" hidden>This account is suspended. Ask whoever manages access in your organisation.</p>
       <p class="msg bad" id="badlink" role="alert" hidden>This link is not valid, or has been used. Ask for a new one.</p>
       <p class="msg bad" id="expired" role="alert" hidden>This link has expired. Ask for a new one.</p>
-      <p class="msg bad" id="elsewhere" role="alert" hidden>That email already has a Preshift account. Open the link again and sign in with its password.</p>
-      <p class="msg bad" id="registered" role="alert" hidden>That email already has a Preshift account. Sign in with it instead.</p>
+      <p class="msg bad" id="elsewhere" role="alert" hidden>That email already has a Preshift Rota account. Open the link again and sign in with its password.</p>
+      <p class="msg bad" id="registered" role="alert" hidden>That email already has a Preshift Rota account. Sign in with it instead.</p>
       <p class="msg bad" id="details" role="alert" hidden>Give your business name and your own name.</p>
       <p class="msg bad" id="terms" role="alert" hidden>Tick the box to agree to the Terms of Service and the Data Processing Agreement for your business.</p>
       <p class="msg bad" id="busy" role="alert" hidden>Too many sign-ups just now. Try again tomorrow, or email hello@preshift.co.uk.</p>
@@ -225,7 +225,7 @@
               box.value = who.termsNeeded;
             }
             document.getElementById('confirm-who').textContent =
-              'Your email ' + who.email + ' is confirmed. Choose a password only you know to open ' + who.business + ' on Preshift.';
+              'Your email ' + who.email + ' is confirmed. Choose a password only you know to open ' + who.business + ' on Preshift Rota.';
           })
           .catch(() => {
             show('signin');
@@ -278,7 +278,7 @@
           .then((who) => {
             document.getElementById('setpassword-title').textContent = who.kind === 'reset' && !who.existing ? 'Choose a new password' : 'Welcome, ' + who.name;
             if (who.existing) {
-              // Already signs in to Preshift: accepting takes the password they have, never a new one.
+              // Already signs in to Preshift Rota: accepting takes the password they have, never a new one.
               const password = document.querySelector('#setpassword input[name=password]');
               const again = document.querySelector('#setpassword input[name=confirm]');
               password.autocomplete = 'current-password';
@@ -286,10 +286,10 @@
               again.required = false;
               again.disabled = true;
               document.getElementById('setpassword-again').hidden = true;
-              document.getElementById('setpassword-label').textContent = 'Your Preshift password';
+              document.getElementById('setpassword-label').textContent = 'Your Preshift Rota password';
               document.getElementById('setpassword-button').textContent = 'Sign in and accept';
               document.getElementById('setpassword-who').textContent =
-                'For ' + who.email + ', which already signs in to Preshift. Sign in with your usual password to accept. Your password and your other access stay as they are.';
+                'For ' + who.email + ', which already signs in to Preshift Rota. Sign in with your usual password to accept. Your password and your other access stay as they are.';
               return;
             }
             document.getElementById('setpassword-who').textContent =

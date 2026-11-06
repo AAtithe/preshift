@@ -80,7 +80,7 @@ export function readSun(metaKey: Buffer, fileKey: Buffer, piccHex: string, cmacH
   const d = createDecipheriv('aes-128-cbc', metaKey, ZERO);
   d.setAutoPadding(false);
   const plain = Buffer.concat([d.update(Buffer.from(piccHex, 'hex')), d.final()]);
-  // 0xC7: the serial (7 bytes) and the counter (3) are both mirrored, as Preshift asks tags to be set up.
+  // 0xC7: the serial (7 bytes) and the counter (3) are both mirrored, as Preshift Rota asks tags to be set up.
   if (plain[0] !== 0xc7) return null;
   const uid = plain.subarray(1, 8);
   const counter = plain.readUIntLE(8, 3);

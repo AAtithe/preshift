@@ -10,7 +10,7 @@ export const MEMBER_BATCH = 200;
  * Hospitality Rewards over HTTPS with the account's API key.
  *
  * Hospitality Rewards does not publish an open API: integrations are agreed account by account. The
- * calls below are the contract Preshift offers them, and the base address is whatever their team
+ * calls below are the contract Preshift Rota offers them, and the base address is whatever their team
  * gives the account. Until an account has one, the eligibility file under Wellbeing does the same
  * job by upload. Every request is JSON over HTTPS with `Authorization: Bearer <key>`:
  *
@@ -18,7 +18,7 @@ export const MEMBER_BATCH = 200;
  *   PUT    /members                 { members: RewardsMember[] }            upsert by ref
  *   POST   /members/remove          { refs: string[] }
  *   POST   /recognitions            { memberRef, points, reason, message, awardedBy }  -> { id }
- *          with `Idempotency-Key: <Preshift recognition id>`
+ *          with `Idempotency-Key: <Preshift Rota recognition id>`
  */
 export class HospitalityRewardsProvider implements RewardsProvider {
   readonly name = 'Hospitality Rewards';

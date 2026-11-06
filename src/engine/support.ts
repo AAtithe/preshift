@@ -231,7 +231,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Labour % looks higher than I expected',
     keywords: ['labour', 'percent', '%', 'high', 'cost', 'wrong', 'expensive', 'ni', 'national insurance', 'pension', 'holiday', 'on-cost'],
     body:
-      'Preshift costs labour on the same basis as payroll: gross pay plus 12.07% holiday accrual, 15% employer NI above £96 a week, and ' +
+      'Preshift Rota costs labour on the same basis as payroll: gross pay plus 12.07% holiday accrual, 15% employer NI above £96 a week, and ' +
       'auto-enrolment pension on qualifying earnings. A naive rate times hours leaves those out, which is why other tools look cheaper ' +
       'and then the P&L disagrees. Check the forecast on the Demand tab too: labour % is against forecast sales, so a low forecast ' +
       'reads as high labour.',

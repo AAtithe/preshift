@@ -59,7 +59,7 @@ const CYCLE_DAYS: Partial<Record<PayFrequency, number>> = { weekly: 7, fortnight
 
 /**
  * The payroll a company runs when it has set none: weekly, Monday to Sunday, paid the Friday after,
- * with hours in by noon on the Tuesday. It is what Preshift did before schedules could be set, so
+ * with hours in by noon on the Tuesday. It is what Preshift Rota did before schedules could be set, so
  * existing clients carry on exactly as they were.
  */
 export const DEFAULT_SCHEDULE: PaySchedule = {

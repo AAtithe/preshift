@@ -59,7 +59,7 @@ export function deviceLabel(): string {
 export async function turnOn(publicKey: string, send: (body: unknown) => Promise<unknown>): Promise<string | null> {
   if (!supported()) return 'This phone or browser cannot show notifications from a web app.';
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return 'Notifications were not allowed. You can allow them for Preshift in your phone settings.';
+  if (permission !== 'granted') return 'Notifications were not allowed. You can allow them for Preshift Rota in your phone settings.';
   const reg = await registration();
   const existing = await reg.pushManager.getSubscription();
   // The phone asks its own notification service (Apple's, Google's) for an address, which can hang on a weak signal.
@@ -68,7 +68,7 @@ export async function turnOn(publicKey: string, send: (body: unknown) => Promise
   try {
     sub = existing ?? (await Promise.race([reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) as BufferSource }), timeout]));
   } catch {
-    return 'Your phone would not set up notifications for Preshift. Try again, or open the staff app in Safari on an iPhone or Chrome on Android.';
+    return 'Your phone would not set up notifications for Preshift Rota. Try again, or open the staff app in Safari on an iPhone or Chrome on Android.';
   }
   if (!sub) return 'Your phone could not reach its notification service. Check your signal and try again.';
   const json = sub.toJSON() as { endpoint: string; keys?: { p256dh: string; auth: string } };

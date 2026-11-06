@@ -1,4 +1,4 @@
-// Matching Preshift's people to the records a payroll already holds, so a team that is already on
+// Matching Preshift Rota's people to the records a payroll already holds, so a team that is already on
 // TeamPay is linked rather than set up a second time. Pure, so the API and the screen agree.
 
 import type { Employee, PayrollDifference, PayrollReview } from './types';
@@ -56,7 +56,7 @@ const ORDER: Record<MatchLevel, number> = { exact: 0, likely: 1, name: 2 };
 
 /**
  * Payroll records that could be this person, best first. Records already linked to someone else in
- * Preshift and leavers are left out: hours must never reach a record that is somebody else's.
+ * Preshift Rota and leavers are left out: hours must never reach a record that is somebody else's.
  */
 export function candidates(e: Pick<Employee, 'id' | 'name' | 'dateOfBirth'>, records: PayrollPerson[], linkedElsewhere: Set<string>): Match[] {
   return records
@@ -67,7 +67,7 @@ export function candidates(e: Pick<Employee, 'id' | 'name' | 'dateOfBirth'>, rec
 }
 
 /**
- * Where Preshift and the payroll record disagree. Only fields the payroll actually holds are
+ * Where Preshift Rota and the payroll record disagree. Only fields the payroll actually holds are
  * compared; pay is compared on the person's basis, so an hourly rate is not set against a salary.
  */
 export function differences(e: Employee, r: PayrollPerson): PayrollDifference[] {
@@ -87,7 +87,7 @@ export function differences(e: Employee, r: PayrollPerson): PayrollDifference[] 
   return out;
 }
 
-/** Preshift's record with the payroll's values taken for each difference. */
+/** Preshift Rota's record with the payroll's values taken for each difference. */
 export function adoptPayroll(e: Employee, diffs: PayrollDifference[], r: PayrollPerson): Employee {
   const next: Employee = { ...e };
   for (const d of diffs) {

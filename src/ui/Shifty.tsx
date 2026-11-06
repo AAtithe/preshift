@@ -12,7 +12,7 @@ const STARTERS = [
 const usd = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 
 /**
- * Shifty, the one place to ask Preshift anything, in the bottom right: a question ("Are we on target
+ * Shifty, the one place to ask Preshift Rota anything, in the bottom right: a question ("Are we on target
  * this week?") or something to do ("Add Sam Lee, bartender at Marylebone, from Monday on £12.71"),
  * each change proposed as a card to confirm. Ctrl+K (Cmd+K on a Mac) opens it from anywhere.
  */

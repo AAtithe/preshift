@@ -80,12 +80,12 @@ export const RELEASES: Release[] = [
       {
         for: 'Everyone',
         title: 'One place to ask',
-        body: 'The Tell Preshift bar has gone. Ask Shifty, bottom right, takes questions and things to do, and Ctrl K opens it from anywhere. On a phone the less used planning actions fold behind More, so the rota comes up sooner.',
+        body: 'The Tell Preshift Rota bar has gone. Ask Shifty, bottom right, takes questions and things to do, and Ctrl K opens it from anywhere. On a phone the less used planning actions fold behind More, so the rota comes up sooner.',
       },
       {
         for: 'Everyone',
         title: 'Watch it done',
-        body: 'A narrated walkthrough of Preshift, chapter by chapter, opens from the top of How to, from Support and from the staff app. For a how do I question it is often the fastest answer.',
+        body: 'A narrated walkthrough of Preshift Rota, chapter by chapter, opens from the top of How to, from Support and from the staff app. For a how do I question it is often the fastest answer.',
         tab: 'howto',
       },
     ],
@@ -166,13 +166,13 @@ export const RELEASES: Release[] = [
       {
         for: 'WS',
         title: 'One Claude connection for every client',
-        body: 'Connecting Claude to Preshift now offers every client you work in, all ticked, and says which are left out and why. Claude acts as you in each one, with your access there, so a client partner asks across their whole book from one place. Connected apps lists every connection and its clients.',
+        body: 'Connecting Claude to Preshift Rota now offers every client you work in, all ticked, and says which are left out and why. Claude acts as you in each one, with your access there, so a client partner asks across their whole book from one place. Connected apps lists every connection and its clients.',
         tab: 'clients',
       },
       {
         for: 'Owners',
         title: 'Choose which features you use',
-        body: 'Organisation, then Features: switch off the parts of Preshift your business does not use, such as Tronc, Prime cost or HR files, and they leave the bar at the top of the screen for everyone. Nothing is deleted and nobody\'s access changes; switching one back on restores it as it was. Benchmarking and open shifts approved without a manager sit on the same screen, and every change is recorded with who made it.',
+        body: 'Organisation, then Features: switch off the parts of Preshift Rota your business does not use, such as Tronc, Prime cost or HR files, and they leave the bar at the top of the screen for everyone. Nothing is deleted and nobody\'s access changes; switching one back on restores it as it was. Benchmarking and open shifts approved without a manager sit on the same screen, and every change is recorded with who made it.',
         tryIt: 'Count the sections your team never opens, then switch them off once your GMs know.',
         tab: 'features',
       },

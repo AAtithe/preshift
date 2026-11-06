@@ -558,14 +558,14 @@ function PushCard({ call, say }: { call: Call; say: Say }) {
   return (
     <section className="staff-card staff-form">
       <h2>Notifications on this phone</h2>
-      {state.kind === 'unsupported' && <p className="muted small">This browser cannot show notifications from Preshift. Messages still arrive here and by email.</p>}
+      {state.kind === 'unsupported' && <p className="muted small">This browser cannot show notifications from Preshift Rota. Messages still arrive here and by email.</p>}
       {state.kind === 'install-first' && (
         <p className="muted small">
-          On an iPhone, add Preshift to your home screen first: tap the Share button, then Add to Home Screen. Open Preshift from the new icon,
+          On an iPhone, add Preshift Rota to your home screen first: tap the Share button, then Add to Home Screen. Open Preshift Rota from the new icon,
           come back here, and turn notifications on.
         </p>
       )}
-      {state.kind === 'blocked' && <p className="muted small">Notifications are blocked for Preshift. Allow them in your phone settings, then come back here.</p>}
+      {state.kind === 'blocked' && <p className="muted small">Notifications are blocked for Preshift Rota. Allow them in your phone settings, then come back here.</p>}
       {state.kind === 'off' && (
         <>
           <p className="muted small">Get told on your phone when your rota is out, a shift changes, a shift you could pick up is posted, or a request is decided.</p>
@@ -793,7 +793,7 @@ export function PayTab({ call }: { call: Call }) {
     call<TipsRecord>('GET', `/v1/staff/tips?weeks=${weeks}`).then(setTips).catch(() => setTips({ policy: null, weeks: [], total: 0 }));
   }, [call, weeks]);
   useEffect(() => {
-    call<typeof pay>('GET', '/v1/staff/payslips').then(setPay).catch(() => setPay({ available: false, reason: 'Could not reach Preshift. Try again.', payslips: [], p60s: [] }));
+    call<typeof pay>('GET', '/v1/staff/payslips').then(setPay).catch(() => setPay({ available: false, reason: 'Could not reach Preshift Rota. Try again.', payslips: [], p60s: [] }));
   }, [call]);
 
   const slip = (d: PayDoc) => (
@@ -874,7 +874,7 @@ export function PayTab({ call }: { call: Call }) {
 
       <Card title="How tips are shared here">
         {!tips?.policy ? (
-          <p className="muted small">Your site has not recorded its tipping policy in Preshift yet. Ask your manager for it: the law says you can see it.</p>
+          <p className="muted small">Your site has not recorded its tipping policy in Preshift Rota yet. Ask your manager for it: the law says you can see it.</p>
         ) : (
           <>
             <p className="small">

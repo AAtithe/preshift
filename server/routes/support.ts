@@ -72,7 +72,7 @@ export function deskEmail(to: string, client: string, t: SupportTicket, link: st
     t.steps ? `\nSteps to reproduce:\n${t.steps}` : '',
     t.hoursSavedPerWeek ? `\nWorth, by their estimate: ${t.hoursSavedPerWeek} hours a week` : '',
     '',
-    `Reply in Preshift, under Help > Support for ${client}: ${link}`,
+    `Reply in Preshift Rota, under Help > Support for ${client}: ${link}`,
   ].filter((l, i, all) => l !== '' || all[i - 1] !== '');
   const text = lines.join('\n');
   return {

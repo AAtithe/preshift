@@ -29,19 +29,19 @@ function PhoneTagsGuide() {
         <li>To program the sticker yourself: NXP TagXplorer on a computer with a USB NFC reader, or NXP TagWriter on a phone. Williams, Stanley &amp; Co. can send stickers ready programmed instead.</li>
       </ul>
 
-      <h3>Add the tag in Preshift</h3>
+      <h3>Add the tag in Preshift Rota</h3>
       <ol className="guide-steps">
         <li>Choose the site, open Clock in, then Clock-in setup.</li>
         <li>Under Phone tags, name it (for example, Staff entrance) and press Add a phone tag.</li>
         <li>
-          Preshift shows the address to write and two keys. <strong>The keys are shown once.</strong> Program the sticker now,
+          Preshift Rota shows the address to write and two keys. <strong>The keys are shown once.</strong> Program the sticker now,
           or send them securely to whoever is programming it. If they are lost, remove the tag and add it again.
         </li>
       </ol>
 
       <h3>Program the sticker</h3>
       <ol className="guide-steps">
-        <li>Write the address Preshift shows as a URL record.</li>
+        <li>Write the address Preshift Rota shows as a URL record.</li>
         <li>Turn on Secure Unique NFC (SDM) for that file, with reading free and the read counter on.</li>
         <li>Mirror the UID and read counter, encrypted, over the 32 zeros after picc=, using the SDM meta read key.</li>
         <li>Place the MAC over the 16 zeros after cmac=, with the MAC input starting at the same place, using the SDM file read key.</li>
@@ -51,7 +51,7 @@ function PhoneTagsGuide() {
       <h3>Put it up and test it</h3>
       <ol className="guide-steps">
         <li>Stick it inside the entrance at hand height, away from metal frames and the card reader. Metal behind a sticker stops it reading.</li>
-        <li>Ask someone with a staff login to touch it. Their phone opens Preshift and says Clocked in.</li>
+        <li>Ask someone with a staff login to touch it. Their phone opens Preshift Rota and says Clocked in.</li>
         <li>Clock-in setup now shows the sticker's serial and the time it was last touched. A sticker that has never been touched shows Not yet.</li>
         <li>Touch it again after two minutes to clock out, then check the entry under Clock in shows (phone tag).</li>
       </ol>
@@ -61,7 +61,7 @@ function PhoneTagsGuide() {
         <li><strong>iPhone:</strong> hold the top of the phone to the sticker with the screen on. A banner appears; tap it.</li>
         <li><strong>Android:</strong> unlock the phone and hold the middle of the back to the sticker. NFC must be on in settings.</li>
         <li>
-          The phone opens Preshift in its browser. On an iPhone that is Safari, which does not share a login with the staff app on
+          The phone opens Preshift Rota in its browser. On an iPhone that is Safari, which does not share a login with the staff app on
           the home screen, so they sign in once there. The touch is recorded as soon as they do. From then on every touch clocks
           them straight away.
         </li>

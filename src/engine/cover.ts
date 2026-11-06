@@ -100,8 +100,8 @@ export function offerText(o: OpenShift, roleName: string, siteName: string): { t
       `${shiftLabel(o, roleName, siteName)}.`,
       ...(o.note ? [o.note] : []),
       o.fill === 'first_yes'
-        ? 'The first to say yes gets it. Take it in the Preshift app, or reply YES on WhatsApp.'
-        : 'Ask for it in the Preshift app, or reply YES on WhatsApp; your manager confirms.',
+        ? 'The first to say yes gets it. Take it in the Preshift Rota app, or reply YES on WhatsApp.'
+        : 'Ask for it in the Preshift Rota app, or reply YES on WhatsApp; your manager confirms.',
     ].join(' '),
   };
 }
