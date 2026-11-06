@@ -46,7 +46,9 @@ await mkdir(fn, { recursive: true });
 await cp('site/login.html', `${fn}/login.html`);
 await cp('site/demo.html', `${fn}/demo.html`);
 
-for (const f of ['index.html', 'walkthrough.html', 'styles.css', 'main.js', 'img', 'video']) {
+// The legal pages are generated from legal/*.md by npm run legal (src/engine/legal.ts lists them).
+const legalPages = ['terms', 'privacy', 'dpa', 'staff-terms', 'cookies', 'subprocessors'];
+for (const f of ['index.html', 'walkthrough.html', 'styles.css', 'main.js', 'img', 'video', ...legalPages.map((p) => `${p}.html`)]) {
   await cp(`site/${f}`, `${out}/static/${f}`, { recursive: true });
 }
 
@@ -87,6 +89,8 @@ await writeFile(
         },
         // The narrated product walkthrough, a static page beside the marketing site.
         { src: '^/walkthrough/?$', dest: '/walkthrough.html' },
+        // The legal pages, at /terms, /privacy, /dpa, /staff-terms, /cookies and /subprocessors.
+        { src: `^/(${legalPages.join('|')})/?$`, dest: '/$1.html' },
         { handle: 'filesystem' },
       ],
       // Safety nets (need CRON_SECRET): payroll changes TeamPay has not confirmed, daily; webhook

@@ -113,7 +113,7 @@ export const FEATURES: FeatureDef[] = [
   },
   {
     id: 'risk', label: 'Compliance risk', group: 'Finance', tabs: ['risk'],
-    about: 'Minimum wage, right to work, Working Time and tips, priced as a regulator would.',
+    about: 'Minimum wage, right to work, Working Time and tips, sized against statutory maximums.',
   },
   {
     id: 'cash', label: 'Labour cash', group: 'Finance', tabs: ['cash'],

@@ -585,8 +585,8 @@ export function processingRegister(
       name: 'Vercel and Neon',
       role: 'Hosting and database',
       data: 'Everything Preshift Rota holds',
-      location: 'Region as deployed; check both are set to London or the EU',
-      safeguard: 'Article 28 contract; UK addendum or IDTA for any US access',
+      location: 'United Kingdom (London)',
+      safeguard: 'Article 28 contract; data stored in the UK. UK addendum or IDTA for any support access from the US',
       active: true,
     },
   ];
