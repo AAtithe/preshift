@@ -44,7 +44,7 @@ export const RELEASES: Release[] = [
       {
         for: 'GMs',
         title: 'Copy, paste and shift types',
-        body: 'On By person, Copy in the shift editor, or Ctrl+C on a selected shift, picks up its times, break and role, and every cell then offers Paste, which saves at once. Shift types are set up once per site, with their times, break and role, and picked from Build from above the grid. Leave and availability still refuse a paste, with the reason.',
+        body: 'On By person, Copy in the shift editor, or Ctrl+C on a selected shift, picks up its times, break and role, and every cell then offers Paste, which saves at once: click it, or point at a day, or Tab to it, and press Ctrl+V. Shift types are set up once per site, with their times, break and role, and picked from Build from above the grid. Leave and availability still refuse a paste, with the reason.',
         tryIt: 'Save your usual close as a shift type, then paste it onto the rest of the week.',
         tab: 'rota',
         lens: 'people',

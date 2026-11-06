@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Employee, Shift } from '../engine/types';
-import { dropBlocker, keyChange, LATEST_END, moveShift, nudgeShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf } from './drag';
+import { clipKey, dropBlocker, keyChange, LATEST_END, moveShift, nudgeShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf, typingIn } from './drag';
 
 const base: Shift = {
   id: 's1',
@@ -105,5 +105,31 @@ describe('copy and paste', () => {
   it('builds from a shift type with no role in the role the person works', () => {
     const pasted = pasteShift({ label: 'Double', startMinute: 600, endMinute: 1380, breakMinutes: 60 }, person('e4', ['bar']), '2026-10-24', 'mar', 'new');
     expect(pasted).toMatchObject({ roleId: 'bar', startMinute: 600, endMinute: 1380, breakMinutes: 60 });
+  });
+});
+
+describe('copy and paste keys', () => {
+  const press = (key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
+    ({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods });
+
+  it('reads Ctrl+C and Ctrl+V, and Cmd on a Mac, as copy and paste', () => {
+    expect(clipKey(press('c', { ctrlKey: true }))).toBe('copy');
+    expect(clipKey(press('v', { ctrlKey: true }))).toBe('paste');
+    expect(clipKey(press('V', { metaKey: true }))).toBe('paste');
+  });
+
+  it('leaves other keys and other combinations alone', () => {
+    expect(clipKey(press('v'))).toBeNull();
+    expect(clipKey(press('v', { ctrlKey: true, shiftKey: true }))).toBeNull();
+    expect(clipKey(press('c', { ctrlKey: true, altKey: true }))).toBeNull();
+    expect(clipKey(press('x', { ctrlKey: true }))).toBeNull();
+  });
+
+  it('never takes Ctrl+V from a field being typed in', () => {
+    expect(typingIn({ tagName: 'INPUT' } as Element)).toBe(true);
+    expect(typingIn({ tagName: 'TEXTAREA' } as Element)).toBe(true);
+    expect(typingIn({ tagName: 'DIV', isContentEditable: true } as unknown as Element)).toBe(true);
+    expect(typingIn({ tagName: 'BUTTON', isContentEditable: false } as unknown as Element)).toBe(false);
+    expect(typingIn(null)).toBe(false);
   });
 });

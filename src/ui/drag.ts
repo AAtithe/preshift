@@ -97,6 +97,20 @@ export function sameShift(a: Shift, b: Shift): boolean {
 // Leave and availability stops are shared with the shift picker and cover requests.
 export { dropBlocker };
 
+/** The keys that copy and paste a shift: Ctrl+C and Ctrl+V, or Cmd on a Mac. Alt or Shift make them something else. */
+export function clipKey(press: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): 'copy' | 'paste' | null {
+  if (!(press.ctrlKey || press.metaKey) || press.altKey || press.shiftKey) return null;
+  const k = press.key.toLowerCase();
+  return k === 'c' ? 'copy' : k === 'v' ? 'paste' : null;
+}
+
+/** Whether a key press belongs to a field being typed in, where Ctrl+V pastes text and not a shift. */
+export function typingIn(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable === true;
+}
+
 export interface KeyPress {
   key: string;
   altKey: boolean;

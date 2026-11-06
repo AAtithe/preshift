@@ -1,11 +1,11 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { dayCover, isOpenHour, type CoverHour } from '../engine/demand';
 import type { Issue } from '../engine/compliance';
 import { isEmployedOn, ruleAge } from '../engine/employees';
 import type { WeekMetrics } from '../engine/metrics';
 import { formatMinute, toISODate, weekday } from '../engine/time';
 import type { Department, Employee, RotaState, Shift, Site } from '../engine/types';
-import { dropBlocker, keyChange, moveShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf, type ShiftTemplate } from './drag';
+import { clipKey, dropBlocker, keyChange, moveShift, pasteShift, pixelsToMinutes, resizeShift, sameShift, templateOf, typingIn, type ShiftTemplate } from './drag';
 import { DragReadout } from './DragReadout';
 import { dayLabel, hours, money, pct } from './format';
 import { type Resolve, useShiftDrag } from './useShiftDrag';
@@ -47,6 +47,33 @@ interface ChipEntry {
 }
 
 const HINT_KEY = 'preshift.hint.drag.v1';
+const SECTIONS_KEY = (siteId: string) => `preshift.rota.sections.v1.${siteId}`;
+
+/** Which department sections are minimised (header only) or hidden (gone, restorable) for a site. */
+interface SectionState {
+  collapsed: Department[];
+  hidden: Department[];
+}
+
+function readSections(siteId: string): SectionState {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SECTIONS_KEY(siteId)) ?? 'null');
+    if (raw && Array.isArray(raw.collapsed) && Array.isArray(raw.hidden)) return raw;
+  } catch {
+    // Private mode or bad data: every section shows.
+  }
+  return { collapsed: [], hidden: [] };
+}
+
+function writeSections(siteId: string, v: SectionState) {
+  try {
+    localStorage.setItem(SECTIONS_KEY(siteId), JSON.stringify(v));
+  } catch {
+    // Private mode: the choice lasts for this visit only.
+  }
+}
+
+const toggled = (list: Department[], d: Department) => (list.includes(d) ? list.filter((x) => x !== d) : [...list, d]);
 
 function hintSeen() {
   try {
@@ -58,6 +85,15 @@ function hintSeen() {
 
 export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit, onPreview, onCommit, onBlocked, baseLabourCost, clip, onClip, onAdd, onManageTypes }: Props) {
   const [hint, setHint] = useState(() => !hintSeen());
+  const [sections, setSections] = useState<SectionState>(() => readSections(site.id));
+  useEffect(() => setSections(readSections(site.id)), [site.id]);
+  function updateSections(next: SectionState) {
+    setSections(next);
+    writeSections(site.id, next);
+  }
+  const toggleCollapsed = (d: Department) => updateSections({ ...sections, collapsed: toggled(sections.collapsed, d) });
+  const hideSection = (d: Department) => updateSections({ ...sections, hidden: [...sections.hidden.filter((x) => x !== d), d] });
+  const showSection = (d: Department) => updateSections({ ...sections, hidden: sections.hidden.filter((x) => x !== d) });
 
   // Escape puts down whatever is held, wherever the focus is.
   useEffect(() => {
@@ -106,7 +142,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
   });
 
   function keyMove(e: KeyboardEvent, shift: Shift) {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+    if (clipKey(e) === 'copy') {
       e.preventDefault();
       onClip(templateOf(shift, roleOf(shift.roleId)?.name ?? 'Shift'));
       return;
@@ -143,6 +179,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
     dept,
     people: people.filter((e) => deptOf(e) === dept),
   })).filter((g) => g.people.length > 0);
+  const hiddenGroups = groups.filter((g) => sections.hidden.includes(g.dept));
 
   const issuesFor = (employeeId: string) => issues.filter((i) => i.employeeId === employeeId);
   const today = toISODate(new Date());
@@ -162,6 +199,28 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
     if (reason) onBlocked(`Not pasted. ${reason}`);
     else onAdd(shift);
   }
+
+  // Ctrl+V (Cmd+V on a Mac) pastes what is held into the cell last pointed at or tabbed to, so a
+  // click on Paste in one cell does not keep later pastes there. A cell with no Paste button takes none.
+  const target = useRef<HTMLTableCellElement | null>(null);
+  const cellAt = (el: EventTarget | null) => (el instanceof Element ? el.closest<HTMLTableCellElement>('td[data-emp][data-date]') : null);
+  const pasteRef = useRef(paste);
+  pasteRef.current = paste;
+  const canPaste = !!clip && !!onEdit;
+  useEffect(() => {
+    if (!canPaste) return;
+    const key = (ev: globalThis.KeyboardEvent) => {
+      if (clipKey(ev) !== 'paste' || typingIn(document.activeElement) || document.querySelector('[role=dialog]')) return;
+      const cell = (target.current?.isConnected ? target.current : null) ?? cellAt(document.activeElement);
+      if (!cell || !cell.querySelector('.add.paste')) return;
+      const employee = state.employees.find((x) => x.id === cell.dataset.emp);
+      if (!employee) return;
+      ev.preventDefault();
+      pasteRef.current(employee, cell.dataset.date!);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [canPaste, state.employees]);
 
   const types = (state.shiftTypes ?? []).filter((t) => t.siteId === site.id);
   const cover = dates.map((d) => dayCover(state, site.id, d));
@@ -208,18 +267,23 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
           <div className="clip-bar" role="status">
             <span>
               Holding <b>{clip.label}</b> {formatMinute(clip.startMinute)}-{formatMinute(clip.endMinute)}
-              {clip.breakMinutes ? `, ${clip.breakMinutes}m break` : ''}. Click Paste on any person and day.
+              {clip.breakMinutes ? `, ${clip.breakMinutes}m break` : ''}. Click Paste on any person and day, or point at a day and press Ctrl+V.
             </span>
             <button className="primary" onClick={() => onClip(null)}>Done</button>
           </div>
         ) : (
-          <span className="muted small">To copy a shift, open it and press Copy, or select it and press Ctrl+C.</span>
+          <span className="muted small">To copy a shift, open it and press Copy, or select it and press Ctrl+C. Then Ctrl+V pastes it on the day you point at.</span>
         )}
       </div>
     )}
     <div className={`panel grid-wrap${hint ? ' hinting' : ''}${clip ? ' pasting' : ''}`}>
       {hint && <DragHint onDismiss={dismissHint} />}
-      <table className="rota">
+      <table
+        className="rota"
+        onPointerOver={(ev) => { target.current = cellAt(ev.target); }}
+        onFocus={(ev) => { target.current = cellAt(ev.target); }}
+        onPointerLeave={() => { target.current = null; }}
+      >
         <thead data-sticky-top>
           <tr>
             <th className="who">
@@ -252,11 +316,34 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
           </tr>
         </thead>
         <tbody>
-          {groups.map((g) => {
+          {hiddenGroups.length > 0 && (
+            <tr className="group hidden-sections">
+              <th colSpan={dates.length + 2}>
+                <span className="group-label">
+                  Hidden
+                  {hiddenGroups.map((g) => (
+                    <button key={g.dept} type="button" className="link" onClick={() => showSection(g.dept)} title={`Show ${DEPT_LABEL[g.dept]} again`}>
+                      Show {DEPT_LABEL[g.dept]} ({g.people.length})
+                    </button>
+                  ))}
+                </span>
+              </th>
+            </tr>
+          )}
+          {groups.filter((g) => !sections.hidden.includes(g.dept)).map((g) => {
             const groupCost = g.people.reduce((s, e) => s + (metrics.cost.employees.get(e.id)?.total ?? 0), 0);
+            const collapsed = sections.collapsed.includes(g.dept);
             return (
-              <Group key={g.dept} dept={g.dept} meta={showCost ? `${g.people.length} · ${money(groupCost)}` : `${g.people.length}`} span={dates.length + 2}>
-                {g.people.map((e) => {
+              <Group
+                key={g.dept}
+                dept={g.dept}
+                meta={showCost ? `${g.people.length} · ${money(groupCost)}` : `${g.people.length}`}
+                span={dates.length + 2}
+                collapsed={collapsed}
+                onToggle={() => toggleCollapsed(g.dept)}
+                onHide={() => hideSection(g.dept)}
+              >
+                {!collapsed && g.people.map((e) => {
                   const personIssues = issuesFor(e.id);
                   const weekLevel = personIssues.filter((i) => !i.shiftId);
                   const ec = metrics.cost.employees.get(e.id);
@@ -360,7 +447,7 @@ export function RotaGrid({ state, site, dates, metrics, issues, showCost, onEdit
                             })}
                             {onLeave && shifts.length === 0 && <span className="leave-tag">On leave</span>}
                             {!onLeave && onEdit && (clip ? (
-                              <button className="add paste" onClick={() => paste(e, date)} aria-label={`Paste ${clip.label} for ${e.name}`}>
+                              <button className="add paste" onClick={() => paste(e, date)} aria-label={`Paste ${clip.label} for ${e.name}`} title="Click, or press Ctrl+V here">
                                 Paste
                               </button>
                             ) : (
@@ -486,15 +573,37 @@ function DragHint({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-function Group({ dept, meta, span, children }: { dept: Department; meta: string; span: number; children: ReactNode }) {
+interface GroupProps {
+  dept: Department;
+  meta: string;
+  span: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  onHide: () => void;
+  children: ReactNode;
+}
+
+function Group({ dept, meta, span, collapsed, onToggle, onHide, children }: GroupProps) {
   return (
     <>
-      <tr className="group">
+      <tr className={`group ${collapsed ? 'collapsed' : ''}`}>
         <th colSpan={span}>
           <span className="group-label">
-            <i style={{ background: DEPT_COLOR[dept] }} />
-            {DEPT_LABEL[dept]}
-            <span className="muted">{meta}</span>
+            <button
+              type="button"
+              className="group-toggle"
+              aria-expanded={!collapsed}
+              onClick={onToggle}
+              title={collapsed ? `Expand ${DEPT_LABEL[dept]}` : `Minimise ${DEPT_LABEL[dept]}`}
+            >
+              <span className="chev" aria-hidden>{collapsed ? '▸' : '▾'}</span>
+              <i style={{ background: DEPT_COLOR[dept] }} />
+              {DEPT_LABEL[dept]}
+            </button>
+            <span className="muted">{meta}{collapsed ? ' · minimised' : ''}</span>
+            <button type="button" className="link group-hide" onClick={onHide} title={`Hide ${DEPT_LABEL[dept]} from the grid`}>
+              Hide
+            </button>
           </span>
         </th>
       </tr>
