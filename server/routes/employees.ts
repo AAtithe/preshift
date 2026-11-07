@@ -120,7 +120,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // Time off in lieu: one entry at a time, never edited or removed, so the balance can always be traced.
   // Kept with the holiday record: changed by whoever manages the person's team, never by the person.
-  app.post<{ Params: { id: string }; Body: Pick<ToilEntry, 'kind' | 'date' | 'hours' | 'note'> }>(
+  app.post<{ Params: { id: string }; Body: Pick<ToilEntry, 'kind' | 'date' | 'hours' | 'note' | 'dayOff' | 'fromWeek'> }>(
     '/v1/employees/:id/toil',
     {
       ...write,
@@ -137,6 +137,8 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
             date: isoDate,
             hours: { type: 'number' },
             note: { type: 'string', maxLength: 500 },
+            dayOff: { type: 'boolean', description: 'Taken as a whole day off: the rota treats the day like approved leave.' },
+            fromWeek: { ...isoDate, description: 'Earned from the overtime in the week starting this Monday. A week is banked once.' },
           },
         },
       },
@@ -154,6 +156,10 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
       // One opening balance: a second would count the old system's hours twice.
       if (req.body.kind === 'opening' && e.toil?.some((t) => t.kind === 'opening')) {
         throw new HttpError(409, 'opening_exists', `${e.name} already has an opening TOIL balance. Correct it with an adjustment.`);
+      }
+      if (req.body.dayOff && req.body.kind !== 'taken') throw new HttpError(422, 'invalid_toil', 'Only TOIL taken is a day off.');
+      if (req.body.fromWeek && (req.body.kind !== 'earned' || e.toil?.some((t) => t.fromWeek === req.body.fromWeek))) {
+        throw new HttpError(409, 'week_banked', `The overtime in the week of ${req.body.fromWeek} is already banked, or this is not hours earned.`);
       }
       const entry: ToilEntry = { ...req.body, hours: Math.round(req.body.hours * 100) / 100, id: `toil_${randomUUID().slice(0, 12)}`, by: actorName(g), at: new Date().toISOString() };
       e.toil = [...(e.toil ?? []), entry];

@@ -1,3 +1,4 @@
+import { onToilDay } from './toil';
 // Shift reminders and no-show alerts: which published shifts are due a reminder or a "not clocked
 // in" alert right now. Pure, so the scheduled job and the tests share one answer.
 
@@ -62,7 +63,7 @@ export function dueAlerts(state: Pick<RotaState, 'shifts' | 'employees'>, entrie
   for (const shift of state.shifts) {
     if (!shift.published || shift.date < addDays(now.date, -1) || shift.date > tomorrow) continue;
     const e = state.employees.find((x) => x.id === shift.employeeId);
-    if (!e || e.status === 'leaver' || !isEmployedOn(e, shift.date) || e.leave.includes(shift.date) || isAbsentOn(e, shift.date)) continue;
+    if (!e || e.status === 'leaver' || !isEmployedOn(e, shift.date) || e.leave.includes(shift.date) || onToilDay(e, shift.date) || isAbsentOn(e, shift.date)) continue;
     const done = sent[shift.id] ?? { date: shift.date };
     const startsIn = absoluteMinute(now.date, shift.date, shift.startMinute) - now.minute;
     const endsIn = absoluteMinute(now.date, shift.date, shift.endMinute) - now.minute;

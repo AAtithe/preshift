@@ -7,11 +7,11 @@ const START = '2026-11-02';
 const blank: GoLiveFacts = {
   startedOn: START, today: START, billing: 'trial', trialEndsOn: '2026-11-16', ownerAuthenticator: false, sample: false,
   companies: 0, companiesComplete: 0, sites: 0, sitesWithTarget: 0, sitesWithTradingWeek: 0, roles: 0, staffingRules: 0,
-  people: 0, peopleBlocked: 0, holidayDue: 0, holidayOpened: 0, managers: 0, emailReady: false, onStaffApp: 0, shiftsAhead: 0, published: 0, takingsDays: 0, clocked: 0, inPayroll: 0,
+  people: 0, peopleBlocked: 0, holidayDue: 0, holidayOpened: 0, rtwChecked: 0, rtwCopies: 0, statementsIssued: 0, trainingNeeded: 0, trainingHeld: 0, managers: 0, emailReady: false, onStaffApp: 0, shiftsAhead: 0, published: 0, takingsDays: 0, clocked: 0, inPayroll: 0,
 };
 const ready: GoLiveFacts = {
   ...blank, ownerAuthenticator: true, companies: 1, companiesComplete: 1, sites: 2, sitesWithTarget: 2, sitesWithTradingWeek: 2, roles: 5, staffingRules: 8,
-  people: 20, peopleBlocked: 0, holidayDue: 18, holidayOpened: 18, managers: 2, emailReady: true, onStaffApp: 12, shiftsAhead: 140, published: 2, takingsDays: 6, clocked: 300, inPayroll: 20, billing: 'paying',
+  people: 20, peopleBlocked: 0, holidayDue: 18, holidayOpened: 18, rtwChecked: 20, rtwCopies: 20, statementsIssued: 20, trainingNeeded: 15, trainingHeld: 15, managers: 2, emailReady: true, onStaffApp: 12, shiftsAhead: 140, published: 2, takingsDays: 6, clocked: 300, inPayroll: 20, billing: 'paying',
 };
 const step = (f: GoLiveFacts, code: string) => goLivePlan(f).steps.find((s) => s.code === code)!;
 
@@ -23,7 +23,7 @@ describe('go-live plan', () => {
     expect(plan.live).toBe(false);
     expect(step(blank, 'authenticator').status).toBe('due');
     expect(step(blank, 'companies').status).toBe('waiting');
-    expect(plan.headline).toBe('Day 0 of 14. 0 of 14 steps done. On plan. Next: set up your authenticator.');
+    expect(plan.headline).toBe('Day 0 of 14. 0 of 17 steps done. On plan. Next: set up your authenticator.');
   });
 
   it('is live once every required step is proved, optional ones aside', () => {
@@ -38,9 +38,9 @@ describe('go-live plan', () => {
     const f = { ...blank, today: '2026-11-10', ownerAuthenticator: true, companies: 1, companiesComplete: 1, sites: 1, sitesWithTarget: 1, sitesWithTradingWeek: 1, staffingRules: 3 };
     const plan = goLivePlan(f);
     expect(plan.day).toBe(8);
-    expect(plan.late.map((s) => s.code)).toEqual(['team', 'records', 'holiday', 'email', 'staffapp', 'build', 'publish']);
+    expect(plan.late.map((s) => s.code)).toEqual(['team', 'records', 'rtwcopies', 'statements', 'holiday', 'email', 'staffapp', 'build', 'publish']);
     expect(plan.next?.code).toBe('team');
-    expect(plan.headline).toMatch(/^Day 8 of 14\. 4 of 14 steps done\. 7 steps are behind the plan\. Next: load your team\.$/);
+    expect(plan.headline).toMatch(/^Day 8 of 14\. 4 of 17 steps done\. 9 steps are behind the plan\. Next: load your team\.$/);
   });
 
   it('never counts an optional step as late', () => {
@@ -56,6 +56,13 @@ describe('go-live plan', () => {
   it('wants holiday balances for everyone already working, and none from a team of new starters', () => {
     expect(step({ ...ready, holidayOpened: 12 }, 'holiday')).toMatchObject({ done: false, progress: '12 of 18 balances in' });
     expect(goLivePlan({ ...ready, holidayDue: 0, holidayOpened: 0 }).steps.some((s) => s.code === 'holiday')).toBe(false);
+  });
+
+  it('wants copies for every right to work check, a statement for everyone, and the training each role needs', () => {
+    expect(step({ ...ready, rtwCopies: 17 }, 'rtwcopies')).toMatchObject({ done: false, progress: '17 of 20 copies held' });
+    expect(step({ ...ready, statementsIssued: 19 }, 'statements').done).toBe(false);
+    expect(step({ ...ready, trainingHeld: 9 }, 'training')).toMatchObject({ done: false, progress: '9 of 15 fully trained' });
+    expect(goLivePlan({ ...ready, trainingNeeded: 0, trainingHeld: 0 }).steps.some((s) => s.code === 'training')).toBe(false);
   });
 
   it('proves nothing from the sample group', () => {

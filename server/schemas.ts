@@ -63,6 +63,7 @@ export const employeeBody = {
     optedOutOf48: { type: 'boolean' },
     irregularHours: { type: 'boolean' },
     pensionEnrolled: { type: 'boolean' },
+    payFrequency: { type: 'string', enum: ['weekly', 'monthly'], description: 'Sets the minimum wage pay reference period.' },
     availability: {
       type: 'array',
       items: {
@@ -91,7 +92,15 @@ export const employeeBody = {
       type: 'object',
       required: ['checked'],
       additionalProperties: false,
-      properties: { checked: { type: 'boolean' }, checkedOn: isoDate, evidence: { type: 'string' }, expiry: isoDate },
+      properties: {
+        checked: { type: 'boolean' },
+        checkedOn: isoDate,
+        evidence: { type: 'string' },
+        expiry: isoDate,
+        // Student permission: the term time weekly limit, and the official vacations when full-time work is allowed.
+        studentWeeklyHourLimit: { type: 'number', exclusiveMinimum: 0, maximum: 48 },
+        termVacations: { type: 'array', maxItems: 20, items: { type: 'object', required: ['from', 'to'], additionalProperties: false, properties: { from: isoDate, to: isoDate } } },
+      },
     },
   },
 } as const;

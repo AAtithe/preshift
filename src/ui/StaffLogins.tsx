@@ -77,6 +77,33 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
       }
     });
 
+  // Everyone with an email on their record and no login yet (or only an expired invite): invited together.
+  const waiting = team.filter((e) => e.status !== 'leaver' && e.email && !rows.some((r) => r.employeeId === e.id && (r.status === 'active' || r.inviteWaiting)));
+
+  /** Emails each of them their own invite, through the same route and rules as one at a time. Never hands links back in bulk. */
+  const inviteAll = () =>
+    run(async () => {
+      if (!window.confirm(`Email a staff app invite to ${waiting.length} ${waiting.length === 1 ? 'person' : 'people'}, each at the email on their record?`)) return;
+      let sent = 0;
+      const problems: string[] = [];
+      for (const person of waiting) {
+        try {
+          const res = await api.post<InviteResult>(`/v1/staff-logins/${person.id}/invite`, undefined);
+          if (res.emailed) sent++;
+          else if (res.reason === 'email_not_set_up') {
+            // A link made without email is for a manager to hand over one by one, not to collect in bulk.
+            problems.push('Email is not set up under Settings, so invites cannot be sent in one go. Set it up, or invite people one at a time.');
+            break;
+          } else problems.push(`${person.name}: ${res.emailProblem ?? WHY[res.reason] ?? 'not sent'}`);
+        } catch (e) {
+          problems.push(`${person.name}: ${e instanceof ApiError ? e.message : 'not sent'}`);
+        }
+      }
+      setLink(null);
+      setEmailed(null);
+      setMessage(`${sent} ${sent === 1 ? 'invite' : 'invites'} emailed, each valid for 7 days.${problems.length ? ` ${problems.slice(0, 5).join(' ')}` : ''}`);
+    });
+
   const share = async () => {
     if (!link) return;
     const text = `Your Preshift login for clocking in on your phone. Open this link on your phone to set it up: ${link.url}`;
@@ -101,6 +128,12 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
         never to a manager, because whoever opened it could clock in as them. If they no longer use that address, close their login and invite them again.
       </p>
       {!siteFenced && <p className="small warn-text">Set the site location above, or add a tag for phones below. Phones cannot clock in at a site with neither.</p>}
+      {waiting.length > 0 && (
+        <p>
+          <button disabled={busy} onClick={() => void inviteAll()}>Email an invite to everyone not yet on the app ({waiting.length})</button>
+          <span className="muted small"> Each goes to the email on the person's own record. Those without an email are invited one at a time below.</span>
+        </p>
+      )}
       {message && <p className="small bad-text" role="alert">{message}</p>}
       {emailed && (
         <div className="notice" role="status">

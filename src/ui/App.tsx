@@ -26,6 +26,7 @@ import { DecisionsBar } from './DecisionsBar';
 import { RotaHints } from './RotaHints';
 import { Tip } from './Tip';
 import { BillingBanner } from './BillingBanner';
+import type { ImportKind } from '../ai/importMapper';
 import { GoLiveBanner, GoLiveView, useGoLive } from './GoLiveView';
 import { RestBreaches } from './RestBreaches';
 import type { Account } from './SettingsView';
@@ -290,6 +291,8 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const [typesOpen, setTypesOpen] = useState(false);
   const [unfilled, setUnfilled] = useState<UnfilledGap[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // An Import tab Shifty was asked to open: Set-up opens on it.
+  const [importKind, setImportKind] = useState<{ kind: ImportKind; at: number } | null>(null);
   // A request handed over from Shifty, to start the rota assistant with.
   const [assistantInstruction, setAssistantInstruction] = useState('');
   const [editingPerson, setEditingPerson] = useState<Employee | null>(null);
@@ -633,6 +636,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
   const agentDeps: ProposalDeps = {
     actions,
     goTo: (screen) => setTab(screen as Tab),
+    openImport: (kind) => { setImportKind({ kind, at: Date.now() }); setTab('setup'); },
     openAssistant: (instruction) => {
       if (!rotaAi) throw new Error('AI rota writing is switched off for this organisation. An owner can turn it on under Features.');
       setAssistantInstruction(instruction);
@@ -1081,7 +1085,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
                 />
               )}
               {shown === 'golive' && <GoLiveView plan={goLive} onOpen={(t) => setTab(t as Tab)} />}
-              {shown === 'setup' && <SetupView state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} />}
+              {shown === 'setup' && <SetupView key={importKind?.at ?? 0} state={state} isAdmin={allow('settings.manage')} onSaved={actions.reload} startOnTeam={continueSetup} startOnImport={importKind?.kind} />}
               {shown === 'integrations' && (
                 <IntegrationsView state={state} account={account} canSettings={allow('settings.manage')} today={today} onOpen={setTab} />
               )}

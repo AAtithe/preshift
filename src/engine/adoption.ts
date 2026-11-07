@@ -1,3 +1,4 @@
+import { onToilDay } from './toil';
 // Whether each site is actually using the staff app: who is on it, who will hear about a change,
 // how fast requests are decided, how cover is found, and how many people did not turn up.
 // Counts only, so it can go to anyone who runs a site; names are added by the API for those who manage the team.
@@ -92,7 +93,7 @@ export function adoption(
     const checked = clocking.has(siteId)
       ? state.shifts.filter((s) => s.siteId === siteId && s.published && s.date >= from && s.date <= yesterday).filter((s) => {
           const e = state.employees.find((x) => x.id === s.employeeId) as Employee | undefined;
-          return e && !e.leave.includes(s.date) && !isAbsentOn(e, s.date);
+          return e && !e.leave.includes(s.date) && !onToilDay(e, s.date) && !isAbsentOn(e, s.date);
         })
       : [];
     const noShows = clocking.has(siteId) ? checked.filter((s) => !clockedFor(input.entries, s)).length : null;

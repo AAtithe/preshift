@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { canOrgWide, INVITE_DAYS, live, roleOf, type User } from '../../src/engine/access';
+import { goLivePlan } from '../../src/engine/golive';
 import { isNewStarter } from '../../src/engine/onboarding';
+import { goLiveFacts } from '../golive';
 import { SAMPLE_SITE_IDS } from '../../src/engine/seed';
 import { addDays } from '../../src/engine/time';
 import { engaged, getBilling, putBilling, standingOf, type Standing } from '../billing';
@@ -81,6 +83,8 @@ export interface ClientStep {
   code: string;
   label: string;
   done: boolean;
+  /** Past the day the go-live plan has it due. */
+  late?: boolean;
 }
 
 export interface ClientSummary {
@@ -133,7 +137,6 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
   const staff = state.employees.filter((e) => !e.anonymisedOn && !(e.leaveDate && e.leaveDate < today));
   const sample = state.sites.length > 0 && state.sites.every((s) => SAMPLE_SITE_IDS.includes(s.id));
   const realSites = sample ? 0 : state.sites.length;
-  const companiesReady = state.entities.length > 0 && state.entities.every((e) => e.companyNumber && e.payeReference);
   const notInPayroll = staff.filter((e) => !e.payrollId).length;
   const emailReady = !!parseEmailSettings(await ctx.store.getSetting(emailSetting(org.orgId)));
   const lastActivity = org.audit.length ? org.audit[org.audit.length - 1].at : null;
@@ -148,14 +151,12 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
         ? { mode: 'to-card', from: record.trialEndsAt, standing }
         : { mode: 'card', standing };
 
+  // The same go-live plan the customer sees on Getting started, so WS chases the step they are on. Its
+  // required steps, payroll (which WS runs for its clients), and first the owner taking up the invitation.
+  const plan = goLivePlan(await goLiveFacts(ctx.store, org, today, now));
   const steps: ClientStep[] = [
     { code: 'owner', label: 'Owner has accepted the invitation', done: owner?.status === 'active' },
-    { code: 'companies', label: 'Companies with company number and PAYE reference', done: companiesReady },
-    { code: 'sites', label: 'Sites, opening hours and labour targets', done: realSites > 0 },
-    { code: 'team', label: 'Team loaded', done: !sample && staff.length > 0 },
-    { code: 'payroll', label: 'Everyone set up in payroll', done: !sample && staff.length > 0 && notInPayroll === 0 },
-    { code: 'email', label: 'Email set up for invitations and resets', done: emailReady },
-    { code: 'rota', label: 'First rota published', done: !sample && org.publications.length > 0 },
+    ...plan.steps.filter((s) => !s.optional || s.code === 'payroll').map((s) => ({ code: s.code, label: s.label, done: s.done, ...(s.status === 'late' ? { late: true } : {}) })),
   ];
   const stage = owner?.status !== 'active' ? 'invited' : steps.every((s) => s.done) ? 'live' : 'setting-up';
 
@@ -163,6 +164,8 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
   if (!owner) attention.push('No owner on record.');
   else if (owner.status === 'expired') attention.push(`${owner.name}'s invitation has expired. Send a new one.`);
   if (sample) attention.push('Still on the sample group.');
+  const late = steps.filter((s) => s.late);
+  if (owner?.status === 'active' && late.length) attention.push(`${late.length} go-live ${late.length === 1 ? 'step' : 'steps'} behind the plan: ${late[0].label.toLowerCase()}${late.length > 1 ? ' and more' : ''}.`);
   if (owner?.status === 'active' && notInPayroll > 0 && !sample) attention.push(`${notInPayroll} ${notInPayroll === 1 ? 'person is' : 'people are'} not set up in payroll.`);
   if (stage === 'live' && lastActivity && lastActivity.slice(0, 10) < addDays(today, -QUIET_DAYS)) attention.push(`Nothing changed since ${lastActivity.slice(0, 10)}.`);
   // WS on a card customer: if the firm now bills them too, they would pay twice.

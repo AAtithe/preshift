@@ -1,3 +1,4 @@
+import { toilBalance } from '../../src/engine/toil';
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { checkFence } from '../../src/engine/clocking';
@@ -202,6 +203,10 @@ function selfService(org: OrgData, employee: Employee, today: string) {
       yearEnd: balance.year.end,
       upcoming: employee.leave.filter((d) => d >= today).sort(),
     },
+    // Time off in lieu, hours only: what they are owed and the days off already taken ahead.
+    toil: employee.toil?.length
+      ? { owedHours: toilBalance(employee, today).hours, daysOff: employee.toil.filter((t) => t.kind === 'taken' && t.dayOff && t.date >= today).map((t) => t.date).sort() }
+      : null,
     availability: employee.availability,
     unavailable: (employee.unavailable ?? []).filter((u) => u.date >= today),
     sick: sick ? { from: sick.from } : null,

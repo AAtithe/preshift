@@ -1,3 +1,4 @@
+import { onToilDay } from './toil';
 // Who could work a shift: the site's own team, then people agreed to cover it from other sites,
 // cheapest legal person first. Shared by the shift picker on the rota and by cover requests, so a
 // person asked to cover is exactly a person the picker would have offered.
@@ -51,6 +52,7 @@ const DAY_NAMES = ['Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 
 export function dropBlocker(employee: Employee, shift: Shift): string | null {
   const first = employee.name.split(' ')[0];
   if (employee.leave.includes(shift.date)) return `${first} is on approved leave that day.`;
+  if (onToilDay(employee, shift.date)) return `${first} has the day off as TOIL.`;
   if (isAvailable(employee, shift)) return null;
   if (employee.unavailable?.some((u) => u.date === shift.date)) return `${first} has said they cannot work that day.`;
   const day = weekday(shift.date);

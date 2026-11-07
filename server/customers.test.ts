@@ -71,7 +71,9 @@ describe('customers', () => {
     expect(by['org-failed'].attention).toEqual(expect.arrayContaining(['Payment failed: Stripe is retrying the card.', '2 sites set up, 1 billed.']));
     expect(by['org-ending'].attention).toEqual(expect.arrayContaining(['Trial ends in 2 days and no subscription yet.', 'A week in and no rota published.']));
     expect(by['org-lapsed']).toMatchObject({ standing: 'lapsed', locked: true });
-    expect(by['org-trial'].onboarding).toMatchObject({ of: 7 });
+    // The customer's own go-live plan: the owner, its required steps and payroll.
+    expect(by['org-trial'].onboarding).toMatchObject({ of: 19 });
+    expect(typeof by['org-trial'].onboarding.next).toBe('string');
 
     expect(res.body.totals).toMatchObject({
       customers: 6, trials: 2, paying: 2, pastDue: 1, lapsed: 1, signups7: 1, signups30: 2,

@@ -46,6 +46,14 @@ export interface GoLiveFacts {
   holidayDue: number;
   /** Of those, the ones with an opening holiday position recorded: carried over, accrued or taken before Preshift. */
   holidayOpened: number;
+  /** Current people with a right to work check recorded, and of those, how many have a copy of the documents held. */
+  rtwChecked: number;
+  rtwCopies: number;
+  /** Current people with a written statement recorded as issued (a day one right). */
+  statementsIssued: number;
+  /** Current people whose roles require training, and of those, how many hold all of it in date. */
+  trainingNeeded: number;
+  trainingHeld: number;
   /** Other people with a manager's sign-in, active or invited. */
   managers: number;
   emailReady: boolean;
@@ -220,6 +228,43 @@ const STEPS: StepSpec[] = [
     progress: (f) => (f.sample || !f.people ? null : f.peopleBlocked ? `${f.peopleBlocked} of ${f.people} held back` : 'Everyone clear'),
   },
   {
+    code: 'rtwcopies',
+    phase: 'team',
+    label: 'Right to work copies held',
+    why: 'A check is only a statutory excuse with a clear copy of each document seen, kept for the whole employment and two years after. Without the copy, the date proves nothing.',
+    how: 'Staff: open each person, Right to work, and upload a copy of what was seen. Phone photos are fine if every page is clear.',
+    screen: 'people',
+    dueDay: 5,
+    after: ['records'],
+    done: (f) => !f.sample && f.rtwChecked > 0 && f.rtwCopies >= f.rtwChecked,
+    progress: (f) => (f.sample || !f.rtwChecked ? null : of(f.rtwCopies, f.rtwChecked, 'copies held')),
+  },
+  {
+    code: 'statements',
+    phase: 'team',
+    label: 'Written statements issued',
+    why: 'Every worker is owed a written statement of their terms on or before their first day. Missing ones cost up to four weeks\' pay each at a tribunal.',
+    how: 'HR file for each person: record the statement issued and signed, or send it to sign in the staff app. Bring dates across under Set-up, Import, HR file.',
+    screen: 'hr',
+    dueDay: 5,
+    after: ['team'],
+    done: (f) => !f.sample && f.people > 0 && f.statementsIssued >= f.people,
+    progress: (f) => (f.sample || !f.people ? null : of(f.statementsIssued, f.people, 'issued')),
+  },
+  {
+    code: 'training',
+    phase: 'run',
+    label: 'Required training held',
+    why: 'Food hygiene, allergen and licensing training are what an environmental health officer or licensing officer asks to see first. A gap is a finding on the inspection report.',
+    how: 'Training: each role\'s required courses, with dates and expiry. Bring certificates across under Set-up, Import, Training.',
+    screen: 'training',
+    dueDay: 12,
+    after: ['team'],
+    applies: (f) => f.trainingNeeded > 0 || f.people === 0,
+    done: (f) => !f.sample && f.people > 0 && f.trainingHeld >= f.trainingNeeded,
+    progress: (f) => (f.sample || !f.trainingNeeded ? null : of(f.trainingHeld, f.trainingNeeded, 'fully trained')),
+  },
+  {
     code: 'holiday',
     phase: 'team',
     label: 'Holiday balances carried in',
@@ -261,7 +306,7 @@ const STEPS: StepSpec[] = [
     phase: 'team',
     label: 'Half the team on the staff app',
     why: 'A published rota only works if people see it. On the app they get their shifts, swap, ask for holiday and clock in, without a WhatsApp group.',
-    how: 'Clock in, Phone logins: invite each person from their site; the link lasts 7 days.',
+    how: 'Clock in, Phone logins: Email an invite to everyone not yet on the app, in one go, from each site. Each link lasts 7 days.',
     screen: 'clock',
     dueDay: 5,
     after: ['team', 'email'],

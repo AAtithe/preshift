@@ -383,6 +383,10 @@ export interface ToilEntry {
   date: string;
   /** Hours: positive earned, negative taken. */
   hours: number;
+  /** Taken as a whole day off: the rota treats the day like approved leave. */
+  dayOff?: boolean;
+  /** Earned from the hours over contract in the week starting on this Monday: each week is banked once. */
+  fromWeek?: string;
   note?: string;
   by: string;
   at: string;
@@ -711,7 +715,8 @@ export interface TimeEntry {
   clockOut?: number;
   breakMinutes: number;
   status: TimeEntryStatus;
-  source: 'clock' | 'manual';
+  /** 'import' is hours worked before go-live, brought across from the previous system and already paid by it. */
+  source: 'clock' | 'manual' | 'import';
   /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone, by location or on the site's tag. */
   method?: 'card' | 'device' | 'phone' | 'kiosk' | 'tag';
   clockInLocation?: ClockLocation;

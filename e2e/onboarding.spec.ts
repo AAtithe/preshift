@@ -50,3 +50,24 @@ test('Import previews training certificates from an export, matched to the cours
   await expect(page.getByText(/Not on Preshift: Nobody Known \(1\)/)).toBeVisible();
   await page.screenshot({ path: 'test-results/import-training.png', fullPage: true });
 });
+
+test('Import adds past hours from a timesheet and undoes the upload', async ({ page }) => {
+  await signIn(page, '/app/?view=setup');
+  await page.getByRole('button', { name: /Import$/ }).click();
+  await page.getByRole('tab', { name: /Past hours/ }).click();
+  const org = await (await page.request.get('/v1/employees')).json() as { name: string; status?: string }[];
+  const someone = org.find((e) => e.status !== 'leaver')!.name;
+  const day = new Date(Date.now() - 20 * 86_400_000);
+  const d = `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}/${day.getFullYear()}`;
+  const csv = ['Timesheet export', 'Employee,Date,Clock In,Clock Out,Break', `${someone},${d},09:00,17:30,30`, 'Total,,,,'].join('\n');
+  await page.locator('.import-panel input[type=file]').setInputFiles({ name: 'timesheet.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(page.getByText(/1 day worked, 8h in all/)).toBeVisible();
+  await page.getByRole('button', { name: 'Add 1 day worked' }).click();
+  await expect(page.getByText(/1 saved\./)).toBeVisible();
+  const row = page.locator('tr', { hasText: 'timesheet.csv' }).first();
+  await expect(row).toBeVisible();
+  page.once('dialog', (dlg) => void dlg.accept());
+  await row.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByText(/Undone: everything from that upload is back as it was/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/import-undo.png', fullPage: true });
+});

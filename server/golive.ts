@@ -1,5 +1,6 @@
 import { live } from '../src/engine/access';
 import { reviewEmployee } from '../src/engine/employees';
+import { requiredCourses, trainingStatus } from '../src/engine/hr';
 import { goLivePlan, type GoLiveBilling, type GoLiveFacts, type GoLivePlan, type GoLiveStep } from '../src/engine/golive';
 import { SAMPLE_SITE_IDS } from '../src/engine/seed';
 import { isSampleEntry } from '../src/engine/seedHistory';
@@ -88,6 +89,14 @@ export async function goLiveFacts(store: Store, org: OrgData, today: string, now
     staffingRules: state.demandRules.filter((r) => siteIds.has(r.siteId)).length,
     people: people.length,
     peopleBlocked: people.filter((e) => reviewEmployee(e, today).some((c) => c.severity === 'block')).length,
+    rtwChecked: people.filter((e) => e.rightToWork?.checked).length,
+    rtwCopies: people.filter((e) => e.rightToWork?.checked && (e.rightToWork.documents?.length ?? 0) > 0).length,
+    statementsIssued: people.filter((e) => e.hr?.contractIssuedOn).length,
+    trainingNeeded: people.filter((e) => requiredCourses(e, state.roles).length > 0).length,
+    trainingHeld: people.filter((e) => {
+      const needed = requiredCourses(e, state.roles);
+      return needed.length > 0 && needed.every((c) => ['valid', 'expiring'].includes(trainingStatus(org.hrRecords, e.id, c.name, today).status));
+    }).length,
     holidayDue: people.filter((e) => !e.startDate || e.startDate < today).length,
     holidayOpened: people.filter((e) => (!e.startDate || e.startDate < today) && (e.holiday?.carriedOverHours !== undefined || e.holiday?.openingAccruedHours !== undefined || e.holiday?.openingTakenHours !== undefined)).length,
     managers: org.users.filter((u) => u.audience === 'operator' && u.id !== owner?.id && !samples.has(u.id) && (u.status === 'active' || u.status === 'invited')).length,

@@ -34,3 +34,14 @@ describe('POST /v1/employees/:id/toil', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('right to work with a student limit', () => {
+  it('saves the term time limit through the record, keeping copies held', async () => {
+    const k = await kit({ keys: KEYS });
+    const org = await k.store.load('demo');
+    const e = org.state.employees.find((x) => x.siteId === 'mar' && x.status !== 'leaver' && x.id !== 'mar-1')!;
+    const res = await k.call('PATCH', `/v1/employees/${e.id}`, { key: 'olivia' }, { rightToWork: { checked: true, checkedOn: '2026-09-01', evidence: 'Share code', expiry: '2027-09-30', studentWeeklyHourLimit: 20 } });
+    expect(res.status).toBe(200);
+    expect((await k.store.load('demo')).state.employees.find((x) => x.id === e.id)!.rightToWork).toMatchObject({ studentWeeklyHourLimit: 20, expiry: '2027-09-30' });
+  });
+});

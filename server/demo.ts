@@ -227,6 +227,13 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'POST /v1/rota/import': true,
   // Time off in lieu on the sandbox's fictional team.
   'POST /v1/employees/:id/toil': true,
+  // Uploads and their undo, on the sandbox's own records.
+  'GET /v1/import/batches': true,
+  'POST /v1/import/batches': true,
+  'POST /v1/import/batches/:id/undone': true,
+  'POST /v1/import/hours': true,
+  'DELETE /v1/import/hours/:id': true,
+  'DELETE /v1/import/people/:id': true,
   // Managers' overrides of the rest rules, kept in the sandbox's own rota.
   'GET /v1/rota/overrides': true,
   'GET /v1/rota/changes': true,

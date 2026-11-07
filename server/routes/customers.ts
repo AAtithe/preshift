@@ -95,7 +95,7 @@ async function rowFor(ctx: AppContext, org: OrgData, r: BillingRecord, stripe: b
   const ownerRecord = org.users.find((u) => u.audience === 'operator' && u.status !== 'suspended' && u.memberships.some((m) => m.roleId === 'owner' && m.active));
   const sites = org.state.sites.filter((x) => !SAMPLE_SITE_IDS.includes(x.id)).length;
   const done = summary.steps.filter((x) => x.done).length;
-  const rotaPublished = summary.steps.find((x) => x.code === 'rota')?.done ?? false;
+  const rotaPublished = summary.steps.find((x) => x.code === 'publish')?.done ?? false;
   const attention: string[] = [];
   if (s.standing === 'past_due') attention.push('Payment failed: Stripe is retrying the card.');
   if (s.standing === 'lapsed') attention.push(s.locked ? 'Lapsed: changes are paused until they subscribe.' : 'Trial over and not paying.');

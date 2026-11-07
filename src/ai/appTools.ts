@@ -11,6 +11,7 @@ import type { Absence, AbsenceType, Employee, RotaState, Shift, TimeEntry } from
 import { minimumWageFor } from '../engine/ukRates';
 import type { ToolDefinition } from './rotaTools';
 import type { GoLivePlan } from '../engine/golive';
+import { IMPORT_FIELDS, type ImportKind } from './importMapper';
 import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, ROUND_MINUTES, roundOf } from '../engine/cover';
 
 /**
@@ -65,6 +66,7 @@ export type Proposal = { id: string; summary: string; details: Detail[]; warning
   | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean; rounds: { size: number; everyMinutes: number } | null; keepUntilTaken: boolean }
   | { kind: 'draft_rota'; instruction: string }
   | { kind: 'go_to'; screen: Screen }
+  | { kind: 'open_import'; importKind: ImportKind }
 );
 
 export interface AppToolOutcome {
@@ -240,6 +242,14 @@ export const APP_TOOLS: ToolDefinition[] = [
       'clocking, whether it is done, late or next, why it matters and how to do it. Use it for "what should I do next", "how do I get set up" ' +
       'or "how far are we". Counts only. Only owners and others who run the settings can see it.',
     input_schema: object({}),
+  },
+  {
+    name: 'open_import',
+    description:
+      'Opens Set-up, Import on one tab, for bringing data across from another system or the Excel template. Tabs, in the order to work them: ' +
+      'team, managers, rtw (right to work), documents (HR file), training, reviews, holiday (balances), toil, absences, hours (past hours worked), takings, rota. ' +
+      'No confirmation needed; the manager uploads the file there and sees a preview before anything is saved.',
+    input_schema: object({ kind: { type: 'string', enum: Object.keys(IMPORT_FIELDS) } }),
   },
   {
     name: 'go_to',
@@ -757,6 +767,13 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
           },
           label: 'Read the go-live plan',
         };
+      }
+
+      case 'open_import': {
+        const importKind = String(input.kind) as ImportKind;
+        if (!(importKind in IMPORT_FIELDS)) throw new InputError(`Kind must be one of ${Object.keys(IMPORT_FIELDS).join(', ')}.`);
+        const proposal: Proposal = { id: proposalId(), kind: 'open_import', importKind, summary: `Open Import, ${importKind}`, details: [], warnings: [] };
+        return { result: { opened: `setup import ${importKind}` }, label: proposal.summary, proposal };
       }
 
       case 'go_to': {

@@ -1,3 +1,4 @@
+import type { ImportKind } from '../ai/importMapper';
 import { useState } from 'react';
 import type { Proposal, Screen } from '../ai/appTools';
 import type { Employee } from '../engine/types';
@@ -9,6 +10,8 @@ type Actions = ReturnType<typeof useRotaStore>['actions'];
 export interface ProposalDeps {
   actions: Actions;
   goTo: (screen: Screen) => void;
+  /** Opens Set-up on its Import step, on one tab. */
+  openImport?: (kind: ImportKind) => void;
   openAssistant: (instruction: string) => void;
   /** Opens the full People editor on a starter, to check or add more before saving. */
   reviewStarter: (employee: Employee) => void;
@@ -70,11 +73,15 @@ export async function carryOut(p: Proposal, deps: ProposalDeps): Promise<string>
     case 'go_to':
       deps.goTo(p.screen);
       return `Opened ${p.screen}.`;
+    case 'open_import':
+      if (deps.openImport) deps.openImport(p.importKind);
+      else deps.goTo('setup');
+      return 'Opened Set-up, Import.';
   }
 }
 
 /** Navigation needs no confirmation; everything else waits for the manager. */
-export const needsConfirmation = (p: Proposal) => p.kind !== 'go_to';
+export const needsConfirmation = (p: Proposal) => p.kind !== 'go_to' && p.kind !== 'open_import';
 
 export type ProposalState = 'waiting' | 'working' | 'done' | 'cancelled' | 'failed';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toilBalance, toilEntryProblems } from './toil';
+import { onToilDay, overtimeWeeks, toilBalance, toilEntryProblems } from './toil';
 import type { Employee, ToilEntry } from './types';
 
 // Time off in lieu: a ledger of hours banked and taken, the balance owed, and what it is worth.
@@ -30,5 +30,29 @@ describe('TOIL balance', () => {
     expect(toilEntryProblems({ kind: 'taken', hours: 3, date: '2026-11-01' }, '2026-11-04')).toHaveLength(1);
     expect(toilEntryProblems({ kind: 'earned', hours: 3, date: '2026-11-10' }, '2026-11-04')).toHaveLength(1);
     expect(toilEntryProblems({ kind: 'taken', hours: -3, date: '2026-11-10' }, '2026-11-04')).toEqual([]);
+  });
+});
+
+describe('overtime offered as TOIL', () => {
+  const entry = (date: string, hours: number, extra: object = {}) => ({ id: date + hours, employeeId: 'e1', siteId: 's', roleId: 'r', date, clockIn: 540, clockOut: 540 + hours * 60, breakMinutes: 0, status: 'approved', source: 'clock', ...extra }) as never;
+  const salaried = { id: 'e1', payBasis: 'salaried', annualSalary: 30000, hourlyRate: 0, contractedHours: 40, toil: [] } as unknown as Employee;
+  const entries = [0, 1, 2, 3, 4].map((d) => entry(`2026-10-${String(26 + d).padStart(2, '0')}`, 9)).concat([entry('2026-10-19', 45), entry('2026-10-12', 50, { source: 'import' })]);
+
+  it('offers whole weeks over contract for salaried staff, once each, never imported hours or this week', () => {
+    const weeks = overtimeWeeks(salaried, [...entries, entry('2026-11-03', 60)], '2026-11-04');
+    expect(weeks).toEqual([{ weekStart: '2026-10-26', workedHours: 45, overHours: 5 }, { weekStart: '2026-10-19', workedHours: 45, overHours: 5 }]);
+    const banked = { ...salaried, toil: [{ id: 'x', kind: 'earned', date: '2026-11-01', hours: 5, fromWeek: '2026-10-26', by: 'x', at: 'x' }] } as unknown as Employee;
+    expect(overtimeWeeks(banked, entries, '2026-11-04').map((w) => w.weekStart)).toEqual(['2026-10-19']);
+  });
+
+  it('never offers an hourly worker\'s paid hours, which would pay them twice', () => {
+    expect(overtimeWeeks({ ...salaried, payBasis: 'hourly', hourlyRate: 12 }, entries, '2026-11-04')).toEqual([]);
+  });
+
+  it('treats TOIL taken as a day off like leave, and warns on leaving with TOIL owed', () => {
+    const e = { ...salaried, leaveDate: '2026-11-30', toil: [{ id: 'a', kind: 'opening', date: '2026-10-01', hours: 8, by: 'x', at: 'x' }, { id: 'b', kind: 'taken', date: '2026-11-10', hours: -8, dayOff: true, by: 'x', at: 'x' }] } as unknown as Employee;
+    expect(onToilDay(e, '2026-11-10')).toBe(true);
+    expect(onToilDay(e, '2026-11-11')).toBe(false);
+    expect(toilBalance(e, '2026-11-04').warnings.join(' ')).toMatch(/Leaving on 2026-11-30 with 8h TOIL owed/);
   });
 });

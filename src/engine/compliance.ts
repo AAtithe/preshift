@@ -3,6 +3,7 @@ import { isSchoolDay } from './school';
 import { employeeWeekCost, shiftPaidMinutes, shiftsInWeek } from './cost';
 import { employedShare, isEmployedOn, ruleAge } from './employees';
 import { isAbsentOn } from './hr';
+import { onToilDay } from './toil';
 import { nightOverlap } from './night';
 import { absoluteMinute, addDays, ageOn, weekDates, weekday } from './time';
 import { travelIssues, travelMinutesInto } from './travel';
@@ -199,6 +200,9 @@ export function checkEmployeeWeek(
     }
     if (employee.leave.includes(shift.date)) {
       push({ ...base, code: 'on-leave', severity: 'block', message: 'Rostered on approved leave.' });
+    }
+    if (onToilDay(employee, shift.date)) {
+      push({ ...base, code: 'on-toil', severity: 'block', message: 'Rostered on a day off taken as TOIL.' });
     }
     if (isAbsentOn(employee, shift.date)) {
       push({ ...base, code: 'absent', severity: 'block', message: 'Recorded as absent that day. Re-cover the shift.' });

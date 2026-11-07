@@ -20,6 +20,7 @@ import { formatMinute, parseClock, toISODate } from '../engine/time';
 import type { DemandRule, Department, Employee, RotaState, Role, Site, SiteArea } from '../engine/types';
 import { api, ApiError } from './api';
 import { ImportPanel } from './ImportPanel';
+import type { ImportKind } from '../ai/importMapper';
 import { money } from './format';
 
 interface Status {
@@ -36,6 +37,8 @@ interface Props {
   onSaved: () => Promise<void>;
   /** Opens on the team step: used straight after the first save of a new organisation. */
   startOnTeam?: boolean;
+  /** Open on the Import step, on this tab: from Shifty. */
+  startOnImport?: ImportKind;
 }
 
 const STEPS = ['Companies', 'Sites', 'Roles', 'Trading and staffing', 'Review and save', 'Team', 'Import'] as const;
@@ -51,11 +54,11 @@ const problem = (e: unknown) => {
   return e instanceof Error ? e.message : String(e);
 };
 
-export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
+export function SetupView({ state, isAdmin, onSaved, startOnTeam, startOnImport }: Props) {
   const initial = useMemo(() => (state.sites.length ? draftFromState(state) : emptyDraft(state.entities)), [state]);
   const [draft, setDraft] = useState<SetupDraft>(initial);
   const [saved, setSaved] = useState(state.sites.length ? JSON.stringify(initial) : '');
-  const [step, setStep] = useState(startOnTeam && state.sites.length ? TEAM_STEP : 0);
+  const [step, setStep] = useState(startOnImport && state.sites.length ? IMPORT_STEP : startOnTeam && state.sites.length ? TEAM_STEP : 0);
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
@@ -168,7 +171,7 @@ export function SetupView({ state, isAdmin, onSaved, startOnTeam }: Props) {
         {step === 3 && <TradingStep draft={draft} setDraft={setDraft} />}
         {step === 4 && <ReviewStep draft={draft} issues={issues} />}
         {step === TEAM_STEP && <TeamStep state={state} onAdded={onSaved} />}
-        {step === IMPORT_STEP && <ImportPanel state={state} onDone={onSaved} />}
+        {step === IMPORT_STEP && <ImportPanel state={state} onDone={onSaved} initialKind={startOnImport} />}
       </section>
 
       {message && <div className={`notice${message.bad ? ' error' : ''}`} role={message.bad ? 'alert' : 'status'}>{message.text}</div>}

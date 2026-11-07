@@ -5,9 +5,22 @@ import { parseCsv } from '../engine/bookingImport';
 import { normal } from '../engine/externalImport';
 import { onboardingTemplate } from '../engine/importTemplate';
 import type { Employee, HrRecord, RotaState } from '../engine/types';
+import { isXls, readXls } from '../engine/xls';
 import { readXlsx, writeXlsx, type Sheet } from '../engine/xlsx';
 import { api, ApiError } from './api';
-import { IMPORT_ALIASES, IMPORT_KINDS, planImport } from './importPlan';
+import { IMPORT_ALIASES, IMPORT_KINDS, planImport, type UndoCall } from './importPlan';
+
+interface Batch {
+  id: string;
+  kind: string;
+  file: string;
+  at: string;
+  by: string;
+  items: { label: string; undo: UndoCall | null }[];
+  undoneAt?: string;
+  undoneBy?: string;
+  undoFailed?: { label: string; reason: string }[];
+}
 
 // Set-up, Import: the team, right to work, HR files and documents, training, holiday and TOIL
 // balances at go-live, absences, and the rota ahead, from an Excel workbook or CSV: the onboarding
@@ -37,8 +50,8 @@ function bestSheet(sheets: Sheet[], kind: ImportKind): number {
 
 type Done = { ok: number; failed: { name: string; reason: string }[]; notes: string[] };
 
-export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () => Promise<void> }) {
-  const [kind, setKind] = useState<ImportKind>('team');
+export function ImportPanel({ state, onDone, initialKind }: { state: RotaState; onDone: () => Promise<void>; initialKind?: ImportKind }) {
+  const [kind, setKind] = useState<ImportKind>(initialKind ?? 'team');
   const [sheets, setSheets] = useState<Sheet[] | null>(null);
   const [fileName, setFileName] = useState('');
   const [sheetIndex, setSheetIndex] = useState(0);
@@ -52,16 +65,26 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
   // Training and documents already on file, so the same certificate is not recorded twice.
   const [hrRecords, setHrRecords] = useState<HrRecord[]>([]);
   const today = new Date().toISOString().slice(0, 10);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const loadBatches = () => api.get<Batch[]>('/v1/import/batches').then(setBatches).catch(() => setBatches([]));
+  useEffect(() => { void loadBatches(); }, []);
+
+  // Sign-ins already here, so a manager is not invited twice.
+  const [users, setUsers] = useState<{ email: string }[]>([]);
+  useEffect(() => {
+    if (kind !== 'managers') return;
+    api.get<{ email: string }[] | { users: { email: string }[] }>('/v1/users').then((r) => setUsers(Array.isArray(r) ? r : r.users ?? [])).catch(() => setUsers([]));
+  }, [kind, done]);
 
   useEffect(() => {
-    if (kind !== 'training' && kind !== 'documents') return;
+    if (kind !== 'training' && kind !== 'documents' && kind !== 'reviews') return;
     api.get<HrRecord[]>('/v1/hr/records').then(setHrRecords).catch(() => setHrRecords([]));
   }, [kind, done]);
 
   const rows = sheets?.[sheetIndex]?.rows ?? null;
   const plan = useMemo(
-    () => (rows ? planImport({ kind, rows, state, hrRecords, today, siteId, usDates, columns: chosen }) : null),
-    [rows, kind, state, hrRecords, today, siteId, usDates, chosen],
+    () => (rows ? planImport({ kind, rows, state, hrRecords, users, today, siteId, usDates, columns: chosen }) : null),
+    [rows, kind, state, hrRecords, users, today, siteId, usDates, chosen],
   );
 
   function choose(next: ImportKind) {
@@ -81,8 +104,9 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
     setAi({ busy: false });
     setFileName(file.name);
     try {
-      if (/\.xls$/i.test(file.name)) throw new Error('That is an old Excel file (.xls). Open it in Excel and save it as .xlsx, or as CSV, then upload again.');
-      const list = /\.(csv|txt|tsv)$/i.test(file.name) ? [{ name: file.name, rows: parseCsv(await file.text()) }] : await readXlsx(new Uint8Array(await file.arrayBuffer()));
+      // Workbooks are told apart by their contents, not their name: .xlsx is a zip, .xls a compound file.
+      const bytes = /\.(csv|txt|tsv)$/i.test(file.name) ? null : new Uint8Array(await file.arrayBuffer());
+      const list = !bytes ? [{ name: file.name, rows: parseCsv(await file.text()) }] : isXls(bytes) ? readXls(bytes) : await readXlsx(bytes);
       if (!list.some((s) => s.rows.length > 1)) throw new Error('The file has no rows under its headers.');
       setSheets(list);
       setSheetIndex(bestSheet(list, kind));
@@ -109,12 +133,32 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
     setError(null);
     const result: Done = { ok: 0, failed: [], notes: [] };
     let awaitingPay = 0;
+    // What each saved row was, and how to put it back, kept as one upload.
+    const items: { label: string; undo: UndoCall | null }[] = [];
     // One call at a time, each through the same checks as the screens, so one refusal stops nothing else.
     for (const [i, call] of plan.calls.entries()) {
       setBusy(`Saving ${i + 1} of ${plan.calls.length}`);
       try {
         const res = await (call.method === 'POST' ? api.post<unknown>(call.path, call.body) : call.method === 'PUT' ? api.put<unknown>(call.path, call.body) : api.patch<unknown>(call.path, call.body));
-        if (call.path === '/v1/rota/import') {
+        // Anything that needs the new record's id, such as its clock card, goes straight after it.
+        for (const t of call.then?.(res) ?? []) {
+          try {
+            await (t.method === 'PUT' ? api.put(t.path, t.body) : t.method === 'POST' ? api.post(t.path, t.body) : api.patch(t.path, t.body));
+          } catch (e) {
+            result.failed.push({ name: `${call.label} (clock card)`, reason: problem(e) });
+          }
+        }
+        const undo = call.undo(res);
+        if (undo.length) for (const u of undo) items.push({ label: call.label, undo: u });
+        else items.push({ label: call.label, undo: null });
+        if (call.path === '/v1/import/hours') {
+          const r = res as { added: string[]; skipped: number; refused: { index: number; reason: string }[] };
+          result.ok += r.added.length;
+          for (const x of r.refused.slice(0, 50)) result.failed.push({ name: `Row ${x.index + 1}`, reason: x.reason });
+          if (r.skipped) result.notes.push(`${r.skipped} already held, left as they were.`);
+        } else if (call.path === '/v1/sales') {
+          result.ok += (res as { upserted: number }).upserted;
+        } else if (call.path === '/v1/rota/import') {
           const r = res as { added: number; refused: { index: number; reason: string }[]; weeks: string[] };
           const shifts = (call.body as { shifts: { employeeId: string; date: string }[] }).shifts;
           result.ok += r.added;
@@ -128,6 +172,15 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
         result.failed.push({ name: call.label, reason: problem(e) });
       }
     }
+    if (items.length) {
+      try {
+        await api.post('/v1/import/batches', { kind, file: fileName || 'file', items });
+        result.notes.push('Kept under Recent uploads below, where it can be undone.');
+      } catch (e) {
+        result.notes.push(`The upload is saved, but it could not be recorded for undo: ${problem(e)}`);
+      }
+      void loadBatches();
+    }
     if (awaitingPay) result.notes.push(`${awaitingPay} ${awaitingPay === 1 ? 'rate is' : 'rates are'} waiting for the finance director under Pay approvals. Until approved, those people are on nought and cannot be costed or paid.`);
     const next = IMPORT_KINDS[IMPORT_KINDS.findIndex((k) => k.id === kind) + 1];
     if (next && !result.failed.length) result.notes.push(`Next: ${next.label}.`);
@@ -136,16 +189,47 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
     setBusy(null);
   }
 
+  async function undoBatch(b: Batch) {
+    if (!window.confirm(`Undo ${b.kind} from ${b.file}, saved by ${b.by}? Each of its ${b.items.length} rows is put back as it was before.`)) return;
+    const failed: { label: string; reason: string }[] = [];
+    // Newest first, so later rows that depend on earlier ones go before them.
+    for (const [i, item] of [...b.items].reverse().entries()) {
+      setBusy(`Undoing ${i + 1} of ${b.items.length}`);
+      const u = item.undo;
+      if (!u) {
+        failed.push({ label: item.label, reason: 'This row cannot be undone automatically. Correct it by hand.' });
+        continue;
+      }
+      try {
+        if (u.method === 'DELETE') await api.del(u.path);
+        else if (u.method === 'POST') await api.post(u.path, u.body);
+        else if (u.method === 'PUT') await api.put(u.path, u.body);
+        else await api.patch(u.path, u.body);
+      } catch (e) {
+        failed.push({ label: item.label, reason: problem(e) });
+      }
+    }
+    try {
+      await api.post(`/v1/import/batches/${encodeURIComponent(b.id)}/undone`, { failed });
+    } catch (e) {
+      setError(problem(e));
+    }
+    setBusy(null);
+    await onDone();
+    await loadBatches();
+    setDone({ ok: b.items.length - failed.length, failed: failed.map((f) => ({ name: f.label, reason: f.reason })), notes: [failed.length ? 'Undone, except the rows listed.' : 'Undone: everything from that upload is back as it was.'] });
+  }
+
   const fields = IMPORT_FIELDS[kind];
   const about = IMPORT_KINDS.find((k) => k.id === kind)!.about;
 
   return (
     <div className="import-panel">
       <p className="step-intro">
-        Bring everything across from your old system: the team, right to work checks, HR files and documents, training, holiday and
-        TOIL balances, absences and the rota ahead. Download the template and fill it in, or upload exports from your old rota, HR or
-        payroll system as they are: columns are found by their names. Work through the tabs in order. Each shows a preview, and
-        nothing is saved until you confirm it.
+        Bring everything across from your old system: the team and managers, right to work checks, HR files, training and reviews,
+        holiday and TOIL balances, absences, past hours, takings and the rota ahead. Download the template and fill it in, or upload
+        exports from your old rota, HR or payroll system as they are (.xlsx, .xls or .csv): columns are found by their names. Work
+        through the tabs in order. Each shows a preview, nothing is saved until you confirm it, and every upload can be undone.
       </p>
       <p>
         <button onClick={() => saveBytes('Preshift onboarding template.xlsx', writeXlsx(onboardingTemplate(state)))}>Download the Excel template</button>
@@ -161,7 +245,7 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
 
       <div className="setup-row">
         <label>
-          File (.xlsx or .csv)
+          File (.xlsx, .xls or .csv)
           <input type="file" accept=".xlsx,.csv,.txt,.xls" onChange={(e) => { const f = e.target.files?.[0]; if (f) void open(f); e.target.value = ''; }} />
         </label>
         {sheets && sheets.length > 1 && (
@@ -172,7 +256,7 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
             </select>
           </label>
         )}
-        {(kind === 'team' || kind === 'rota') && (
+        {(kind === 'team' || kind === 'rota' || kind === 'takings') && (
           <label>
             Site, where the file names none
             <select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
@@ -245,6 +329,30 @@ export function ImportPanel({ state, onDone }: { state: RotaState; onDone: () =>
               {busy ?? `${plan.verb} ${plan.ready} ${plan.noun}`}
             </button>
           </p>
+        </>
+      )}
+
+      {batches.length > 0 && (
+        <>
+          <h3 className="section-title">Recent uploads</h3>
+          <table className="table">
+            <thead><tr><th>Upload</th><th>File</th><th className="num">Rows</th><th>Saved</th><th /></tr></thead>
+            <tbody>
+              {batches.slice(0, 10).map((b) => (
+                <tr key={b.id}>
+                  <td>{IMPORT_KINDS.find((k) => k.id === b.kind)?.label ?? b.kind}</td>
+                  <td className="muted">{b.file}</td>
+                  <td className="num">{b.items.length}</td>
+                  <td className="muted small">{new Date(b.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} by {b.by}</td>
+                  <td>
+                    {b.undoneAt
+                      ? <span className="muted small">Undone {b.undoneAt.slice(0, 10)}{b.undoFailed?.length ? `, ${b.undoFailed.length} rows by hand` : ''}</span>
+                      : <button className="link" disabled={!!busy} onClick={() => void undoBatch(b)}>Undo</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </>
       )}
 

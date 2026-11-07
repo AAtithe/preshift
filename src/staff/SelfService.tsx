@@ -13,6 +13,8 @@ export interface SelfServiceData {
   rotaToConfirm: { weekStart: string; label: string; changed: boolean }[];
   unread: number;
   holiday: { remainingHours: number; bookedHours: number; takenHours: number; dayHours: number; yearEnd: string; upcoming: string[] };
+  /** Time off in lieu owed, and days off taken as TOIL still to come. Null when they have none on record. */
+  toil?: { owedHours: number; daysOff: string[] } | null;
   availability: Availability[];
   unavailable: { date: string; note?: string }[];
   sick: { from: string } | null;
@@ -284,6 +286,11 @@ export function RequestsTab({ call, say, data, refresh }: { call: Call; say: Say
       <Card title="Holiday">
         <p className="staff-figure"><span className="strong">{h.remainingHours} hours left</span><span className="muted small">{days(h.remainingHours)} to {day(h.yearEnd)}</span></p>
         <p className="muted small">Taken {h.takenHours} h, booked {h.bookedHours} h.{h.upcoming.length ? ` Booked: ${h.upcoming.map(day).join(', ')}.` : ''}</p>
+        {data.toil && (
+          <p className="muted small">
+            Time off in lieu: {data.toil.owedHours} h owed{days(data.toil.owedHours)}.{data.toil.daysOff.length ? ` Days off as TOIL: ${data.toil.daysOff.map(day).join(', ')}.` : ''} To take it, ask for time off and say it is TOIL.
+          </p>
+        )}
         <form
           className="staff-form"
           onSubmit={(e) => {

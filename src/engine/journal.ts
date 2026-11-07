@@ -2,6 +2,7 @@ import type { RotaState } from './types';
 import { employmentAllowanceWeek } from './allowance';
 import { weekCost } from './cost';
 import { addDays } from './time';
+import { toilBalance } from './toil';
 
 /** Nominal codes for on-costs and the balancing control account. */
 export interface JournalAccounts {
@@ -132,6 +133,7 @@ export function rotaJournal(
     }
     lines.push(...credits);
   }
+  lines.push(...toilLines(state, date, narration, accounts));
   lines.push(...allowanceLines(state, weekStartDate, lines, accounts, date, narration));
   // Keep each entity's journal together, in the order the entities are listed.
   const order = new Map(state.entities.map((e, i) => [e.id, i]));
@@ -234,4 +236,37 @@ export function toXeroCsv(lines: JournalLine[]): string {
     l.trackingOption,
   ]);
   return [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
+}
+
+/**
+ * Time off in lieu owed at the week end: hours banked instead of overtime pay and not yet taken, at the
+ * holiday rate with employer NI. It rides in the same reversing journal as the rest of the accrual, so
+ * each week the books carry the full balance owed and the P&L takes the week's movement in it. It posts
+ * to the holiday accrual and wages accrual codes every chart already has, in the employing company's
+ * books, tracked to the person's home site where that site is the employer's own.
+ */
+export function toilLines(state: RotaState, date: string, narration: string, accounts: JournalAccounts = DEFAULT_ACCOUNTS): JournalLine[] {
+  const owed = new Map<string, { entityId: string; siteId: string; amount: number }>();
+  for (const e of state.employees) {
+    if (!e.toil?.length || e.anonymisedOn) continue;
+    const amount = toilBalance(e, date).liability;
+    if (amount <= 0) continue;
+    const key = `${e.entityId}|${e.siteId}`;
+    const cur = owed.get(key) ?? { entityId: e.entityId, siteId: e.siteId, amount: 0 };
+    cur.amount += amount;
+    owed.set(key, cur);
+  }
+  const lines: JournalLine[] = [];
+  for (const { entityId, siteId, amount } of owed.values()) {
+    const value = round2(amount);
+    if (!value) continue;
+    const site = state.sites.find((s) => s.id === siteId);
+    const tag = site && site.entityId === entityId ? { trackingName: 'Site', trackingOption: site.trackingCode } : { trackingName: '', trackingOption: '' };
+    const where = tag.trackingName ? '' : site ? ` (${site.name})` : '';
+    lines.push(
+      { entityId, date, narration, description: `TOIL owed${where}`, accountCode: accounts.holiday, amount: value, ...tag },
+      { entityId, date, narration, description: `TOIL accrual${where}`, accountCode: accounts.wagesAccrual, amount: -value, ...tag },
+    );
+  }
+  return lines;
 }

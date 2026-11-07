@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { breakOf, HOLIDAY_COLUMNS, importHoliday, importPeople, importShifts, matchColumns, PEOPLE_COLUMNS, SHIFT_COLUMNS } from './externalImport';
-import { ABSENCE_COLUMNS, DOCUMENT_COLUMNS, RTW_COLUMNS, TOIL_COLUMNS, TRAINING_COLUMNS } from './hrImport';
+import { ABSENCE_COLUMNS, DOCUMENT_COLUMNS, HOURS_COLUMNS, MANAGER_COLUMNS, REVIEW_COLUMNS, RTW_COLUMNS, TAKINGS_COLUMNS, TOIL_COLUMNS, TRAINING_COLUMNS } from './hrImport';
 import { onboardingTemplate, TEMPLATE_SHEETS } from './importTemplate';
 import type { Employee, RotaState } from './types';
 
@@ -149,7 +149,7 @@ describe('reading a table', () => {
 describe('the onboarding template', () => {
   it('maps every column of its own sheets without help', () => {
     const sheets = onboardingTemplate(state);
-    for (const [kind, aliases] of [['team', PEOPLE_COLUMNS], ['rota', SHIFT_COLUMNS], ['holiday', HOLIDAY_COLUMNS], ['rtw', RTW_COLUMNS], ['documents', DOCUMENT_COLUMNS], ['training', TRAINING_COLUMNS], ['toil', TOIL_COLUMNS], ['absences', ABSENCE_COLUMNS]] as const) {
+    for (const [kind, aliases] of [['team', PEOPLE_COLUMNS], ['rota', SHIFT_COLUMNS], ['holiday', HOLIDAY_COLUMNS], ['rtw', RTW_COLUMNS], ['documents', DOCUMENT_COLUMNS], ['training', TRAINING_COLUMNS], ['toil', TOIL_COLUMNS], ['absences', ABSENCE_COLUMNS], ['managers', MANAGER_COLUMNS], ['reviews', REVIEW_COLUMNS], ['hours', HOURS_COLUMNS], ['takings', TAKINGS_COLUMNS]] as const) {
       const sheet = sheets.find((s) => s.name === TEMPLATE_SHEETS[kind])!;
       expect(matchColumns(sheet.rows[0] as string[], aliases as Record<string, string[]>).unused, kind).toEqual([]);
     }

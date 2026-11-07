@@ -20,9 +20,60 @@ import { parseCsv, parseDateTime, parseTime } from './bookingImport';
 import { holidayBalance, holidayBasis } from './holiday';
 import type { PastedPerson } from './setup';
 import { parseUkDate } from './setup';
-import type { Employee, HolidayRecord, Role, RotaState, Shift, Site } from './types';
+import type { Availability, Employee, HolidayRecord, Role, RotaState, Shift, Site } from './types';
+import { normaliseBadge } from './clocking';
+import { ageOn } from './time';
 
-export type PeopleField = 'name' | 'firstName' | 'lastName' | 'email' | 'roles' | 'rate' | 'salary' | 'dateOfBirth' | 'contractedHours' | 'startDate' | 'site' | 'rightToWork';
+/** Fields of a person's record a team file may also give, beyond the essentials. */
+export type TeamExtras = Partial<Pick<Employee, 'optedOutOf48' | 'maxWeeklyHours' | 'pensionEnrolled' | 'payFrequency' | 'availability' | 'coverSiteIds'>>;
+
+export const yesNo = (v: string): boolean | null => (/^(y|yes|true|1|signed|x|opted out)$/i.test(v.trim()) ? true : /^(n|no|false|0|not signed|-)$/i.test(v.trim()) ? false : null);
+
+const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+/**
+ * Weekly availability as people write it: "Any", "Mon-Fri 09:00-17:00", "Mon-Fri 9-5; Sat 10:00-16:00",
+ * "Weekends". An empty list means any time, as it does on the record. Null when it cannot be read.
+ */
+export function availabilityOf(raw: string): Availability[] | null {
+  const v = raw.trim().toLowerCase();
+  if (/^(any|anytime|any time|all|open|full|flexible|fully flexible)$/.test(v)) return [];
+  const out: Availability[] = [];
+  for (const part of v.split(/[;\n]+|,(?=\s*[a-z])/).map((x) => x.trim()).filter(Boolean)) {
+    const m = part.match(/^([a-z]+)(?:\s*(?:-|to)\s*([a-z]+))?\s*(?:(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?)\s*(?:-|to)\s*(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?))?$/);
+    if (!m) return null;
+    const dayOf = (w: string) => DAYS.indexOf(w.slice(0, 3));
+    let days: number[];
+    if (/^weekends?$/.test(m[1])) days = [5, 6];
+    else if (/^weekdays?$/.test(m[1])) days = [0, 1, 2, 3, 4];
+    else {
+      const a = dayOf(m[1]);
+      const b = m[2] ? dayOf(m[2]) : a;
+      if (a < 0 || b < 0) return null;
+      days = [];
+      for (let d = a; ; d = (d + 1) % 7) {
+        days.push(d);
+        if (d === b) break;
+      }
+    }
+    // "9-5" reads as 09:00 to 17:00: an hour below the start is afternoon.
+    const time = (t: string | undefined, end: boolean, start?: number) => {
+      if (!t) return end ? 24 * 60 : 0;
+      const p = parseTime(t.replace('.', ':'));
+      if (p === null) return null;
+      return end && start !== undefined && p <= start && !/am|pm/.test(t) && p < 12 * 60 ? p + 12 * 60 : p;
+    };
+    const from = time(m[3], false);
+    const to = from === null ? null : time(m[4], true, from);
+    if (from === null || to === null || to <= from) return null;
+    for (const weekday of days) out.push({ weekday, fromMinute: from, toMinute: to });
+  }
+  return out.length ? out : null;
+}
+
+export type PeopleField =
+  | 'name' | 'firstName' | 'lastName' | 'email' | 'roles' | 'rate' | 'salary' | 'dateOfBirth' | 'contractedHours' | 'startDate' | 'site' | 'rightToWork'
+  | 'optedOut' | 'maxHours' | 'pension' | 'payFrequency' | 'availability' | 'coverSites' | 'badge';
 export type ShiftField = 'name' | 'firstName' | 'lastName' | 'email' | 'date' | 'start' | 'end' | 'breakMinutes' | 'role' | 'site';
 
 /** Ids, numbers and codes: "Employee ID" is never a name, "Location Code" never a site. */
@@ -44,6 +95,13 @@ export const PEOPLE_COLUMNS: Record<PeopleField, string[]> = {
   startDate: ['start date', 'employment start date', 'hire date', 'date hired', 'date started', 'joined', 'join date', 'employment start'],
   site: ['site', 'location', 'home location', 'main location', 'venue', 'store', 'branch', 'department', 'restaurant'],
   rightToWork: ['right to work checked on', 'right to work date', 'right to work checked', 'rtw checked on', 'rtw date', 'rtw checked', 'right to work'],
+  optedOut: ['48 hour opt out', '48 hour opt out signed', 'opt out', 'opted out', 'working time opt out', 'wtr opt out', '48hr opt out', '48 hr opt out'],
+  maxHours: ['maximum weekly hours', 'max weekly hours', 'maximum hours', 'max hours', 'max hours per week'],
+  pension: ['pension enrolled', 'auto enrolled', 'pension', 'auto enrolment', 'pension status', 'workplace pension'],
+  payFrequency: ['pay frequency', 'pay cycle', 'paid', 'payroll frequency'],
+  availability: ['availability', 'available', 'available hours', 'availability pattern'],
+  coverSites: ['cover sites', 'also works at', 'other sites', 'secondary sites', 'additional sites'],
+  badge: ['clock card', 'clock card number', 'card number', 'badge', 'badge id', 'rfid', 'fob', 'swipe card'],
 };
 
 export const SHIFT_COLUMNS: Record<ShiftField, string[]> = {
@@ -149,9 +207,27 @@ export function breakOf(raw: string, inHours = false): number | null {
 }
 
 const money = (raw: string) => {
-  const n = Number(raw.replace(/[£$€,\s]|per hour|\/h(ou)?r?|p\.?a\.?|per annum/gi, ''));
+  let v = raw.replace(/[£$€\s]|per hour|\/h(ou)?r?|p\.?a\.?|per annum/gi, '');
+  // A decimal comma, as European exports write it: 12,71 is twelve pounds seventy-one, and 1.234,56 a thousand and more.
+  if (/^\d{1,3}(\.\d{3})*,\d{1,2}$/.test(v) || /^\d+,\d{1,2}$/.test(v)) v = v.replace(/\./g, '').replace(',', '.');
+  else v = v.replace(/,/g, '');
+  const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
+
+/**
+ * A number as exports write it: 1,234.56 or, from European systems, 1.234,56 and 7,5. Currency signs and
+ * spaces are ignored. NaN when it is not a number at all.
+ */
+export function numberOf(raw: string): number {
+  let v = raw.trim().replace(/[£$€\s]/g, '').replace(/^\((.*)\)$/, '-$1');
+  if (/^-?\d{1,3}(\.\d{3})*,\d{1,2}$/.test(v) || /^-?\d+,\d{1,2}$/.test(v)) v = v.replace(/\./g, '').replace(',', '.');
+  else v = v.replace(/,/g, '');
+  return v === '' ? NaN : Number(v);
+}
+
+/** The totals line most reports end with: never a person. */
+export const isTotalRow = (name: string) => /^(grand\s+)?totals?\b|^sub\s*-?totals?\b|^total\s+(hours|for|of)\b/i.test(name.trim());
 
 export const fullName = (cell: (f: string) => string) => {
   const whole = cell('name');
@@ -176,7 +252,7 @@ export const tally = (map: Map<string, number>, key: string) => map.set(key, (ma
 export const sorted = (map: Map<string, number>) => [...map].sort((a, b) => b[1] - a[1]).map(([name, rows]) => ({ name, rows }));
 
 export interface PeopleImport extends ColumnMatch<PeopleField> {
-  people: (PastedPerson & { siteId?: string; email?: string })[];
+  people: (PastedPerson & { siteId?: string; email?: string; extra: TeamExtras; badge?: string; notes: string[] })[];
   errors: string[];
   /** Roles and sites named in the file but not set up here, with how many rows named each. */
   unknownRoles: { name: string; rows: number }[];
@@ -189,7 +265,7 @@ export interface PeopleImport extends ColumnMatch<PeopleField> {
  * Reads a team export. Each person needs a name, a role set up here, pay, and a date of birth (for
  * the minimum wage band and young worker rules). Roles are separated by commas, slashes or semicolons.
  */
-export function importPeople(text: string | string[][], state: Pick<RotaState, 'roles' | 'sites' | 'employees'>, options: { usDates?: boolean; columns?: Partial<Record<PeopleField, string>> } = {}): PeopleImport {
+export function importPeople(text: string | string[][], state: Pick<RotaState, 'roles' | 'sites' | 'employees'>, options: { usDates?: boolean; today?: string; columns?: Partial<Record<PeopleField, string>> } = {}): PeopleImport {
   const { rows, at } = table(text, PEOPLE_COLUMNS);
   const match = matchColumns(rows[0] ?? [], PEOPLE_COLUMNS, options.columns);
   const result: PeopleImport = { ...match, people: [], errors: [], unknownRoles: [], unknownSites: [], existing: [] };
@@ -202,6 +278,8 @@ export function importPeople(text: string | string[][], state: Pick<RotaState, '
   const role = finder(state.roles as Role[]);
   const site = finder(state.sites as Site[]);
   const already = new Set(state.employees.filter((e) => e.status !== 'leaver').map((e) => nameKey(e.name)));
+  const badgesHeld = new Set(state.employees.map((e) => e.badgeId).filter(Boolean) as string[]);
+  const today = options.today ?? new Date().toISOString().slice(0, 10);
   const seen = new Set<string>();
   const unknownRoles = new Map<string, number>();
   const unknownSites = new Map<string, number>();
@@ -215,6 +293,7 @@ export function importPeople(text: string | string[][], state: Pick<RotaState, '
     };
     const name = fullName(cell);
     const where = `Row ${line}${name ? ` (${name})` : ''}`;
+    if (isTotalRow(name)) return;
     if (!name) return void result.errors.push(`${where}: no name.`);
     if (already.has(nameKey(name))) return void result.existing.push(name);
     if (seen.has(nameKey(name))) return void result.errors.push(`${where}: listed twice in the file; the first is used.`);
@@ -249,6 +328,53 @@ export function importPeople(text: string | string[][], state: Pick<RotaState, '
       if (!siteId) tally(unknownSites, cell('site'));
     }
 
+    // The working time, pension and pattern fields: left at Preshift's defaults where the file is silent.
+    const notes: string[] = [];
+    const extra: TeamExtras = {};
+    const under18 = dob ? ageOn(dob, today) < 18 : false;
+    if (cell('optedOut')) {
+      const v = yesNo(cell('optedOut'));
+      if (v === null) notes.push(`48 hour opt-out "${cell('optedOut')}" not read as yes or no; left as not opted out.`);
+      else if (v && under18) problems.push('under 18s cannot opt out of the 48 hour week.');
+      else extra.optedOutOf48 = v;
+    }
+    if (cell('maxHours')) {
+      const n = Number(cell('maxHours').replace(/\s*(h|hrs?|hours?)$/i, ''));
+      if (Number.isFinite(n) && n > 0 && n <= 100) extra.maxWeeklyHours = n;
+      else notes.push(`Maximum hours "${cell('maxHours')}" not a number of hours; left at 48.`);
+    }
+    if (cell('pension')) {
+      const v = /opted? out|not eligible|ceased|no\b|false|n$/i.test(cell('pension')) ? false : yesNo(cell('pension')) ?? (/enrol|member|active|opted? in|eligible/i.test(cell('pension')) ? true : null);
+      if (v === null) notes.push(`Pension "${cell('pension')}" not read; left as enrolled.`);
+      else extra.pensionEnrolled = v;
+    }
+    if (cell('payFrequency')) {
+      const v = normal(cell('payFrequency'));
+      if (/^(weekly|week|w)$/.test(v)) extra.payFrequency = 'weekly';
+      else if (/^(monthly|month|m|calendar monthly)$/.test(v)) extra.payFrequency = 'monthly';
+      else notes.push(`Paid "${cell('payFrequency')}": only weekly or monthly set the minimum wage pay period here, so it is left as weekly. Set the company's pay schedule under Pay periods.`);
+    }
+    if (cell('availability')) {
+      const a = availabilityOf(cell('availability'));
+      if (a === null) notes.push(`Availability "${cell('availability')}" not read; left open. Set it on their record.`);
+      else extra.availability = a;
+    }
+    if (cell('coverSites')) {
+      const ids: string[] = [];
+      for (const n of cell('coverSites').split(/[,;/|]/).map((x) => x.trim()).filter(Boolean)) {
+        const id = site(n);
+        if (id) ids.push(id);
+        else notes.push(`Cover site "${n}" is not set up here; left off.`);
+      }
+      if (ids.length) extra.coverSiteIds = [...new Set(ids)];
+    }
+    let badge: string | undefined;
+    if (cell('badge')) {
+      const b = normaliseBadge(cell('badge'));
+      if (b.length < 4) notes.push(`Clock card "${cell('badge')}" is too short to be a card number; left off.`);
+      else if (badgesHeld.has(b)) notes.push(`Clock card ${b} is already someone else's; left off.`);
+      else (badge = b), badgesHeld.add(b);
+    }
     if (problems.length) return void result.errors.push(`${where}: ${problems.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')}`);
     seen.add(nameKey(name));
     const contracted = Math.max(0, Number(cell('contractedHours').replace(/[^\d.]/g, '')) || 0);
@@ -269,6 +395,9 @@ export function importPeople(text: string | string[][], state: Pick<RotaState, '
         // A yes with no date is not a statutory excuse: the check is recorded with its date, or not at all.
         rightToWork: checkedOn ? { checked: true, checkedOn } : { checked: false },
       },
+      extra,
+      ...(badge ? { badge } : {}),
+      notes,
     });
   });
   result.unknownRoles = sorted(unknownRoles);
@@ -343,6 +472,7 @@ export function importShifts(
     const name = fullName(cell);
     const where = `Row ${line}${name ? ` (${name})` : ''}`;
     // Open or unassigned shifts carry no person: nothing to import for them yet.
+    if (isTotalRow(name)) return;
     if (!name && !cell('email')) return void result.errors.push(`${where}: no person named, so it is an open shift. Post it from the rota instead.`);
     const employeeId = (cell('email') && byEmail.get(cell('email').toLowerCase())) || (name ? person(name) : undefined);
     if (!employeeId) return void tally(unknownPeople, name || cell('email'));
@@ -482,9 +612,9 @@ export function importHoliday(
     const e = people.find((x) => x.id === id)!;
     const dayHours = e.contractedHours > 0 ? e.contractedHours / 5 : null;
     const figure = (f: HolidayField): number | null | 'bad' => {
-      const raw = cell(f).replace(/\s*(hours?|hrs?|h|days?|d)$/i, '').replace(/,/g, '');
+      const raw = cell(f).replace(/\s*(hours?|hrs?|h|days?|d)$/i, '');
       if (!raw) return null;
-      const n = Number(raw);
+      const n = numberOf(raw);
       if (!Number.isFinite(n)) return 'bad';
       return n;
     };

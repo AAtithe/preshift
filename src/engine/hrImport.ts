@@ -12,7 +12,11 @@
 //   spreadsheet. The dates and details do; the copies are uploaded on each person's file, and the
 //   preview says how many are still needed, because without a copy there is no statutory excuse.
 
+import { parseDateTime, parseTime } from './bookingImport';
 import {
+  isTotalRow,
+  numberOf,
+  breakOf as breakOfCell,
   dateOf,
   finder,
   fullName,
@@ -128,7 +132,7 @@ function walk<F extends string>(
       return k === undefined ? '' : (cells[k] ?? '').trim();
     };
     const name = fullName(cell);
-    if (!name && !cell('email')) return;
+    if ((!name && !cell('email')) || isTotalRow(name || cell('email'))) return;
     const id = (cell('email') && byEmail.get(cell('email').toLowerCase())) || (name ? person(name) : undefined);
     if (!id) return void tally(unknown, name || cell('email'));
     const e = people.find((x) => x.id === id)!;
@@ -141,9 +145,9 @@ function walk<F extends string>(
 const yes = (v: string) => /^(y|yes|true|1|received|seen|held|done|x)$/i.test(v.trim());
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const hoursOf = (raw: string) => {
-  const v = raw.replace(/,/g, '').replace(/\s*(hours?|hrs?|h|days?|d)$/i, '').trim();
+  const v = raw.replace(/\s*(hours?|hrs?|h|days?|d)$/i, '').trim();
   if (!v) return null;
-  const n = Number(v);
+  const n = numberOf(v);
   return Number.isFinite(n) ? n : NaN;
 };
 const dayHoursOf = (e: Employee) => (e.contractedHours > 0 ? e.contractedHours / 5 : null);
@@ -540,4 +544,357 @@ export function importRightToWork(input: string | string[][], state: Pick<RotaSt
     });
   });
   return { ...base, checks, newerOnFile, copiesNeeded, expired };
+}
+
+// ---- Past hours ----
+
+export const HOURS_COLUMNS = {
+  ...PERSON,
+  date: ['date worked', 'shift date', 'work date', 'date', 'day'],
+  weekEnding: ['week ending', 'week end', 'period ending', 'week commencing', 'week starting', 'pay period end'],
+  start: ['clock in', 'clocked in', 'time in', 'actual start', 'start time', 'start'],
+  end: ['clock out', 'clocked out', 'time out', 'actual end', 'end time', 'end', 'finish'],
+  breakMinutes: ['unpaid break', 'break minutes', 'break', 'breaks', 'break duration', 'break hours'],
+  hours: ['paid hours', 'hours worked', 'total hours', 'hours', 'actual hours', 'worked hours', 'basic hours'],
+  role: ['role', 'position', 'job role', 'area', 'department'],
+  site: ['site', 'location', 'venue', 'store', 'branch'],
+};
+export type HoursField = keyof typeof HOURS_COLUMNS;
+
+export interface HoursImport extends Base<HoursField> {
+  entries: { employeeId: string; siteId: string; roleId: string; date: string; clockIn: number; clockOut: number; breakMinutes: number }[];
+  /** Weekly totals spread over Monday to Friday, with no times: enough for the 48 hour average, not for night work. */
+  fromWeeklyTotals: number;
+  /** Days with hours only and no times, placed from 09:00. */
+  withoutTimes: number;
+  /** Rows dated today or later: clocked on Preshift from go-live, not imported. */
+  fromToday: number;
+  weeks: number;
+  hoursTotal: number;
+}
+
+/**
+ * Hours worked before go-live, from timesheets or a payroll export: a row per day with clock in and
+ * out (the best: night work and rest are measured from the times), a row per day with hours only, or
+ * a row per week with a total. Nothing is invented beyond what the averages need: a day with hours
+ * only is placed from 09:00; a weekly total is spread evenly over Monday to Friday. Hours from today on
+ * are left out, because they are clocked on Preshift.
+ */
+export function importHours(
+  input: string | string[][],
+  state: Pick<RotaState, 'employees' | 'sites' | 'roles'>,
+  today: string,
+  options: { siteId?: string; usDates?: boolean; columns?: Partial<Record<HoursField, string>> } = {},
+): HoursImport {
+  const entries: HoursImport['entries'] = [];
+  let fromWeeklyTotals = 0;
+  let withoutTimes = 0;
+  let fromToday = 0;
+  const us = !!options.usDates;
+  const site = finder(state.sites as { id: string; name: string }[]);
+  const role = finder(state.roles as { id: string; name: string }[]);
+  const weeks = new Set<string>();
+  const base = walk<HoursField>(input, HOURS_COLUMNS, state.employees, options.columns, [], (cell, e, where, _line, base) => {
+    const c = base.columns;
+    if (c.date === undefined && c.weekEnding === undefined && c.start === undefined) {
+      if (!base.errors.length) base.errors.push('No date column found. Choose which column holds the date worked, or the week ending.');
+      return;
+    }
+    if (c.end === undefined && c.hours === undefined) {
+      if (!base.errors.length) base.errors.push('No hours found. Choose the clock out column, or the hours worked.');
+      return;
+    }
+    let siteId = options.siteId ?? e.siteId;
+    if (cell('site')) {
+      const s = site(cell('site'));
+      if (!s) return void base.errors.push(`${where}: site "${cell('site')}" is not set up here.`);
+      siteId = s;
+    }
+    const roleId = (cell('role') && role(cell('role'))) || e.roleIds[0];
+    if (!roleId) return void base.errors.push(`${where}: ${e.name} has no role on Preshift yet.`);
+    const brk = breakOfCell(cell('breakMinutes'), c.breakMinutes !== undefined && /hour|hrs/.test(normal(base.headers[c.breakMinutes])));
+    if (brk === null) return void base.errors.push(`${where}: break "${cell('breakMinutes')}" not recognised.`);
+    // Hours as a number (7.5, or 7,5 from European exports) or as hours and minutes (7:30).
+    const hm = cell('hours').match(/^(\d+):(\d{2})$/);
+    const hours = !cell('hours') ? null : hm ? Number(hm[1]) + Number(hm[2]) / 60 : numberOf(cell('hours').replace(/\s*(hours?|hrs?|h)$/i, ''));
+    if (hours !== null && !(hours > 0)) return; // a day or week with nothing worked
+
+    const weekOnly = !cell('date') && !parseDateTime(cell('start'), us)?.date && cell('weekEnding');
+    if (weekOnly) {
+      const ending = dateOf(cell('weekEnding'), us);
+      if (!ending) return void base.errors.push(`${where}: week "${cell('weekEnding')}" not recognised.`);
+      if (hours === null) return void base.errors.push(`${where}: a weekly row needs the hours worked.`);
+      if (hours > 100) return void base.errors.push(`${where}: ${hours} hours in a week is almost certainly a mistake in the file.`);
+      // "Week commencing" columns give the Monday; "week ending" the Sunday.
+      const monday = /commenc|starting/.test(normal(base.headers[c.weekEnding!])) ? ending : addDays(ending, -6);
+      if (monday >= today) return void fromToday++;
+      const perDay = Math.round((hours * 60) / 5);
+      for (let i = 0; i < 5; i++) {
+        const date = addDays(monday, i);
+        if (date >= today) continue;
+        entries.push({ employeeId: e.id, siteId, roleId, date, clockIn: 540, clockOut: 540 + perDay, breakMinutes: 0 });
+      }
+      weeks.add(monday);
+      fromWeeklyTotals++;
+      return;
+    }
+
+    const startAt = parseDateTime(cell('start'), us);
+    const endAt = parseDateTime(cell('end'), us);
+    const date = (cell('date') ? dateOf(cell('date'), us) : null) ?? startAt?.date ?? null;
+    if (!date) return void base.errors.push(`${where}: date "${cell('date') || cell('start')}" not recognised.`);
+    if (date >= today) return void fromToday++;
+    let clockIn = startAt?.minute ?? (cell('start') ? parseTime(cell('start')) : null);
+    let clockOut = endAt?.minute ?? (cell('end') ? parseTime(cell('end')) : null);
+    if (clockIn === null || clockOut === null || clockIn === undefined || clockOut === undefined) {
+      if (hours === null) return void base.errors.push(`${where}: needs a clock in and out, or the hours worked.`);
+      // Hours only: placed from 09:00, paid time plus any break, so the averages count the hours worked.
+      clockIn = 540;
+      clockOut = 540 + Math.round(hours * 60) + brk;
+      withoutTimes++;
+    } else if ((endAt?.date && endAt.date > date) || clockOut <= clockIn) clockOut += 24 * 60;
+    if (clockOut - clockIn > 20 * 60) return void base.errors.push(`${where}: more than 20 hours in a day is almost certainly a mistake in the file.`);
+    weeks.add(mondayOf(date));
+    entries.push({ employeeId: e.id, siteId, roleId, date, clockIn, clockOut, breakMinutes: brk });
+  });
+  const hoursTotal = r2(entries.reduce((n, x) => n + (x.clockOut - x.clockIn - x.breakMinutes) / 60, 0));
+  return { ...base, entries, fromWeeklyTotals, withoutTimes, fromToday, weeks: weeks.size, hoursTotal };
+}
+
+const mondayOf = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+};
+
+// ---- Takings history ----
+
+export const TAKINGS_COLUMNS = {
+  site: ['site', 'location', 'venue', 'store', 'branch', 'outlet', 'restaurant'],
+  date: ['trading date', 'business date', 'date', 'day'],
+  netSales: ['net sales', 'net takings', 'sales ex vat', 'net revenue', 'sales net', 'takings ex vat', 'net', 'sales', 'takings', 'revenue'],
+  grossSales: ['gross sales', 'gross takings', 'sales inc vat', 'gross'],
+  covers: ['covers', 'guests', 'pax', 'customers', 'transactions'],
+};
+export type TakingsField = keyof typeof TAKINGS_COLUMNS;
+
+export interface TakingsImport extends ColumnMatch<TakingsField> {
+  rows: { siteId: string; date: string; netSales: number; covers?: number }[];
+  errors: string[];
+  /** Days already held, from the till or keyed in: never overwritten by an import. */
+  kept: number;
+  /** Gross figures turned into net at the standard rate of VAT. */
+  fromGross: number;
+  unknownSites: { name: string; rows: number }[];
+  days: number;
+}
+
+/** UK standard rate, for files that give takings including VAT only. */
+const VAT = 0.2;
+
+/**
+ * Daily takings history, so the forecast learns from each site's own trading from the first week
+ * rather than its typical week. Net of VAT; a file with gross only is turned into net at the standard
+ * rate, and the preview says so. A day already held is never replaced: the till's figure wins.
+ */
+export function importTakings(input: string | string[][], state: Pick<RotaState, 'sites' | 'sales'>, today: string, options: { siteId?: string; usDates?: boolean; columns?: Partial<Record<TakingsField, string>> } = {}): TakingsImport {
+  const { rows, at } = table(input, TAKINGS_COLUMNS);
+  const m = matchColumns(rows[0] ?? [], TAKINGS_COLUMNS as Record<TakingsField, string[]>, options.columns);
+  const out: TakingsImport = { ...m, rows: [], errors: [], kept: 0, fromGross: 0, unknownSites: [], days: 0 };
+  if (!rows.length) return out;
+  const c = m.columns;
+  if (c.date === undefined) out.errors.push('No date column found. Choose which column holds the trading date.');
+  if (c.netSales === undefined && c.grossSales === undefined) out.errors.push('No takings column found. Choose which column holds net sales.');
+  if (c.site === undefined && !options.siteId) out.errors.push('No site column found. Choose the site these takings are for.');
+  if (out.errors.length) return out;
+  const site = finder(state.sites as { id: string; name: string }[]);
+  const held = new Set((state.sales ?? []).map((s) => `${s.siteId}|${s.date}`));
+  const inFile = new Map<string, TakingsImport['rows'][number]>();
+  const unknown = new Map<string, number>();
+  rows.slice(1).forEach((cells, i) => {
+    const where = `Row ${at + i + 2}`;
+    const cell = (f: TakingsField) => (c[f] === undefined ? '' : (cells[c[f]!] ?? '').trim());
+    if (!cell('date') && !cell('netSales') && !cell('grossSales')) return;
+    const date = dateOf(cell('date'), !!options.usDates);
+    if (!date) return void out.errors.push(`${where}: date "${cell('date')}" not recognised.`);
+    if (date >= today) return;
+    let siteId = options.siteId;
+    if (cell('site')) {
+      siteId = site(cell('site'));
+      if (!siteId) return void tally(unknown, cell('site'));
+    }
+    const money = (v: string) => (v ? numberOf(v) : NaN);
+    let net = money(cell('netSales'));
+    if (Number.isNaN(net)) {
+      const gross = money(cell('grossSales'));
+      if (Number.isNaN(gross)) return void out.errors.push(`${where}: takings "${cell('netSales') || cell('grossSales')}" is not a number.`);
+      net = Math.round((gross / (1 + VAT)) * 100) / 100;
+      out.fromGross++;
+    }
+    if (net < 0) return void out.errors.push(`${where}: negative takings are a refund day; enter them by hand if they are right.`);
+    const key = `${siteId}|${date}`;
+    if (held.has(key)) return void out.kept++;
+    const covers = cell('covers') ? Math.round(numberOf(cell('covers'))) : undefined;
+    // A file split by till or daypart has several rows a day: they add up to the day.
+    const prev = inFile.get(key);
+    inFile.set(key, { siteId: siteId!, date, netSales: Math.round(((prev?.netSales ?? 0) + net) * 100) / 100, ...(covers !== undefined && Number.isFinite(covers) ? { covers: (prev?.covers ?? 0) + covers } : prev?.covers !== undefined ? { covers: prev.covers } : {}) });
+  });
+  out.rows = [...inFile.values()].sort((a, b) => a.siteId.localeCompare(b.siteId) || a.date.localeCompare(b.date));
+  out.unknownSites = sorted(unknown);
+  out.days = new Set(out.rows.map((r) => r.date)).size;
+  return out;
+}
+
+// ---- Managers ----
+
+export const MANAGER_COLUMNS = {
+  ...PERSON,
+  role: ['access role', 'preshift role', 'role', 'job title', 'position', 'title'],
+  sites: ['sites', 'site', 'locations', 'location', 'venues', 'venue'],
+};
+export type ManagerField = keyof typeof MANAGER_COLUMNS;
+
+/** Preshift's operator roles a business invites its own managers to. Owner is never given by a file. */
+export const MANAGER_ROLES: { id: string; name: string; sites: boolean; words: RegExp }[] = [
+  { id: 'ops_director', name: 'Operations director', sites: false, words: /operations director|ops director|coo|head of operations/ },
+  { id: 'finance_director', name: 'Finance director', sites: false, words: /finance director|fd|cfo|head of finance|financial controller/ },
+  { id: 'payroll_manager', name: 'Payroll manager', sites: false, words: /payroll/ },
+  { id: 'people_manager', name: 'People manager', sites: false, words: /people|hr manager|human resources|head of hr|hr/ },
+  { id: 'area_manager', name: 'Area manager', sites: true, words: /area|regional|district|operations manager|ops manager/ },
+  { id: 'assistant_manager', name: 'Assistant manager', sites: true, words: /assistant|deputy|am\b|agm/ },
+  { id: 'head_chef', name: 'Head chef', sites: true, words: /head chef|executive chef|kitchen manager|chef manager/ },
+  { id: 'supervisor', name: 'Supervisor', sites: true, words: /supervisor|team leader|shift lead|duty manager/ },
+  { id: 'general_manager', name: 'General manager', sites: true, words: /general manager|gm\b|restaurant manager|bar manager|venue manager|site manager|manager/ },
+];
+
+export function managerRoleOf(raw: string) {
+  const v = normal(raw);
+  if (!v) return null;
+  return MANAGER_ROLES.find((r) => normal(r.name) === v || r.id === v.replace(/ /g, '_')) ?? MANAGER_ROLES.find((r) => r.words.test(v)) ?? null;
+}
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export interface ManagerImport extends ColumnMatch<ManagerField> {
+  invites: { line: number; name: string; email: string; roleId: string; roleName: string; siteIds: string[] | null; employeeId?: string }[];
+  errors: string[];
+  /** Already has a sign-in here, by email. */
+  existing: string[];
+}
+
+/**
+ * The managers who need their own sign-in: name, email, role and sites. Each is invited through Access,
+ * exactly as by hand, so the authority rules apply: nobody is made an owner from a file, and a role
+ * that runs sites needs the sites named.
+ */
+export function importManagers(
+  input: string | string[][],
+  state: Pick<RotaState, 'sites' | 'employees'>,
+  users: { email: string }[],
+  options: { columns?: Partial<Record<ManagerField, string>> } = {},
+): ManagerImport {
+  const { rows, at } = table(input, MANAGER_COLUMNS);
+  const m = matchColumns(rows[0] ?? [], MANAGER_COLUMNS as Record<ManagerField, string[]>, options.columns);
+  const out: ManagerImport = { ...m, invites: [], errors: [], existing: [] };
+  if (!rows.length) return out;
+  const c = m.columns;
+  if (c.email === undefined) out.errors.push('No email column found: each manager signs in with their own email.');
+  if (c.role === undefined) out.errors.push('No role column found. Choose which column holds their role or job title.');
+  if (out.errors.length) return out;
+  const site = finder(state.sites as { id: string; name: string }[]);
+  const person = finder(state.employees.filter((e) => !e.anonymisedOn));
+  const taken = new Set(users.map((u) => u.email.toLowerCase()));
+  const seen = new Set<string>();
+  rows.slice(1).forEach((cells, i) => {
+    const line = at + i + 2;
+    const cell = (f: string) => (c[f as ManagerField] === undefined ? '' : (cells[c[f as ManagerField]!] ?? '').trim());
+    const name = fullName(cell);
+    const email = cell('email').toLowerCase();
+    if (!name && !email) return;
+    const where = `Row ${line}${name ? ` (${name})` : ''}`;
+    if (!name) return void out.errors.push(`${where}: no name.`);
+    if (!EMAIL_SHAPE.test(email)) return void out.errors.push(`${where}: "${cell('email')}" is not an email address.`);
+    if (taken.has(email)) return void out.existing.push(name);
+    if (seen.has(email)) return void out.errors.push(`${where}: the same email twice; the first is used.`);
+    if (/owner|director of the company|proprietor/.test(normal(cell('role')))) return void out.errors.push(`${where}: an owner is never made from a file. Invite them by hand in Access.`);
+    const role = managerRoleOf(cell('role'));
+    if (!role) return void out.errors.push(`${where}: role "${cell('role')}" does not match a Preshift role. Use general manager, assistant manager, area manager, head chef, supervisor, or a director or manager role.`);
+    let siteIds: string[] | null = null;
+    if (role.sites) {
+      const names = cell('sites').split(/[,;/|]/).map((x) => x.trim()).filter(Boolean);
+      if (!names.length) return void out.errors.push(`${where}: a ${role.name.toLowerCase()} runs named sites. Give the sites.`);
+      const ids = names.map((n) => site(n));
+      const missing = names.filter((_, k) => !ids[k]);
+      if (missing.length) return void out.errors.push(`${where}: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set up here.`);
+      siteIds = [...new Set(ids as string[])];
+    }
+    seen.add(email);
+    // Linked to their staff record where they are on the team too, so their own hours and file stay theirs.
+    const employeeId = person(name);
+    out.invites.push({ line, name, email, roleId: role.id, roleName: role.name, siteIds, ...(employeeId ? { employeeId } : {}) });
+  });
+  return out;
+}
+
+// ---- Reviews ----
+
+export const REVIEW_COLUMNS = {
+  ...PERSON,
+  type: ['review type', 'type', 'review', 'meeting type'],
+  date: ['review date', 'date held', 'meeting date', 'date'],
+  outcome: ['outcome', 'result', 'rating', 'decision'],
+  nextDue: ['next review', 'next due', 'next review date', 'follow up', 'next meeting'],
+  notes: ['notes', 'comments', 'summary'],
+};
+export type ReviewField = keyof typeof REVIEW_COLUMNS;
+
+export function reviewTypeOf(raw: string): 'probation' | 'appraisal' | 'one-to-one' | null {
+  const v = normal(raw);
+  if (/probation/.test(v)) return 'probation';
+  if (/apprais|annual|performance review|pdr|mid year|end of year/.test(v)) return 'appraisal';
+  if (/one to one|1 to 1|1 2 1|121|1:1|check in|catch up|supervision/.test(v) || /1-1|1:1/.test(raw)) return 'one-to-one';
+  return null;
+}
+
+export interface ReviewImport extends Base<ReviewField> {
+  records: { line: number; employeeId: string; name: string; record: Pick<HrRecord, 'employeeId' | 'kind' | 'date' | 'title' | 'reviewType' | 'outcome' | 'nextDue' | 'notes'> }[];
+  duplicates: number;
+  /** Probation reviews passed, which also set the probation passed date on the HR file. */
+  probationsPassed: { employeeId: string; date: string }[];
+}
+
+/**
+ * Probation reviews, appraisals and one-to-ones. Disciplinary, grievance and capability cases are never
+ * imported from a file: each is evidence of how a complaint or warning was handled, and goes on the
+ * file by hand, by someone who may record cases.
+ */
+export function importReviews(input: string | string[][], state: Pick<RotaState, 'employees'>, hrRecords: Pick<HrRecord, 'employeeId' | 'kind' | 'date' | 'reviewType'>[], today: string, options: { usDates?: boolean; columns?: Partial<Record<ReviewField, string>> } = {}): ReviewImport {
+  const records: ReviewImport['records'] = [];
+  const probationsPassed: ReviewImport['probationsPassed'] = [];
+  let duplicates = 0;
+  const us = !!options.usDates;
+  const base = walk<ReviewField>(input, REVIEW_COLUMNS, state.employees, options.columns, [
+    { field: 'date', message: 'No review date column found. Choose which column holds the date it was held.' },
+  ], (cell, e, where, line, base) => {
+    if (/disciplin|grievance|capability|warning|investigation|dismiss/.test(normal(`${cell('type')} ${cell('outcome')}`))) {
+      return void base.errors.push(`${where}: disciplinary, grievance and capability cases are not imported from a file. Record them by hand under Cases.`);
+    }
+    const type = base.columns.type === undefined ? 'appraisal' : reviewTypeOf(cell('type'));
+    if (!type) return void base.errors.push(`${where}: review type "${cell('type')}" not recognised. Use probation, appraisal or one-to-one.`);
+    const date = dateOf(cell('date'), us);
+    if (!date) return void base.errors.push(`${where}: date "${cell('date')}" not recognised.`);
+    if (date > today) return void base.errors.push(`${where}: a review cannot be held on a day still to come. Put the next one in Next review.`);
+    const nextDue = cell('nextDue') ? dateOf(cell('nextDue'), us) : undefined;
+    if (nextDue === null) return void base.errors.push(`${where}: next review "${cell('nextDue')}" not recognised.`);
+    if (hrRecords.some((r) => r.employeeId === e.id && r.kind === 'review' && r.reviewType === type && r.date === date)) return void duplicates++;
+    const title = type === 'probation' ? 'Probation review' : type === 'appraisal' ? 'Appraisal' : 'One-to-one';
+    records.push({
+      line,
+      employeeId: e.id,
+      name: e.name,
+      record: { employeeId: e.id, kind: 'review', reviewType: type, date, title, ...(cell('outcome') ? { outcome: cell('outcome') } : {}), ...(nextDue ? { nextDue } : {}), ...(cell('notes') ? { notes: cell('notes') } : {}) },
+    });
+    if (type === 'probation' && /pass|confirm|complet|success/.test(normal(cell('outcome'))) && !e.hr?.probationPassedOn) probationsPassed.push({ employeeId: e.id, date });
+  });
+  return { ...base, records, duplicates, probationsPassed };
 }

@@ -27,6 +27,7 @@ import { privacyRoutes } from './routes/privacy';
 import { rotaRoutes } from './routes/rota';
 import { setupRoutes } from './routes/setup';
 import { goLiveRoutes } from './routes/golive';
+import { importRoutes } from './routes/imports';
 import { timeRoutes } from './routes/time';
 import { labourRoutes } from './routes/labour';
 import { authenticatorRoutes } from './routes/authenticator';
@@ -509,6 +510,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<{ app: Fasti
     payRoutes(api, ctx);
     setupRoutes(api, ctx);
     goLiveRoutes(api, ctx);
+    importRoutes(api, ctx);
     hrRoutes(api, ctx);
     documentRoutes(api, ctx);
     hrFileRoutes(api, ctx);

@@ -338,7 +338,7 @@ export function rotaRoutes(app: FastifyInstance, ctx: AppContext) {
       });
       org.state.shifts.push(...added);
       if (added.length) audit(org, actorName(g), 'rota.imported', { shifts: added.length, refused: refused.length, skipped });
-      return { added: added.length, skipped, refused, weeks: [...new Set(added.map((s) => weekStart(s.date)))].sort() };
+      return { added: added.length, ids: added.map((s) => s.id), skipped, refused, weeks: [...new Set(added.map((s) => weekStart(s.date)))].sort() };
     },
   );
 

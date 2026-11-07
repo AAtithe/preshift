@@ -121,6 +121,6 @@ export function GoLiveView({ plan, onOpen }: { plan: GoLivePlan | null; onOpen: 
 
 const NAMES: Record<string, string> = {
   profile: 'Profile', setup: 'Set-up', people: 'Staff', settings: 'Settings', access: 'Access', clock: 'Clock in',
-  rota: 'Rota', integrations: 'Integrations', payroll: 'Payroll', billing: 'Billing',
+  rota: 'Rota', integrations: 'Integrations', payroll: 'Payroll', billing: 'Billing', hr: 'HR overview', training: 'Training',
 };
 const screenName = (s: string) => NAMES[s] ?? s;

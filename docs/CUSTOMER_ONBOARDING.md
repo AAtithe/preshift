@@ -31,6 +31,8 @@ gets a real answer. A one-line banner shows on every screen until they are live.
 | Bring in the team | Day 3 | Team loaded | At least one current person |
 | | Day 4 | Records clear | Nobody held off the rota (right to work, minimum wage, date of birth) |
 | | Day 5 | Holiday balances | Everyone already working has an opening position (carried over, accrued or taken) |
+| | Day 5 | Right to work copies | Every recorded check has a copy of the documents held |
+| | Day 5 | Written statements | Everyone has a written statement recorded as issued |
 | | Day 4 | Email | The organisation's email is set up |
 | | Day 4 | Managers (if it applies) | Another manager invited |
 | | Day 5 | Staff app | Half the team signed in to the staff app |
@@ -38,6 +40,7 @@ gets a real answer. A one-line banner shows on every screen until they are live.
 | | Day 7 | Publish | A week published |
 | Run the week on it | Day 10 | Takings | Takings on at least 3 of the last 14 days |
 | | Day 10 | Clocking | Time clocked |
+| | Day 12 (if it applies) | Training | Everyone holds the training their role requires, in date |
 | | Day 12 (if it applies) | Payroll | Everyone set up in TeamPay |
 | Decide | Day before the trial ends | Subscribe | A subscription in force (self sign-ups only) |
 
@@ -51,9 +54,10 @@ email of the organisation that runs Preshift, as the sign-up link is. `golive.nu
 
 ## Bringing data across
 
-Set-up, Import takes everything across from an Excel workbook or CSV, in eight tabs: team, right to
-work, HR file and documents, training, holiday balances, TOIL, absences and the rota ahead. Two routes,
-and the second is usually faster:
+Set-up, Import takes everything across from an Excel workbook (.xlsx or the older .xls) or CSV, in
+twelve tabs worked in order: team, managers, right to work, HR file and documents, training, reviews,
+holiday balances, TOIL, absences, past hours, takings and the rota ahead. Two routes, and the second
+is usually faster:
 
 1. Download the Excel template from that screen. It lists the customer's own roles and sites and
    explains every column. They fill in Team, Holiday balances and Rota, and upload it.
@@ -64,16 +68,34 @@ and the second is usually faster:
 
 Order matters: the tabs are numbered in the order to work them, team first and rota last, because
 everything else is matched to people already on Preshift. Every import shows a preview and saves
-nothing until it is confirmed.
+nothing until it is confirmed, and every upload is kept under Recent uploads, where it can be undone:
+people added are removed (unless payroll already has them), changes are put back as they were, and
+TOIL is reversed by an adjustment. Coaching point: a wrong mapping is a two minute fix, so let the
+customer try the upload themselves with you watching, rather than doing it for them.
+
+What each of the less obvious tabs is for:
+
+- Managers: each GM, assistant and director invited by email with their role and sites, as from Access.
+  Nobody is made an owner from a file.
+- Past hours: the last 17 weeks or more of timesheets or payroll hours. Without them, the 48 hour average,
+  night work, guaranteed hours offers and irregular hours holiday accrual all start from nothing on day
+  one, and an existing breach stays invisible for months. They were paid by the old payroll, so they are
+  stored as already paid and never go to payroll again.
+- Takings: at least eight weeks, so the forecast learns how each site trades from the first rota.
+- Reviews: probation, appraisals and one-to-ones. Disciplinary, grievance and capability cases are
+  never imported: each goes on the file by hand.
 
 Copies never come through a spreadsheet. Right to work checks, signed statements, certificates and
 fit notes come across as dates and details; the preview counts the copies still to upload. Coaching
 point: a right to work check without a copy of the documents is no statutory excuse, so the day 3
 call ends with a list of whose copies are missing and who is uploading them by when.
 
-TOIL is owed pay. Its opening balance sits beside the holiday pay provision on the Holiday screen and
-belongs in the same accrual. Ask every customer whether they bank overtime as TOIL; most hospitality
-operators do informally, on a spreadsheet nobody reconciles.
+TOIL is owed pay. Its balance sits beside the holiday pay provision on the Holiday screen, and the weekly
+labour accrual posts the TOIL owed at each week end, so the books carry it and the P&L takes the
+movement. Ask every customer whether they bank overtime as TOIL; most hospitality operators do
+informally, on a spreadsheet nobody reconciles. From go-live, a salaried manager's weeks over contract
+are offered on their record to bank as TOIL; an hourly worker's extra hours are already paid through
+payroll, so they are never offered, or they would be paid twice.
 
 Holiday and TOIL balances are the ones to get right, because they are balance sheet numbers. Coaching point:
 before confirming, pick three people (one fixed hours, one irregular hours, one with carry over) and
@@ -90,7 +112,7 @@ those, not from memory.
 | When | Who | What good looks like |
 | --- | --- | --- |
 | Day 0, within 2 working hours of sign-up | Customer operations | A 10 minute welcome call. Agree the date of their first published rota, and write it down. Confirm who their payroll is with and which till they use. Do not demo: open Getting started together and do step 1 with them. |
-| Day 3 | Customer operations | Check the plan. If the team is not loaded, get their exports on a screen share and run Set-up, Import with them: team, then holiday balances. This is the step most trials die on. |
+| Day 3 | Customer operations | Check the plan. If the team is not loaded, get their exports on a screen share and run Set-up, Import with them: team, right to work, holiday balances and past hours. Send the staff app invites in one go from Clock in, Phone logins. This is the step most trials die on. |
 | Day 7 | Customer operations | The rota review. If published: walk the labour % against target with the GM and show them the Coach. If not: find the blocker, usually records held back for right to work, and fix it on the call. Customers flags "A week in and no rota published": this is that call. |
 | Day 10 to 12 | Customer operations | The value call. Show the first week of labour % from real takings, and clocked against rota. Put a pound figure on what they saw. Then ask for the decision. |
 | Trial ends in 3 days | Customer operations | Only if not subscribed. Customers flags it. |
@@ -118,5 +140,7 @@ is no trial or nudge: the partner is the nudge.
 | The facts, the route and the nudge | `server/golive.ts`, `server/routes/golive.ts`, tests in `server/golive.test.ts` |
 | The nudge email | `goLiveNudgeEmail` in `server/mail.ts` |
 | The screen and banner | `src/ui/GoLiveView.tsx` |
-| Import, template and AI mapping | `src/engine/externalImport.ts`, `src/engine/xlsx.ts`, `src/engine/importTemplate.ts`, `src/ai/importMapper.ts`, `src/ui/ImportPanel.tsx` |
-| Shifty | `go_live_plan` in `src/ai/appTools.ts` |
+| Import, template and AI mapping | `src/engine/externalImport.ts`, `src/engine/hrImport.ts`, `src/engine/xlsx.ts`, `src/engine/xls.ts`, `src/engine/importTemplate.ts`, `src/ai/importMapper.ts`, `src/ui/importPlan.ts`, `src/ui/ImportPanel.tsx` |
+| Upload batches, undo, past hours, removing a person added in error | `server/routes/imports.ts`, tests in `server/imports.test.ts` |
+| TOIL | `src/engine/toil.ts`, `toilLines` in `src/engine/journal.ts`, `src/ui/ToilPanel.tsx`, `POST /v1/employees/:id/toil` |
+| Shifty | `go_live_plan` and `open_import` in `src/ai/appTools.ts` |

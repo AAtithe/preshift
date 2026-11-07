@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { parseTime } from '../engine/bookingImport';
 import { HOLIDAY_COLUMNS, PEOPLE_COLUMNS, SHIFT_COLUMNS, table } from '../engine/externalImport';
-import { ABSENCE_COLUMNS, DOCUMENT_COLUMNS, RTW_COLUMNS, TOIL_COLUMNS, TRAINING_COLUMNS } from '../engine/hrImport';
+import { ABSENCE_COLUMNS, DOCUMENT_COLUMNS, HOURS_COLUMNS, MANAGER_COLUMNS, REVIEW_COLUMNS, RTW_COLUMNS, TAKINGS_COLUMNS, TOIL_COLUMNS, TRAINING_COLUMNS } from '../engine/hrImport';
 import type { MessagesClient } from './messagesClient';
 import { usageCostUsd } from './pricing';
 import { ROTA_MODEL } from './rotaAgent';
@@ -13,7 +13,7 @@ import { ROTA_MODEL } from './rotaAgent';
 // column (roles, sites, contracted hours) and times of day are shown, because they say what the
 // column is without saying who anyone is. The manager sees the mapping and can change it before anything is read.
 
-export type ImportKind = 'team' | 'rota' | 'holiday' | 'absences' | 'toil' | 'documents' | 'training' | 'rtw';
+export type ImportKind = 'team' | 'rota' | 'holiday' | 'absences' | 'toil' | 'documents' | 'training' | 'rtw' | 'hours' | 'takings' | 'managers' | 'reviews';
 
 export const IMPORT_FIELDS: Record<ImportKind, Record<string, string>> = {
   team: {
@@ -29,6 +29,13 @@ export const IMPORT_FIELDS: Record<ImportKind, Record<string, string>> = {
     startDate: 'Employment start or hire date',
     site: 'Home site, location or venue',
     rightToWork: 'Date the right to work check was done',
+    optedOut: 'Whether they have signed the 48 hour week opt-out',
+    maxHours: 'Most hours a week they will work',
+    pension: 'Whether they are enrolled in the workplace pension',
+    payFrequency: 'How often they are paid: weekly or monthly',
+    availability: 'When they can work, such as Mon-Fri 09:00-17:00',
+    coverSites: 'Other sites they work at',
+    badge: 'Clock card or fob number',
   },
   rota: {
     name: "Employee's full name in one column",
@@ -121,11 +128,52 @@ export const IMPORT_FIELDS: Record<ImportKind, Record<string, string>> = {
     expiry: 'When time-limited permission to work expires',
     studentHours: 'Student term time weekly hour limit',
   },
+  hours: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    date: 'Date worked',
+    weekEnding: 'Week ending or week commencing, for weekly totals',
+    start: 'Clock in time',
+    end: 'Clock out time',
+    breakMinutes: 'Unpaid break',
+    hours: 'Hours worked or paid',
+    role: 'Role or position worked',
+    site: 'Site or location worked',
+  },
+  takings: {
+    site: 'Site, venue or location',
+    date: 'Trading date',
+    netSales: 'Net sales, excluding VAT',
+    grossSales: 'Gross sales, including VAT',
+    covers: 'Covers or guests',
+  },
+  managers: {
+    name: "Manager's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Manager's work email",
+    role: 'Their role or job title',
+    sites: 'The sites they run',
+  },
+  reviews: {
+    name: "Employee's full name in one column",
+    firstName: 'First name, where the name is split',
+    lastName: 'Last name, where the name is split',
+    email: "Employee's email",
+    type: 'Kind of review: probation, appraisal or one-to-one',
+    date: 'Date the review was held',
+    outcome: 'Outcome or rating',
+    nextDue: 'When the next review is due',
+    notes: 'Notes or summary',
+  },
 };
 
 const ALIASES: Record<ImportKind, Record<string, string[]>> = {
   team: PEOPLE_COLUMNS, rota: SHIFT_COLUMNS, holiday: HOLIDAY_COLUMNS,
   absences: ABSENCE_COLUMNS, toil: TOIL_COLUMNS, documents: DOCUMENT_COLUMNS, training: TRAINING_COLUMNS, rtw: RTW_COLUMNS,
+  hours: HOURS_COLUMNS, takings: TAKINGS_COLUMNS, managers: MANAGER_COLUMNS, reviews: REVIEW_COLUMNS,
 };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -190,6 +238,7 @@ export async function mapColumnsWithAI(client: MessagesClient, kind: ImportKind,
   const what = {
     team: 'a team or employee list', rota: 'a rota or schedule of shifts', holiday: 'holiday balances', absences: 'an absence or sickness record',
     toil: 'time off in lieu balances', documents: 'personnel file details: contracts, probation, NI numbers, emergency contacts', training: 'training certificates', rtw: 'right to work checks',
+    hours: 'timesheets or payroll hours worked in past weeks', takings: 'daily takings by site', managers: 'managers who need a sign-in, with their roles and sites', reviews: 'probation reviews, appraisals and one-to-ones',
   }[kind];
   const response = await client.beta.messages.create(
     {
