@@ -1,3 +1,4 @@
+import { onToilDay } from './toil';
 import { shiftPaidHours } from './cost';
 import { holidayBalance, workedShifts } from './holiday';
 import { isAbsentOn } from './hr';
@@ -66,7 +67,7 @@ export function peopleInsights(
       return entry !== undefined && entry.clockIn > s.startMinute + LATE_AFTER_MINUTES;
     }).length;
     // A day off sick or on leave is not a no-show.
-    const noShows = clocked.filter((s) => !e.leave.includes(s.date) && !isAbsentOn(e, s.date) && !mine.some((t) => t.date === s.date)).length;
+    const noShows = clocked.filter((s) => !e.leave.includes(s.date) && !onToilDay(e, s.date) && !isAbsentOn(e, s.date) && !mine.some((t) => t.date === s.date)).length;
 
     const insight: PersonInsight = {
       employeeId: e.id,

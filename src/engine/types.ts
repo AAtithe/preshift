@@ -325,6 +325,8 @@ export interface Employee {
   hr?: HrProfile;
   /** Sickness and other absence. A shift on an absence day is blocked like leave. */
   absences?: Absence[];
+  /** Time off in lieu: hours earned and taken, newest last. Kept with the holiday record and managed through its own endpoint. */
+  toil?: ToilEntry[];
   /** One-off days the person has said they cannot work, on top of their weekly availability. */
   unavailable?: Unavailability[];
   /** Set when the retention period ended and the record was anonymised under UK GDPR. */
@@ -368,6 +370,26 @@ export interface HrProfile {
   emergencyContact?: EmergencyContact;
   /** Line manager's employee id. */
   managerId?: string;
+}
+
+/**
+ * One movement on a person's time off in lieu. Earned hours are positive, hours taken negative; the
+ * opening balance at go-live is one entry. Nothing is removed: a mistake is corrected by an adjustment.
+ */
+export interface ToilEntry {
+  id: string;
+  kind: 'opening' | 'earned' | 'taken' | 'adjustment';
+  /** The day it was earned or taken, or the day the opening balance stands at. */
+  date: string;
+  /** Hours: positive earned, negative taken. */
+  hours: number;
+  /** Taken as a whole day off: the rota treats the day like approved leave. */
+  dayOff?: boolean;
+  /** Earned from the hours over contract in the week starting on this Monday: each week is banked once. */
+  fromWeek?: string;
+  note?: string;
+  by: string;
+  at: string;
 }
 
 export type AbsenceType = 'sickness' | 'unauthorised' | 'compassionate' | 'dependants' | 'family' | 'unpaid' | 'other';
@@ -693,7 +715,8 @@ export interface TimeEntry {
   clockOut?: number;
   breakMinutes: number;
   status: TimeEntryStatus;
-  source: 'clock' | 'manual';
+  /** 'import' is hours worked before go-live, brought across from the previous system and already paid by it. */
+  source: 'clock' | 'manual' | 'import';
   /** How a clock was made: a card on a site reader, by name on a site device, or on the person's own phone, by location or on the site's tag. */
   method?: 'card' | 'device' | 'phone' | 'kiosk' | 'tag';
   clockInLocation?: ClockLocation;

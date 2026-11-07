@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { Employee } from '../../src/engine/types';
+import type { Employee, ToilEntry } from '../../src/engine/types';
+import { toilBalance, toilEntryProblems } from '../../src/engine/toil';
 import { requireScope } from '../auth';
 import { addDays, ageOn } from '../../src/engine/time';
 import { HttpError, kick, notFound, orgOf, type AppContext } from '../context';
@@ -50,7 +51,10 @@ export function forReader(g: Guard, e: Employee): Employee {
   // The holiday record is what the Holiday tab works from, offered to those who see cost.
   const seesHoliday = seesPersonal || seesPay;
   const out: Employee = seesPay ? { ...e } : { ...e, hourlyRate: 0, annualSalary: 0, payHidden: true };
-  if (!seesHoliday) delete out.holiday;
+  if (!seesHoliday) {
+    delete out.holiday;
+    delete out.toil;
+  }
   if (!seesPersonal) {
     const rtw = e.rightToWork;
     // An expiry the rota can reach stays, so a shift after it is still blocked; others say only checked or not.
@@ -113,6 +117,56 @@ export function employeeRoutes(app: FastifyInstance, ctx: AppContext) {
   // Staff records hold dates of birth, pay and right to work: a scope of their own, not rota:read.
   const read = { preHandler: requireScope('employees:read') };
   const write = { preHandler: requireScope('rota:write') };
+
+  // Time off in lieu: one entry at a time, never edited or removed, so the balance can always be traced.
+  // Kept with the holiday record: changed by whoever manages the person's team, never by the person.
+  app.post<{ Params: { id: string }; Body: Pick<ToilEntry, 'kind' | 'date' | 'hours' | 'note' | 'dayOff' | 'fromWeek'> }>(
+    '/v1/employees/:id/toil',
+    {
+      ...write,
+      schema: {
+        tags: ['Employees'],
+        description: 'Adds to a person\'s time off in lieu: an opening balance, hours earned (positive), hours taken (negative) or an adjustment. Returns the balance.',
+        params: idParam,
+        body: {
+          type: 'object',
+          required: ['kind', 'date', 'hours'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', enum: ['opening', 'earned', 'taken', 'adjustment'] },
+            date: isoDate,
+            hours: { type: 'number' },
+            note: { type: 'string', maxLength: 500 },
+            dayOff: { type: 'boolean', description: 'Taken as a whole day off: the rota treats the day like approved leave.' },
+            fromWeek: { ...isoDate, description: 'Earned from the overtime in the week starting this Monday. A week is banked once.' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const org = orgOf(req);
+      const e = org.state.employees.find((x) => x.id === req.params.id);
+      if (!e) throw notFound(`Employee ${req.params.id}`);
+      const g = guard(ctx, req, org);
+      g.allow('team.manage', e.siteId);
+      notOwnRecord(g, e);
+      const today = ctx.store.todayISO();
+      const problems = toilEntryProblems(req.body, today);
+      if (problems.length) throw new HttpError(422, 'invalid_toil', problems.join(' '), problems);
+      // One opening balance: a second would count the old system's hours twice.
+      if (req.body.kind === 'opening' && e.toil?.some((t) => t.kind === 'opening')) {
+        throw new HttpError(409, 'opening_exists', `${e.name} already has an opening TOIL balance. Correct it with an adjustment.`);
+      }
+      if (req.body.dayOff && req.body.kind !== 'taken') throw new HttpError(422, 'invalid_toil', 'Only TOIL taken is a day off.');
+      if (req.body.fromWeek && (req.body.kind !== 'earned' || e.toil?.some((t) => t.fromWeek === req.body.fromWeek))) {
+        throw new HttpError(409, 'week_banked', `The overtime in the week of ${req.body.fromWeek} is already banked, or this is not hours earned.`);
+      }
+      const entry: ToilEntry = { ...req.body, hours: Math.round(req.body.hours * 100) / 100, id: `toil_${randomUUID().slice(0, 12)}`, by: actorName(g), at: new Date().toISOString() };
+      e.toil = [...(e.toil ?? []), entry];
+      audit(org, actorName(g), 'toil.recorded', { id: e.id, kind: entry.kind, hours: entry.hours, date: entry.date });
+      return reply.code(201).send({ entry, balance: toilBalance(e, today) });
+    },
+  );
 
   app.get('/v1/employees', { ...read, schema: { tags: ['Employees'] } }, async (req) => {
     const org = orgOf(req);

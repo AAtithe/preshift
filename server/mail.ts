@@ -208,6 +208,34 @@ export function signupExistingEmail(to: string, link: string): Mail {
 }
 
 /**
+ * A go-live step gone late, to a self sign-up's owner: what it is, why it matters and how to do it,
+ * with where the plan stands. Counts only, as the plan itself is: never a name or pay.
+ */
+export function goLiveNudgeEmail(
+  to: string,
+  name: string,
+  business: string,
+  plan: { day: number; length: number; done: number; of: number; trialEndsOn: string | null; billing: string },
+  step: { label: string; why: string; how: string; dueOn: string },
+  link: string,
+): Mail {
+  const first = name.split(' ')[0] || name;
+  const opening = `${business} is on day ${plan.day} of setting up Preshift Rota, with ${plan.done} of ${plan.of} steps done. One step is now behind the plan: ${step.label.charAt(0).toLowerCase()}${step.label.slice(1)}, due by ${step.dueOn}.`;
+  const lines = [`Why it matters: ${step.why}`, `How: ${step.how}`];
+  const notes = [
+    ...(plan.billing === 'trial' && plan.trialEndsOn ? [`Your free trial runs to ${plan.trialEndsOn}.`] : []),
+    'Getting started in Preshift Rota has the whole plan, and Ask Shifty answers what to do next. We send this only when a step falls behind, and never more than once for the same step.',
+  ];
+  const text = [`Hello ${first},`, '', opening, '', ...lines, '', link, '', ...notes, '', 'Preshift Rota, by Preshift and Williams, Stanley & Co.'].join('\n');
+  return {
+    to,
+    subject: oneLine(`Preshift Rota set-up: ${step.label.charAt(0).toLowerCase()}${step.label.slice(1)}`),
+    text,
+    html: letter([`Hello ${first},`, opening, ...lines], { label: 'Open Getting started', link }, notes),
+  };
+}
+
+/**
  * A message or rota notice from work, for someone who chose email. The text is the message itself,
  * as the app shows it; the button opens the staff app, where the whole thread is and they can reply.
  */

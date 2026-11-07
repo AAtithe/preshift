@@ -223,6 +223,17 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'PUT /v1/sites/:id/travel/:toId': true,
   'DELETE /v1/sites/:id/travel/:toId': true,
   'PUT /v1/rota/weeks': true,
+  // Shifts imported from another system land in the sandbox's own rota, as a draft.
+  'POST /v1/rota/import': true,
+  // Time off in lieu on the sandbox's fictional team.
+  'POST /v1/employees/:id/toil': true,
+  // Uploads and their undo, on the sandbox's own records.
+  'GET /v1/import/batches': true,
+  'POST /v1/import/batches': true,
+  'POST /v1/import/batches/:id/undone': true,
+  'POST /v1/import/hours': true,
+  'DELETE /v1/import/hours/:id': true,
+  'DELETE /v1/import/people/:id': true,
   // Managers' overrides of the rest rules, kept in the sandbox's own rota.
   'GET /v1/rota/overrides': true,
   'GET /v1/rota/changes': true,
@@ -232,6 +243,8 @@ export const SANDBOX_ROUTES: Record<string, boolean> = {
   'GET /v1/setup/status': true,
   'PUT /v1/setup': true,
   'POST /v1/setup/start-fresh': true,
+  // The go-live plan reads the caller's own organisation, counts only.
+  'GET /v1/golive': true,
   // The access controls, shown on the sandbox's fictional team. None of them has an account, and
   // anything that issues an invitation, a reset link or touches an authenticator is refused below.
   'GET /v1/me': true,

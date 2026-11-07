@@ -10,6 +10,8 @@ import { addDays, ageOn, formatMinute, parseClock, weekDates, weekStart } from '
 import type { Absence, AbsenceType, Employee, RotaState, Shift, TimeEntry } from '../engine/types';
 import { minimumWageFor } from '../engine/ukRates';
 import type { ToolDefinition } from './rotaTools';
+import type { GoLivePlan } from '../engine/golive';
+import { IMPORT_FIELDS, type ImportKind } from './importMapper';
 import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil, ROUND_MINUTES, roundOf } from '../engine/cover';
 
 /**
@@ -23,7 +25,7 @@ import { defaultRounds, goingCandidates, MAX_NOTE, MAX_ROUND_SIZE, minutesUntil,
 export const SCREENS = [
   'sites', 'rota', 'coach', 'forecast', 'calendar', 'programme', 'clock', 'demand', 'team', 'people', 'holiday', 'payroll', 'periods', 'pay', 'close', 'reports', 'hr', 'absence',
   'training', 'reviews', 'cases', 'setup', 'integrations', 'privacy', 'access', 'settings', 'profile', 'howto', 'support', 'onboarding', 'welfare', 'clients', 'customers', 'billing', 'requests', 'adoption', 'cash',
-  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages', 'rights', 'features',
+  'cutcall', 'actuals', 'tronc', 'prime', 'risk', 'retention', 'messages', 'rights', 'features', 'golive',
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 
@@ -42,6 +44,8 @@ export interface AppToolContext {
   loadEntries: () => Promise<TimeEntry[]>;
   /** The organisation has switched off AI rota writing, so there is no rota assistant to hand over to. */
   rotaAiOff?: boolean;
+  /** The organisation's go-live plan, for whoever runs its settings; refused for anyone else. */
+  loadGoLive?: () => Promise<GoLivePlan>;
 }
 
 interface Detail {
@@ -62,6 +66,7 @@ export type Proposal = { id: string; summary: string; details: Detail[]; warning
   | { kind: 'ask_cover'; shiftId: string; employeeIds: string[]; note: string | null; firstToAccept: boolean; urgent: boolean; rounds: { size: number; everyMinutes: number } | null; keepUntilTaken: boolean }
   | { kind: 'draft_rota'; instruction: string }
   | { kind: 'go_to'; screen: Screen }
+  | { kind: 'open_import'; importKind: ImportKind }
 );
 
 export interface AppToolOutcome {
@@ -229,6 +234,22 @@ export const APP_TOOLS: ToolDefinition[] = [
       'For building or reshaping a whole rota (several shifts, a day or a week), hands the request to the rota assistant, ' +
       'which drafts it against the forecast for the manager to review. Use this rather than many single shifts.',
     input_schema: object({ instruction: { type: 'string', description: "The manager's request, in their words." } }),
+  },
+  {
+    name: 'go_live_plan',
+    description:
+      "The organisation's plan for getting started on Preshift Rota: each step from the authenticator to the first published rota, takings and " +
+      'clocking, whether it is done, late or next, why it matters and how to do it. Use it for "what should I do next", "how do I get set up" ' +
+      'or "how far are we". Counts only. Only owners and others who run the settings can see it.',
+    input_schema: object({}),
+  },
+  {
+    name: 'open_import',
+    description:
+      'Opens Set-up, Import on one tab, for bringing data across from another system or the Excel template. Tabs, in the order to work them: ' +
+      'team, managers, rtw (right to work), documents (HR file), training, reviews, holiday (balances), toil, absences, hours (past hours worked), takings, rota. ' +
+      'No confirmation needed; the manager uploads the file there and sees a preview before anything is saved.',
+    input_schema: object({ kind: { type: 'string', enum: Object.keys(IMPORT_FIELDS) } }),
   },
   {
     name: 'go_to',
@@ -724,6 +745,35 @@ export async function executeAppTool(ctx: AppToolContext, name: string, raw: unk
         const instruction = str(input, 'instruction');
         const proposal: Proposal = { id: proposalId(), kind: 'draft_rota', instruction, summary: 'Draft this with the rota assistant', details: [{ label: 'Request', value: instruction }], warnings: [] };
         return { result: { handed_over: true, note: 'The manager can open the rota assistant from the card; nothing is changed yet.' }, label: proposal.summary, proposal };
+      }
+
+      case 'go_live_plan': {
+        if (!ctx.loadGoLive) throw new InputError('The go-live plan is not available here.');
+        const plan = await ctx.loadGoLive().catch(() => null);
+        if (!plan) throw new InputError('Only someone who manages the organisation settings, with their authenticator, can see the go-live plan.');
+        const open = plan.steps.filter((s) => !s.done);
+        return {
+          result: {
+            headline: plan.headline,
+            day: plan.day,
+            of_days: plan.length,
+            done: plan.done,
+            of: plan.of,
+            live: plan.live,
+            trial_ends: plan.trialEndsOn,
+            next: plan.next && { label: plan.next.label, why: plan.next.why, how: plan.next.how, screen: plan.next.screen, due: plan.next.dueOn },
+            late: plan.late.map((s) => s.label),
+            still_to_do: open.map((s) => ({ label: s.label, status: s.status, due: s.dueOn, optional: s.optional, progress: s.progress, screen: s.screen })),
+          },
+          label: 'Read the go-live plan',
+        };
+      }
+
+      case 'open_import': {
+        const importKind = String(input.kind) as ImportKind;
+        if (!(importKind in IMPORT_FIELDS)) throw new InputError(`Kind must be one of ${Object.keys(IMPORT_FIELDS).join(', ')}.`);
+        const proposal: Proposal = { id: proposalId(), kind: 'open_import', importKind, summary: `Open Import, ${importKind}`, details: [], warnings: [] };
+        return { result: { opened: `setup import ${importKind}` }, label: proposal.summary, proposal };
       }
 
       case 'go_to': {

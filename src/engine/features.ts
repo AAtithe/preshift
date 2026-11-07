@@ -131,7 +131,7 @@ export const FEATURES: FeatureDef[] = [
  * needs to stay in control of the organisation and meet the law (access, GDPR, set-up, billing).
  */
 export const CORE_TABS = [
-  'sites', 'rota', 'demand', 'clock', 'payroll', 'periods', 'people', 'team', 'setup', 'access', 'integrations', 'privacy', 'settings',
+  'sites', 'rota', 'demand', 'clock', 'payroll', 'periods', 'people', 'team', 'golive', 'setup', 'access', 'integrations', 'privacy', 'settings',
   'features', 'billing', 'clients', 'customers', 'profile', 'howto', 'support',
 ];
 

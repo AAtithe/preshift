@@ -1,3 +1,4 @@
+import { ToilPanel } from './ToilPanel';
 import { useMemo, useState } from 'react';
 import { useDialogClose } from './useDialogClose';
 import { employeeWeekCost } from '../engine/cost';
@@ -492,6 +493,9 @@ export function EmployeeEditor({ state, employee, today, canEditPay, payNeedsApp
             <input type="number" min={0} step={0.5} value={holiday.carriedOverHours ?? ''} onChange={(e) => setHoliday({ carriedOverHours: numberOrUndefined(e.target.value) })} />
           </label>
         </div>
+
+        {/* TOIL is saved entry by entry as it is added, not with the record: only for someone already saved. */}
+        {state.employees.some((x) => x.id === employee.id) && <ToilPanel employee={employee} today={today} canEdit />}
 
         <h3 className="section">Approved leave</h3>
         <div className="leave-add">

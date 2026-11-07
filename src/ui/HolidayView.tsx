@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { employeeStatus } from '../engine/employees';
 import { holidayBalance, leaveYear, workedShifts, type HolidayBalance } from '../engine/holiday';
 import { entriesAsShifts } from '../engine/timesheet';
+import { toilBalance } from '../engine/toil';
 import type { Employee, RotaState, TimeEntry } from '../engine/types';
 import { api } from './api';
 import { download, money } from './format';
@@ -45,27 +46,33 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
     const worked = workedShifts(state.shifts.filter((s) => s.date <= today), entriesAsShifts(entries ?? []));
     return state.employees
       .filter((e) => siteIds.includes(e.siteId) && employeeStatus(e, today) !== 'left')
-      .map((e) => ({ e, b: holidayBalance(e, worked, today, yearStartOf(e.entityId), undefined, state.sites) }))
+      .map((e) => ({ e, b: holidayBalance(e, worked, today, yearStartOf(e.entityId), undefined, state.sites), t: e.toil?.length ? toilBalance(e, today) : null }))
       .sort((a, b) => a.e.name.localeCompare(b.e.name));
   }, [state, siteIds, today, entries]);
 
-  const visible = onlyFlagged ? rows.filter((r) => r.b.checks.length > 0) : rows;
+  const visible = onlyFlagged ? rows.filter((r) => r.b.checks.length > 0 || (r.t?.warnings.length ?? 0) > 0) : rows;
+  // Time off in lieu owed is pay owed too: shown beside holiday only when someone has any.
+  const hasToil = rows.some((r) => r.t);
+  const toilLiability = rows.reduce((s, r) => s + (r.t?.liability ?? 0), 0);
+  const toilHours = rows.reduce((s, r) => s + (r.t?.hours ?? 0), 0);
   const sum = (f: (b: HolidayBalance) => number) => rows.reduce((s, r) => s + f(r.b), 0);
   const liability = sum((b) => b.liability);
   const liabilityWithNi = sum((b) => b.liabilityWithNi);
   const owedToCompany = rows.filter((r) => r.b.untakenHours < 0).reduce((s, r) => s - r.b.untakenHours * r.b.hourlyRate, 0);
-  const flagged = rows.filter((r) => r.b.checks.length > 0).length;
+  const flagged = rows.filter((r) => r.b.checks.length > 0 || (r.t?.warnings.length ?? 0) > 0).length;
 
   function exportCsv() {
     const header = ['Name', 'Company', 'Basis', 'Leave year', 'Entitlement h', 'Carried over h', 'Taken h', 'Booked h', 'Remaining h', 'Accrued untaken h',
-      ...(showCost ? ['Hourly rate', 'Provision', 'Provision with employer NI'] : [])];
-    const lines = rows.map(({ e, b }) => [
+      ...(showCost ? ['Hourly rate', 'Provision', 'Provision with employer NI'] : []), 'TOIL owed h', ...(showCost ? ['TOIL owed with employer NI'] : [])];
+    const lines = rows.map(({ e, b, t }) => [
       e.name,
       state.entities.find((x) => x.id === e.entityId)?.name ?? e.entityId,
       b.basis,
       `${b.year.start} to ${b.year.end}`,
       b.entitlementHours, b.carriedOverHours, b.takenHours, b.bookedHours, b.remainingHours, b.untakenHours,
       ...(showCost ? [b.hourlyRate, b.liability, b.liabilityWithNi] : []),
+      t?.hours ?? 0,
+      ...(showCost ? [t?.liability ?? 0] : []),
     ]);
     const csv = [header, ...lines].map((l) => l.map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v)).join(',')).join('\n');
     download(`holiday-balances-${today}.csv`, csv);
@@ -91,6 +98,13 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
             <div className="kpi-label">Taken ahead of accrual</div>
             <div className="kpi-value">{money(owedToCompany)}</div>
             <div className="kpi-hint">Only recoverable on leaving if the contract says so</div>
+          </div>
+        )}
+        {hasToil && (
+          <div className="kpi">
+            <div className="kpi-label">TOIL owed</div>
+            <div className="kpi-value">{showCost ? money(toilLiability) : `${Math.round(toilHours)}h`}</div>
+            <div className="kpi-hint">{Math.round(toilHours)}h banked and not taken{showCost ? ', with employer NI' : ''}</div>
           </div>
         )}
         <div className={`kpi ${flagged > 0 ? 'warn' : 'good'}`}>
@@ -149,12 +163,13 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
               <th className="num">Remaining</th>
               <th className="num">Accrued untaken</th>
               {showCost && <th className="num">Provision</th>}
+              {hasToil && <th className="num">TOIL owed</th>}
               <th>Checks</th>
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 && <tr><td colSpan={10} className="muted">No one matches this view.</td></tr>}
-            {visible.map(({ e, b }) => (
+            {visible.map(({ e, b, t }) => (
               <tr key={e.id} className="clickable" onClick={() => onEdit(e)} tabIndex={0} onKeyDown={(ev) => { if (ev.key === 'Enter') onEdit(e); }}>
                 <td>
                   <span className="strong">{e.name}</span>
@@ -168,12 +183,14 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
                 <td className={`num strong${b.remainingHours < 0 ? ' bad-text' : ''}`}>{h(b.remainingHours)}</td>
                 <td className={`num${b.untakenHours < 0 ? ' bad-text' : ''}`}>{h(b.untakenHours)}</td>
                 {showCost && <td className="num">{money(b.liabilityWithNi)}</td>}
+                {hasToil && <td className="num">{t?.hours ? h(t.hours) : '-'}</td>}
                 <td>
-                  {b.checks.length === 0 ? (
+                  {b.checks.length === 0 && !t?.warnings.length ? (
                     <span className="muted">None</span>
                   ) : (
                     <ul className="issues compact">
                       {b.checks.map((c) => <li key={c.code} className={c.severity}>{c.message}</li>)}
+                      {t?.warnings.map((w, i) => <li key={`toil${i}`} className="warn">TOIL: {w}</li>)}
                     </ul>
                   )}
                 </td>
@@ -185,6 +202,7 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
               <tr>
                 <th colSpan={8}>Total provision, with employer NI at 15%</th>
                 <td className="num strong">{money(liabilityWithNi)}</td>
+                {hasToil && <td className="num strong">{money(toilLiability)}</td>}
                 <td />
               </tr>
             )}
@@ -196,7 +214,8 @@ export function HolidayView({ state, siteIds, today, onEdit, onSetLeaveYear, sho
         earn 12.07% of hours worked, from approved clocked time where it exists and the rota otherwise. Paid travel
         between sites in a working day is working time, so it counts too. The
         provision is what the business owes in holiday pay today; it should match the holiday accrual on the
-        balance sheet.
+        balance sheet. TOIL owed is hours banked instead of overtime pay and not yet taken: pay owed too, at the same rate with
+        employer NI, and accrued alongside it. Each person's TOIL is kept on their record, under Holiday.
       </p>
     </div>
   );

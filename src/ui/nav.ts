@@ -4,7 +4,7 @@ import { weekStart } from '../engine/time';
 import type { Audience, Permission } from '../engine/access';
 import type { Allow } from './permissions';
 
-export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'periods' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'customers' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'rights' | 'messages' | 'features';
+export type Tab = 'sites' | 'rota' | 'coach' | 'forecast' | 'calendar' | 'programme' | 'clock' | 'demand' | 'team' | 'people' | 'holiday' | 'payroll' | 'periods' | 'pay' | 'close' | 'reports' | 'hr' | 'absence' | 'training' | 'reviews' | 'cases' | 'setup' | 'integrations' | 'privacy' | 'access' | 'settings' | 'profile' | 'howto' | 'support' | 'onboarding' | 'welfare' | 'clients' | 'customers' | 'billing' | 'requests' | 'cutcall' | 'actuals' | 'tronc' | 'prime' | 'risk' | 'retention' | 'cash' | 'adoption' | 'rights' | 'messages' | 'features' | 'golive';
 
 /** Holds the permission at every site in scope: what an action over the scope needs. */
 export type AtAll = Allow;
@@ -132,6 +132,8 @@ export const NAV: NavGroup[] = [
     id: 'organisation',
     heading: 'Organisation',
     items: [
+      // The path from sign-up to running the week on Preshift Rota, proved by the organisation's own data.
+      { id: 'golive', label: 'Getting started', hint: 'Your plan from sign-up to a published, measured rota', scope: 'org', title: 'Getting started', access: { org: ['settings.manage'] } },
       // Companies, sites, roles and the trading week the rota runs on.
       { id: 'setup', label: 'Set-up', hint: 'Companies, sites, roles and the trading week', scope: 'org', access: { org: ['settings.manage'] } },
       { id: 'access', label: 'Access', hint: 'Who can sign in and what they can do', scope: 'org', access: { scope: ['users.sites'], org: ['users.manage', 'audit.view'] } },
