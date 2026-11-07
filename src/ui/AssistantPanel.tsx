@@ -112,7 +112,7 @@ export function AssistantPanel({ state, siteIds, week, initialInstruction = '', 
         <h2>Rota assistant{group ? `: ${names.length} sites` : `: ${names[0]}`}</h2>
         <p className="muted small">
           Tell it what you need in plain English. It drafts the week using the same costing and compliance engine as the
-          rota, so it cannot roster anything illegal, and it leaves shifts that have already started alone.
+          rota, so every draft faces the same checks as yours, and it leaves shifts that have already started alone.
           {group && ` It plans ${names.join(', ')} together, sharing staff between them.`} Nothing changes until you apply the
           draft.
         </p>

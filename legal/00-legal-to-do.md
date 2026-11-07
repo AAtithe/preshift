@@ -43,6 +43,14 @@ Rule going forward: before any new claim about compliance goes on the site, chec
 engine blocks it, warns on it, or allows an override. Only a hard block may be described as
 "cannot".
 
+Enforced since 6 November 2026 by `server/claims.test.ts`, which fails the build when any banned
+claim appears in the site, the app, the staff app, server text, the AI's instructions, the README,
+docs, the legal pages or the walkthrough captions. It also caught a claim the manual sweep missed:
+the rota assistant panel told managers "it cannot roster anything illegal". The walkthrough captions
+are its one known exception until the narration is re-recorded; the test fails once they are clean,
+until the exception is deleted. To ban a new claim, add it to BANNED in that file with the reason
+and the approved wording.
+
 The Terms say compliance checks are aids and payroll figures are estimates. The website says the
 opposite. An entire agreement clause will not reliably protect us from a misrepresentation claim,
 and the ASA can act on the copy regardless of the contract. Rewrite before anything else goes live.

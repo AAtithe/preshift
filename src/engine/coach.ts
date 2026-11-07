@@ -10,7 +10,7 @@ import { absoluteMinute, addDays, formatMinute, weekDates, weekday } from './tim
 // The weekly moves: the few changes to a site's rota that save the most money
 // without breaking the law or leaving the floor short. Each move is specific,
 // priced at what it really saves (the marginal cost, worked on the person's
-// whole week the way payroll will), and can be applied in one tap. Once the
+// whole week on the same basis as payroll), and can be applied in one tap. Once the
 // week has been worked, each move taken is measured against the clock, so the
 // GM sees what it actually saved, not what it promised.
 
