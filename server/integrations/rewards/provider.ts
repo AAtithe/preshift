@@ -1,7 +1,7 @@
 import type { RewardsMember } from '../../../src/engine/welfare';
 
 /**
- * The contract between Preshift and an employee benefits platform. Hospitality Rewards is the first
+ * The contract between Preshift Rota and an employee benefits platform. Hospitality Rewards is the first
  * implementation: staff discounts, wellbeing support and recognition points built for hospitality
  * teams. Anything above this line works the same whichever platform answers it.
  */
@@ -13,7 +13,7 @@ export interface RewardsProvider {
   upsertMembers(members: RewardsMember[]): Promise<void>;
   /** Ends membership for people who have left or opted out. */
   removeMembers(refs: string[]): Promise<void>;
-  /** Credits recognition points. `id` is Preshift's, sent as the idempotency key, so a retry never pays twice. */
+  /** Credits recognition points. `id` is Preshift Rota's, sent as the idempotency key, so a retry never pays twice. */
   award(award: RewardsAward): Promise<{ ref: string }>;
 }
 

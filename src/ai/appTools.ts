@@ -206,7 +206,7 @@ export const APP_TOOLS: ToolDefinition[] = [
     name: 'propose_ask_cover',
     description:
       'Proposes asking for cover for one shift by id (from list_shifts), when its person cannot work it, for the manager to confirm. ' +
-      'Preshift asks only the people who could legally work it (trained, free, within availability, rest and hours rules, agreed to ' +
+      'Preshift Rota asks only the people who could legally work it (trained, free, within availability, rest and hours rules, agreed to ' +
       'work at the site), cheapest first, by the staff app and the channel each chose. The result says who would be asked and why ' +
       'others would not. If the person is off sick, propose the absence too with propose_record_absence. The note goes to everyone ' +
       'asked: use it for what helps them decide (a busy night, an early finish), never for why the person is off.',
@@ -238,7 +238,7 @@ export const APP_TOOLS: ToolDefinition[] = [
   {
     name: 'go_live_plan',
     description:
-      "The organisation's plan for getting started on Preshift: each step from the authenticator to the first published rota, takings and " +
+      "The organisation's plan for getting started on Preshift Rota: each step from the authenticator to the first published rota, takings and " +
       'clocking, whether it is done, late or next, why it matters and how to do it. Use it for "what should I do next", "how do I get set up" ' +
       'or "how far are we". Counts only. Only owners and others who run the settings can see it.',
     input_schema: object({}),

@@ -14,7 +14,7 @@ export interface SimulatedJournal {
 /** Journals the simulated ledgers hold, by organisation, kept for the life of the process. */
 const books = new Map<string, SimulatedJournal[]>();
 const keys = new Map<string, string>();
-/** Each simulated ledger's chart and tracking, as first read: the books do not follow later changes in Preshift. */
+/** Each simulated ledger's chart and tracking, as first read: the books do not follow later changes in Preshift Rota. */
 const charts = new Map<string, { accounts: LedgerAccount[]; tracking: LedgerTracking[] }>();
 
 /**

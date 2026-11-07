@@ -135,7 +135,7 @@ export class OutboxDispatcher {
         const e = findEmployee(item.payload.employeeId);
         // Once set up, a person stays on the scheme that holds their record; moving schemes is a leaver and a starter.
         const employerId = e.payrollId && e.payrollEmployerId ? e.payrollEmployerId : employerOf(e.entityId);
-        // Held while someone decides whether Preshift or payroll is right: sending now would settle it for them.
+        // Held while someone decides whether Preshift Rota or payroll is right: sending now would settle it for them.
         if (e.payrollReview) return;
         if (!e.payrollId && (await linkExisting(org, provider, employerId, e, rosters, item.payload.confirmedNew === true))) return;
         const { payrollId } = await provider.upsertEmployee(employerId, toPayrollEmployee(e), e.payrollId, item.idempotencyKey);
@@ -179,7 +179,7 @@ export class OutboxDispatcher {
 }
 
 /**
- * Before a starter is created, looks for them already on the employer's payroll. Preshift's own
+ * Before a starter is created, looks for them already on the employer's payroll. Preshift Rota's own
  * reference, or exactly one record with the same name and date of birth, is the same person:
  * linked, not created a second time. Where the two disagree nothing is overwritten either way;
  * the differences wait for someone to decide. Two equally good matches stop the starter until a

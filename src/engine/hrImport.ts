@@ -1,7 +1,7 @@
 // The personnel side of moving from another system: absences, time off in lieu, the documents and
 // contract details on each file, training certificates and right to work checks. Read from the same
 // Excel or CSV files as the team and the rota (src/engine/externalImport.ts), matched to people
-// already on Preshift by email or name, and saved through the same endpoints as the screens.
+// already on Preshift Rota by email or name, and saved through the same endpoints as the screens.
 //
 // The rules, as for the rest of the import:
 // - Nothing is invented. A date that cannot be read holds the row back with the reason; a figure that
@@ -102,8 +102,8 @@ interface Base<F extends string> extends ColumnMatch<F> {
 }
 
 /**
- * Walks the rows of a table, finds each row's person on Preshift by email or name, and hands the row
- * to `read`. Rows naming nobody on Preshift are counted; rows naming nobody at all are skipped.
+ * Walks the rows of a table, finds each row's person on Preshift Rota by email or name, and hands the row
+ * to `read`. Rows naming nobody on Preshift Rota are counted; rows naming nobody at all are skipped.
  */
 function walk<F extends string>(
   input: string | string[][],
@@ -179,7 +179,7 @@ export interface AbsenceImport extends Base<AbsenceField> {
   pastHoliday: number;
   /** TOIL rows: kept in the TOIL balance, not as absences. */
   toilRows: number;
-  /** Absence already on Preshift with the same first day and type. */
+  /** Absence already on Preshift Rota with the same first day and type. */
   duplicates: number;
   /** True when the file has no type column and every row was read as sickness. */
   assumedSickness: boolean;
@@ -262,7 +262,7 @@ export type ToilField = keyof typeof TOIL_COLUMNS;
 
 export interface ToilImport extends Base<ToilField> {
   rows: { line: number; employeeId: string; name: string; date: string; hours: number }[];
-  /** Already has an opening balance on Preshift: left alone, so the old system's hours are not counted twice. */
+  /** Already has an opening balance on Preshift Rota: left alone, so the old system's hours are not counted twice. */
   existing: string[];
   inDays: boolean;
 }
@@ -324,11 +324,11 @@ export function contractTypeOf(raw: string): ContractType | null {
 }
 
 export interface DocumentImport extends Base<DocumentField> {
-  /** The HR file each person will have: what is on Preshift now, with the file's values over it. */
+  /** The HR file each person will have: what is on Preshift Rota now, with the file's values over it. */
   profiles: { line: number; employeeId: string; name: string; profile: HrProfile; fields: string[]; notes: string[] }[];
   /** Documents on file in the old system, recorded with their date. Their copies are uploaded on the person's file. */
   documents: { line: number; employeeId: string; name: string; record: Pick<HrRecord, 'employeeId' | 'kind' | 'date' | 'title'> }[];
-  /** Statements recorded as issued or signed with no copy on Preshift yet. */
+  /** Statements recorded as issued or signed with no copy on Preshift Rota yet. */
   copiesNeeded: number;
 }
 
@@ -391,7 +391,7 @@ export function importDocuments(input: string | string[][], state: Pick<RotaStat
     if (cell('manager')) {
       const id = managers(cell('manager'));
       if (id && id !== e.id) (p.managerId = id), fields.push('managerId');
-      else notes.push(`Line manager "${cell('manager')}" is not on Preshift; set them on the file once they are.`);
+      else notes.push(`Line manager "${cell('manager')}" is not on Preshift Rota; set them on the file once they are.`);
     }
     if (p.contractSignedOn && p.contractIssuedOn && p.contractSignedOn < p.contractIssuedOn) notes.push('The statement is signed before it was issued: check the dates.');
     if (p.probationPassedOn && p.probationEnd && p.probationPassedOn > addDays(p.probationEnd, 60)) notes.push('Probation was passed long after it ended: check the dates.');
@@ -428,7 +428,7 @@ const COURSE_WORDS: [RegExp, string][] = [
   [/coshh|hazardous substances/, 'COSHH'],
 ];
 
-/** The course on Preshift's list that a certificate's name means, or the name as given. */
+/** The course on Preshift Rota's list that a certificate's name means, or the name as given. */
 export function courseOf(raw: string): { title: string; known: boolean } {
   const v = normal(raw);
   const exact = COURSES.find((c) => normal(c.name) === v);
@@ -439,7 +439,7 @@ export function courseOf(raw: string): { title: string; known: boolean } {
 
 export interface TrainingImport extends Base<TrainingField> {
   records: { line: number; employeeId: string; name: string; record: Pick<HrRecord, 'employeeId' | 'kind' | 'date' | 'title' | 'expiresOn' | 'notes'>; from: string; suggestedExpiry: boolean }[];
-  /** Courses not on Preshift's list, kept under their own name. */
+  /** Courses not on Preshift Rota's list, kept under their own name. */
   otherCourses: { name: string; rows: number }[];
   duplicates: number;
   /** Certificates already expired: recorded, and shown as due on Training. */
@@ -492,7 +492,7 @@ export type RtwField = keyof typeof RTW_COLUMNS;
 
 export interface RtwImport extends Base<RtwField> {
   checks: { line: number; employeeId: string; name: string; rightToWork: RightToWork; notes: string[] }[];
-  /** A later check is already on Preshift: left as it is. */
+  /** A later check is already on Preshift Rota: left as it is. */
   newerOnFile: string[];
   /** Checks recorded with no copy held: there is no statutory excuse until the copy is uploaded. */
   copiesNeeded: number;
@@ -567,7 +567,7 @@ export interface HoursImport extends Base<HoursField> {
   fromWeeklyTotals: number;
   /** Days with hours only and no times, placed from 09:00. */
   withoutTimes: number;
-  /** Rows dated today or later: clocked on Preshift from go-live, not imported. */
+  /** Rows dated today or later: clocked on Preshift Rota from go-live, not imported. */
   fromToday: number;
   weeks: number;
   hoursTotal: number;
@@ -578,7 +578,7 @@ export interface HoursImport extends Base<HoursField> {
  * out (the best: night work and rest are measured from the times), a row per day with hours only, or
  * a row per week with a total. Nothing is invented beyond what the averages need: a day with hours
  * only is placed from 09:00; a weekly total is spread evenly over Monday to Friday. Hours from today on
- * are left out, because they are clocked on Preshift.
+ * are left out, because they are clocked on Preshift Rota.
  */
 export function importHours(
   input: string | string[][],
@@ -611,7 +611,7 @@ export function importHours(
       siteId = s;
     }
     const roleId = (cell('role') && role(cell('role'))) || e.roleIds[0];
-    if (!roleId) return void base.errors.push(`${where}: ${e.name} has no role on Preshift yet.`);
+    if (!roleId) return void base.errors.push(`${where}: ${e.name} has no role on Preshift Rota yet.`);
     const brk = breakOfCell(cell('breakMinutes'), c.breakMinutes !== undefined && /hour|hrs/.test(normal(base.headers[c.breakMinutes])));
     if (brk === null) return void base.errors.push(`${where}: break "${cell('breakMinutes')}" not recognised.`);
     // Hours as a number (7.5, or 7,5 from European exports) or as hours and minutes (7:30).
@@ -754,7 +754,7 @@ export const MANAGER_COLUMNS = {
 };
 export type ManagerField = keyof typeof MANAGER_COLUMNS;
 
-/** Preshift's operator roles a business invites its own managers to. Owner is never given by a file. */
+/** Preshift Rota's operator roles a business invites its own managers to. Owner is never given by a file. */
 export const MANAGER_ROLES: { id: string; name: string; sites: boolean; words: RegExp }[] = [
   { id: 'ops_director', name: 'Operations director', sites: false, words: /operations director|ops director|coo|head of operations/ },
   { id: 'finance_director', name: 'Finance director', sites: false, words: /finance director|fd|cfo|head of finance|financial controller/ },
@@ -818,7 +818,7 @@ export function importManagers(
     if (seen.has(email)) return void out.errors.push(`${where}: the same email twice; the first is used.`);
     if (/owner|director of the company|proprietor/.test(normal(cell('role')))) return void out.errors.push(`${where}: an owner is never made from a file. Invite them by hand in Access.`);
     const role = managerRoleOf(cell('role'));
-    if (!role) return void out.errors.push(`${where}: role "${cell('role')}" does not match a Preshift role. Use general manager, assistant manager, area manager, head chef, supervisor, or a director or manager role.`);
+    if (!role) return void out.errors.push(`${where}: role "${cell('role')}" does not match a Preshift Rota role. Use general manager, assistant manager, area manager, head chef, supervisor, or a director or manager role.`);
     let siteIds: string[] | null = null;
     if (role.sites) {
       const names = cell('sites').split(/[,;/|]/).map((x) => x.trim()).filter(Boolean);

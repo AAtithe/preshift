@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { byPhase, goLivePlan, type GoLiveFacts } from './golive';
 
-// A new business's plan from sign-up to running its week on Preshift: each step proved by its own data.
+// A new business's plan from sign-up to running its week on Preshift Rota: each step proved by its own data.
 
 const START = '2026-11-02';
 const blank: GoLiveFacts = {

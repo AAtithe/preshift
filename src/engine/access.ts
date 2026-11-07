@@ -1,4 +1,4 @@
-// Who can do what in Preshift. Pure logic, shared by the API (which enforces it)
+// Who can do what in Preshift Rota. Pure logic, shared by the API (which enforces it)
 // and the browser (which uses it to explain a grant before it is made).
 //
 // A user record grants nothing on its own. Access comes from memberships: a role,

@@ -1,5 +1,5 @@
 // Moving from another rota or HR system: the team and the rota exported from it as a CSV, read into
-// Preshift without retyping.
+// Preshift Rota without retyping.
 //
 // Every system names its columns differently, so columns are found by name, not position, from the
 // names rota, HR and payroll exports commonly use (Team Member, Employee, Position, Area, Job role,
@@ -257,7 +257,7 @@ export interface PeopleImport extends ColumnMatch<PeopleField> {
   /** Roles and sites named in the file but not set up here, with how many rows named each. */
   unknownRoles: { name: string; rows: number }[];
   unknownSites: { name: string; rows: number }[];
-  /** Already on Preshift by name, so left out. */
+  /** Already on Preshift Rota by name, so left out. */
   existing: string[];
 }
 
@@ -328,7 +328,7 @@ export function importPeople(text: string | string[][], state: Pick<RotaState, '
       if (!siteId) tally(unknownSites, cell('site'));
     }
 
-    // The working time, pension and pattern fields: left at Preshift's defaults where the file is silent.
+    // The working time, pension and pattern fields: left at Preshift Rota's defaults where the file is silent.
     const notes: string[] = [];
     const extra: TeamExtras = {};
     const under18 = dob ? ageOn(dob, today) < 18 : false;
@@ -428,7 +428,7 @@ const mondayOf = (iso: string) => {
 };
 
 /**
- * Reads a rota export, one shift per row. Each needs a person on Preshift (by email, or by name), a
+ * Reads a rota export, one shift per row. Each needs a person on Preshift Rota (by email, or by name), a
  * date, a start and an end. A finish at or before the start runs past midnight. Without a site
  * column, every shift is at `siteId`; without a role, or one not set up here, the person's own role is used.
  */
@@ -509,7 +509,7 @@ export function importShifts(
         result.roleFromPerson++;
       }
     }
-    if (!roleId) return void result.errors.push(`${where}: ${employee.name} has no role on Preshift yet.`);
+    if (!roleId) return void result.errors.push(`${where}: ${employee.name} has no role on Preshift Rota yet.`);
 
     const key = `${employeeId}|${date}|${startMinute}`;
     if (onRota.has(key)) return void result.duplicates++;
@@ -545,7 +545,7 @@ export interface HolidayRow {
   name: string;
   /** The holiday record to save, the person's own entitlement and day hours kept. */
   holiday: HolidayRecord;
-  /** What Preshift will show as remaining for the leave year once saved (to date for irregular hours staff), before any leave booked on Preshift. */
+  /** What Preshift Rota will show as remaining for the leave year once saved (to date for irregular hours staff), before any leave booked on Preshift Rota. */
   remainingHours: number;
   note?: string;
 }
@@ -560,13 +560,13 @@ export interface HolidayImport extends ColumnMatch<HolidayField> {
 
 /**
  * Reads holiday balances at go-live, in hours, or in days where the column headers say days (turned
- * into hours on the person's contracted day: contracted hours over five). Preshift then carries on
+ * into hours on the person's contracted day: contracted hours over five). Preshift Rota then carries on
  * from the opening position.
  *
  * - Irregular hours staff accrue 12.07% of hours worked. Their opening accrued and taken this leave year
  *   are kept as given; a balance alone becomes an opening accrual of that balance.
  * - Fixed hours staff earn their entitlement evenly over the year from the dates, so accrued is
- *   Preshift's to work out, not imported. Taken this year is kept; a balance alone is read as the
+ *   Preshift Rota's to work out, not imported. Taken this year is kept; a balance alone is read as the
  *   year's entitlement left, as HR systems show it, and turned into the taken figure that leaves exactly that.
  * Carried over from last year is kept for both, and a contractual entitlement in weeks for fixed hours staff.
  */
@@ -640,7 +640,7 @@ export function importHoliday(
     if (values.carriedOver !== undefined) holiday.carriedOverHours = round(values.carriedOver);
     if (basis === 'fixed' && values.entitlementWeeks !== undefined) holiday.entitlementWeeks = values.entitlementWeeks;
     let note: string | undefined;
-    // Preshift's own view of the year so far, with no opening position and no shifts: the base the import completes.
+    // Preshift Rota's own view of the year so far, with no opening position and no shifts: the base the import completes.
     // Each company sets its own leave year.
     const yearStart = state.entities.find((x) => x.id === e.entityId)?.leaveYearStart;
     const base = (h: HolidayRecord) => holidayBalance({ ...e, leave: [], holiday: h }, [], today, yearStart);
@@ -656,7 +656,7 @@ export function importHoliday(
         if (Math.abs(implied - values.remaining) > 0.5) note = `Accrued less taken comes to ${round(implied)}h, not the ${round(values.remaining)}h balance in the file. The accrued and taken figures are used.`;
       }
     } else {
-      if (values.accrued !== undefined) note = 'Fixed hours: Preshift works out what is accrued from the dates, so the accrued figure is not used.';
+      if (values.accrued !== undefined) note = 'Fixed hours: Preshift Rota works out what is accrued from the dates, so the accrued figure is not used.';
       if (values.taken !== undefined) holiday.openingTakenHours = round(values.taken);
       else if (values.remaining !== undefined) {
         // A fixed hours balance is the year's entitlement left, as HR systems and payslips show it.

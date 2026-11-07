@@ -181,7 +181,7 @@ function Security({ me }: { me: Me }) {
       {a.enrolled && <p className="small muted">{a.recoveryLeft} recovery {a.recoveryLeft === 1 ? 'code' : 'codes'} left. Lost your phone? Sign in with a recovery code, or ask whoever manages access to reset your authenticator once they have confirmed it is you.</p>}
       <div className="settings-form">
         {!a.enrolled && a.configured && <button className="primary" onClick={() => setEnrolling(true)}>Set up authenticator</button>}
-        {!a.configured && <p className="small muted">This server is not set up for authenticators yet (PRESHIFT_SECRET_KEY). Ask whoever runs Preshift.</p>}
+        {!a.configured && <p className="small muted">This server is not set up for authenticators yet (PRESHIFT_SECRET_KEY). Ask whoever runs Preshift Rota.</p>}
         {a.enrolled && a.verified && <button onClick={() => void replaceCodes()}>Make new recovery codes</button>}
       </div>
       {error && <p className="small bad-text">{error}</p>}

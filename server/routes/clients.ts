@@ -30,7 +30,7 @@ import { issueInvite } from './users';
 //   nobody at WS ever holds a client owner's link. From then on the owner runs their own access,
 //   WS partner included.
 // - A client is removed only while nobody on the client's side has ever signed in to it, so WS can
-//   never take away a business that is using Preshift. Removing closes it: every record there is
+//   never take away a business that is using Preshift Rota. Removing closes it: every record there is
 //   suspended, its links stop working and it leaves everyone's list, but nothing is deleted.
 // - How a client pays is on its row: under the WS engagement, or by card through Stripe. When an
 //   engagement ends, the client partner moves the client to card billing with a date to subscribe by;
@@ -110,7 +110,7 @@ export interface ClientSummary {
   /** Nobody on the client's side has ever signed in and nothing has been set up: it can be removed. */
   removable: boolean;
   /**
-   * How the client pays Preshift: under the WS engagement, by card through Stripe, or moving between the
+   * How the client pays Preshift Rota: under the WS engagement, by card through Stripe, or moving between the
    * two from `from`. `standing` is the card side's (trial, paying, lapsed), or 'managed' under the engagement.
    */
   billing: { mode: 'engagement' | 'card' | 'to-engagement' | 'to-card'; from?: string; standing: Standing };
@@ -170,7 +170,7 @@ export async function summarise(ctx: AppContext, org: OrgData, roles: string[], 
   if (stage === 'live' && lastActivity && lastActivity.slice(0, 10) < addDays(today, -QUIET_DAYS)) attention.push(`Nothing changed since ${lastActivity.slice(0, 10)}.`);
   // WS on a card customer: if the firm now bills them too, they would pay twice.
   if (roles.length && billing.mode === 'card' && standing !== 'lapsed') {
-    attention.push('Pays Preshift by card through Stripe. If the firm now bills them, customer operations moves them to engagement billing.');
+    attention.push('Pays Preshift Rota by card through Stripe. If the firm now bills them, customer operations moves them to engagement billing.');
   }
   if (billing.mode === 'to-card' && standing === 'trial') attention.push(`Off the engagement: to subscribe by card by ${billing.from!.slice(0, 10)}.`);
   if (record?.fromEngagement && standing === 'lapsed') attention.push('Left the engagement and has not subscribed: changes are paused.');
@@ -361,7 +361,7 @@ export function clientRoutes(app: FastifyInstance, ctx: AppContext, options: { s
     },
   );
 
-  // An engagement ends and the client carries on with Preshift on its own: from now on it pays by card. It
+  // An engagement ends and the client carries on with Preshift Rota on its own: from now on it pays by card. It
   // gets a date to subscribe by (no free trial: it has used the product for real), after which changes pause
   // until it does, exactly as for any card customer. The engagement's own last invoice is the firm's to send.
   app.post<{ Params: { orgId: string }; Body: { payBy?: string } | undefined }>(

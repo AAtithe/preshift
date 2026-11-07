@@ -73,7 +73,7 @@ describe('importing a rota', () => {
     expect(r.shifts).toEqual([{ employeeId: 'e2', roleId: 'chef', siteId: 'sh', date: '2026-11-12', startMinute: 420, endMinute: 900, breakMinutes: 0, published: false }]);
   });
 
-  it('counts people not on Preshift, skips shifts already on the rota, and leaves open shifts to the rota', () => {
+  it('counts people not on Preshift Rota, skips shifts already on the rota, and leaves open shifts to the rota', () => {
     const onRota = { ...state, shifts: [{ id: 's1', employeeId: 'e2', roleId: 'chef', siteId: 'ck', date: '2026-11-12', startMinute: 420, endMinute: 900, breakMinutes: 0 }] };
     const csv = ['Name,Date,Start,End', 'Sam Cook,12/11/2026,07:00,15:00', 'Nobody Here,12/11/2026,07:00,15:00', 'Nobody Here,13/11/2026,07:00,15:00', ',13/11/2026,07:00,15:00'].join('\n');
     const r = importShifts(csv, onRota, { siteId: 'ck' });
@@ -131,7 +131,7 @@ describe('importing holiday balances', () => {
     expect(r.errors[0]).toMatch(/Row 3 \(Jo Ray\): figures are in days/);
   });
 
-  it('counts people not on Preshift and refuses figures that are not balances', () => {
+  it('counts people not on Preshift Rota and refuses figures that are not balances', () => {
     const r = importHoliday(['Name,Taken,Entitlement weeks', 'Nobody,1,', 'Pat Lee,-3,', 'Pat Lee,3,5'].join('\n'), s, '2026-11-04');
     expect(r.unknownPeople).toEqual([{ name: 'Nobody', rows: 1 }]);
     expect(r.errors.join(' ')).toMatch(/negative taken/);

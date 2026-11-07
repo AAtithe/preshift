@@ -9,7 +9,7 @@ import { idParam, isoDate } from '../schemas';
 import { audit, type OrgData } from '../store';
 
 // Moving across from another system (Set-up, Import): what each upload did, so it can be undone, and
-// the two things an import needs that the rest of Preshift deliberately does not offer.
+// the two things an import needs that the rest of Preshift Rota deliberately does not offer.
 //
 // - Batches. Each upload is kept as one batch: the kind, the file, who and when, and for every row
 //   saved the call that puts it back. Undoing runs those calls one by one from the screen, through the
@@ -23,7 +23,7 @@ import { audit, type OrgData } from '../store';
 //   shifts, clocked time, HR file entries, absences, TOIL or staff login. Their pay proposal is
 //   withdrawn, never deleted, and anything still queued for payroll about them is dropped.
 
-/** Past hours marked as paid by the previous system: never sent to payroll from Preshift. */
+/** Past hours marked as paid by the previous system: never sent to payroll from Preshift Rota. */
 export const PREVIOUS_SYSTEM = 'previous-system';
 /** Batches kept, newest first. */
 const BATCHES_KEPT = 50;
@@ -203,9 +203,9 @@ export function importRoutes(app: FastifyInstance, ctx: AppContext) {
         if (!e) return no(`No one with id ${body.employeeId}`);
         if (!org.state.sites.some((s) => s.id === body.siteId)) return no(`No site ${body.siteId}`);
         if (!org.state.roles.some((r) => r.id === body.roleId)) return no(`No role ${body.roleId}`);
-        // History only: hours from today on are clocked on Preshift, and paid from it.
-        if (body.date >= now) return no('Hours from today on are clocked on Preshift, not imported.');
-        if (body.date < addDays(now, -400)) return no('More than a year back is not needed for any average Preshift works out.');
+        // History only: hours from today on are clocked on Preshift Rota, and paid from it.
+        if (body.date >= now) return no('Hours from today on are clocked on Preshift Rota, not imported.');
+        if (body.date < addDays(now, -400)) return no('More than a year back is not needed for any average Preshift Rota works out.');
         if ((body.clockOut ?? 0) <= body.clockIn) return no('Clock out must be after clock in.');
         const key = `${body.employeeId}|${body.date}|${body.clockIn}`;
         if (held.has(key)) return void skipped++;
@@ -230,7 +230,7 @@ export function importRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete<{ Params: { id: string } }>(
     '/v1/import/hours/:id',
-    { ...write, schema: { tags, description: 'Removes hours brought in from the previous system. Hours clocked on Preshift are never removed this way.', params: idParam } },
+    { ...write, schema: { tags, description: 'Removes hours brought in from the previous system. Hours clocked on Preshift Rota are never removed this way.', params: idParam } },
     async (req, reply) => {
       const org = orgOf(req);
       const g = importer(req, org);

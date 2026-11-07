@@ -46,7 +46,7 @@ export function GoLiveView({ plan, onOpen }: { plan: GoLivePlan | null; onOpen: 
   return (
     <div className="onboarding golive">
       <p className="muted small">
-        The path from sign-up to running your week on Preshift, in the order that pays back fastest. Every step is checked against your
+        The path from sign-up to running your week on Preshift Rota, in the order that pays back fastest. Every step is checked against your
         own data, so a tick here means it is really done. The aim by day 7: a rota built from your forecast and published to the team.
         By the end of the trial: takings and clocked hours coming in against it, so labour % is measured, not estimated.
       </p>

@@ -208,7 +208,7 @@ interface StripeEvent {
 /**
  * What Stripe reports: checkouts completed, subscriptions changing and invoices paid or failed.
  * Believed only with Stripe's signature over the exact bytes, and applied to the organisation that
- * owns the Stripe customer, as Preshift recorded when it made the customer, never as the event says.
+ * owns the Stripe customer, as Preshift Rota recorded when it made the customer, never as the event says.
  */
 export function stripeWebhookRoutes(app: FastifyInstance, ctx: AppContext, stripe: StripeConfig | null) {
   const { store } = ctx;
@@ -222,7 +222,7 @@ export function stripeWebhookRoutes(app: FastifyInstance, ctx: AppContext, strip
     const obj = event?.data?.object ?? {};
     const customerId = typeof obj.customer === 'string' ? obj.customer : '';
     const orgId = customerId ? await store.getSetting(customerSetting(customerId)) : null;
-    // A customer Preshift did not make, or an organisation since gone: acknowledged, so Stripe stops sending it.
+    // A customer Preshift Rota did not make, or an organisation since gone: acknowledged, so Stripe stops sending it.
     if (!orgId || !(await store.has(orgId))) return { ok: true, recorded: false };
     const current = await getBilling(store, orgId);
     if (!current) return { ok: true, recorded: false };

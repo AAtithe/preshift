@@ -76,7 +76,7 @@ export function verifyCode(secret: string, code: string, now: number, lastStep =
 }
 
 /** The address an authenticator app reads from the QR code. */
-export function otpauthUrl(secret: string, account: string, issuer = 'Preshift'): string {
+export function otpauthUrl(secret: string, account: string, issuer = 'Preshift Rota'): string {
   // A literal colon between issuer and account: the form every authenticator app reads.
   const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(account)}`;
   const params = new URLSearchParams({ secret, issuer, algorithm: 'SHA1', digits: String(DIGITS), period: String(STEP_SECONDS) });

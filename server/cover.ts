@@ -149,7 +149,7 @@ export function takeOpenShift(org: OrgData, o: OpenShift, employee: Employee, vi
   if (status !== 'open') return { kind: 'refused', open: o, employee, reason: status === 'filled' ? 'Someone else has already taken it.' : status === 'expired' ? 'The shift has started.' : 'It is no longer needed.' };
   if (!wasAsked(o, employee.id)) return { kind: 'refused', open: o, employee, reason: 'This shift was not offered to you.' };
   if (requestsOf(org).some((r) => r.openShiftId === o.id && r.employeeId === employee.id && openClaim(r))) return { kind: 'refused', open: o, employee, reason: 'You have already asked for this shift.' };
-  const held = heldProblem(org, o, 'Preshift', now);
+  const held = heldProblem(org, o, 'Preshift Rota', now);
   if (held) return { kind: 'refused', open: o, employee, reason: held };
   const problem = mayTake(org.state, employee.id, slotOf(o));
   if (problem) return refuse(problem);
@@ -159,7 +159,7 @@ export function takeOpenShift(org: OrgData, o: OpenShift, employee: Employee, vi
   if (o.fill === 'first_yes') return { kind: 'filled', open: o, employee, shift: fillOpenShift(org, o, employee, `${employee.name} (took it)`, now) };
   const request = addRequest(org, { kind: 'open_shift', employeeId: employee.id, siteId: o.siteId, openShiftId: o.id }, londonParts(now).date);
   if (autoApproval(org, o, employee)) {
-    const by = 'Preshift, automatically';
+    const by = 'Preshift Rota, automatically';
     const shift = fillOpenShift(org, o, employee, by, now);
     o.autoApproved = true;
     Object.assign(request, { status: 'approved', decidedBy: by, decidedAt: now.toISOString(), decisionNote: 'Inside the rules and the labour budget, so approved straight away.' });
@@ -228,7 +228,7 @@ export function askDueRounds(org: OrgData, now: Date): number {
   for (const o of openShiftsOf(org)) {
     const claimed = new Set(requestsOf(org).filter((r) => r.openShiftId === o.id && openClaim(r)).map((r) => r.employeeId));
     const why = roundDue(o, now.toISOString(), london, claimed);
-    if (why) asked += askNextRound(org, o, 'Preshift (next round)', now, why === 'closing');
+    if (why) asked += askNextRound(org, o, 'Preshift Rota (next round)', now, why === 'closing');
   }
   return asked;
 }

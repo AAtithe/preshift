@@ -9,7 +9,7 @@ export interface EposLocation {
 }
 
 /**
- * The contract between Preshift and an EPOS. Square is the first implementation; Lightspeed, Zonal
+ * The contract between Preshift Rota and an EPOS. Square is the first implementation; Lightspeed, Zonal
  * or Tevalis would implement the same two calls, so nothing above this line knows which till it is.
  */
 export interface EposProvider {

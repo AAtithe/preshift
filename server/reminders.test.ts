@@ -75,7 +75,7 @@ describe('the reminder run', () => {
       { id: 'tomorrow', employeeId: 'mar-12', roleId: 'bar', siteId: 'mar', date: '2026-10-24', startMinute: 1020, endMinute: 1380, breakMinutes: 20, published: true },
     ];
     org.timeEntries = [{ id: 't1', employeeId: 'mar-2', siteId: 'mar', roleId: 'chef', date: '2026-10-22', clockIn: 600, clockOut: 900, breakMinutes: 0, status: 'approved', source: 'clock' }];
-    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
+    await k.store.setSetting(emailSetting('demo'), JSON.stringify({ resendApiKey: 're_test', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' }));
     const emails: { to: string[]; subject: string; text: string }[] = [];
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       if (String(url).includes('resend')) emails.push(JSON.parse(String(init.body)));

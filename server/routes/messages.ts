@@ -302,7 +302,7 @@ export function messageRoutes(app: FastifyInstance, ctx: AppContext) {
     const map = (await getMessagingSettings(store, org.orgId))[channel] ?? {};
     const url = map[req.body?.siteId ?? '*'];
     if (!url) throw notFound(`${CHANNEL_NAMES[channel]} channel`);
-    const sent = await postTeam(ctx.fetch, channel, url, `Preshift is connected. ${who} sent this test from Settings.`, null);
+    const sent = await postTeam(ctx.fetch, channel, url, `Preshift Rota is connected. ${who} sent this test from Settings.`, null);
     if (!sent.ok) throw new HttpError(502, 'not_delivered', sent.detail ?? 'Not delivered');
     return { ok: true };
   });
@@ -466,7 +466,7 @@ export function whatsappWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
     for (const t of result.taken) await afterYes(ctx, org, t);
     if (result.taken.some((t) => t.kind === 'refused')) askDueRounds(org, ctx.now());
     for (const { employee, count } of result.ambiguous) {
-      notify(org, employee.id, 'open_shift', 'Which shift?', `You have ${count} shifts going that you could take, so YES could mean any of them. Take the one you want in the Preshift app.`, ctx.now());
+      notify(org, employee.id, 'open_shift', 'Which shift?', `You have ${count} shifts going that you could take, so YES could mean any of them. Take the one you want in the Preshift Rota app.`, ctx.now());
     }
     await carryNotifications(ctx, org);
     await deliverNotifications(store, org);
@@ -526,12 +526,12 @@ export function takeInbound(ctx: Pick<AppContext, 'now'>, org: OrgData, payload:
         if (text && STOP_WORDS.includes(text.toLowerCase())) {
           const prefs = data.prefs[employee.id];
           data.prefs[employee.id] = { ...prefs, channels: prefs.channels.filter((c) => c !== 'whatsapp'), whatsappConsentAt: undefined, updatedAt: at };
-          addMessage(org, thread, { at, from: { kind: 'system', name: 'Preshift' }, body: `${employee.name} stopped messages by WhatsApp. They still get them in the staff app.`, via: 'whatsapp' });
+          addMessage(org, thread, { at, from: { kind: 'system', name: 'Preshift Rota' }, body: `${employee.name} stopped messages by WhatsApp. They still get them in the staff app.`, via: 'whatsapp' });
           audit(org, `staff:${employee.id}`, 'messaging.consent_withdrawn', { employeeId: employee.id, channel: 'whatsapp', by: 'reply' });
           continue;
         }
         // Text only: photos, voice notes and documents stay in WhatsApp, never pulled into staff records unseen.
-        const body = text ? text.slice(0, 2000) : `(${employee.name.split(' ')[0]} sent a ${m.type ?? 'message'} on WhatsApp. Preshift keeps text only; ask them to type it or show you.)`;
+        const body = text ? text.slice(0, 2000) : `(${employee.name.split(' ')[0]} sent a ${m.type ?? 'message'} on WhatsApp. Preshift Rota keeps text only; ask them to type it or show you.)`;
         addMessage(org, thread, { at, from: { kind: 'staff', id: employee.id, name: employee.name }, body, via: 'whatsapp' });
         // YES to a shift going takes it, when there is only one it can mean.
         const going = text && isYes(text) ? shiftsGoingFor(org, employee, ctx.now()).filter((x) => !x.claimed) : [];

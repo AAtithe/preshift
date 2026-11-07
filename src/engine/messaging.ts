@@ -1,7 +1,7 @@
 // Messages between managers and staff, and how each one reaches people. Pure logic, shared by the
 // API (which stores and sends) and the browser (which shows and explains).
 //
-// Preshift is the record. Every message, announcement and rota notice lives here, in one thread per
+// Preshift Rota is the record. Every message, announcement and rota notice lives here, in one thread per
 // person, with who read it and when. WhatsApp, SMS and email carry a notice to the person's phone;
 // Slack and Teams carry a notice to the managers' own channel. None of them is where the
 // conversation is kept, because a manager's WhatsApp group is not a record anyone can produce to
@@ -88,7 +88,7 @@ export interface Message {
   at: string;
   from: { kind: 'manager' | 'staff' | 'system'; id?: string; name: string };
   body: string;
-  /** Where it was written: in Preshift, or a reply that came back by WhatsApp or text. */
+  /** Where it was written: in Preshift Rota, or a reply that came back by WhatsApp or text. */
   via: 'app' | 'whatsapp' | 'sms';
   urgent?: boolean;
   deliveries: Delivery[];

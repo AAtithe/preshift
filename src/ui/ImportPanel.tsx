@@ -232,7 +232,7 @@ export function ImportPanel({ state, onDone, initialKind }: { state: RotaState; 
         through the tabs in order. Each shows a preview, nothing is saved until you confirm it, and every upload can be undone.
       </p>
       <p>
-        <button onClick={() => saveBytes('Preshift onboarding template.xlsx', writeXlsx(onboardingTemplate(state)))}>Download the Excel template</button>
+        <button onClick={() => saveBytes('Preshift Rota onboarding template.xlsx', writeXlsx(onboardingTemplate(state)))}>Download the Excel template</button>
         <span className="muted small"> One sheet for each tab, with your own roles and sites listed and how to fill in each column.</span>
       </p>
 
@@ -276,7 +276,7 @@ export function ImportPanel({ state, onDone, initialKind }: { state: RotaState; 
         <>
           <h3 className="section-title">Columns in {fileName}{sheets && sheets.length > 1 ? `, ${sheets[sheetIndex].name}` : ''}</h3>
           <table className="table">
-            <thead><tr><th>Preshift needs</th><th>Read from</th></tr></thead>
+            <thead><tr><th>Preshift Rota needs</th><th>Read from</th></tr></thead>
             <tbody>
               {Object.entries(fields).map(([field, label]) => (
                 <tr key={field}>
@@ -304,7 +304,7 @@ export function ImportPanel({ state, onDone, initialKind }: { state: RotaState; 
           {plan.warnings.map((m, i) => <p key={i} className="notice">{m}</p>)}
           {plan.unknownPeople.length > 0 && (
             <p className="notice">
-              Not on Preshift: {plan.unknownPeople.slice(0, 12).map((x) => `${x.name} (${x.rows})`).join(', ')}
+              Not on Preshift Rota: {plan.unknownPeople.slice(0, 12).map((x) => `${x.name} (${x.rows})`).join(', ')}
               {plan.unknownPeople.length > 12 ? ` and ${plan.unknownPeople.length - 12} more` : ''}. Import the team first, or check the names match.
             </p>
           )}

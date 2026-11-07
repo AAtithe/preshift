@@ -13,10 +13,10 @@ import { idParam } from '../schemas';
 import { audit, type OrgData } from '../store';
 import { approverExists, NO_APPROVER, pendingFor, proposePayChange, proposes } from './pay';
 
-// Linking a person in Preshift to the record their payroll already holds, for a team that was on
-// TeamPay before Preshift. Linking decides where their hours are paid, so it needs payroll.send.
+// Linking a person in Preshift Rota to the record their payroll already holds, for a team that was on
+// TeamPay before Preshift Rota. Linking decides where their hours are paid, so it needs payroll.send.
 // A difference in pay is settled under the same two-person rule as any pay change: taking
-// TeamPay's pay into Preshift is a proposal finance approves, and sending Preshift's pay to TeamPay
+// TeamPay's pay into Preshift Rota is a proposal finance approves, and sending Preshift Rota's pay to TeamPay
 // changes what the person is actually paid, so finance (pay.approve) decides it themselves. A
 // business with nobody else who can approve applies either at once, as pay changes do there.
 
@@ -39,7 +39,7 @@ async function payrollRecords(ctx: AppContext, org: OrgData, employerId: string)
   }
 }
 
-/** Payroll ids already linked to someone in Preshift other than `except`. */
+/** Payroll ids already linked to someone in Preshift Rota other than `except`. */
 const linkedElsewhere = (org: OrgData, except?: string) =>
   new Map(org.state.employees.filter((e) => e.payrollId && e.id !== except).map((e) => [e.payrollId!, e]));
 
@@ -63,7 +63,7 @@ export function payrollLinkRoutes(app: FastifyInstance, ctx: AppContext) {
       schema: {
         tags: ['Payroll'],
         description:
-          "One company's TeamPay records beside its people in Preshift: who is linked to which record, who is not, " +
+          "One company's TeamPay records beside its people in Preshift Rota: who is linked to which record, who is not, " +
           'the records that could be each unlinked person, and any links waiting for a decision on differences.',
         querystring: { type: 'object', required: ['entityId'], properties: { entityId: { type: 'string' } } },
       },
@@ -118,7 +118,7 @@ export function payrollLinkRoutes(app: FastifyInstance, ctx: AppContext) {
         tags: ['Payroll'],
         description:
           'Links a person to the record TeamPay already holds for them, instead of setting them up again. Where the two ' +
-          'differ, keep says which is right: payroll takes TeamPay\'s values into Preshift, preshift sends Preshift\'s to TeamPay. ' +
+          'differ, keep says which is right: payroll takes TeamPay\'s values into Preshift Rota, preshift sends Preshift Rota\'s to TeamPay. ' +
           'Sent again with the same payrollId, it settles the differences of an existing link.',
         params: idParam,
         body: {
@@ -155,7 +155,7 @@ export function payrollLinkRoutes(app: FastifyInstance, ctx: AppContext) {
       const pay = diffs.filter((d) => d.pay);
       const twoPeople = approverExists(org, g, today);
       // Duties stay split as they are for pay: whoever links raises TeamPay's figure as a proposal for
-      // finance, and only finance sends Preshift's figure over what payroll pays. Never on your own pay.
+      // finance, and only finance sends Preshift Rota's figure over what payroll pays. Never on your own pay.
       if (pay.length && g.behind?.employeeId === e.id) throw new HttpError(403, 'forbidden', 'Somebody else decides your own pay.');
       if (pay.length && keep === 'preshift' && twoPeople && g.actor.kind === 'user') g.allow('pay.approve', e.siteId);
 

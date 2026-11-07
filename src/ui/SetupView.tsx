@@ -136,7 +136,7 @@ export function SetupView({ state, isAdmin, onSaved, startOnTeam, startOnImport 
         </p>
         {status?.sample && (
           <div className="notice">
-            <b>This is the sample group</b> (West End Dining and East Canteen), there to show how Preshift works.{' '}
+            <b>This is the sample group</b> (West End Dining and East Canteen), there to show how Preshift Rota works.{' '}
             {status.canStartFresh ? (
               <>
                 Remove it to set up your own business from nothing.{' '}
@@ -389,7 +389,7 @@ function TradingStep({ draft, setDraft }: StepProps) {
       <p className="step-intro">
         Two things drive the build from forecast. First, a typical week's net sales for each day, excluding VAT and service
         charge. We spread each day across your opening hours on a standard lunch and dinner pattern and turn it into covers with
-        your average spend. When Preshift Reports or your till sends real hourly figures for a week, those replace it. Second,
+        your average spend. When Preshift Rota Reports or your till sends real hourly figures for a week, those replace it. Second,
         how many covers or how much in sales one person in each role carries in an hour, with a floor while open and a ceiling.
         Roles set to "by hand" are never built automatically. Event guests per person staffs weddings and functions: how many seated
         guests one person in the role looks after (a server 10 to 12, a chef 25 to 30, a bartender 40 to 50). Buffets, standing and

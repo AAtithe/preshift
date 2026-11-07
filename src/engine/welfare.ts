@@ -469,7 +469,7 @@ export interface ChatRequest {
 
 /** What Hospitality Rewards is told about a person: enough to enrol them, nothing about pay, age or health. */
 export interface RewardsMember {
-  /** The person's Preshift id: the reference both sides use. */
+  /** The person's Preshift Rota id: the reference both sides use. */
   ref: string;
   firstName: string;
   lastName: string;

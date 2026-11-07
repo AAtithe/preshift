@@ -338,7 +338,7 @@ export function welfareRoutes(app: FastifyInstance, ctx: AppContext, opts: Optio
     w.rewardsEnrolled = [];
     for (const r of w.recognitions) if (r.rewards.status === 'pending' || r.rewards.status === 'failed') r.rewards = { status: 'not-connected' };
     audit(org, by, 'rewards.disconnected');
-    // Membership at Hospitality Rewards is ended there: Preshift can no longer reach it.
+    // Membership at Hospitality Rewards is ended there: Preshift Rota can no longer reach it.
     return { connection: null };
   });
 

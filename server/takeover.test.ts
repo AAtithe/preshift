@@ -14,7 +14,7 @@ const KEYS = [
 const james = { key: 'james' };
 const olivia = { key: 'olivia' };
 const sam = { key: 'sam' };
-const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift <rota@ws.example>', appUrl: 'https://rota.ws.example' };
+const EMAIL = { resendApiKey: 're_test_1234567890abcd', from: 'Preshift Rota <rota@ws.example>', appUrl: 'https://rota.ws.example' };
 
 describe('taking over an account that holds more than you could grant', () => {
   it('stops the operations director at the first step, for the people manager and the owner', async () => {

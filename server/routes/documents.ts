@@ -105,7 +105,7 @@ export function deleteCopiesOnSave(ctx: AppContext) {
 }
 
 /**
- * Copies of identity documents are the most sensitive files Preshift holds. Adding one is
+ * Copies of identity documents are the most sensitive files Preshift Rota holds. Adding one is
  * hr.manage at the person's home site, never on your own file; viewing one is reading their
  * personnel file there (hr.view, or an HR scope for a key). Deleting one, and reading who has
  * viewed it, are data protection acts: privacy.manage, by a person, never an integration key.

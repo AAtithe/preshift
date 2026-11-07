@@ -13,7 +13,7 @@ import { TEMPLATE_SHEETS } from '../engine/importTemplate';
 import type { Employee, HrRecord, RotaState } from '../engine/types';
 
 export const IMPORT_KINDS: { id: ImportKind; label: string; sheet: string; about: string }[] = [
-  { id: 'team', label: 'Team', sheet: TEMPLATE_SHEETS.team, about: 'Everyone who works for you, with their working time opt-out, pension, availability and clock card. Do this first: everything else is matched to people already on Preshift.' },
+  { id: 'team', label: 'Team', sheet: TEMPLATE_SHEETS.team, about: 'Everyone who works for you, with their working time opt-out, pension, availability and clock card. Do this first: everything else is matched to people already on Preshift Rota.' },
   { id: 'managers', label: 'Managers', sheet: TEMPLATE_SHEETS.managers, about: 'The managers who need their own sign-in, invited by email with their role and sites, exactly as from Access.' },
   { id: 'rtw', label: 'Right to work', sheet: TEMPLATE_SHEETS.rtw, about: 'The date each check was done, the evidence seen and any expiry. Without a dated check nobody can be rostered.' },
   { id: 'documents', label: 'HR file and documents', sheet: TEMPLATE_SHEETS.documents, about: 'Contract type, written statement issued and signed, probation, notice, NI number, emergency contact, line manager, and other documents on file.' },
@@ -103,7 +103,7 @@ export function planImport(p: PlanInput): ImportPlan {
   if (kind === 'team') {
     const r = importPeople(rows, state, { ...o, today });
     const out: ImportPlan = { ...base(r), ready: r.people.length, noun: r.people.length === 1 ? 'person' : 'people', verb: 'Add', calls: [] };
-    out.info.push(`${plural(r.people.length, 'person', 'people')} ready to add.${r.existing.length ? ` ${r.existing.length} already on Preshift, left out.` : ''}`);
+    out.info.push(`${plural(r.people.length, 'person', 'people')} ready to add.${r.existing.length ? ` ${r.existing.length} already on Preshift Rota, left out.` : ''}`);
     const noRtw = r.people.filter((x) => !x.person.rightToWork?.checked).length;
     if (noRtw) out.warnings.push(`${plural(noRtw, 'person has', 'people have')} no right to work check date: added, but cannot be rostered until the check is recorded. Import the checks next, under Right to work.`);
     const optedOut = r.people.filter((x) => x.extra.optedOutOf48).length;
@@ -131,9 +131,9 @@ export function planImport(p: PlanInput): ImportPlan {
     const r = importHoliday(rows, state, today, o);
     const out: ImportPlan = { ...base(r, r.unknownPeople), ready: r.rows.length, noun: r.rows.length === 1 ? 'holiday balance' : 'holiday balances', verb: 'Save', calls: [] };
     out.info.push(`${plural(r.rows.length, 'balance')} ready${r.inDays ? ", read as days and turned into hours on each person's contracted day" : ', in hours'}.`);
-    out.info.push("Remaining on Preshift is what each person will see today: the leave year's entitlement for fixed hours staff, holiday earned so far for irregular hours staff. Check three against your old system before saving: the untaken balance is the holiday pay accrual on the balance sheet.");
+    out.info.push("Remaining on Preshift Rota is what each person will see today: the leave year's entitlement for fixed hours staff, holiday earned so far for irregular hours staff. Check three against your old system before saving: the untaken balance is the holiday pay accrual on the balance sheet.");
     out.table = {
-      head: ['Name', 'Carried over', 'Accrued at go-live', 'Taken at go-live', 'Remaining on Preshift', ''],
+      head: ['Name', 'Carried over', 'Accrued at go-live', 'Taken at go-live', 'Remaining on Preshift Rota', ''],
       rows: r.rows.map((x) => [x.name, x.holiday.carriedOverHours !== undefined ? h(x.holiday.carriedOverHours) : '-', x.holiday.openingAccruedHours !== undefined ? h(x.holiday.openingAccruedHours) : 'From the dates', x.holiday.openingTakenHours !== undefined ? h(x.holiday.openingTakenHours) : '-', h(x.remainingHours), x.note ?? '']),
     };
     out.calls = r.rows.map((x) => ({
@@ -148,7 +148,7 @@ export function planImport(p: PlanInput): ImportPlan {
     const out: ImportPlan = { ...base(r, r.unknownPeople), ready: r.rows.length, noun: r.rows.length === 1 ? 'TOIL balance' : 'TOIL balances', verb: 'Save', calls: [] };
     const total = r.rows.reduce((n, x) => n + x.hours, 0);
     out.info.push(`${plural(r.rows.length, 'opening balance')} ready, ${h(total)} owed in all${r.inDays ? ", read as days and turned into hours on each person's contracted day" : ''}.`);
-    if (r.existing.length) out.info.push(`Already opened on Preshift, left alone: ${r.existing.join(', ')}. Correct a balance there with an adjustment.`);
+    if (r.existing.length) out.info.push(`Already opened on Preshift Rota, left alone: ${r.existing.join(', ')}. Correct a balance there with an adjustment.`);
     out.table = { head: ['Name', 'Owed', 'As at'], rows: r.rows.map((x) => [x.name, h(x.hours), day(x.date)]) };
     // TOIL is never deleted: the undo is an adjustment that takes the opening balance back off.
     out.calls = r.rows.map((x) => ({
@@ -163,7 +163,7 @@ export function planImport(p: PlanInput): ImportPlan {
     const leaveDays = r.leave.reduce((n, l) => n + l.dates.length, 0);
     const out: ImportPlan = { ...base(r, r.unknownPeople), ready: r.absences.length + r.leave.length, noun: 'records', verb: 'Save', calls: [] };
     out.info.push(`${plural(r.absences.length, 'absence')} ready${leaveDays ? `, and ${plural(leaveDays, 'day')} of holiday booked ahead for ${plural(r.leave.length, 'person', 'people')}` : ''}.`);
-    if (r.duplicates) out.info.push(`${plural(r.duplicates, 'absence')} already on Preshift, left out.`);
+    if (r.duplicates) out.info.push(`${plural(r.duplicates, 'absence')} already on Preshift Rota, left out.`);
     if (r.pastHoliday) out.info.push(`${plural(r.pastHoliday, 'holiday row')} already taken: counted in the holiday balance at go-live, so not added again.`);
     if (r.toilRows) out.info.push(`${plural(r.toilRows, 'TOIL row')} left out: TOIL comes across as a balance, under TOIL.`);
     if (r.assumedSickness) out.warnings.push('The file has no absence type column, so every row is read as sickness. Choose the type column above if it has one.');
@@ -221,7 +221,7 @@ export function planImport(p: PlanInput): ImportPlan {
     const r = importRightToWork(rows, state, today, o);
     const out: ImportPlan = { ...base(r, r.unknownPeople), ready: r.checks.length, noun: r.checks.length === 1 ? 'check' : 'checks', verb: 'Save', calls: [] };
     out.info.push(`${plural(r.checks.length, 'check')} ready.`);
-    if (r.newerOnFile.length) out.info.push(`A later check is already on Preshift for ${r.newerOnFile.join(', ')}: left as it is.`);
+    if (r.newerOnFile.length) out.info.push(`A later check is already on Preshift Rota for ${r.newerOnFile.join(', ')}: left as it is.`);
     if (r.copiesNeeded) out.warnings.push(`${plural(r.copiesNeeded, 'check')} with no copy of the documents held. The date alone is not a statutory excuse: upload a clear copy of what was seen on each person's file. The civil penalty is up to £60,000 per illegal worker.`);
     if (r.expired) out.warnings.push(`${plural(r.expired, 'person', 'people')} with permission already expired: they cannot be rostered until a follow-up check is recorded.`);
     const notes = r.checks.flatMap((x) => x.notes.map((n) => `${x.name}: ${n}`));
@@ -242,7 +242,7 @@ export function planImport(p: PlanInput): ImportPlan {
     const r = importManagers(rows, state, p.users, { columns: p.columns as never });
     const out: ImportPlan = { ...base(r), ready: r.invites.length, noun: r.invites.length === 1 ? 'invitation' : 'invitations', verb: 'Send', calls: [] };
     out.info.push(`${plural(r.invites.length, 'manager')} to invite. Each gets an email to choose their own password; the link lasts seven days.${r.existing.length ? ` Already signed in here: ${r.existing.join(', ')}.` : ''}`);
-    out.info.push('Directors and managers of the business need an authenticator before pay, payroll and access open to them; Preshift asks them for it on first sign-in.');
+    out.info.push('Directors and managers of the business need an authenticator before pay, payroll and access open to them; Preshift Rota asks them for it on first sign-in.');
     out.table = { head: ['Name', 'Email', 'Role', 'Sites'], rows: r.invites.map((x) => [x.name, x.email, x.roleName, x.siteIds ? x.siteIds.map((id) => state.sites.find((s) => s.id === id)?.name ?? id).join(', ') : 'Every site']) };
     out.calls = r.invites.map((x) => ({
       method: 'POST' as const, path: '/v1/users', label: x.name,
@@ -278,7 +278,7 @@ export function planImport(p: PlanInput): ImportPlan {
     if (r.weeks < 17) out.warnings.push(`${plural(r.weeks, 'week')} of history. The 48 hour week and night work are averaged over 17 weeks: bring 17 or more if your old system has them.`);
     if (r.fromWeeklyTotals) out.warnings.push(`${plural(r.fromWeeklyTotals, 'weekly total')} spread evenly over Monday to Friday, with no times. Enough for the 48 hour average and holiday accrual; night work and rest need clock in and out times.`);
     if (r.withoutTimes) out.info.push(`${plural(r.withoutTimes, 'day')} with hours and no times, placed from 09:00.`);
-    if (r.fromToday) out.info.push(`${plural(r.fromToday, 'row')} dated today or later left out: from go-live, hours are clocked on Preshift.`);
+    if (r.fromToday) out.info.push(`${plural(r.fromToday, 'row')} dated today or later left out: from go-live, hours are clocked on Preshift Rota.`);
     out.calls = r.entries.length
       ? [{ method: 'POST', path: '/v1/import/hours', body: { entries: r.entries }, label: 'Past hours', undo: (res) => ((res as { added?: string[] }).added ?? []).map((id) => ({ method: 'DELETE' as const, path: `/v1/import/hours/${enc(id)}` })) }]
       : [];
@@ -305,7 +305,7 @@ export function planImport(p: PlanInput): ImportPlan {
   const r = importShifts(rows, state, { ...o, siteId: p.siteId });
   const out: ImportPlan = { ...base(r, r.unknownPeople), ready: r.shifts.length, noun: r.shifts.length === 1 ? 'shift' : 'shifts', verb: 'Add', calls: [] };
   out.info.push(`${plural(r.shifts.length, 'shift')} ready${r.weeks.length ? `, in the weeks of ${r.weeks.map(day).join(', ')}` : ''}.${r.duplicates ? ` ${r.duplicates} already on the rota, left out.` : ''}`);
-  if (r.roleFromPerson) out.info.push(`${plural(r.roleFromPerson, 'shift')} with no role Preshift recognises given the person's own role.`);
+  if (r.roleFromPerson) out.info.push(`${plural(r.roleFromPerson, 'shift')} with no role Preshift Rota recognises given the person's own role.`);
   if (r.unknownSites.length) out.warnings.push(`Sites not set up here: ${r.unknownSites.map((x) => `${x.name} (${x.rows})`).join(', ')}. Those shifts are left out.`);
   out.calls = r.shifts.length
     ? [{ method: 'POST', path: '/v1/rota/import', body: { shifts: r.shifts.map(({ published: _p, ...s }) => s) }, label: 'Rota', undo: (res) => ((res as { ids?: string[] }).ids ?? []).map((id) => ({ method: 'DELETE' as const, path: `/v1/shifts/${enc(id)}` })) }]

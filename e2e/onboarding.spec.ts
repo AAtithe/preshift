@@ -47,7 +47,7 @@ test('Import previews training certificates from an export, matched to the cours
   const csv = ['Employee,Course,Date Completed,Expiry', `${someone},Level 2 Food Safety,12/03/2024,`, 'Nobody Known,Allergens,01/01/2025,'].join('\n');
   await page.locator('.import-panel input[type=file]').setInputFiles({ name: 'training.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(page.getByText('Food hygiene level 2')).toBeVisible();
-  await expect(page.getByText(/Not on Preshift: Nobody Known \(1\)/)).toBeVisible();
+  await expect(page.getByText(/Not on Preshift Rota: Nobody Known \(1\)/)).toBeVisible();
   await page.screenshot({ path: 'test-results/import-training.png', fullPage: true });
 });
 

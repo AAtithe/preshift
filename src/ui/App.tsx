@@ -184,7 +184,7 @@ export function App() {
       <Splash>
         {error && (
           <>
-            <p className="splash-error" role="alert">{error === BUSY ? error : `Cannot reach Preshift: ${error}`}</p>
+            <p className="splash-error" role="alert">{error === BUSY ? error : `Cannot reach Preshift Rota: ${error}`}</p>
             <button className="primary" onClick={() => void actions.reload()}>Try again</button>
           </>
         )}
@@ -197,7 +197,7 @@ export function App() {
     return (
       <div className="first-run">
         <div className="wordmark">
-          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+          Preshift Rota<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
         <Suspense fallback={<ScreenLoading />}>
           <SetupView state={state} isAdmin onSaved={async () => { setContinueSetup(true); await actions.reload(); }} />
@@ -212,13 +212,13 @@ export function App() {
     return (
       <div className="first-run">
         <div className="wordmark">
-          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+          Preshift Rota<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
         <section className="settings-card first-run-welcome">
           <h2>Welcome{me?.user?.name ? `, ${me.user.name.split(' ')[0]}` : ''}. Two steps and you are ready to build your first rota.</h2>
           <ol className="small">
             <li>
-              <strong>Set up your authenticator app.</strong> As owner you can change pay, payroll and who has access, so Preshift
+              <strong>Set up your authenticator app.</strong> As owner you can change pay, payroll and who has access, so Preshift Rota
               asks for a code from your phone before switching those on. It takes two minutes: scan a QR code, type the code it shows,
               and keep the recovery codes somewhere safe.
             </li>
@@ -259,8 +259,8 @@ function Splash({ children }: { children?: ReactNode }) {
       <div className="splash-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" /><path d="M11 23V9h6.2a4.6 4.6 0 0 1 0 9.2H11" /></svg>
       </div>
-      <div className="splash-word">Preshift<span>with Williams, Stanley &amp; Co.</span></div>
-      {children ?? <div className="splash-bar" role="progressbar" aria-label="Loading Preshift"><span /></div>}
+      <div className="splash-word">Preshift Rota<span>with Williams, Stanley &amp; Co.</span></div>
+      {children ?? <div className="splash-bar" role="progressbar" aria-label="Loading Preshift Rota"><span /></div>}
     </div>
   );
 }
@@ -654,7 +654,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
     <div className="workspace">
       <header className="topbar">
         <div className="wordmark">
-          Preshift<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
+          Preshift Rota<span className="wordmark-with">with Williams, Stanley &amp; Co.</span>
         </div>
         <TopNav
           groups={nav}
@@ -1103,7 +1103,7 @@ function Workspace({ state, me, error, setError, actions, continueSetup }: { sta
             </main>
 
             <footer className="foot">
-              <span>UK rates 2026/27. Running on the Preshift API.</span>
+              <span>UK rates 2026/27. Running on the Preshift Rota API.</span>
             </footer>
           </div>
         </div>

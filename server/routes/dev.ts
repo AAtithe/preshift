@@ -34,7 +34,7 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
     return orgOf(req).users.map((u) => ({ id: u.id, name: u.name, jobTitle: u.jobTitle, status: u.status }));
   });
 
-  // A client who ran TeamPay before Preshift: everyone at the site not yet linked is put on the simulated
+  // A client who ran TeamPay before Preshift Rota: everyone at the site not yet linked is put on the simulated
   // payroll as an existing record, unlinked. Every third differs the way real records do, so linking can be shown.
   app.post<{ Body: { siteId: string } }>(
     '/v1/dev/payroll-existing',
@@ -42,7 +42,7 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
       ...write,
       schema: {
         tags: ['Demo'],
-        description: 'Puts a site\'s unlinked people on the simulated TeamPay as if they were there before Preshift, some with differences.',
+        description: 'Puts a site\'s unlinked people on the simulated TeamPay as if they were there before Preshift Rota, some with differences.',
         body: { type: 'object', required: ['siteId'], properties: { siteId: { type: 'string' } } },
       },
     },
@@ -104,7 +104,7 @@ export function devRoutes(app: FastifyInstance, ctx: AppContext) {
         tags: ['Demo'],
         description:
           "Has the TeamPay simulator run payroll for the week, once for each company that has sent hours, each under its " +
-          'own employer, and send each signed webhook back to Preshift.',
+          'own employer, and send each signed webhook back to Preshift Rota.',
         body: { type: 'object', required: ['weekStart'], properties: { weekStart: isoDate } },
       },
     },

@@ -13,7 +13,7 @@ const MAX_TURNS = 40;
 
 const SYSTEM_PROMPT = `You write weekly rotas for UK hospitality sites on behalf of the general manager.
 
-You work on a draft through tools. The tools cost every shift the way payroll will (holiday accrual, employer NI, pension, guaranteed hours, starters and leavers pro rata) and refuse any change that would break UK employment law or the person's record: approved leave, not employed that day, no right to work check, under 18 limits, double booking. Treat a refusal as final for that person and slot and find another way.
+You work on a draft through tools. The tools cost every shift on the same basis as payroll (holiday accrual, employer NI, pension, guaranteed hours, starters and leavers pro rata) and refuse any change that would break the employment rules the engine blocks on or the person's record: approved leave, not employed that day, no right to work check, under 18 limits, double booking. Treat a refusal as final for that person and slot and find another way.
 
 Priorities, in order:
 1. Legal. Never try to work around a refusal.

@@ -125,7 +125,7 @@ describe('posting the labour journal to Xero', () => {
 describe('connecting real Xero', () => {
   const env = { XERO_CLIENT_ID: 'client', XERO_CLIENT_SECRET: 'secret', PRESHIFT_APP_URL: 'https://preshift.example' };
 
-  /** Xero, as far as Preshift sees it: tokens, the two organisations, their chart and tracking, and journals. */
+  /** Xero, as far as Preshift Rota sees it: tokens, the two organisations, their chart and tracking, and journals. */
   function fakeXero(chart: () => Promise<{ codes: string[]; sites: string[] }>) {
     const sent: { url: string; method: string; headers: Record<string, string>; body?: string }[] = [];
     let token = 0;

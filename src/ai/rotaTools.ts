@@ -14,7 +14,7 @@ import type { Employee, RotaState, Shift } from '../engine/types';
  * The tools Claude uses to write a rota. Every tool works on a draft copy of
  * the rota and goes through the same engine the manager uses: costs come from
  * the payroll model, and any change that would create a blocking compliance
- * issue is refused. The model can suggest; it cannot break the law.
+ * issue is refused. The model can suggest; the engine decides what is allowed.
  */
 
 export interface RotaDraft {

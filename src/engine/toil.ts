@@ -85,12 +85,12 @@ export function toilEntryProblems(entry: Pick<ToilEntry, 'kind' | 'hours' | 'dat
 export interface OvertimeWeek {
   weekStart: string;
   workedHours: number;
-  /** Paid hours over contracted hours that week, approved and clocked on Preshift. */
+  /** Paid hours over contracted hours that week, approved and clocked on Preshift Rota. */
   overHours: number;
 }
 
 /**
- * Weeks the person worked more than their contracted hours, from approved hours clocked on Preshift,
+ * Weeks the person worked more than their contracted hours, from approved hours clocked on Preshift Rota,
  * and not yet banked as TOIL. Hours brought in from the previous system are left out: that payroll
  * settled them.
  *

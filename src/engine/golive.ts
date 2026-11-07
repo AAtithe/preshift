@@ -1,4 +1,4 @@
-// Go-live: the path a new customer walks from sign-up to running their week on Preshift, as one plan.
+// Go-live: the path a new customer walks from sign-up to running their week on Preshift Rota, as one plan.
 //
 // Every step is proved by the customer's own data, never ticked by hand, so the plan cannot say a
 // business is live when it is not. Each step has a day it is due by, counted from the day the
@@ -12,7 +12,7 @@
 
 export type GoLivePhase = 'secure' | 'business' | 'team' | 'rota' | 'run' | 'commit';
 
-/** Where the business is with paying for Preshift, as the plan needs to know it. */
+/** Where the business is with paying for Preshift Rota, as the plan needs to know it. */
 export type GoLiveBilling = 'trial' | 'paying' | 'engagement' | 'lapsed';
 
 /** What the plan is worked from. Counts and flags only. */
@@ -44,7 +44,7 @@ export interface GoLiveFacts {
   peopleBlocked: number;
   /** Current people already working before go-live (no start date, or one before today): their holiday position must be carried in. */
   holidayDue: number;
-  /** Of those, the ones with an opening holiday position recorded: carried over, accrued or taken before Preshift. */
+  /** Of those, the ones with an opening holiday position recorded: carried over, accrued or taken before Preshift Rota. */
   holidayOpened: number;
   /** Current people with a right to work check recorded, and of those, how many have a copy of the documents held. */
   rtwChecked: number;
@@ -183,7 +183,7 @@ const STEPS: StepSpec[] = [
     code: 'sites',
     phase: 'business',
     label: 'Sites with opening hours and a labour target',
-    why: 'The labour target is the line every rota is judged against. Without it Preshift can cost a week but cannot tell you it is too dear.',
+    why: 'The labour target is the line every rota is judged against. Without it Preshift Rota can cost a week but cannot tell you it is too dear.',
     how: 'Set-up, Sites: opening hours and the loaded labour target as a share of net sales, for each site.',
     screen: 'setup',
     dueDay: 1,
@@ -207,7 +207,7 @@ const STEPS: StepSpec[] = [
     code: 'team',
     phase: 'team',
     label: 'Load your team',
-    why: 'Nobody can be rostered until they are on Preshift. Pasting the team in from a payroll export takes minutes, not an afternoon.',
+    why: 'Nobody can be rostered until they are on Preshift Rota. Pasting the team in from a payroll export takes minutes, not an afternoon.',
     how: 'Set-up, Import: upload the Excel template or an export from your old system, and Shifty maps the columns. Or Set-up, Team: paste a list.',
     screen: 'setup',
     dueDay: 3,
@@ -448,7 +448,7 @@ export function goLivePlan(f: GoLiveFacts): GoLivePlan {
 }
 
 function headlineOf(day: number, length: number, done: number, total: number, live: boolean, next: GoLiveStep | null, late: GoLiveStep[]): string {
-  if (live) return 'You are live: the week is built, published, clocked and measured on Preshift.';
+  if (live) return 'You are live: the week is built, published, clocked and measured on Preshift Rota.';
   const when = day < length ? `Day ${day} of ${length}` : `Day ${day}`;
   const pace = late.length ? ` ${late.length} ${late.length === 1 ? 'step is' : 'steps are'} behind the plan.` : ' On plan.';
   return `${when}. ${done} of ${total} steps done.${pace}${next ? ` Next: ${next.label.charAt(0).toLowerCase()}${next.label.slice(1)}.` : ''}`;

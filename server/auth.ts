@@ -73,7 +73,7 @@ export interface ApiKey {
    * Keys are long-lived secrets, not people at a keyboard, so the default is no.
    */
   mfa?: boolean;
-  /** A Sign in with Preshift connection: every organisation it reaches, of which orgId is the one this call acts in. */
+  /** A Sign in with Preshift Rota connection: every organisation it reaches, of which orgId is the one this call acts in. */
   orgs?: string[];
   /** Set when a connection reaching several organisations was not told which one: only /mcp may go on without. */
   orgUnchosen?: boolean;
@@ -206,10 +206,10 @@ export function authenticate(keys: ApiKey[], users: UserStore & ApiKeyStore, opt
       }
     }
     if (!keyed && token.startsWith(ACCESS_PREFIX)) {
-      // A connection a person approved through Sign in with Preshift (server/oauth.ts).
+      // A connection a person approved through Sign in with Preshift Rota (server/oauth.ts).
       const asked = req.headers[ORG_HEADER];
       const found = await oauthPrincipal(token, users, typeof asked === 'string' && asked ? asked : undefined);
-      if (!found) return reply.code(401).send({ error: 'unauthorised', message: 'That connection has expired or been disconnected. Connect to Preshift again.' });
+      if (!found) return reply.code(401).send({ error: 'unauthorised', message: 'That connection has expired or been disconnected. Connect to Preshift Rota again.' });
       if ('refused' in found) return reply.code(403).send({ error: 'forbidden', message: found.refused });
       // A connection across several organisations says which one each call is for; the connector itself lists them.
       if (found.orgUnchosen && req.url.split('?')[0] !== '/mcp') {

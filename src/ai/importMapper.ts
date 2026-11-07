@@ -6,10 +6,10 @@ import type { MessagesClient } from './messagesClient';
 import { usageCostUsd } from './pricing';
 import { ROTA_MODEL } from './rotaAgent';
 
-// Shifty maps the columns of a file from another system onto what Preshift needs, when matching by
+// Shifty maps the columns of a file from another system onto what Preshift Rota needs, when matching by
 // name has not found them all. It is shown only the headers and the kind of value in each column:
 // a value that appears once (a name, an email, a date of birth, an NI number) is masked as its shape,
-// so no member of staff's personal details ever leave Preshift for the model. Values repeated down a
+// so no member of staff's personal details ever leave Preshift Rota for the model. Values repeated down a
 // column (roles, sites, contracted hours) and times of day are shown, because they say what the
 // column is without saying who anyone is. The manager sees the mapping and can change it before anything is read.
 
@@ -232,7 +232,7 @@ export async function mapColumnsWithAI(client: MessagesClient, kind: ImportKind,
   );
   const tool = {
     name: 'map_columns',
-    description: 'Say which column of the file holds each field Preshift needs. Null where no column holds it.',
+    description: 'Say which column of the file holds each field Preshift Rota needs. Null where no column holds it.',
     input_schema: { type: 'object' as const, properties: { ...properties, notes: { type: 'string', description: 'One or two plain sentences for the manager: anything doubtful, and anything the file is missing that the import needs.' } }, required: [...Object.keys(fields), 'notes'], additionalProperties: false },
   };
   const what = {
@@ -245,7 +245,7 @@ export async function mapColumnsWithAI(client: MessagesClient, kind: ImportKind,
       model: ROTA_MODEL,
       max_tokens: 2000,
       system:
-        'You map the columns of a spreadsheet exported from a UK hospitality business\'s old rota, HR or payroll system onto the fields Preshift imports. ' +
+        'You map the columns of a spreadsheet exported from a UK hospitality business\'s old rota, HR or payroll system onto the fields Preshift Rota imports. ' +
         'You see each header and up to four example values. Values in angle brackets are masked as their shape (A a letter, 9 a digit) because they are personal. ' +
         'Map a field only to a column that clearly holds it; when unsure, leave it null and say so in the notes. Never map one column to two fields, except a column holding both date and start time may be the start alone. ' +
         'Pay columns: an hourly figure is a rate, a figure in thousands is a salary. Holiday figures may be in hours or days; say which in the notes. Write in plain British English.',

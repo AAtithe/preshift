@@ -108,7 +108,7 @@ describe('the authenticator in a session', () => {
     const session = await signIn(NADIA);
     expect((await call('GET', '/v1/me', { cookie: session })).body.authenticator).toMatchObject({ required: true, enrolled: false });
     const start = await call('POST', '/v1/me/authenticator/start', { cookie: session });
-    expect(start.body.otpauthUrl).toMatch(/^otpauth:\/\/totp\/Preshift:nadia/);
+    expect(start.body.otpauthUrl).toMatch(/^otpauth:\/\/totp\/Preshift%20Rota:nadia/);
     expect(start.body.qrSvg).toMatch(/^<svg/);
     expect((await call('POST', '/v1/me/authenticator/confirm', { cookie: session }, { code: '123456' })).status).toBe(422);
     const confirm = await call('POST', '/v1/me/authenticator/confirm', { cookie: session }, { code: codeAt(start.body.secret, stepAt(Date.now())) });

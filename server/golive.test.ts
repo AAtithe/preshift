@@ -77,9 +77,9 @@ describe('nudges', () => {
     expect(await sendGoLiveNudges(store, TODAY, now)).toEqual({ nudged: 1 });
     expect(mails).toHaveLength(1);
     expect(mails[0].to).toEqual(['owner@acme.example']);
-    expect(mails[0].subject).toBe('Preshift set-up: companies with company number and PAYE reference');
+    expect(mails[0].subject).toBe('Preshift Rota set-up: companies with company number and PAYE reference');
     expect(mails[0].text).toMatch(/Hello Sam,/);
-    expect(mails[0].text).toMatch(/day 9 of setting up Preshift/);
+    expect(mails[0].text).toMatch(/day 9 of setting up Preshift Rota/);
     expect((await store.load('acme')).goLive?.nudged).toEqual({ companies: TODAY });
 
     // Run again the same morning: nothing more.

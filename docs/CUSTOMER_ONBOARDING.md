@@ -1,6 +1,6 @@
 # Customer onboarding: the process
 
-How a new business goes from sign-up to running its week on Preshift, what the product does at each
+How a new business goes from sign-up to running its week on Preshift Rota, what the product does at each
 point, and what the WS team does around it. Read this before you take your first onboarding call.
 
 ## The principle
@@ -50,7 +50,7 @@ every required step done; the day it first happens is kept, with `golive.live` o
 The morning nudge: on the same run as the managers' digest (`/internal/digest`), a self sign-up's owner
 gets one email when a step goes late, naming it, why it matters and how to do it. One email per step,
 never more than one every two days, nothing once live, and never to a WS client. Sent through the
-email of the organisation that runs Preshift, as the sign-up link is. `golive.nudged` on the audit trail.
+email of the organisation that runs Preshift Rota, as the sign-up link is. `golive.nudged` on the audit trail.
 
 ## Bringing data across
 
@@ -67,7 +67,7 @@ is usually faster:
    NI and phone numbers are masked first.
 
 Order matters: the tabs are numbered in the order to work them, team first and rota last, because
-everything else is matched to people already on Preshift. Every import shows a preview and saves
+everything else is matched to people already on Preshift Rota. Every import shows a preview and saves
 nothing until it is confirmed, and every upload is kept under Recent uploads, where it can be undone:
 people added are removed (unless payroll already has them), changes are put back as they were, and
 TOIL is reversed by an adjustment. Coaching point: a wrong mapping is a two minute fix, so let the
@@ -99,7 +99,7 @@ payroll, so they are never offered, or they would be paid twice.
 
 Holiday and TOIL balances are the ones to get right, because they are balance sheet numbers. Coaching point:
 before confirming, pick three people (one fixed hours, one irregular hours, one with carry over) and
-check the "Remaining on Preshift" column against the old system's figure. If they agree, the holiday
+check the "Remaining on Preshift Rota" column against the old system's figure. If they agree, the holiday
 pay accrual starts from the right place. If they do not, it is almost always a start date, contracted
 hours or leave year start that is wrong, and that is worth fixing before payroll relies on it.
 

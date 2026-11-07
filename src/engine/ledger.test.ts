@@ -3,7 +3,7 @@ import type { JournalLine } from './journal';
 import { journalDebits, journalFingerprint, ledgerProblems, manualJournal, reversal, type LedgerAccount, type LedgerTracking } from './ledger';
 
 const line = (accountCode: string, amount: number, extra: Partial<JournalLine> = {}): JournalLine => ({
-  entityId: 'wdl', date: '2026-10-25', narration: 'Preshift labour accrual w/e 2026-10-25', description: accountCode === '2210' ? 'Wages accrual' : 'Wages - Server',
+  entityId: 'wdl', date: '2026-10-25', narration: 'Preshift Rota labour accrual w/e 2026-10-25', description: accountCode === '2210' ? 'Wages accrual' : 'Wages - Server',
   accountCode, amount, trackingName: 'Site', trackingOption: 'MAR', ...extra,
 });
 const journal = [line('5000', 1000), line('7006', 120.5), line('2210', -1120.5)];
@@ -17,10 +17,10 @@ const sites: LedgerTracking[] = [{ name: 'Site', options: ['MAR', 'SHD'] }];
 describe('the journal as the ledger takes it', () => {
   it('carries each line with its site, and reverses it on the Monday after', () => {
     const j = manualJournal(journal);
-    expect(j).toMatchObject({ narration: 'Preshift labour accrual w/e 2026-10-25', date: '2026-10-25' });
+    expect(j).toMatchObject({ narration: 'Preshift Rota labour accrual w/e 2026-10-25', date: '2026-10-25' });
     expect(j.lines[0]).toEqual({ accountCode: '5000', description: 'Wages - Server', amount: 1000, tracking: { name: 'Site', option: 'MAR' } });
     const back = reversal(j);
-    expect(back).toMatchObject({ narration: 'Reversal: Preshift labour accrual w/e 2026-10-25', date: '2026-10-26' });
+    expect(back).toMatchObject({ narration: 'Reversal: Preshift Rota labour accrual w/e 2026-10-25', date: '2026-10-26' });
     expect(back.lines.map((l) => l.amount)).toEqual([-1000, -120.5, 1120.5]);
     expect(journalDebits(journal)).toBe(1120.5);
   });
@@ -48,15 +48,15 @@ describe('checks against the ledger before posting', () => {
   it('names an account the chart does not hold, or has archived', () => {
     const problems = ledgerProblems(journal, [chart[0], { ...chart[1], status: 'ARCHIVED' }], sites).map((p) => p.message);
     expect(problems).toEqual([
-      "Account 7006 (Employer's NI) is archived. Restore it in the ledger, or change the code in Preshift.",
-      'Account 2210 (Wages accrual) is not in the chart of accounts. Add it in the ledger, or change the code in Preshift.',
+      "Account 7006 (Employer's NI) is archived. Restore it in the ledger, or change the code in Preshift Rota.",
+      'Account 2210 (Wages accrual) is not in the chart of accounts. Add it in the ledger, or change the code in Preshift Rota.',
     ]);
   });
 
   it('names a missing tracking category, or a site with no option in it', () => {
     expect(ledgerProblems(journal, chart, [])[0].message).toMatch(/no tracking category called "Site"/);
     const shd = journal.map((l) => ({ ...l, trackingOption: 'FITZ' }));
-    expect(ledgerProblems(shd, chart, sites)[0].message).toBe('"Site" has no option for FITZ. Add it in the ledger, named as each site\'s tracking code in Preshift.');
+    expect(ledgerProblems(shd, chart, sites)[0].message).toBe('"Site" has no option for FITZ. Add it in the ledger, named as each site\'s tracking code in Preshift Rota.');
     // Matched as the ledger matches names: without regard to case.
     expect(ledgerProblems(journal, chart, [{ name: 'site', options: ['mar'] }])).toEqual([]);
   });

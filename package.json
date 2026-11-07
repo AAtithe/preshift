@@ -17,7 +17,8 @@
     "eval:assistant": "tsx scripts/eval-assistant.ts",
     "test:e2e": "playwright test",
     "stripe:prices": "tsx scripts/stripe-prices.ts",
-    "whats-new": "tsx scripts/whats-new.ts"
+    "whats-new": "tsx scripts/whats-new.ts",
+    "legal": "tsx scripts/legal-pages.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",

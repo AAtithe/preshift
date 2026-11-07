@@ -94,18 +94,18 @@ export function XeroSettings({ status, onChange }: { status: XeroStatus; onChang
         <>
           <p className="muted small">
             Connect Xero and each company's labour accrual posts straight into its own books from this screen, checked against its chart of
-            accounts and site tracking first. Nobody downloads or imports a file. You choose which Xero organisations Preshift may reach.
+            accounts and site tracking first. Nobody downloads or imports a file. You choose which Xero organisations Preshift Rota may reach.
           </p>
           <div className="row-actions">
             {status.configured && <button className="primary" disabled={busy} onClick={() => void connect('production')}>Connect Xero</button>}
             {status.simulatorAllowed && <button disabled={busy} onClick={() => void connect('simulator')}>Use the simulated Xero</button>}
           </div>
-          {!status.configured && !status.simulatorAllowed && <p className="muted small">Xero is not set up on this server yet. Its app credentials are added by whoever runs Preshift.</p>}
+          {!status.configured && !status.simulatorAllowed && <p className="muted small">Xero is not set up on this server yet. Its app credentials are added by whoever runs Preshift Rota.</p>}
         </>
       ) : (
         <>
           <p className="muted small">
-            {conn.environment === 'simulator' ? 'The simulated Xero: journals post into books held in Preshift, never a real ledger. ' : ''}
+            {conn.environment === 'simulator' ? 'The simulated Xero: journals post into books held in Preshift Rota, never a real ledger. ' : ''}
             Connected by {conn.connectedBy} on {day(conn.connectedAt)}. Each company posts into its own Xero organisation. A draft waits for someone
             to approve it in Xero; posted goes straight into the books. The reversal goes in on the Monday after, so payroll's own journal carries the
             real cost.

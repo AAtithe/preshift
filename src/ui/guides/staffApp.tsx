@@ -28,7 +28,7 @@ function StaffAppGuide() {
       <h3>Turn on notifications, with them, on day one</h3>
       <ol className="guide-steps">
         <li>
-          <strong>iPhone:</strong> open the staff app in Safari, tap the Share button, then Add to Home Screen. Open Preshift from
+          <strong>iPhone:</strong> open the staff app in Safari, tap the Share button, then Add to Home Screen. Open Preshift Rota from
           the new icon. Apple only allows notifications for apps added this way, and the app says so if they skip it.
         </li>
         <li>In the app, open Inbox and press Turn on notifications, then Allow.</li>
@@ -50,7 +50,7 @@ function StaffAppGuide() {
         <li>Under Clock-in setup, Phone tags, press Add a phone tag and program the sticker with the keys shown, or have Williams, Stanley &amp; Co. send one ready programmed. The guide Clock in with a phone tag has every step.</li>
         <li>Stick it inside the entrance at hand height, away from metal and the card reader.</li>
         <li>
-          On day one, have the person touch it once with you there. The phone opens Preshift in its browser: on an iPhone that is
+          On day one, have the person touch it once with you there. The phone opens Preshift Rota in its browser: on an iPhone that is
           Safari, apart from the home screen app, so they sign in there once. After that every touch clocks them straight away.
         </li>
         <li>iPhone XS or later reads tags with the screen on. Android needs NFC turned on in settings.</li>

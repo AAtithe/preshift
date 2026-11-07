@@ -53,13 +53,13 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
       await fn();
       await refresh();
     } catch (e) {
-      setMessage(e instanceof ApiError ? e.message : 'Could not reach Preshift. Try again.');
+      setMessage(e instanceof ApiError ? e.message : 'Could not reach Preshift Rota. Try again.');
     } finally {
       setBusy(false);
     }
   }
 
-  /** Emails the invite to the person where Preshift can; otherwise, or when asked, hands the link back. */
+  /** Emails the invite to the person where Preshift Rota can; otherwise, or when asked, hands the link back. */
   const invite = (person: Employee, handOver = false) =>
     run(async () => {
       const res = await api.post<InviteResult>(`/v1/staff-logins/${person.id}/invite`, handOver ? { handOver: true } : undefined);
@@ -106,9 +106,9 @@ export function StaffLogins({ team, siteFenced }: { team: Employee[]; siteFenced
 
   const share = async () => {
     if (!link) return;
-    const text = `Your Preshift login for clocking in on your phone. Open this link on your phone to set it up: ${link.url}`;
+    const text = `Your Preshift Rota login for clocking in on your phone. Open this link on your phone to set it up: ${link.url}`;
     try {
-      if (navigator.share) await navigator.share({ title: 'Preshift login', text });
+      if (navigator.share) await navigator.share({ title: 'Preshift Rota login', text });
       else {
         await navigator.clipboard.writeText(link.url);
         setMessage('Link copied. Send it to them privately, by text or WhatsApp.');

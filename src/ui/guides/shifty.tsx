@@ -3,7 +3,7 @@
 export const shiftyGuide = {
   id: 'shifty',
   title: 'Ask Shifty',
-  summary: 'Ask questions in plain English, or tell Preshift what to do, and confirm each change before it happens.',
+  summary: 'Ask questions in plain English, or tell Preshift Rota what to do, and confirm each change before it happens.',
   Body: ShiftyGuide,
 };
 

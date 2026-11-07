@@ -122,7 +122,7 @@ export const NAV: NavGroup[] = [
       // The labour programme: the ladder, milestones and the verified saving, in money.
       { id: 'programme', label: 'Programme', hint: 'The labour programme and the saving it has made', scope: 'week', access: { scope: ['costs.view'] } },
       { id: 'prime', label: 'Prime cost', hint: 'Labour and food cost together against sales', scope: 'week', siteOnly: true, access: COSTED_TIME },
-      // Minimum wage, right to work, Working Time and tips, priced as a regulator would.
+      // Minimum wage, right to work, Working Time and tips, sized against statutory maximums.
       { id: 'risk', label: 'Compliance risk', hint: 'Minimum wage, right to work and Working Time, priced', scope: 'week', siteOnly: true, access: COSTED_TIME },
       // Net pay, HMRC and pensions by date and company: pay totals for the business, so payroll and the close.
       { id: 'cash', label: 'Labour cash', hint: 'When pay, HMRC and pensions leave the bank', scope: 'org', title: 'Finance', access: { org: ['payroll.view', 'close.export'] } },
@@ -132,7 +132,7 @@ export const NAV: NavGroup[] = [
     id: 'organisation',
     heading: 'Organisation',
     items: [
-      // The path from sign-up to running the week on Preshift, proved by the organisation's own data.
+      // The path from sign-up to running the week on Preshift Rota, proved by the organisation's own data.
       { id: 'golive', label: 'Getting started', hint: 'Your plan from sign-up to a published, measured rota', scope: 'org', title: 'Getting started', access: { org: ['settings.manage'] } },
       // Companies, sites, roles and the trading week the rota runs on.
       { id: 'setup', label: 'Set-up', hint: 'Companies, sites, roles and the trading week', scope: 'org', access: { org: ['settings.manage'] } },
@@ -142,11 +142,11 @@ export const NAV: NavGroup[] = [
       // Every client they hold a role in, and adding a new one. The API lists only the caller's own.
       { id: 'clients', label: 'Clients', hint: 'Every client you hold a role in', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['costs.view'], audience: 'ws' } },
       // Every self sign-up's trial, subscription and revenue: WS customer operations only. The API also
-      // insists on the organisation that runs Preshift.
+      // insists on the organisation that runs Preshift Rota.
       { id: 'customers', label: 'Customers', hint: 'Trials, subscriptions and revenue', scope: 'org', title: 'Williams, Stanley & Co.', access: { org: ['customers.view'], audience: 'ws' } },
       { id: 'settings', label: 'Settings', hint: 'Sign-in, keys and organisation settings', scope: 'org', access: { org: ['settings.manage'] } },
-      // Which parts of Preshift the organisation uses: sections switched off leave the bar for everyone.
-      { id: 'features', label: 'Features', hint: 'Switch off the parts of Preshift you do not use', scope: 'org', access: { org: ['settings.manage'] } },
+      // Which parts of Preshift Rota the organisation uses: sections switched off leave the bar for everyone.
+      { id: 'features', label: 'Features', hint: 'Switch off the parts of Preshift Rota you do not use', scope: 'org', access: { org: ['settings.manage'] } },
       // The trial, the subscription and the sites paid for. Paying is a settings decision.
       { id: 'billing', label: 'Billing', hint: 'Your trial, subscription and invoices', scope: 'org', access: { org: ['settings.manage'] } },
     ],
@@ -157,7 +157,7 @@ export const NAV: NavGroup[] = [
     id: 'help',
     heading: 'Help',
     items: [
-      { id: 'howto', label: 'How to', hint: 'Short guides to each part of Preshift', scope: 'org', title: 'Help', access: 'everyone' },
+      { id: 'howto', label: 'How to', hint: 'Short guides to each part of Preshift Rota', scope: 'org', title: 'Help', access: 'everyone' },
       // Questions, bugs and ideas for the client's WS client partner. The API decides who answers.
       { id: 'support', label: 'Support', hint: 'Ask your WS client partner a question', scope: 'org', title: 'Help', access: 'everyone' },
     ],

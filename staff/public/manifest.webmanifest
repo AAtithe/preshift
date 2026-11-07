@@ -1,6 +1,6 @@
 {
-  "name": "Preshift for staff",
-  "short_name": "Preshift",
+  "name": "Preshift Rota for staff",
+  "short_name": "Preshift Rota",
   "description": "Your shifts, swaps, holiday and clocking.",
   "start_url": "/staff/",
   "scope": "/staff/",

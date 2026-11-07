@@ -21,7 +21,7 @@ import { audit, type OrgData, type Store } from './store';
 // - A nudge goes only to self sign-ups, never to a WS client: a client has a client partner who calls.
 // - One nudge per late step, ever, and no more than one every NUDGE_GAP_DAYS, so it reads as a
 //   coach's note and never as a drip campaign. Nothing is sent once the business is live.
-// - Nudges go through the email of the organisation that runs Preshift, as the sign-up link did: a
+// - Nudges go through the email of the organisation that runs Preshift Rota, as the sign-up link did: a
 //   business days old has rarely set up its own.
 
 /** Days between nudges to the same business. */

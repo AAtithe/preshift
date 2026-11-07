@@ -16,7 +16,7 @@ const state = {
 
 describe('TOIL in the labour accrual', () => {
   it('posts each employer the TOIL owed at the week end, with employer NI, balanced, tracked where it can be', () => {
-    const lines = toilLines(state, '2026-11-08', 'Preshift labour accrual w/e 2026-11-08');
+    const lines = toilLines(state, '2026-11-08', 'Preshift Rota labour accrual w/e 2026-11-08');
     expect(lines.map((l) => [l.entityId, l.description, l.accountCode, l.amount, l.trackingOption])).toEqual([
       ['co', 'TOIL owed', '7008', 138, 'CK'],
       ['co', 'TOIL accrual', '2210', -138, 'CK'],

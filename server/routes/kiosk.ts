@@ -216,7 +216,7 @@ export function kioskAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       g.allow('team.manage', site.id);
       // A key has no device to pair: the credential would go to whatever holds the key.
       if (!req.principal.email) {
-        throw new HttpError(403, 'session_only', 'Pair a kiosk on the iPad itself: sign in to Preshift there and choose Turn this iPad into a kiosk.');
+        throw new HttpError(403, 'session_only', 'Pair a kiosk on the iPad itself: sign in to Preshift Rota there and choose Turn this iPad into a kiosk.');
       }
       const kiosk: Kiosk = { id: `ksk_${randomUUID().slice(0, 12)}`, siteId: site.id, name: req.body.name.trim(), pairedBy: actorName(g), pairedAt: new Date().toISOString() };
       const secret = randomBytes(32).toString('base64url');
