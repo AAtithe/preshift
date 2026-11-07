@@ -114,3 +114,5 @@
 .staff-note-kind { font-weight: 650; color: var(--warn); }
 /* The walkthrough link under sign-in and set-up, in the app's own ink rather than the browser's blue. */
 .staff-watch { color: var(--ink); font-weight: 600; }
+.staff-legal { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; font-size: 13px; padding-top: 8px; }
+.staff-legal a { color: var(--muted); }

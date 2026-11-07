@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { STAFF_LEGAL_LINKS } from '../engine/legal';
 import { formatMinute } from '../engine/time';
 
 /** The clocking chapter of the narrated walkthrough. Its start moves when the video is re-recorded. */
@@ -261,6 +262,9 @@ export function KioskApp() {
           <a className="kiosk-button primary" href="/login?next=/app/">Sign in to set up</a>
           {/* Only here, never on a paired kiosk: a link at the door would take the next person away from clocking in. */}
           <a className="kiosk-watch" href={WATCH}>See clocking in and kiosks in the walkthrough video</a>
+          <nav className="kiosk-legal" aria-label="Legal">
+            {STAFF_LEGAL_LINKS.map((l) => <a key={l.href} href={l.href}>{l.label}</a>)}
+          </nav>
         </div>
       </div>
     );
@@ -335,7 +339,15 @@ export function KioskApp() {
         ))}
       </section>
 
-      <footer className="kiosk-foot muted">Kiosk: {board.kiosk.name}</footer>
+      <footer className="kiosk-foot muted">
+        <div>Kiosk: {board.kiosk.name}</div>
+        {/* Addresses to read on your own phone, never links: tapping one would take the shared iPad off the clock-in screen. */}
+        <div className="kiosk-legal-text">
+          {STAFF_LEGAL_LINKS.map((l) => (
+            <span key={l.href}>{l.label}: {window.location.host}{l.href}</span>
+          ))}
+        </div>
+      </footer>
 
       {picked && (
         <div className="kiosk-sheet-backdrop" onClick={(e) => e.target === e.currentTarget && closeSheet()}>

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { LEGAL_PAGES, LEGAL_VERSION, legalPageHtml, markdownToHtml, publishedPart } from '../src/engine/legal';
+import { LEGAL_PAGES, LEGAL_VERSION, legalPageHtml, markdownToHtml, publishedPart, STAFF_LEGAL_LINKS } from '../src/engine/legal';
 
 // The legal pages on the website are generated from legal/*.md. What a business agrees to at
 // sign-up must be exactly the text that was approved: this fails when a page is stale, when a
@@ -40,6 +40,23 @@ describe('published legal pages', () => {
     expect(read('site', 'demo.html')).toContain('href="/terms"');
     const build = read('scripts', 'build-vercel.mjs');
     expect(build).toContain(`const legalPages = [${LEGAL_PAGES.map((p) => `'${p.slug}'`).join(', ')}];`);
+  });
+
+  it('shows staff the staff terms, their data and cookies, each a published page', () => {
+    expect(STAFF_LEGAL_LINKS.map((l) => l.href)).toEqual(['/staff-terms', '/privacy#staff', '/cookies']);
+    for (const { href } of STAFF_LEGAL_LINKS) {
+      const [slug, anchor] = href.slice(1).split('#');
+      expect(LEGAL_PAGES.map((p) => p.slug), href).toContain(slug);
+      if (anchor) expect(read('site', `${slug}.html`), href).toContain(`id="${anchor}"`);
+    }
+    // The staff app links them on every screen; the kiosk's set-up screen links them.
+    expect(read('src', 'staff', 'StaffApp.tsx')).toMatch(/STAFF_LEGAL_LINKS\.map[\s\S]*?<a [^>]*target="_blank"/);
+    const kiosk = read('src', 'kiosk', 'KioskApp.tsx');
+    expect(kiosk).toContain('<nav className="kiosk-legal"');
+    // A paired kiosk shows the addresses as text, never a link that would take the shared iPad off the clock-in screen.
+    const footer = kiosk.match(/<footer className="kiosk-foot[\s\S]*?<\/footer>/)?.[0] ?? '';
+    expect(footer).toContain('STAFF_LEGAL_LINKS');
+    expect(footer).not.toMatch(/<a\b|href=/);
   });
 
   it('asks sign-up to accept the current version', () => {

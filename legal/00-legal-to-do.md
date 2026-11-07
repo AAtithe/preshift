@@ -74,7 +74,7 @@ and the ASA can act on the copy regardless of the contract. Rewrite before anyth
 | C2 | Invited managers: same acceptance on first sign-in, recorded | `server/routes/access.ts:178` |
 | C3 | Staff app and kiosk: show Staff Terms of Use (`legal/05`) at first sign-in with links to the privacy summary; record acceptance | `staff/`, `src/staff/StaffApp.tsx` |
 | C4 | Versioning: store which version each organisation accepted; prompt owners to accept a materially changed version (clause 15) | Server |
-| C5 | Partly done. Footer, sign-in and demo pages link to the legal pages. Still to add: the app's Help menu, the staff app and the kiosk | Site, app |
+| C5 | Mostly done. Footer, sign-in and demo pages link to the legal pages. The staff app shows Staff terms, Your data and Cookies at the foot of every screen (new tab, so a home-screen app is not replaced). The kiosk set-up screen links them; a paired kiosk prints the addresses as text, never links, so the shared iPad stays on the clock-in screen. Still to add: the manager app's Help menu | Site, app |
 | C6 | Done. Static pages under `site/`, routes in `scripts/build-vercel.mjs`, and `server/legal.test.ts` fails if a page drifts from its source, if a placeholder or internal note would be published, or if the sign-up box and the version disagree | Product |
 | C7 | Group Plan Order Form template (over 20 sites): sites, term, fees, 90 day renewal notice, service levels, signatures | Solicitor, from `legal/01` |
 | C8 | WS engagement letter: a Preshift Rota schedule for WS clients who receive it within the WS fee, pointing to these Terms and the DPA | WS ops |

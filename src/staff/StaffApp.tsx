@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { checkFence } from '../engine/clocking';
+import { STAFF_LEGAL_LINKS } from '../engine/legal';
 import { formatMinute } from '../engine/time';
 import type { Fortnight } from '../engine/rotaViews';
 import type { GeoFence, GeoFix } from '../engine/types';
@@ -193,7 +194,23 @@ export function StaffApp() {
         />
       )}
       {view === 'home' && data && <Signed data={data} onChange={setData} onSignedOut={() => setView('login')} />}
+      {view !== 'loading' && <LegalLinks />}
     </div>
+  );
+}
+
+/**
+ * The staff terms, what the employer keeps about them, and cookies, at the foot of every screen.
+ * Each opens in a new tab: on a phone where the app was added to the home screen, a link in the same
+ * window would replace the app with no way back.
+ */
+function LegalLinks() {
+  return (
+    <nav className="staff-legal" aria-label="Legal">
+      {STAFF_LEGAL_LINKS.map((l) => (
+        <a key={l.href} href={l.href} target="_blank" rel="noopener">{l.label}</a>
+      ))}
+    </nav>
   );
 }
 

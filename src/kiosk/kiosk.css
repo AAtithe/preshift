@@ -26,7 +26,10 @@ body { background: var(--page-wash, var(--bg)); }
 .status-in .kiosk-status { color: var(--good); }
 .status-break .kiosk-status { color: var(--warn); }
 .kiosk-empty { grid-column: 1 / -1; }
-.kiosk-foot { font-size: 13px; text-align: center; }
+.kiosk-foot { font-size: 13px; text-align: center; display: grid; gap: 4px; }
+.kiosk-legal-text { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 18px; }
+.kiosk-legal { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 14px; }
+.kiosk-legal a { color: var(--muted); }
 .kiosk-button { display: inline-block; text-align: center; text-decoration: none; font-size: 20px; font-weight: 650; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink); cursor: pointer; }
 .kiosk-button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
 .kiosk-button.ghost { background: transparent; }

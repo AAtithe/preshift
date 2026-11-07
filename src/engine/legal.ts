@@ -31,6 +31,17 @@ export const LEGAL_PAGES: LegalPage[] = [
   { slug: 'subprocessors', source: '07-subprocessors.md', title: 'Sub-processors', description: 'The providers that process personal data for Preshift Rota, and where.' },
 ];
 
+/**
+ * What staff are shown in the staff app and on the kiosk: the terms they use it under, the summary
+ * of what their employer keeps about them, and cookies. Staff are not party to the Terms of Service,
+ * so it is not here. Each must be a published page (server/legal.test.ts checks).
+ */
+export const STAFF_LEGAL_LINKS: { href: string; label: string }[] = [
+  { href: '/staff-terms', label: 'Staff terms' },
+  { href: '/privacy#staff', label: 'Your data' },
+  { href: '/cookies', label: 'Cookies' },
+];
+
 /** The device flag that stops Vercel Web Analytics counting a visit (read in src/main.tsx). */
 export const ANALYTICS_OFF_KEY = 'preshift.analytics.off';
 
