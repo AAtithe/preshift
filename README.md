@@ -243,6 +243,11 @@ npm run build    # typecheck and production build
 npm run test:e2e # browser checks of the management bar and iPad touch (Playwright), against a local dev server
 ```
 
+Browser checks that build, move, paste or remove shifts work on next week's rota, never this week's. A shift
+that has started is locked, so a check that edits this week passes early in the week and fails later on,
+whatever the change: by Sunday every shift this week has started. Open the rota, press Next week, and build
+from the forecast if it is empty, as `e2e/ipad.spec.ts` does.
+
 To run the browser checks against a deployed site instead, set `PRESHIFT_E2E_URL` to its address and
 `PRESHIFT_E2E_EMAIL` and `PRESHIFT_E2E_PASSWORD` to an admin account there, or set `PRESHIFT_E2E_DEMO=1`
 to go in through its public demo with no account (for example
