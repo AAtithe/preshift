@@ -282,6 +282,28 @@ check, and the cost), `results.jsonl`, `errors.jsonl` (API errors, timeouts and 
 never counted as wrong answers) and every conversation under `transcripts/`. Run it before any change
 to the assistant's prompt, tools or model, and compare the summaries.
 
+## Evaluating Shifty
+
+`src/ai/evals/shiftyCases.ts` holds 18 things a manager types into Ask Shifty on the demo group, in
+five groups: instructions with every detail given (a starter, holiday, sickness and cover, a shift,
+a leaver, a pay rise, a whole week for the rota assistant), instructions missing a detail (ask for
+it, propose nothing), requests the app refuses (pay below the minimum for their age, an under 18
+past midnight, an NI number), questions (labour %, holiday left, who is on Saturday, checked against
+the app's own figures) and the confirm or cancel loop. Each is graded on the cards Shifty proposes
+and what its reply says, with separate pass/fail checks: the right card with the right details and
+no others, no claim a change is made before the manager confirms it, a question when a detail is
+missing, a short plain reply, and no personal data (an NI number, address and absence reason are
+planted in every case to catch a leak). Every case has a reference answer that must pass and a
+do-nothing answer that must fail; `npm test` proves both.
+
+```bash
+npm run eval:shifty -- --reps 1                           # every case once: start here, it reports the cost
+npm run eval:shifty -- --cases sick-cover --reps 3        # one case, three times
+```
+
+It writes `eval-results/shifty-<time>/` in the same shape as the rota assistant's, with pass rates
+per group as well. Run it before any change to Shifty's prompt, tools or model.
+
 ## Sign in, people and settings
 
 Everything about access is managed inside the app, under Settings. Nothing is configured in
