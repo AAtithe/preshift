@@ -19,6 +19,8 @@ async function openTimeline(page: Page) {
   // Rota sits in the Planning menu of the bar.
   await bar(page).locator('[data-group="planning"] .nav-toggle').click();
   await bar(page).getByRole('button', { name: 'Rota', exact: true }).click();
+  // Next week, where no shift has started yet: a started shift is locked, so it cannot be dragged.
+  await page.getByRole('button', { name: 'Next week' }).click();
   await page.getByRole('tab', { name: 'Service timeline' }).click();
   await expect(page.locator('.tl-lane').first()).toBeVisible();
   if ((await page.locator('.tl-bar').count()) === 0) await page.getByRole('button', { name: 'Build from forecast' }).click();
