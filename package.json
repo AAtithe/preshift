@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.2.12",
-    "@playwright/test": "^1.56.1",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^22.9.0",
     "@types/qrcode": "1.5.5",
     "@types/react": "^18.3.12",
